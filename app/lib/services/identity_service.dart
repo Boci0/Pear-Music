@@ -23,7 +23,6 @@ class IdentityService {
   static const _deviceSecretKey = 'peerm_device_secret';
   static const _isHostKey = 'peerm_is_host';
   static const _pairedIdsKey = 'peerm_paired_device_ids';
-  static const _verifiedKey = 'peerm_verified_peers';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -32,7 +31,6 @@ class IdentityService {
   late String deviceSecret;
   late bool isHost;
   late Map<String, String> _paired; // deviceId -> last known name
-  late Set<String> _verifiedIds;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -43,10 +41,6 @@ class IdentityService {
     // host is found (or the other device defers to it).
     isHost = _prefs.getBool(_isHostKey) ?? true;
     _paired = _decodePaired(_prefs.getString(_pairedIdsKey));
-    _verifiedIds = (_prefs.getString(_verifiedKey) ?? '')
-        .split(',')
-        .where((s) => s.isNotEmpty)
-        .toSet();
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -121,16 +115,6 @@ class IdentityService {
     if (value == isHost) return;
     isHost = value;
     await _prefs.setBool(_isHostKey, value);
-  }
-
-  /// Whether the user has confirmed [id]'s E2E fingerprint matches.
-  bool isPeerVerified(String id) => _verifiedIds.contains(id);
-
-  Future<void> setPeerVerified(String id, bool verified) async {
-    final changed =
-        verified ? _verifiedIds.add(id) : _verifiedIds.remove(id);
-    if (!changed) return;
-    await _prefs.setString(_verifiedKey, _verifiedIds.join(','));
   }
 
   Future<void> setDeviceName(String name) async {

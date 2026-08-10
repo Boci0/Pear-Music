@@ -55,15 +55,6 @@ class AppController extends ChangeNotifier {
   /// The LAN address other devices should connect to, when hosting.
   String? get serverLanIp => server.lanIp;
 
-  /// E2E fingerprint for [peerId] — both devices show the same code so users
-  /// can verify the connection isn't being intercepted.
-  String? e2eFingerprintFor(String peerId) =>
-      signaling.e2eFingerprintFor(peerId);
-
-  bool isPeerVerified(String peerId) => identity.isPeerVerified(peerId);
-  Future<void> setPeerVerified(String peerId, bool verified) =>
-      identity.setPeerVerified(peerId, verified);
-
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
 

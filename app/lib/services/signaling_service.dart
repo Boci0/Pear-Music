@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -21,11 +20,9 @@ class SignalingService {
 
   SignalingService(this.identity) {
     // Generate the ephemeral X25519 keypair up front (fire-and-forget). It must
-    // exist BEFORE any peer `hello` is sent or received — otherwise no hello
-    // ever carries our public key, so neither side can derive the shared key or
-    // the fingerprint. That left the Devices screen stuck on "Waiting for the
-    // encrypted key exchange..." and, worse, silently disabled relay encryption
-    // in real use (only unit tests generated the key explicitly).
+    // exist BEFORE any peer `hello` is sent or received - otherwise no hello
+    // ever carries our public key, so neither side can derive the shared key
+    // and relay encryption silently stays off.
     unawaited(ensureE2E());
   }
 
@@ -80,10 +77,6 @@ class SignalingService {
   SimpleKeyPair? _e2ePair;
   Uint8List? _e2ePub;
   final Map<String, SecretKey> _peerKeys = {};
-  // Peers' raw X25519 public keys, kept for fingerprint verification.
-  final Map<String, Uint8List> _peerPubs = {};
-
-  static const String _fpAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   /// Generate this device's ephemeral keypair (once) and cache its public key.
   Future<void> ensureE2E() async {
@@ -100,38 +93,8 @@ class SignalingService {
     return pub == null ? null : base64Encode(pub);
   }
 
-  /// A short code derived from BOTH devices' public keys — both sides display
-  /// the SAME value, so users compare them to detect a man-in-the-middle (the
-  /// X25519 exchange itself is unauthenticated). Null until the peer's key has
-  /// been exchanged.
-  String? e2eFingerprintFor(String peerId) {
-    final myPub = _e2ePub;
-    final peerPub = _peerPubs[peerId];
-    if (myPub == null || peerPub == null) return null;
-    // Same canonical order on both sides so the codes match.
-    final a = List<int>.from(myPub);
-    final b = List<int>.from(peerPub);
-    final data = _compareBytes(a, b) <= 0 ? [...a, ...b] : [...b, ...a];
-    final digest = crypto.sha256.convert(data).bytes;
-    final sb = StringBuffer();
-    for (var i = 0; i < 10; i++) {
-      sb.write(_fpAlphabet[digest[i] % _fpAlphabet.length]);
-    }
-    final code = sb.toString();
-    return '${code.substring(0, 5)}-${code.substring(5)}';
-  }
-
-  static int _compareBytes(List<int> a, List<int> b) {
-    final len = a.length < b.length ? a.length : b.length;
-    for (var i = 0; i < len; i++) {
-      if (a[i] != b[i]) return a[i] - b[i];
-    }
-    return a.length - b.length;
-  }
-
   /// Derive + cache the shared AES key for [peerId] from their public key.
   Future<void> setPeerE2E(String peerId, Uint8List peerPubBytes) async {
-    _peerPubs[peerId] = peerPubBytes;
     await ensureE2E();
     final shared = await _x25519.sharedSecretKey(
       keyPair: _e2ePair!,

@@ -41,10 +41,10 @@ The buttons at the top download the latest build directly. They point at the
 release assets, so the [Releases](https://github.com/Boci0/Pear-Music/releases)
 page is just the backup if you want a specific version:
 
-| Platform    | File                          | How to run                        |
-| ----------- | ----------------------------- | --------------------------------- |
-| **Windows** | `PearMusic-Windows-x64.zip`   | Extract, then run `peerm_app.exe` |
-| **Android** | `PearMusic-Android-arm64.apk` | Open the file, allow unknown apps |
+| Platform            | File                          | How to run                        |
+| ------------------- | ----------------------------- | --------------------------------- |
+| **Windows**         | `PearMusic-Windows-x64.zip`   | Extract, then run `peerm_app.exe` |
+| **Android**         | `PearMusic-Android-arm64.apk` | Open the file, allow unknown apps |
 | **Android (older)** | `PearMusic-Android-armv7.apk` | Open the file, allow unknown apps |
 
 > The Windows binary is not code-signed, so SmartScreen may warn the first time
