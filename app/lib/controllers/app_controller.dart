@@ -71,7 +71,21 @@ class AppController extends ChangeNotifier {
   /// markers and frames in arrival order and the sender gates one frame in
   /// flight, so a single slot previously mis-routed frames from a second
   /// sender to the wrong peer, which failed decryption and dropped the chunk).
-  final List<({String from, bool enc})> _pendingRelayBinaryMarkers = [];
+  ///
+  /// Each marker records when it was queued. If the matching frame never
+  /// arrives (the sender died mid-transfer, its connection dropped, or the
+  /// server restarted), the stale marker would otherwise sit in the queue and
+  /// get paired with the NEXT frame from a DIFFERENT peer — mis-routing it and
+  /// dropping the chunk. Stale markers are therefore pruned before pairing and
+  /// a peer's markers are dropped when that peer goes offline.
+  final List<({String from, bool enc, DateTime at})> _pendingRelayBinaryMarkers =
+      [];
+
+  /// A binary chunk's marker and its frame travel back-to-back (the sender
+  /// waits for the server's `relay_ack` before the next frame), so a marker
+  /// that has sat unmatched for this long will never be matched — drop it
+  /// instead of letting it steal the next peer's frame.
+  static const _markerMaxAge = Duration(seconds: 30);
 
   /// Set while a smart pairing attempt is trying multiple servers, so the
   /// per-attempt `error` snackbars are suppressed in favour of one final result.
@@ -80,6 +94,14 @@ class AppController extends ChangeNotifier {
   /// Set when the app is shutting down, to stop background work (auto-discovery)
   /// from touching a disposed controller.
   bool _closing = false;
+
+  /// URLs we recently tried to connect to (as a client / after deferring to a
+  /// host) and failed — typically a stale/wrong advertised LAN IP. Host election
+  /// skips these for a short while so the defer→fail→take-over loop can't spin
+  /// forever against an unreachable host (each cycle tears down channels and
+  /// re-syncs songs, which reads as a "shaky" connection).
+  final Map<String, DateTime> _unreachableHosts = {};
+  static const Duration _unreachableCooldown = Duration(seconds: 30);
 
   // Faster host failover: when the host dies, a client takes over in ~6s (was
   // 25s); a starting client that can't reach its remembered host takes over in
@@ -162,7 +184,9 @@ class AppController extends ChangeNotifier {
     if (identity.isHost) {
       // I believe I'm the host. Before hosting, check whether another device
       // already took over as host while I was offline — if so, defer to it.
-      final others = await discoverNearby();
+      // Skip hosts we recently failed to reach so we don't defer to a stale
+      // URL, fail, take over, re-discover the same URL and loop forever.
+      final others = _filterReachable(await discoverNearby());
       if (others.isNotEmpty) {
         debugPrint('[host] another host found (${others.first.url}); deferring');
         await identity.setIsHost(false);
@@ -224,7 +248,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> _reconcileHost() async {
     if (_closing || !identity.isHost) return;
-    final others = await discoverNearby();
+    final others = _filterReachable(await discoverNearby());
     for (final host in others) {
       final otherId = host.deviceId;
       if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
@@ -289,15 +313,19 @@ class AppController extends ChangeNotifier {
         if (msg['event'] == 'binary') {
           // Raw relayed chunk body; pair it with the oldest unmatched {t:'bin'}
           // marker (FIFO) so concurrent senders can't mis-route each other's
-          // frames.
+          // frames. Drop markers that have sat unmatched too long first — a
+          // marker whose frame never arrived (sender died / server restarted)
+          // must not steal the next peer's frame.
           final bytes = msg['bytes'];
-          if (bytes is Uint8List &&
-              _pendingRelayBinaryMarkers.isNotEmpty) {
-            final marker = _pendingRelayBinaryMarkers.removeAt(0);
-            _relayChannels[marker.from]?.handleRelayBinary(
-              bytes,
-              encrypted: marker.enc,
-            );
+          if (bytes is Uint8List) {
+            _pruneStaleBinaryMarkers();
+            if (_pendingRelayBinaryMarkers.isNotEmpty) {
+              final marker = _pendingRelayBinaryMarkers.removeAt(0);
+              _relayChannels[marker.from]?.handleRelayBinary(
+                bytes,
+                encrypted: marker.enc,
+              );
+            }
           }
           break;
         }
@@ -367,6 +395,7 @@ class AppController extends ChangeNotifier {
         final from = msg['from'] as String?;
         final data = msg['data'];
         if (from == null || data is! Map) break;
+        debugPrint('[diag] relay from=$from t=${data['t']} hasChan=${_relayChannels.containsKey(from)} hasSyncChan=${sync.hasChannel(from)}');
         if (data['t'] == 'bin') {
           final legacy = data['d'];
           if (legacy is String) {
@@ -381,8 +410,13 @@ class AppController extends ChangeNotifier {
             // New protocol: the next raw binary frame belongs to this peer.
             // Queue the marker; the frame handler pairs it with the oldest
             // unmatched marker (a FIFO) so concurrent senders can't mis-route
-            // each other's frames.
-            _pendingRelayBinaryMarkers.add((from: from, enc: data['e'] == 1));
+            // each other's frames. Timestamp it so a marker whose frame never
+            // arrives can be pruned instead of stealing the next frame.
+            _pendingRelayBinaryMarkers.add((
+              from: from,
+              enc: data['e'] == 1,
+              at: DateTime.now(),
+            ));
           }
         } else {
           _relayChannels[from]?.handleRelay(
@@ -394,6 +428,11 @@ class AppController extends ChangeNotifier {
       case 'peer_status':
         final peerId = msg['peerId'] as String;
         final online = msg['online'] == true;
+        if (!online) {
+          // The peer went offline; any relayed-binary marker still waiting for
+          // a frame from it is orphaned (its frame will never arrive).
+          _pendingRelayBinaryMarkers.removeWhere((m) => m.from == peerId);
+        }
         final idx =
             _pairedDevices.indexWhere((d) => d.deviceId == peerId);
         if (idx != -1) {
@@ -474,6 +513,17 @@ class AppController extends ChangeNotifier {
     _relayChannels[peerId] = channel;
   }
 
+  /// Drop any binary-relay marker that has been waiting for its frame for
+  /// longer than [_markerMaxAge]. A marker and its frame travel back-to-back,
+  /// so an old marker is orphaned (the sender died, its connection dropped, or
+  /// the server restarted) and must not be paired with a later frame from a
+  /// different peer.
+  void _pruneStaleBinaryMarkers() {
+    if (_pendingRelayBinaryMarkers.isEmpty) return;
+    final cutoff = DateTime.now().subtract(_markerMaxAge);
+    _pendingRelayBinaryMarkers.removeWhere((m) => m.at.isBefore(cutoff));
+  }
+
   /// Tear down a device we are no longer paired with and delete every song it
   /// shared. Only songs whose [Song.sourceDeviceId] matches are removed —
   /// locally-added songs are never touched. Playback stops if the currently
@@ -486,6 +536,9 @@ class AppController extends ChangeNotifier {
   }) async {
     _pairedDevices.removeWhere((d) => d.deviceId == deviceId);
     _relayChannels.remove(deviceId);
+    // Drop any relayed-binary markers still waiting for a frame from this peer
+    // so they can't mis-route a future frame from another device.
+    _pendingRelayBinaryMarkers.removeWhere((m) => m.from == deviceId);
     sync.detachChannel(deviceId);
     final removed = await library.removeAllFromSource(deviceId);
     if (player.currentSong != null &&
@@ -525,6 +578,7 @@ class AppController extends ChangeNotifier {
   /// networks (e.g. phone hotspots drop the UDP path seconds after opening).
   Future<void> _reconcileConnections() async {
     for (final peer in _pairedDevices) {
+      debugPrint('[diag] reconcile ${peer.deviceName} online=${peer.online} hasChannel=${sync.hasChannel(peer.deviceId)}');
       if (!peer.online) {
         sync.detachChannel(peer.deviceId);
         _relayChannels.remove(peer.deviceId);
@@ -807,7 +861,23 @@ class AppController extends ChangeNotifier {
       if (connectionStatus == 'connected') return true;
       await Future.delayed(const Duration(milliseconds: 250));
     }
+    if (connectionStatus != 'connected') _markUnreachable(target);
     return connectionStatus == 'connected';
+  }
+
+  /// Hosts we can currently try to connect to — drops URLs we recently failed
+  /// to reach so host election can't loop against a dead or wrong address.
+  List<DiscoveredServer> _filterReachable(List<DiscoveredServer> hosts) {
+    if (hosts.isEmpty) return hosts;
+    final now = DateTime.now();
+    _unreachableHosts
+        .removeWhere((_, t) => now.difference(t) > _unreachableCooldown);
+    if (_unreachableHosts.isEmpty) return hosts;
+    return hosts.where((h) => !_unreachableHosts.containsKey(h.url)).toList();
+  }
+
+  void _markUnreachable(String url) {
+    _unreachableHosts[url] = DateTime.now();
   }
 
   /// LocalSend-style LAN discovery: finds nearby Pear Music servers on the

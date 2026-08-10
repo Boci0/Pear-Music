@@ -14,7 +14,7 @@ shade.png
 app/.dart_tool/
 app/build/
 **/build/
-app/android/.gradle/
+**/.gradle/
 app/android/local.properties
 app/*.iml
 app/.idea/

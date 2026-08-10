@@ -63,6 +63,27 @@ class SignalingServer {
   static final RegExp codeRe = RegExp(r'^[A-HJ-NP-Z2-9]{6}$');
   static const Duration serverPingInterval = Duration(seconds: 30);
 
+  // ---- Ghost-pair cleanup ----
+  //
+  // A "ghost" is a persisted pairing to a deviceId that will never come back —
+  // typically because the device's identity was reset (a reinstall / "clear
+  // data" gave it a NEW deviceId, so the OLD id is permanently dead). Without
+  // cleanup these linger forever in the state file and in the client's Devices
+  // list, and they resurrect via another host's persisted state after a
+  // failover. Three mechanisms keep the pairing list honest:
+  //   1. [offlineReportGrace]: an offline peer stops being REPORTED to clients
+  //      once it hasn't been seen for this long, so the client drops it (and
+  //      its shared songs) and stops re-reporting it. It re-syncs the moment
+  //      the real device reconnects.
+  //   2. Reconcile-on-register: a device that reports its pairing list is
+  //      authoritative — offline peers it no longer reports are pruned, so an
+  //      unpaired ghost can never be resurrected by another host's state.
+  //   3. [staleAfter] GC: a persisted pairing where BOTH devices have been
+  //      un-seen for this long is removed from the state file entirely.
+  static const Duration offlineReportGrace = Duration(days: 7);
+  static const Duration staleAfter = Duration(days: 30);
+  static const Duration gcPeriod = Duration(hours: 6);
+
   // ---- LAN discovery (LocalSend-style) ----
   // A fixed multicast group in 224.0.0.0/24 (the range Android devices
   // reliably receive) plus an HTTP /discover endpoint as the subnet-scan
@@ -86,6 +107,8 @@ class SignalingServer {
   final Map<String, Set<String>> _persistedPairs = {};
   final Map<String, String> _persistedNames = {};
   final Map<String, String> _persistedSecrets = {};
+  final Map<String, DateTime> _persistedLastSeen = {};
+  Timer? _gcTimer;
 
   final Random _rng = Random.secure();
   HttpServer? _server;
@@ -96,8 +119,16 @@ class SignalingServer {
   int get boundPort => _server?.port ?? port;
 
   /// Best-effort LAN IPv4 of this device (what OTHER devices connect to).
-  /// Filled in [start]; null if it could not be resolved.
+  ///
+  /// Resolved at [start] and refreshed every [_lanIpRefreshInterval] while the
+  /// server runs. The advertised `ws://` URL MUST stay the address peers can
+  /// actually reach us at — a stale address (e.g. the machine moved to a new
+  /// hotspot with a different subnet) makes peers defer to a URL they can't
+  /// connect to, so they fail, take over as host, re-discover, defer again…
+  /// an endless host-flap loop.
   String? lanIp;
+  Timer? _lanIpTimer;
+  static const Duration _lanIpRefreshInterval = Duration(seconds: 20);
 
   void _log(String message) => onLog?.call(message);
 
@@ -115,6 +146,19 @@ class SignalingServer {
       final now = DateTime.now();
       _pairingCodes.removeWhere((_, p) => now.difference(p.createdAt) > codeTtl);
     });
+    // Keep the advertised LAN IP fresh so a network change (new hotspot,
+    // different Wi-Fi) is picked up without restarting the server.
+    _lanIpTimer = Timer.periodic(_lanIpRefreshInterval, (_) async {
+      final fresh = await _resolveLanIp();
+      if (fresh == null) return;
+      if (fresh != lanIp) {
+        _log('[discover] LAN IP changed: ${lanIp ?? '(none)'} -> $fresh');
+        lanIp = fresh;
+      }
+    });
+    // Clean up persisted pairings to long-gone devices (see ghost-pair notes).
+    _gcStalePairings();
+    _gcTimer = Timer.periodic(gcPeriod, (_) => _gcStalePairings());
     _running = true;
     _log('Pear Music signaling server listening on $host:$port (ws)');
     _log('  ws://localhost:$port   (other devices: ws://${lanIp ?? host}:$port)');
@@ -126,6 +170,10 @@ class SignalingServer {
     _running = false;
     _codeExpiryTimer?.cancel();
     _codeExpiryTimer = null;
+    _gcTimer?.cancel();
+    _gcTimer = null;
+    _lanIpTimer?.cancel();
+    _lanIpTimer = null;
     _announceTimer?.cancel();
     _announceTimer = null;
     try {
@@ -573,6 +621,7 @@ class SignalingServer {
     // new host learns the existing pairing from the connecting client instead
     // of starting empty (which would unpair them and wipe shared songs).
     final restored = msg['pairings'];
+    final reportedIds = <String>{};
     var restoredAny = false;
     if (restored is List) {
       for (final item in restored) {
@@ -585,6 +634,7 @@ class SignalingServer {
           pname = item['deviceName'] as String?;
         }
         if (pid == null || pid.isEmpty || pid == id) continue;
+        reportedIds.add(pid);
         if (conn.pairings.add(pid)) {
           _persistedPairs.putIfAbsent(id, () => <String>{}).add(pid);
           _persistedPairs.putIfAbsent(pid, () => <String>{}).add(id);
@@ -597,20 +647,45 @@ class SignalingServer {
     }
     _devices[id] = conn;
 
-    // Remember the name so offline peers still show it after a restart.
+    // Remember the name so offline peers still show it after a restart, and
+    // record that this device is alive right now (drives ghost cleanup).
+    final lastSeenChanged = _updateLastSeen(id);
     if (_persistedNames[id] != name) {
       _persistedNames[id] = name;
       _saveState();
+    } else if (restoredAny || lastSeenChanged) {
+      _saveState();
     }
-    if (restoredAny) _saveState();
 
-    // Drop pairings to peers that are neither registered nor persisted
-    // (truly stale/foreign deviceIds). Persisted pairings to offline peers
-    // are kept so they survive restarts.
-    final persisted = _persistedPairs[id] ?? const <String>{};
-    for (final peerId in conn.pairings.toList()) {
-      if (!_devices.containsKey(peerId) && !persisted.contains(peerId)) {
-        conn.pairings.remove(peerId);
+    if (restored is List) {
+      // The client reported its authoritative pairing list (the app ALWAYS
+      // sends `pairings`, possibly empty). Reconcile this device's pairings to
+      // exactly what it reports plus currently-online peers that list it.
+      // Offline peers it no longer reports are pruned — this is what makes an
+      // unpair stick forever (a ghost can't be resurrected by another host's
+      // persisted state) and what removes pairings to devices whose identity
+      // was reset.
+      final onlineListingUs = <String>{
+        for (final e in _devices.entries)
+          if (e.value.online && e.value.pairings.contains(id)) e.key,
+      };
+      final keep = {...reportedIds, ...onlineListingUs};
+      for (final peerId in conn.pairings.toList()) {
+        if (!keep.contains(peerId)) {
+          conn.pairings.remove(peerId);
+          _removePersistedPair(id, peerId);
+          _saveState();
+        }
+      }
+    } else {
+      // Legacy path (client didn't send a pairing list): keep persisted
+      // pairings to offline peers (they survive restarts), but drop peers that
+      // are neither registered nor persisted (truly stale/foreign deviceIds).
+      final persisted = _persistedPairs[id] ?? const <String>{};
+      for (final peerId in conn.pairings.toList()) {
+        if (!_devices.containsKey(peerId) && !persisted.contains(peerId)) {
+          conn.pairings.remove(peerId);
+        }
       }
     }
 
@@ -731,6 +806,49 @@ class SignalingServer {
     }
   }
 
+  /// Records that [id] is online right now and returns true when its last-seen
+  /// moved by more than a minute (so we don't rewrite the state file on every
+  /// reconnect). Devices we've never seen are seeded with now.
+  bool _updateLastSeen(String id) {
+    final now = DateTime.now();
+    final last = _persistedLastSeen[id];
+    final changed =
+        last == null || now.difference(last) > const Duration(minutes: 1);
+    _persistedLastSeen[id] = now;
+    return changed;
+  }
+
+  /// Removes persisted pairings where BOTH devices have been un-seen for
+  /// [staleAfter] — pure hygiene for pairings whose devices are both gone
+  /// (nothing can ever reconnect to re-confirm them). Ghosts where ONE side is
+  /// still active are handled by the report-grace + reconcile-on-register
+  /// instead (so an active device's shared songs are never wiped by this).
+  void _gcStalePairings() {
+    final now = DateTime.now();
+    final stalePairs = <(String, String)>[];
+    _persistedPairs.forEach((aId, bSet) {
+      for (final bId in bSet) {
+        if (_isStale(aId, now) && _isStale(bId, now)) {
+          stalePairs.add((aId, bId));
+        }
+      }
+    });
+    if (stalePairs.isEmpty) return;
+    for (final (a, b) in stalePairs) {
+      _removePersistedPair(a, b);
+    }
+    _saveState();
+    _log('[persist] cleaned ${stalePairs.length} stale pairing(s)');
+  }
+
+  bool _isStale(String id, DateTime now) {
+    final last = _persistedLastSeen[id];
+    // A device we've never seen is never assumed dead (could be a fresh host
+    // restoring an offline pairing).
+    if (last == null) return false;
+    return now.difference(last) > staleAfter;
+  }
+
   Map<String, dynamic>? _peerInfo(String id) {
     final d = _devices[id];
     if (d != null) return {'deviceId': id, 'deviceName': d.name, 'online': d.online};
@@ -748,9 +866,24 @@ class SignalingServer {
   }
 
   void _sendState(_Conn conn) {
+    final now = DateTime.now();
     final pairings = conn.pairings
         .map(_peerInfo)
         .whereType<Map<String, dynamic>>()
+        .where((p) {
+          if (p['online'] == true) return true;
+          // Offline peer: report it only if we've seen it recently. A device
+          // that has been gone beyond [offlineReportGrace] is treated as gone —
+          // the client drops it (and its shared songs) and stops re-reporting
+          // it, so ghosts clean themselves up. A peer we've never seen (e.g. a
+          // pairing restored on a fresh host before the peer reconnects) is
+          // kept — the client's reported list is trusted. The real device
+          // re-syncs everything the moment it reconnects.
+          final id = p['deviceId'] as String;
+          final last = _persistedLastSeen[id];
+          if (last == null) return true;
+          return now.difference(last) <= offlineReportGrace;
+        })
         .map((p) => {
               'deviceId': p['deviceId'],
               'deviceName': p['deviceName'],
@@ -794,6 +927,10 @@ class SignalingServer {
         'pairings': pairs,
         'names': _persistedNames,
         'secrets': _persistedSecrets,
+        'lastSeen': {
+          for (final e in _persistedLastSeen.entries)
+            e.key: e.value.toIso8601String(),
+        },
       }));
     } catch (e) {
       _log('[persist] failed to save state: $e');
@@ -833,6 +970,29 @@ class SignalingServer {
           }
         });
       }
+      final lastSeen = data['lastSeen'];
+      if (lastSeen is Map) {
+        lastSeen.forEach((id, ts) {
+          if (id is String && id.isNotEmpty && ts is String) {
+            final t = DateTime.tryParse(ts);
+            if (t != null) _persistedLastSeen[id] = t;
+          }
+        });
+      }
+      // First run with lastSeen tracking (or an old state file without it):
+      // seed every known device from the file's mtime so nothing is instantly
+      // treated as stale/gone on upgrade. This gives the ghost-cleanup grace a
+      // fresh start for every existing device.
+      final known = <String>{
+        ..._persistedNames.keys,
+        ..._persistedPairs.keys,
+      };
+      if (known.isNotEmpty) {
+        final seed = file.lastModifiedSync();
+        for (final id in known) {
+          _persistedLastSeen.putIfAbsent(id, () => seed);
+        }
+      }
       _log('[persist] loaded ${_persistedPairs.length} device(s) with pairings, '
           '${_persistedSecrets.length} with secrets');
     } catch (e) {
@@ -847,21 +1007,41 @@ class SignalingServer {
         type: InternetAddressType.IPv4,
         includeLoopback: false,
       );
-      // Prefer a private-range address (most common for a phone hotspot /
-      // home router).
+      // Prefer a private-range address peers can actually reach: skip APIPA
+      // link-local (169.254.x — never routable) and CGNAT (100.64.0.0/10 —
+      // used by Tailscale/VPN adapters, which a phone on the same Wi-Fi can't
+      // reach). This keeps the advertised ws:// URL pointing at the real LAN
+      // interface even when virtual adapters are present.
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
-          if (_isPrivateIpv4(addr.address)) return addr.address;
+          final a = addr.address;
+          if (a.isEmpty || a == '0.0.0.0') continue;
+          if (_isLinkLocal(a) || _isCgnat(a)) continue;
+          if (_isPrivateIpv4(a)) return a;
         }
       }
-      // Fallback: first non-loopback address.
+      // Fallback: first non-loopback, non-link-local address.
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
-          if (!addr.isLoopback) return addr.address;
+          final a = addr.address;
+          if (a.isEmpty || a == '0.0.0.0') continue;
+          if (addr.isLoopback || _isLinkLocal(a) || _isCgnat(a)) continue;
+          return a;
         }
       }
     } catch (_) {}
     return null;
+  }
+
+  static bool _isLinkLocal(String s) => s.startsWith('169.254.');
+
+  /// Carrier-Grade NAT 100.64.0.0/10 — Tailscale and some VPNs use it; a peer
+  /// on the LAN can't reach these, so never advertise one.
+  static bool _isCgnat(String s) {
+    final m = RegExp(r'^100\.(\d{1,3})\.').firstMatch(s);
+    if (m == null) return false;
+    final b = int.tryParse(m[1]!) ?? -1;
+    return b >= 64 && b <= 127;
   }
 
   static bool _isPrivateIpv4(String s) {
