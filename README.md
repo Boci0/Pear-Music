@@ -7,7 +7,6 @@
 [![Download for Android (ARMv7)](https://img.shields.io/badge/Download-Android%20ARMv7-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built%20with-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
-[![Server](https://img.shields.io/badge/Server-Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](server/)
 
 ---
 
@@ -16,7 +15,8 @@
 **Pear Music** keeps your music library in sync between your own devices, with
 no cloud storage and no account. Drop a song on one device and every device you
 have paired it with gets a copy and can play it. Built with Flutter for Windows
-and Android, backed by a small Node.js signaling server.
+and Android. The signaling server is embedded in the app, so there is nothing
+to install or configure.
 
 ---
 
@@ -54,16 +54,6 @@ page is just the backup if you want a specific version:
 
 ## Quick Start (Build from Source)
 
-**Server**
-
-```bash
-cd server
-npm install
-npm start        # listens on :8080
-```
-
-**App**
-
 ```bash
 cd app
 flutter pub get
@@ -71,8 +61,12 @@ flutter run -d windows        # Windows
 flutter run -d <device-id>    # Android
 ```
 
-Open the app's Settings, point the signaling server URL at your server
-(`ws://localhost:8080` if it is the same machine), and give the device a name.
+That's it. Devices discover each other on the same network automatically, and
+one of them hosts the built-in server, so there is no separate server to run.
+
+The `server/` folder is an optional reference Node.js signaling server, only
+needed if you want to host your own relay on the internet instead of using the
+embedded one.
 
 ---
 
@@ -89,16 +83,16 @@ Open the app's Settings, point the signaling server URL at your server
 
 ## Architecture
 
-- `app/`: Flutter client (Windows + Android)
-- `server/`: Node.js signaling server (pairing, presence, relay)
+- `app/`: Flutter app (Windows + Android), including the embedded signaling server
+- `server/`: optional reference Node.js signaling server (pairing, presence, relay)
 
 ---
 
 ## Testing
 
 ```bash
-cd server && node test/smoke.js   # needs the server running on :8080
-cd app && flutter test
+cd app && flutter test              # app tests
+cd server && node test/smoke.js     # optional reference-server tests (needs the server running on :8080)
 ```
 
 ---
