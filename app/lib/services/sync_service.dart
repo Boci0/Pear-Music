@@ -121,6 +121,7 @@ class SyncService extends ChangeNotifier {
     // relay transport does this (WebRTC is already DTLS-encrypted).
     final e2ePub =
         channel is RelayDataChannel ? channel.signaling.e2ePubB64 : null;
+    debugPrint('[sync] attachChannel $peerId (e2ePub present: ${e2ePub != null})');
     _send(peerId, {
       'type': 'hello',
       'deviceName': identity.deviceName,
@@ -170,6 +171,7 @@ class SyncService extends ChangeNotifier {
     }
     switch (msg['type']) {
       case 'hello':
+        debugPrint('[sync] <- $peerId: hello (e2ePub: ${msg['e2ePub'] != null})');
         // E2E: if the peer advertised their X25519 public key, derive the
         // shared key used to encrypt relayed data between us and them.
         final e2ePub = msg['e2ePub'];

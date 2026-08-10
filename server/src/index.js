@@ -529,8 +529,14 @@ wss.on('connection', (ws, req) => {
             // New: the chunk body follows as a raw binary frame. First tell
             // the target which peer the frame is from (the app needs that to
             // route the bytes), then remember the route so the frame handler
-            // can forward them unchanged.
-            send(target.ws, { type: 'relay', from: deviceId, data: { t: 'bin' } });
+            // can forward them unchanged. PRESERVE the `e:1` encryption flag —
+            // the receiver must know to decrypt the frame (dropping it broke
+            // sync once E2E encryption actually turned on).
+            send(target.ws, {
+              type: 'relay',
+              from: deviceId,
+              data: { t: 'bin', ...(msg.data?.e === 1 ? { e: 1 } : {}) },
+            });
             pendingBin.set(deviceId, to);
           }
         } else {

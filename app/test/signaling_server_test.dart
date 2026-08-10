@@ -154,6 +154,18 @@ void main() {
       expect(bin, [1, 2, 3, 4, 5]);
       await a.nextJson('relay_ack');
 
+      // Regression: the binary marker must PRESERVE the `e:1` encryption flag
+      // so the receiver knows to decrypt the frame. It was dropped before,
+      // which broke sync once E2E encryption actually turned on.
+      a.sendText({'type': 'relay', 'to': 'B', 'data': {'t': 'bin', 'e': 1}});
+      a.sendBinary([9, 9, 9]);
+      final encMarker = await b.nextJson('relay');
+      expect((encMarker['data'] as Map)['e'], 1,
+          reason: 'encryption flag must be forwarded to the receiver');
+      final encBin = await b.nextBinary();
+      expect(encBin, [9, 9, 9]);
+      await a.nextJson('relay_ack');
+
       // A relay to a NON-paired device is dropped (no message to C).
       final c = await connect(port);
       c.sendText({'type': 'register', 'deviceId': 'C', 'deviceName': 'Dev C'});
