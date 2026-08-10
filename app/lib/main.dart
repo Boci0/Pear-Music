@@ -71,12 +71,10 @@ Future<void> main() async {
   final player = PlayerService(library);
   final youtube = YoutubeService();
 
-  // Embedded signaling server: auto-starts on EVERY platform (Windows +
-  // Android) so any device can host the relay with no Node.js dependency —
-  // the "server" is now part of the app. It binds :8080; if the port is
-  // already taken (e.g. the old Node server is still running) we fall back to
-  // that external server instead. State (pairings/names/secrets) persists in
-  // the app support directory so a restart doesn't unpair devices.
+  // Embedded signaling server. It is NOT started here — the controller starts
+  // it only when this device is the host (the "last online" device), so at any
+  // moment exactly one device on the network runs the server. State (pairings/
+  // names/secrets) persists in the app support directory.
   final server = SignalingServer(
     port: 8080,
     stateFile: File(
@@ -86,13 +84,6 @@ Future<void> main() async {
     advertiseName: identity.deviceName,
     advertiseDeviceId: identity.deviceId,
   );
-  try {
-    await server.start();
-  } on SocketException catch (e) {
-    debugPrint(
-        '[server] could not bind :8080 (${e.message}); using an external '
-        'server if one is running.');
-  }
 
   final controller = AppController(
     identity: identity,

@@ -183,6 +183,38 @@ void main() {
       await a.close();
     });
 
+    test('register restores pairings on a fresh host (host failover)', () async {
+      final a = await connect(port);
+      final b = await connect(port);
+      // A claims it is already paired with B — as a client would after the
+      // host fails over to this device.
+      a.sendText({
+        'type': 'register',
+        'deviceId': 'A',
+        'deviceName': 'Dev A',
+        'pairings': ['B'],
+      });
+      await a.nextJson('registered');
+      // The initial state sent right after register can't include B yet
+      // (B hasn't registered) — drain it so we query the latest below.
+      await a.nextJson('state');
+      b.sendText({'type': 'register', 'deviceId': 'B', 'deviceName': 'Dev B'});
+      await b.nextJson('registered');
+
+      // The server should now consider A paired with B (restored by A), so
+      // get_state reports B — the pairing survived the host change.
+      a.sendText({'type': 'get_state'});
+      final state = await a.nextJson('state');
+      final pairings = state['pairings'] as List;
+      expect(
+        pairings.any((p) => (p as Map)['deviceId'] == 'B'),
+        isTrue,
+        reason: 'restored pairing should be reported in state',
+      );
+      await a.close();
+      await b.close();
+    });
+
     test('pairings survive a server restart via the state file', () async {
       final dir = await Directory.systemTemp.createTemp('peerm-server-restart');
       final stateFile = File('${dir.path}/state.json');

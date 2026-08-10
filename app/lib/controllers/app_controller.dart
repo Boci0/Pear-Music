@@ -77,6 +77,11 @@ class AppController extends ChangeNotifier {
   /// from touching a disposed controller.
   bool _closing = false;
 
+  static const Duration _hostGrace = Duration(seconds: 10);
+  static const Duration _failoverDelay = Duration(seconds: 25);
+  Timer? _failoverTimer;
+  DateTime? _offlineSince;
+
   List<Song> get songs => library.songs;
 
   String connectionStatus = 'offline'; // 'connecting' | 'connected' | 'offline'
@@ -135,24 +140,109 @@ class AppController extends ChangeNotifier {
     // tens of seconds — the long black screen on launch that only cleared once
     // the connect finally failed. Start it in the background: the UI renders
     // immediately and flips to "offline" until the connection succeeds.
-    unawaited(_startWithAutoFallback());
+    unawaited(_ensureConnection());
     notifyListeners();
   }
 
-  /// Zero-config connect: connect to the remembered server, then if it is
-  /// still offline after a short grace period, auto-discover a nearby host and
-  /// connect to it (remembering it). This replaces manual server setup — the
-  /// app finds the host by itself.
-  Future<void> _startWithAutoFallback() async {
+  /// Zero-config host election. The "last online" device is the host; every
+  /// other device connects to it as a client. If I believe I'm the host, I
+  /// first make sure no other device already took over while I was offline
+  /// (then I defer to it), otherwise I host. If I'm a client and the host is
+  /// unreachable, I take over as host automatically.
+  Future<void> _ensureConnection() async {
+    if (identity.isHost) {
+      // I believe I'm the host. Before hosting, check whether another device
+      // already took over as host while I was offline — if so, defer to it.
+      final others = await discoverNearby();
+      if (others.isNotEmpty) {
+        debugPrint('[host] another host found (${others.first.url}); deferring');
+        await identity.setIsHost(false);
+        await updateServerUrl(others.first.url);
+        return;
+      }
+      // No other host — I host (run my own server, connect to localhost).
+      await _ensureLocalServer();
+      final local = 'ws://localhost:${server.boundPort}';
+      if (identity.serverUrl != local) {
+        await updateServerUrl(local);
+      } else {
+        await signaling.start();
+      }
+      _scheduleHostReconcile();
+      return;
+    }
+    // Client: connect to the remembered host; take over if it's unreachable.
     await signaling.start();
-    // Give the remembered server a moment to connect before falling back.
-    await Future.delayed(const Duration(seconds: 6));
+    await Future.delayed(_hostGrace);
     if (_closing || connectionStatus == 'connected') return;
-    final hosts = await discoverNearby();
-    if (hosts.isEmpty) return;
-    final host = hosts.first;
-    debugPrint('[connect] auto-discovered host: ${host.url}');
-    await updateServerUrl(host.url);
+    await _takeOverAsHost();
+  }
+
+  /// Make sure the embedded server is running (host role).
+  Future<void> _ensureLocalServer() async {
+    if (!server.isRunning) {
+      try {
+        await server.start();
+      } catch (e) {
+        debugPrint('[host] could not start local server: $e');
+      }
+    }
+  }
+
+  /// This device becomes the host (runs the server, connects to itself).
+  Future<void> _takeOverAsHost() async {
+    debugPrint('[host] taking over as host');
+    _failoverTimer?.cancel();
+    _failoverTimer = null;
+    _offlineSince = null;
+    await _ensureLocalServer();
+    await identity.setIsHost(true);
+    await updateServerUrl('ws://localhost:${server.boundPort}');
+    _scheduleHostReconcile();
+  }
+
+  /// One-shot check shortly after becoming host: if a higher-priority host
+  /// (smaller deviceId) is also online — e.g. two devices started at once —
+  /// defer to it so there is always exactly one host.
+  void _scheduleHostReconcile() {
+    Timer(const Duration(seconds: 4), () => unawaited(_reconcileHost()));
+  }
+
+  Future<void> _reconcileHost() async {
+    if (_closing || !identity.isHost) return;
+    final others = await discoverNearby();
+    for (final host in others) {
+      final otherId = host.deviceId;
+      if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
+        debugPrint('[host] higher-priority host ${host.url}; deferring');
+        await identity.setIsHost(false);
+        await server.stop();
+        await updateServerUrl(host.url);
+        return;
+      }
+    }
+  }
+
+  /// Called when the server connection drops. If I'm a client and the host
+  /// stays unreachable for [_failoverDelay], I take over as host.
+  void _onOffline() {
+    _offlineSince ??= DateTime.now();
+    if (identity.isHost || _closing) return;
+    _failoverTimer ??= Timer(_failoverDelay, () {
+      if (_closing || identity.isHost) return;
+      if (connectionStatus != 'connected') {
+        unawaited(_takeOverAsHost());
+      }
+    });
+  }
+
+  /// Called when the server connection (re)establishes.
+  void _onConnected() {
+    _offlineSince = null;
+    _failoverTimer?.cancel();
+    _failoverTimer = null;
+    // Ensure the pairing list is fresh after (re)connect.
+    signaling.getState();
   }
 
   Future<void> disposeAll() async {
@@ -193,11 +283,11 @@ class AppController extends ChangeNotifier {
         connectionStatus =
             msg['event'] == 'connected' ? 'connected' : 'offline';
         if (msg['event'] == 'connected') {
-          // Ensure pairing list is fresh after (re)connect.
-          signaling.getState();
+          _onConnected();
         } else {
           _pendingRelayBinaryFrom = null;
           _pendingRelayBinaryEnc = false;
+          _onOffline();
         }
         notifyListeners();
         break;
@@ -208,6 +298,14 @@ class AppController extends ChangeNotifier {
 
       case 'state':
         unawaited(_applyPairings(msg['pairings'] as List? ?? []));
+        // Persist the paired-device list locally so a new host (after a
+        // failover) can be told about the pairing on register.
+        unawaited(identity.setPairedDevices(
+          (msg['pairings'] as List? ?? [])
+              .whereType<Map>()
+              .map((m) => m['deviceId'] as String? ?? '')
+              .where((id) => id.isNotEmpty),
+        ));
         break;
 
       case 'pairing_created':
@@ -220,6 +318,7 @@ class AppController extends ChangeNotifier {
           Map<String, dynamic>.from(msg['peer'] as Map),
         );
         _upsertPeer(peer);
+        await identity.addPairedDevice(peer.deviceId);
         _postMessage('Paired with ${peer.deviceName}');
         await _reconcileConnections();
         break;
@@ -228,6 +327,7 @@ class AppController extends ChangeNotifier {
         final peer = PeerDevice.fromJson(
           Map<String, dynamic>.from(msg['peer'] as Map),
         );
+        await identity.removePairedDevice(peer.deviceId);
         await _handlePeerGone(
           peer.deviceId,
           deviceName: peer.deviceName,

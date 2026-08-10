@@ -199,11 +199,12 @@ class SignalingServer {
   /// multicast, discovery still works via the `/discover` subnet scan.
   void _startMulticast() {
     try {
+      // reuseAddress only — reusePort is unsupported on Windows and would
+      // surface as an unhandled socket error.
       RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
         port,
         reuseAddress: true,
-        reusePort: true,
       ).then((socket) {
         _multicastSocket = socket;
         try {
@@ -297,6 +298,7 @@ class SignalingServer {
   }
 
   void _onDisconnect(_Conn conn) {
+    _log('[server] connection closed code=${conn.ws.closeCode} reason=${conn.ws.closeReason}');
     final remaining = (_ipCounts[conn.ip] ?? 1) - 1;
     if (remaining <= 0) {
       _ipCounts.remove(conn.ip);
@@ -540,6 +542,22 @@ class SignalingServer {
       ..clear()
       ..addAll(existing?.pairings ?? const <String>{})
       ..addAll(_persistedPairs[id] ?? const <String>{});
+    // Restore pairings this device reports — used after a HOST FAILOVER: the
+    // new host learns the existing pairing from the connecting client instead
+    // of starting empty (which would unpair them and wipe shared songs).
+    final restored = msg['pairings'];
+    var restoredAny = false;
+    if (restored is List) {
+      for (final pid in restored) {
+        if (pid is String && pid.isNotEmpty && pid != id) {
+          if (conn.pairings.add(pid)) {
+            _persistedPairs.putIfAbsent(id, () => <String>{}).add(pid);
+            _persistedPairs.putIfAbsent(pid, () => <String>{}).add(id);
+            restoredAny = true;
+          }
+        }
+      }
+    }
     _devices[id] = conn;
 
     // Remember the name so offline peers still show it after a restart.
@@ -547,6 +565,7 @@ class SignalingServer {
       _persistedNames[id] = name;
       _saveState();
     }
+    if (restoredAny) _saveState();
 
     // Drop pairings to peers that are neither registered nor persisted
     // (truly stale/foreign deviceIds). Persisted pairings to offline peers

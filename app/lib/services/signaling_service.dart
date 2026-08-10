@@ -208,20 +208,42 @@ class SignalingService {
       _incoming.add({'type': '_local', 'event': 'connected'});
       // Register once the socket is open. If the server previously issued us
       // a device-auth secret, present it so the registration is authorized.
+      // We also tell the server which devices we're already paired with — if
+      // this is a NEW host (after failover) it uses these to restore the
+      // pairing instead of starting empty and unpairing us.
       send({
         'type': 'register',
         'deviceId': identity.deviceId,
         'deviceName': identity.deviceName,
         'secret': identity.deviceSecret,
+        'pairings': identity.pairedDeviceIds,
       });
       channel.stream.listen(
         (raw) => _handleRaw(raw),
-        onError: (_) => _handleDisconnect(),
-        onDone: _handleDisconnect,
+        onError: (Object e) {
+          // Only the CURRENT connection may tear down the session. A stale
+          // socket (e.g. the previous host's socket finally erroring after a
+          // reconnect) must not null `_channel` and force another reconnect —
+          // that makes the server 'replaced'-kick the active socket → flap.
+          if (!identical(channel, _channel)) return;
+          debugPrint(
+              '[signaling] socket error: $e code=${channel.closeCode} reason=${channel.closeReason}');
+          _handleDisconnect();
+        },
+        onDone: () {
+          if (!identical(channel, _channel)) return;
+          debugPrint(
+              '[signaling] socket closed code=${channel.closeCode} reason=${channel.closeReason}');
+          _handleDisconnect();
+        },
         cancelOnError: true,
       );
     } catch (e) {
       debugPrint('[signaling] connect failed: $e');
+      // A STALE connect (one superseded by a stop()/start() or takeover) must
+      // not tear down the current, healthy connection. Only the current
+      // generation may call _handleDisconnect.
+      if (gen != _generation) return;
       _handleDisconnect();
     }
   }
