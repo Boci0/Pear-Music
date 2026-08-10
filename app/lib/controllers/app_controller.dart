@@ -12,6 +12,7 @@ import '../services/identity_service.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../services/relay_data_channel.dart';
+import '../services/signaling_server.dart';
 import '../services/signaling_service.dart';
 import '../services/sync_service.dart';
 import '../services/youtube_service.dart';
@@ -32,6 +33,10 @@ class AppController extends ChangeNotifier {
   final PlayerService player;
   final YoutubeService youtube;
 
+  /// Embedded signaling server (auto-started in main()). Lets this device
+  /// host the relay on both Windows and Android without running Node.js.
+  final SignalingServer server;
+
   AppController({
     required this.identity,
     required this.library,
@@ -39,7 +44,18 @@ class AppController extends ChangeNotifier {
     required this.sync,
     required this.player,
     required this.youtube,
+    required this.server,
   });
+
+  /// True when this device's embedded server is listening (i.e. this device
+  /// is the host other devices should point their server URL at).
+  bool get isHostingServer => server.isRunning;
+
+  /// The LAN address other devices should connect to, when hosting.
+  String? get serverLanIp => server.lanIp;
+
+  /// The default server URL this device uses when it hosts.
+  String get localServerUrl => 'ws://localhost:${server.boundPort}';
 
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
@@ -126,6 +142,7 @@ class AppController extends ChangeNotifier {
     sync.detachChannelAll();
     signaling.dispose();
     player.dispose();
+    await server.stop();
     _messages.close();
     super.dispose();
   }

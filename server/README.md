@@ -12,6 +12,14 @@ It does **not** transfer music. It only:
 Music files sync device-to-device over an end-to-end encrypted relay; this
 server only passes the encrypted bytes and never stores them.
 
+> **The app now embeds its own server.** Since 2026-08-10 the Pear Music app
+> ships a pure-Dart port of this server (`app/lib/services/signaling_server.dart`)
+> that auto-starts on both Windows and Android, so you no longer need to run
+> Node.js for a home-network setup — just launch the app on the device you want
+> to be the host and point other devices at its LAN IP (shown in Settings).
+> This repository remains the reference implementation and is still the way to
+> deploy a server for internet pairing (see below).
+
 ## Run locally
 
 ```bash

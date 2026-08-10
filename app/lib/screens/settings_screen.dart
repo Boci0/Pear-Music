@@ -124,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const _HostingStatus(),
                   TextField(
                     controller: _serverController,
                     focusNode: _serverUrlFocus,
@@ -200,3 +201,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
 }
+
+/// Shows whether THIS device is hosting the embedded signaling server, and —
+/// when it is — the address other devices should use to connect to it.
+class _HostingStatus extends StatelessWidget {
+  const _HostingStatus();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AppController>();
+    final hosting = controller.isHostingServer;
+    final port = controller.server.boundPort;
+    final ip = controller.serverLanIp;
+    final scheme = Theme.of(context).colorScheme;
+    if (hosting) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.dns, size: 18, color: scheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SelectableText(
+                'This device is hosting the server.\n'
+                'Point other devices at: '
+                'ws://${ip ?? '<this-device-ip>'}:$port',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.cloud_off,
+              size: 18, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Not hosting on this device (port $port busy) — using the '
+              'server URL below.',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

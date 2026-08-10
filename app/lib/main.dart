@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +13,7 @@ import 'services/identity_service.dart';
 import 'services/library_service.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
+import 'services/signaling_server.dart';
 import 'services/signaling_service.dart';
 import 'services/sync_service.dart';
 import 'services/youtube_service.dart';
@@ -67,6 +69,27 @@ Future<void> main() async {
   final player = PlayerService(library);
   final youtube = YoutubeService();
 
+  // Embedded signaling server: auto-starts on EVERY platform (Windows +
+  // Android) so any device can host the relay with no Node.js dependency —
+  // the "server" is now part of the app. It binds :8080; if the port is
+  // already taken (e.g. the old Node server is still running) we fall back to
+  // that external server instead. State (pairings/names/secrets) persists in
+  // the app support directory so a restart doesn't unpair devices.
+  final server = SignalingServer(
+    port: 8080,
+    stateFile: File(
+      '${(await getApplicationSupportDirectory()).path}/peerm_server_state.json',
+    ),
+    onLog: (m) => debugPrint('[server] $m'),
+  );
+  try {
+    await server.start();
+  } on SocketException catch (e) {
+    debugPrint(
+        '[server] could not bind :8080 (${e.message}); using an external '
+        'server if one is running.');
+  }
+
   final controller = AppController(
     identity: identity,
     library: library,
@@ -74,6 +97,7 @@ Future<void> main() async {
     sync: sync,
     player: player,
     youtube: youtube,
+    server: server,
   );
   await controller.init();
 

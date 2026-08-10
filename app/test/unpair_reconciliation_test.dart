@@ -7,6 +7,7 @@ import 'package:peerm_app/controllers/app_controller.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
+import 'package:peerm_app/services/signaling_server.dart';
 import 'package:peerm_app/services/signaling_service.dart';
 import 'package:peerm_app/services/sync_service.dart';
 import 'package:peerm_app/services/youtube_service.dart';
@@ -22,6 +23,7 @@ class _TestController extends AppController {
     required super.sync,
     required super.player,
     required super.youtube,
+    required super.server,
   });
 }
 
@@ -49,6 +51,7 @@ void main() {
       sync: sync,
       player: player,
       youtube: YoutubeService(),
+      server: SignalingServer(port: 8080),
     );
   });
 
