@@ -1,39 +1,56 @@
-# Pear Music
+# PEAR MUSIC
 
-A small app for keeping your music library in sync between your own devices with no cloud
-storage and no account. Drop a song on one device and every device you've
-paired it with gets a copy and can play it. I made this for my Windows PC and
-Android phone, so those are the two platforms I test on.
+> A peer-to-peer music sync app for Windows and Android. No cloud, no accounts.
 
-It's a Flutter app (one codebase) plus a small Node.js signaling server.
+[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases)
+[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![Built with Flutter](https://img.shields.io/badge/Built%20with-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
+[![Server](https://img.shields.io/badge/Server-Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](server/)
 
-## How it works
+---
 
-Pairing is just a code. One device shows a 6-character code (or a QR code) and
-the other types it in. After that they are paired.
+## Overview
 
-Songs copy device-to-device. The transfer is encrypted end-to-end, so the
-server that routes it can't see your music, and it never stores anything
-anyway. If the other device is offline when you add something, it picks up what
-it missed the next time it reconnects.
+**Pear Music** keeps your music library in sync between your own devices, with
+no cloud storage and no account. Drop a song on one device and every device you
+have paired it with gets a copy and can play it. Built with Flutter for Windows
+and Android, backed by a small Node.js signaling server.
 
-Unpairing a device deletes the songs it received from you, and vice versa.
-Songs you added yourself stay. You don't have to pair anything if you don't
-want to; it works as a normal local music player too.
+---
 
-The "server" is only a relay: it hands out pairing codes, tracks who's online,
-and shuttles encrypted bytes between paired devices. Run it on a VPS, a
-Raspberry Pi, or your PC. Point it at a TLS cert if you want `wss://` for
-internet use.
+## Key Features
 
-## Layout
+- **Code-based pairing**: One device shows a 6-character code (or a QR code),
+  the other enters it. That is the whole setup.
+- **End-to-end encrypted sync**: Files copy device-to-device over an encrypted
+  relay (AES-256-GCM), so the server cannot read your music and never stores it.
+- **Reconnect catch-up**: If a device is offline when you add a song, it pulls
+  what it missed the next time it connects.
+- **Unpair removes**: Unpairing a device deletes the songs it received from you
+  (and vice versa). Songs you added yourself stay.
+- **Standalone player**: Works as a normal local music player even if you never
+  pair anything.
 
-- `server/`: Node.js signaling server (pairing, presence, relay)
-- `app/`: Flutter app (Windows + Android)
+---
 
-## Getting started
+## Download
 
-Start the server:
+Grab the latest build from the [Releases](https://github.com/Boci0/Pear-Music/releases) page:
+
+| Platform | File | How to run |
+| --- | --- | --- |
+| **Windows** | `PearMusic-Windows-x64.zip` | Extract, then run `peerm_app.exe` |
+| **Android** | `PearMusic-Android-arm64.apk` | Open the file, allow unknown apps |
+
+> The Windows binary is not code-signed, so SmartScreen may warn the first time
+> you run it. Click "More info", then "Run anyway".
+
+---
+
+## Quick Start (Build from Source)
+
+**Server**
 
 ```bash
 cd server
@@ -41,28 +58,47 @@ npm install
 npm start        # listens on :8080
 ```
 
-Run the app:
+**App**
 
 ```bash
 cd app
 flutter pub get
-flutter run -d windows
+flutter run -d windows        # Windows
+flutter run -d <device-id>    # Android
 ```
 
-In the app's Settings, point the signaling server URL at wherever the server
-is running (`ws://localhost:8080` if it's the same machine) and give the device
-a name. Then pair: generate a code in Devices on one device, enter it on the
-other side, and you're done.
+Open the app's Settings, point the signaling server URL at your server
+(`ws://localhost:8080` if it is the same machine), and give the device a name.
 
-## Tests
+---
+
+## Usage
+
+| Action | How |
+| --- | --- |
+| **Pair a device** | Devices -> Pair a device, generate or enter a code |
+| **Add music** | Drop a file, use Add music, or paste a link |
+| **Play** | Tap a song |
+| **Unpair** | Devices, remove the device |
+
+---
+
+## Architecture
+
+- `app/`: Flutter client (Windows + Android)
+- `server/`: Node.js signaling server (pairing, presence, relay)
+
+---
+
+## Testing
 
 ```bash
 cd server && node test/smoke.js   # needs the server running on :8080
 cd app && flutter test
 ```
 
-## Notes
+---
 
-- Flutter 3.44.9 / Dart 3.12.
-- Windows Developer Mode needs to be on for Flutter's plugin symlinks.
-- Android allows plain `ws://` during development.
+## License
+
+[MIT](LICENSE)

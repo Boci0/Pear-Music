@@ -32,6 +32,9 @@ server/state.json
 server/*.log
 server/.env
 
+# --- Release artifacts (published via GitHub Releases, not committed) ---
+release/
+
 # --- OS cruft ---
 Thumbs.db
 Desktop.ini
