@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/pairing_link.dart';
 import 'qr_scan_screen.dart';
 
 /// Two-way pairing:
@@ -134,7 +135,10 @@ class _PairScreenState extends State<PairScreen> {
           child: Column(
             children: [
               QrImageView(
-                data: 'pearmusic://pair/$code',
+                data: PairingLink.encode(
+                  code,
+                  server: controller.hostServerUrl,
+                ),
                 version: QrVersions.auto,
                 size: 180,
                 backgroundColor: Colors.white,
@@ -168,6 +172,45 @@ class _PairScreenState extends State<PairScreen> {
                 'Expires in 10 minutes · one-time use',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              if (controller.hostServerUrl != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Auto-connect: scanning this QR switches the other device '
+                  'to this server and pairs it automatically.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: SelectableText(
+                        controller.hostServerUrl!,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 16),
+                      tooltip: 'Copy server address',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(text: controller.hostServerUrl!),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Server address copied'),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -224,11 +267,34 @@ class _PairScreenState extends State<PairScreen> {
   }
 
   Future<void> _scan(AppController controller) async {
-    final code = await Navigator.of(context).push<String>(
+    final raw = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const QrScanScreen()),
     );
-    if (code == null || !mounted) return;
-    _codeController.text = code;
+    if (raw == null || !mounted) return;
+    final link = PairingLink.parse(raw);
+    if (link == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That QR is not a valid pairing code')),
+      );
+      return;
+    }
+    // Smart Connect: if the QR carries a server and it differs from ours,
+    // switch to it and wait for the connection before sending the code.
+    final hostServer = link.server;
+    if (hostServer != null && hostServer != controller.identity.serverUrl) {
+      final connected = await controller.connectToServer(hostServer);
+      if (!mounted) return;
+      if (!connected) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not reach the host at $hostServer')),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connected to the host. Pairing…')),
+      );
+    }
+    _codeController.text = link.code;
     _join(controller);
   }
 

@@ -57,6 +57,15 @@ class AppController extends ChangeNotifier {
   /// The default server URL this device uses when it hosts.
   String get localServerUrl => 'ws://localhost:${server.boundPort}';
 
+  /// The address OTHER devices should use to reach this device's embedded
+  /// server, when hosting. Null if not hosting or no LAN IP could be resolved.
+  String? get hostServerUrl {
+    if (!server.isRunning) return null;
+    final ip = server.lanIp;
+    if (ip == null) return null;
+    return 'ws://$ip:${server.boundPort}';
+  }
+
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
 
@@ -603,6 +612,24 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     await signaling.stop();
     await signaling.start();
+  }
+
+  /// Smart Connect: switch to [url] (if different) and wait until this device
+  /// is connected + registered with that server (up to ~20s). Returns true on
+  /// success. Used by the QR flow so scanning a host's QR joins the right
+  /// server automatically instead of requiring a manual URL edit.
+  Future<bool> connectToServer(String url) async {
+    final target = url.trim();
+    if (target.isEmpty) return false;
+    if (identity.serverUrl != target) {
+      await updateServerUrl(target);
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    while (DateTime.now().isBefore(deadline)) {
+      if (connectionStatus == 'connected') return true;
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    return connectionStatus == 'connected';
   }
 
   // ---------- playback (delegated) ----------

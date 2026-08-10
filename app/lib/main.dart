@@ -33,10 +33,12 @@ Future<void> main() async {
       androidNotificationChannelId: 'com.peerm.peerm_app.channel.audio',
       androidNotificationChannelName: 'Audio playback',
       androidNotificationIcon: 'mipmap/ic_notification',
-      androidNotificationOngoing: true,
-      // Keep the notification (and its play button) visible while paused —
-      // the default `true` removes the notification on pause, which made it
-      // impossible to resume from the notification / lock screen.
+      // NOT androidNotificationOngoing:true here — combined with
+      // androidStopForegroundOnPause:false, audio_service asserts
+      // ("!androidNotificationOngoing || androidStopForegroundOnPause") and the
+      // DEBUG build crashes to a black screen (assert is stripped in release,
+      // so the release APK hid this). The notification still stays visible
+      // while paused because the foreground service persists.
       androidStopForegroundOnPause: false,
     );
   }

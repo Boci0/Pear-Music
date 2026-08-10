@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../services/pairing_link.dart';
+
 /// Full-screen QR scanner used by the Join pairing flow.
 ///
-/// Points the camera at the QR shown on the other device and returns the
-/// pairing code via [Navigator.pop]. It accepts either a raw 6-character code
-/// or the `pearmusic://pair/<code>` deep link that the host QR encodes, so the
-/// host and join flows stay symmetric.
+/// Points the camera at the QR shown on the other device and returns the RAW
+/// scanned payload via [Navigator.pop] — either a bare 6-character code or the
+/// `pearmusic://pair/<code>[?server=…]` deep link the host QR encodes. The
+/// caller ([PairScreen]) parses it with [PairingLink] to get the code and the
+/// host's server address, so it can switch servers automatically if needed.
 class QrScanScreen extends StatefulWidget {
   const QrScanScreen({super.key});
 
@@ -34,26 +37,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
     for (final barcode in capture.barcodes) {
       final raw = barcode.rawValue;
       if (raw == null) continue;
-      final code = _extractPairingCode(raw);
-      if (code != null) {
+      // Accepts a raw code or a `pearmusic://pair/…` deep link; returns the
+      // raw payload so the caller can also read the server hint from it.
+      if (PairingLink.parse(raw) != null) {
         _handled = true;
-        Navigator.of(context).pop(code);
+        Navigator.of(context).pop(raw);
         return;
       }
     }
-  }
-
-  /// Pulls the 6-char pairing code out of a raw code or a `pearmusic://pair/…`
-  /// deep link. Returns null if the value isn't a valid pairing code.
-  String? _extractPairingCode(String raw) {
-    final trimmed = raw.trim();
-    const prefix = 'pearmusic://pair/';
-    if (trimmed.startsWith(prefix)) {
-      final code = trimmed.substring(prefix.length).trim().toUpperCase();
-      return code.length == 6 ? code : null;
-    }
-    final upper = trimmed.toUpperCase();
-    return upper.length == 6 ? upper : null;
   }
 
   @override
