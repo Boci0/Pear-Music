@@ -85,9 +85,14 @@ class AppController extends ChangeNotifier {
   /// from touching a disposed controller.
   bool _closing = false;
 
-  static const Duration _hostGrace = Duration(seconds: 10);
-  static const Duration _failoverDelay = Duration(seconds: 25);
+  // Faster host failover: when the host dies, a client takes over in ~6s (was
+  // 25s); a starting client that can't reach its remembered host takes over in
+  // ~5s (was 10s). A brief blip is fine — the returning host reclaims hosting
+  // via periodic reconciliation, so the system settles on exactly one host.
+  static const Duration _hostGrace = Duration(seconds: 5);
+  static const Duration _failoverDelay = Duration(seconds: 6);
   Timer? _failoverTimer;
+  Timer? _hostReconcileTimer;
   DateTime? _offlineSince;
 
   List<Song> get songs => library.songs;
@@ -211,9 +216,14 @@ class AppController extends ChangeNotifier {
 
   /// One-shot check shortly after becoming host: if a higher-priority host
   /// (smaller deviceId) is also online — e.g. two devices started at once —
-  /// defer to it so there is always exactly one host.
+  /// defer to it so there is always exactly one host. Also re-checks every 30s
+  /// while hosting, so this device hands back to the original host as soon as
+  /// it returns (host switching recovers fast in BOTH directions).
   void _scheduleHostReconcile() {
-    Timer(const Duration(seconds: 4), () => unawaited(_reconcileHost()));
+    _hostReconcileTimer?.cancel();
+    Timer(const Duration(seconds: 3), () => unawaited(_reconcileHost()));
+    _hostReconcileTimer = Timer.periodic(
+        const Duration(seconds: 30), (_) => unawaited(_reconcileHost()));
   }
 
   Future<void> _reconcileHost() async {
@@ -223,6 +233,8 @@ class AppController extends ChangeNotifier {
       final otherId = host.deviceId;
       if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
         debugPrint('[host] higher-priority host ${host.url}; deferring');
+        _hostReconcileTimer?.cancel();
+        _hostReconcileTimer = null;
         await identity.setIsHost(false);
         await server.stop();
         await updateServerUrl(host.url);
@@ -255,6 +267,10 @@ class AppController extends ChangeNotifier {
 
   Future<void> disposeAll() async {
     _closing = true;
+    _failoverTimer?.cancel();
+    _failoverTimer = null;
+    _hostReconcileTimer?.cancel();
+    _hostReconcileTimer = null;
     for (final s in _subs) {
       await s.cancel();
     }
