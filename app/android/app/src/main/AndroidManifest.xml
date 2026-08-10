@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- PeerM: P2P sync + playback need the network. -->
+    <!-- Pear Music: P2P sync + playback need the network. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- just_audio_background: media notification / background playback. -->

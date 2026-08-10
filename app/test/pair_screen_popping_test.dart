@@ -64,7 +64,7 @@ void main() {
       (tester) async {
     final controller = await _buildController();
 
-    await tester.pumpWidget(PeerMApp(
+    await tester.pumpWidget(PearMusicApp(
       controller: controller,
       playerTheme: PlayerTheme(controller.player),
     ));
@@ -106,7 +106,7 @@ void main() {
       (tester) async {
     final controller = await _buildController();
 
-    await tester.pumpWidget(PeerMApp(
+    await tester.pumpWidget(PearMusicApp(
       controller: controller,
       playerTheme: PlayerTheme(controller.player),
     ));

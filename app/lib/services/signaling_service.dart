@@ -8,7 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'identity_service.dart';
 
-/// WebSocket client for the PeerM signaling server.
+/// WebSocket client for the Pear Music signaling server.
 ///
 /// Handles registration, pairing codes, WebRTC signal relay and presence, with
 /// automatic exponential-backoff reconnection (plus jitter so a fleet of

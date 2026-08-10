@@ -1,5 +1,5 @@
 /**
- * Security hardening check for the PeerM signaling server.
+ * Security hardening check for the Pear Music signaling server.
  *
  * Verifies:
  *   1. A fresh deviceId gets a device-auth secret issued on first register.

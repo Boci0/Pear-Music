@@ -1,5 +1,5 @@
 /**
- * Rate-limit / abuse-hardening check for the PeerM signaling server.
+ * Rate-limit / abuse-hardening check for the Pear Music signaling server.
  *
  * Verifies that the pairing-attempt rate limiter actually rejects attempts
  * past the per-window budget (brute-force pairing codes is the main attack

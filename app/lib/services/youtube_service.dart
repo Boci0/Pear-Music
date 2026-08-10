@@ -237,7 +237,7 @@ class YoutubeService {
       final version = await channel
           .invokeMethod<String>('init')
           .timeout(const Duration(seconds: 120));
-      debugPrint('[peerm] embedded yt-dlp ready: $version');
+      debugPrint('[pearmusic] embedded yt-dlp ready: $version');
 
       tempDir = await Directory.systemTemp.createTemp('peerm-ytdlp-');
       final processId = 'peerm-dl-${DateTime.now().millisecondsSinceEpoch}';
@@ -276,7 +276,7 @@ class YoutubeService {
           throw DownloadCancelledException();
         }
         debugPrint(
-            '[peerm] embedded yt-dlp download error: ${e.code}: ${e.message}');
+            '[pearmusic] embedded yt-dlp download error: ${e.code}: ${e.message}');
         throw Exception(e.message ?? 'yt-dlp failed.');
       }
       if (cancel?.isCancelled ?? false) {
@@ -295,7 +295,7 @@ class YoutubeService {
         }
       }
       if (audioFile == null) {
-        debugPrint('[peerm] no audio file in ${tempDir.path}: '
+        debugPrint('[pearmusic] no audio file in ${tempDir.path}: '
             '${tempDir.listSync().map((e) => p.basename(e.path)).join(', ')}');
         throw Exception('yt-dlp did not produce an audio file.');
       }

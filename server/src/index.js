@@ -1,7 +1,7 @@
 /**
- * PeerM Signaling Server
- * ---------------------
- * A lightweight WebSocket server that makes PeerM pairing work over the
+ * Pear Music Signaling Server
+ * --------------------------
+ * A lightweight WebSocket server that makes Pear Music pairing work over the
  * internet. It:
  *   1. Registers devices (deviceId + deviceName)
  *   2. Issues one-time pairing codes and creates pairings between devices
@@ -279,7 +279,7 @@ function notifyPresence(deviceId) {
 function handleHttp(req, res) {
   if (req.url === '/' || req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, service: 'peerm-signaling', devices: devices.size, time: new Date().toISOString() }));
+    res.end(JSON.stringify({ ok: true, service: 'pear-music-signaling', devices: devices.size, time: new Date().toISOString() }));
     return;
   }
   res.writeHead(404);
@@ -298,7 +298,7 @@ if (USE_TLS) {
     res.writeHead(301, { Location: `https://${req.headers.host || 'localhost'}/` });
     res.end('Use wss://');
   }).listen(PORT, HOST, () => {
-    console.log(`PeerM HTTP→WSS redirect listening on ${HOST}:${PORT}`);
+    console.log(`Pear Music HTTP→WSS redirect listening on ${HOST}:${PORT}`);
   });
   wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD });
 } else {
@@ -512,7 +512,7 @@ wss.on('connection', (ws, req) => {
 
       // ---- Relay file-sync data between paired devices ----
       // WebRTC can be unstable on some networks (e.g. phone hotspots), so
-      // PeerM can fall back to relaying the file stream through this server.
+      // Pear Music can fall back to relaying the file stream through this server.
       // Binary chunks are sent as a raw frame right after this marker.
       case 'relay': {
         if (!deviceId) return;
@@ -626,7 +626,7 @@ loadState();
 const listenPort = USE_TLS ? TLS_PORT : PORT;
 const scheme = USE_TLS ? 'wss' : 'ws';
 server.listen(listenPort, HOST, () => {
-  console.log(`PeerM signaling server listening on ${HOST}:${listenPort} (${scheme})`);
+  console.log(`Pear Music signaling server listening on ${HOST}:${listenPort} (${scheme})`);
   console.log(`  ${scheme}://localhost:${listenPort}`);
   if (USE_TLS) console.log(`  plain HTTP→WSS redirect on ${HOST}:${PORT}`);
   console.log(`  persistent state: ${DATA_FILE}`);

@@ -1,17 +1,21 @@
-# peerm_app
+# Pear Music
 
-A new Flutter project.
+The Pear Music client, built with Flutter for Windows and Android (one
+codebase). See the [root README](../README.md) for what the app does, how to
+run the server, and how pairing works.
 
-## Getting Started
+## Running
 
-This project is a starting point for a Flutter application.
+```bash
+flutter pub get
+flutter run -d windows          # or: flutter run -d <android-device-id>
+```
 
-A few resources to get you started if this is your first Flutter project:
+Open the app's Settings and set the signaling server URL and a device name
+before pairing.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Tests
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter test
+```

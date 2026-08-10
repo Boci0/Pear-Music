@@ -45,17 +45,17 @@ Future<void> main() async {
   // after calling close" as an unhandled exception. Sync keeps working over the
   // relay; the error is still recorded in the logs.
   FlutterError.onError = (details) {
-    debugPrint('[peerm] FlutterError: ${details.exception}');
+    debugPrint('[pearmusic] FlutterError: ${details.exception}');
     // details.toString() includes the relevant error-causing widget, which is
     // how we find RenderFlex overflow locations on this device (screencap is
     // black for Flutter content, so the widget chain is the only clue).
-    debugPrint('[peerm] ${details.toString()}');
-    debugPrint('[peerm] ${details.stack}');
+    debugPrint('[pearmusic] ${details.toString()}');
+    debugPrint('[pearmusic] ${details.stack}');
   };
   WidgetsBinding.instance.platformDispatcher.onError =
       (Object error, StackTrace stack) {
-    debugPrint('[peerm] Unhandled exception: $error');
-    debugPrint('[peerm] $stack');
+    debugPrint('[pearmusic] Unhandled exception: $error');
+    debugPrint('[pearmusic] $stack');
     return true; // handled — keep the app alive
   };
 
@@ -79,13 +79,13 @@ Future<void> main() async {
 
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);
-  runApp(PeerMApp(controller: controller, playerTheme: playerTheme));
+  runApp(PearMusicApp(controller: controller, playerTheme: playerTheme));
 }
 
-class PeerMApp extends StatelessWidget {
+class PearMusicApp extends StatelessWidget {
   final AppController controller;
   final PlayerTheme playerTheme;
-  const PeerMApp({
+  const PearMusicApp({
     super.key,
     required this.controller,
     required this.playerTheme,

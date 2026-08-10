@@ -1,6 +1,6 @@
-# PeerM Signaling Server
+# Pear Music Signaling Server
 
-A tiny WebSocket server that makes PeerM pairing work over the internet.
+A tiny WebSocket server that makes Pear Music pairing work over the internet.
 
 It does **not** transfer music. It only:
 
@@ -9,7 +9,8 @@ It does **not** transfer music. It only:
 3. relays WebRTC signaling (SDP offer/answer + ICE) between paired devices,
 4. tracks presence and propagates unpairing.
 
-Music files flow device-to-device over WebRTC, never through this server.
+Music files sync device-to-device over an end-to-end encrypted relay; this
+server only passes the encrypted bytes and never stores them.
 
 ## Run locally
 
@@ -29,10 +30,10 @@ for all your devices. A few options:
 
 1. New → Web Service → point at this `server/` folder.
 2. Build: `npm install` · Start: `npm start`.
-3. It gives you `https://<name>.onrender.com` — use `wss://<name>.onrender.com`
+3. It gives you `https://<name>.onrender.com`; use `wss://<name>.onrender.com`
    in the app's Settings (the host handles TLS termination for `wss://`).
 
-**Railway / Fly.io / VPS** — same idea: run `node src/index.js` and expose port 8080.
+**Railway / Fly.io / VPS**: same idea, run `node src/index.js` and expose port 8080.
 
 **Home network (no public hosting)**
 
@@ -53,7 +54,7 @@ PEERM_TLS_KEY=/path/key.pem PEERM_TLS_CERT=/path/cert.pem npm start
 ```
 
 Then point the app's Settings at `wss://<host>:8443` (or `wss://<host>` if a
-reverse proxy like Caddy/Render terminates TLS for you — the server already
+reverse proxy like Caddy/Render terminates TLS for you (the server already
 trusts `x-forwarded-for`).
 
 Other built-in hardening (always on): device-auth secrets issued at first

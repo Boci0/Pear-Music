@@ -10,10 +10,10 @@ import 'package:path_provider/path_provider.dart';
 /// Generates (once) a default album-art placeholder PNG and returns its
 /// [Uri] for use as [MediaItem.artUri].
 ///
-/// The songs in the PeerM library are raw audio files with no embedded cover
+/// The songs in the Pear Music library are raw audio files with no embedded cover
 /// art, so without this the Android media notification falls back to rendering
 /// the app's launcher icon as a large, off-looking placeholder. This renders
-/// the app's pear icon instead, so the notification reads as PeerM (and the
+/// the app's pear icon instead, so the notification reads as Pear Music (and the
 /// large notification icon is the same pear as the app icon).
 ///
 /// The PNG is rendered once with `dart:ui` (same pear geometry as

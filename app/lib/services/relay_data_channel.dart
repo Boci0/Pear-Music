@@ -11,7 +11,7 @@ import 'signaling_service.dart';
 ///
 /// It presents the same [RTCDataChannel] interface the [SyncService] already
 /// uses, so the sync engine is unchanged. This is the fallback that keeps
-/// PeerM working on networks where WebRTC is unstable (e.g. phone hotspots).
+/// Pear Music working on networks where WebRTC is unstable (e.g. phone hotspots).
 ///
 /// Control messages travel as JSON text; binary chunks are sent as raw binary
 /// WebSocket frames (no base64 → ~33% less bandwidth) with server acks for
@@ -35,7 +35,7 @@ class RelayDataChannel extends RTCDataChannel {
   int? get id => -1;
 
   @override
-  String? get label => 'peerm-relay';
+  String? get label => 'pearmusic-relay';
 
   @override
   int? get bufferedAmount => 0;

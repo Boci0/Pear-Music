@@ -496,13 +496,13 @@ class AppController extends ChangeNotifier {
           .timeout(const Duration(minutes: 7));
     } catch (e) {
       error = e;
-      debugPrint('[peerm] yt-dlp download failed: $e');
+      debugPrint('[pearmusic] yt-dlp download failed: $e');
     }
 
     if (song == null) {
       if (error is DownloadCancelledException) return 'Cancelled.';
       if (error == null) return 'That track is already in your library.';
-      debugPrint('[peerm] addFromLink final error: $error');
+      debugPrint('[pearmusic] addFromLink final error: $error');
       return _friendlyDownloadError(error);
     }
     unawaited(sync.broadcastSong(song));

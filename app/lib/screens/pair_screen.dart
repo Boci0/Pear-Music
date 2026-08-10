@@ -134,7 +134,7 @@ class _PairScreenState extends State<PairScreen> {
           child: Column(
             children: [
               QrImageView(
-                data: 'peerm://pair/$code',
+                data: 'pearmusic://pair/$code',
                 version: QrVersions.auto,
                 size: 180,
                 backgroundColor: Colors.white,

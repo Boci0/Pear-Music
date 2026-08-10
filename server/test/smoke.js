@@ -1,5 +1,5 @@
 /**
- * Quick smoke test for the PeerM signaling server.
+ * Quick smoke test for the Pear Music signaling server.
  * Simulates two devices: A (host) creates a pairing code, B enters it,
  * then they exchange a WebRTC signal through the server, then unpair.
  *

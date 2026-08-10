@@ -5,7 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 ///
 /// Points the camera at the QR shown on the other device and returns the
 /// pairing code via [Navigator.pop]. It accepts either a raw 6-character code
-/// or the `peerm://pair/<code>` deep link that the host QR encodes, so the
+/// or the `pearmusic://pair/<code>` deep link that the host QR encodes, so the
 /// host and join flows stay symmetric.
 class QrScanScreen extends StatefulWidget {
   const QrScanScreen({super.key});
@@ -43,11 +43,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
     }
   }
 
-  /// Pulls the 6-char pairing code out of a raw code or a `peerm://pair/…`
+  /// Pulls the 6-char pairing code out of a raw code or a `pearmusic://pair/…`
   /// deep link. Returns null if the value isn't a valid pairing code.
   String? _extractPairingCode(String raw) {
     final trimmed = raw.trim();
-    const prefix = 'peerm://pair/';
+    const prefix = 'pearmusic://pair/';
     if (trimmed.startsWith(prefix)) {
       final code = trimmed.substring(prefix.length).trim().toUpperCase();
       return code.length == 6 ? code : null;
