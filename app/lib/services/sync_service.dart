@@ -66,7 +66,7 @@ class SyncService extends ChangeNotifier {
   /// While channels are attached, re-advertise our library every this often so
   /// a transfer that failed (dropped chunk, abort, sender hiccup) is re-requested
   /// automatically instead of waiting for a full reconnect + manifest exchange.
-  static const Duration resyncInterval = Duration(seconds: 45);
+  static const Duration resyncInterval = Duration(seconds: 5);
 
   final IdentityService identity;
   final LibraryService library;
@@ -75,7 +75,18 @@ class SyncService extends ChangeNotifier {
     required this.identity,
     required this.library,
     this.incomingTimeout = const Duration(seconds: 120),
-  });
+  }) {
+    library.addListener(_onLibraryChanged);
+  }
+
+  void _onLibraryChanged() {
+    if (_channels.isNotEmpty) {
+      _resyncManifests();
+    }
+  }
+
+  /// Returns true when there are no active or pending transfers.
+  bool get isIdle => _incoming.isEmpty && _sending.isEmpty;
 
   Timer? _resyncTimer;
 
@@ -174,6 +185,14 @@ class SyncService extends ChangeNotifier {
   /// is re-requested automatically. Cheap (small JSON) and idempotent — the
   /// peer's `_onManifest` only requests what it genuinely lacks, and in-flight
   /// sends are deduped by the per-peer `_sending` guard.
+  /// Demand manifests from all connected peers immediately.
+  void demandManifests() {
+    if (_channels.isEmpty) return;
+    for (final peerId in _channels.keys.toList()) {
+      _send(peerId, {'type': 'get_manifest'});
+    }
+  }
+
   void _resyncManifests() {
     if (_channels.isEmpty) return;
     for (final peerId in _channels.keys.toList()) {
@@ -238,6 +257,13 @@ class SyncService extends ChangeNotifier {
         // The peer announced itself. Reply with our manifest so both sides
         // always exchange library state, even if our initial manifest was
         // sent before their channel handler was attached.
+        _send(peerId, {
+          'type': 'manifest',
+          'songs': library.songs.map((s) => s.toJson()).toList(),
+        });
+        _send(peerId, _playlistManifestMessage());
+        break;
+      case 'get_manifest':
         _send(peerId, {
           'type': 'manifest',
           'songs': library.songs.map((s) => s.toJson()).toList(),
@@ -608,6 +634,7 @@ class SyncService extends ChangeNotifier {
       _finalizeRetries.remove(songId);
       _markComplete(peerId, songId);
       onDownloaded?.call(inc.song.title);
+      demandManifests();
     } catch (e) {
       debugPrint('[sync] finalize failed $songId: $e');
       try {
@@ -647,6 +674,7 @@ class SyncService extends ChangeNotifier {
       }
     } catch (_) {}
     _removeProgress(peerId, songId);
+    demandManifests();
   }
 
   // ---------- helpers ----------
@@ -847,6 +875,7 @@ class SyncService extends ChangeNotifier {
 
   @override
   void dispose() {
+    library.removeListener(_onLibraryChanged);
     _resyncTimer?.cancel();
     _resyncTimer = null;
     _notifyTimer?.cancel();

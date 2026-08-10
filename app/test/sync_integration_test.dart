@@ -472,6 +472,33 @@ void main() {
     await syncA.idle;
     await syncB.idle;
   });
+
+  test('demandManifests triggers get_manifest and isIdle is true when synced', () async {
+    await libA.addLocalFiles([makeAudio('demand.mp3', 100 * 1024)]);
+    final song = libA.songs.first;
+
+    final chA = _FakeChannel();
+    final chB = _FakeChannel();
+    chA.otherSide = chB;
+    chB.otherSide = chA;
+
+    syncA.attachChannel('device-B', chA);
+    syncB.attachChannel('device-A', chB);
+
+    expect(syncA.isIdle, isTrue);
+    expect(syncB.isIdle, isTrue);
+
+    syncB.demandManifests();
+
+    await waitFor(() => libB.findById(song.id) != null,
+        timeout: const Duration(seconds: 10));
+
+    expect(syncA.isIdle, isTrue);
+    expect(syncB.isIdle, isTrue);
+
+    await syncA.idle;
+    await syncB.idle;
+  });
 }
 
 /// Fire-and-forget wrapper so tests read cleanly.
