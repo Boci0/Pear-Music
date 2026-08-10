@@ -138,7 +138,7 @@ class PearMusicApp extends StatelessWidget {
           // the home route in AnimatedTheme while MaterialApp.theme snapped, so
           // pushed screens (player, playlists, settings) changed colour abruptly.
           return TweenAnimationBuilder<ThemeData>(
-            tween: Tween<ThemeData>(begin: theme, end: theme),
+            tween: _ThemeTween(begin: theme, end: theme),
             duration: const Duration(milliseconds: 700),
             curve: Curves.easeInOutCubic,
             builder: (context, animatedTheme, _) => MaterialApp(
@@ -152,6 +152,18 @@ class PearMusicApp extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A [Tween] for [ThemeData] that delegates to [ThemeData.lerp]. The generic
+/// [Tween.lerp] does arithmetic (`begin + (end - begin) * t`), which [ThemeData]
+/// doesn't support — it throws "Cannot lerp between ThemeData#..." and shows a
+/// red error screen the moment the song colour changes. Using [ThemeData.lerp]
+/// is what actually fades the whole app's colour scheme smoothly.
+class _ThemeTween extends Tween<ThemeData> {
+  _ThemeTween({super.begin, super.end});
+
+  @override
+  ThemeData lerp(double t) => ThemeData.lerp(begin!, end!, t);
 }
 
 /// Shows controller.messages as SnackBars.
