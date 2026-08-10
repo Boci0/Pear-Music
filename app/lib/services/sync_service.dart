@@ -52,15 +52,40 @@ class TransferProgress {
 class SyncService extends ChangeNotifier {
   static const int chunkSize = 64 * 1024;
 
+  /// How long an in-progress download may sit without finishing before it is
+  /// aborted. A peer that dies mid-transfer (or a chunk that never arrives)
+  /// must not leak an open file handle or a partial file forever — the song is
+  /// re-requested and healed instead. Configurable for tests.
+  final Duration incomingTimeout;
+
+  /// How many times a failed finalize re-requests the song from the sender
+  /// before giving up (prevents an infinite request/re-send loop when the
+  /// sender genuinely cannot deliver).
+  static const int maxFinalizeRetries = 2;
+
+  /// While channels are attached, re-advertise our library every this often so
+  /// a transfer that failed (dropped chunk, abort, sender hiccup) is re-requested
+  /// automatically instead of waiting for a full reconnect + manifest exchange.
+  static const Duration resyncInterval = Duration(seconds: 45);
+
   final IdentityService identity;
   final LibraryService library;
 
-  SyncService({required this.identity, required this.library});
+  SyncService({
+    required this.identity,
+    required this.library,
+    this.incomingTimeout = const Duration(seconds: 120),
+  });
+
+  Timer? _resyncTimer;
 
   final Map<String, RTCDataChannel> _channels = {};
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, bool> _sending = {};
   final Map<String, TransferProgress> _transfers = {};
+
+  /// Retry count per song for failed finalizes (see [maxFinalizeRetries]).
+  final Map<String, int> _finalizeRetries = {};
 
   /// Transfers that just finished, kept around briefly so the UI can animate a
   /// "done" state before they disappear.
@@ -135,15 +160,44 @@ class SyncService extends ChangeNotifier {
     // Advertise our playlists (and deletions) so both sides converge.
     _send(peerId, _playlistManifestMessage());
     notifyListeners();
+    _startResyncTimer();
+  }
+
+  /// Keeps a periodic re-advertisement running while any channel is attached.
+  void _startResyncTimer() {
+    _resyncTimer?.cancel();
+    _resyncTimer = Timer.periodic(resyncInterval, (_) => _resyncManifests());
+  }
+
+  /// Re-advertise our library + playlists to every online peer so anything the
+  /// peer is still missing (a transfer that failed and exhausted its retries)
+  /// is re-requested automatically. Cheap (small JSON) and idempotent — the
+  /// peer's `_onManifest` only requests what it genuinely lacks, and in-flight
+  /// sends are deduped by the per-peer `_sending` guard.
+  void _resyncManifests() {
+    if (_channels.isEmpty) return;
+    for (final peerId in _channels.keys.toList()) {
+      _send(peerId, {
+        'type': 'manifest',
+        'songs': library.songs.map((s) => s.toJson()).toList(),
+      });
+      _send(peerId, _playlistManifestMessage());
+    }
   }
 
   void detachChannel(String peerId) {
     _channels.remove(peerId);
+    if (_channels.isEmpty) {
+      _resyncTimer?.cancel();
+      _resyncTimer = null;
+    }
     // Clean up partial downloads from this peer.
     final incomplete =
         _incoming.values.where((inc) => inc.peerId == peerId).toList();
     for (final inc in incomplete) {
+      inc.timeoutTimer?.cancel();
       _incoming.remove(inc.song.id);
+      _finalizeRetries.remove(inc.song.id);
       try {
         library.incomingFile(inc.song.id).deleteSync();
       } catch (_) {}
@@ -191,12 +245,15 @@ class SyncService extends ChangeNotifier {
         _send(peerId, _playlistManifestMessage());
         break;
       case 'manifest':
+        debugPrint('[sync][diag] <- $peerId: manifest (${(msg['songs'] as List?)?.length ?? 0} songs)');
         _onManifest(peerId, msg['songs'] as List? ?? []);
         break;
       case 'request_songs':
+        debugPrint('[sync][diag] <- $peerId: request_songs (${(msg['ids'] as List?)?.length ?? 0})');
         _onRequestSongs(peerId, msg['ids'] as List? ?? []);
         break;
       case 'file_meta':
+        debugPrint('[sync][diag] <- $peerId: file_meta (${(msg['song'] as Map)['title'] ?? '?'})');
         _startIncoming(peerId, msg['song'] as Map<String, dynamic>);
         break;
       case 'file_done':
@@ -246,7 +303,10 @@ class SyncService extends ChangeNotifier {
       }
     }
     if (missing.isNotEmpty) {
+      debugPrint('[sync][diag] requesting $missing.length missing songs from $peerId');
       _send(peerId, {'type': 'request_songs', 'ids': missing});
+    } else {
+      debugPrint('[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised, have ${have.length})');
     }
   }
 
@@ -356,6 +416,7 @@ class SyncService extends ChangeNotifier {
     // Duplicate?
     if (library.findById(song.id) != null ||
         library.songs.any((s) => s.checksum == song.checksum)) {
+      debugPrint('[sync][diag] file_meta for ${song.title} already have; skipping');
       // We already have it; skip.
       _send(peerId, {'type': 'file_done', 'id': song.id});
       return;
@@ -363,12 +424,23 @@ class SyncService extends ChangeNotifier {
     final file = library.incomingFile(song.id);
     if (file.existsSync()) file.deleteSync();
     final raf = file.openSync(mode: FileMode.append);
-    _incoming[song.id] = _IncomingFile(
+    final inc = _IncomingFile(
       peerId: peerId,
       song: song,
       file: file,
       raf: raf,
     );
+    // Abort the transfer if it stalls (the peer died / its `file_done` never
+    // arrives / chunks stop coming). This is an INACTIVITY watchdog: it is
+    // reset on every chunk in `_onBinary`, so a slow-but-progressing transfer
+    // is never cut short — only a truly stalled one is cleaned up instead of
+    // leaking an open file handle / partial file forever.
+    inc.timeoutTimer = Timer(incomingTimeout, () {
+      inc.timeoutTimer = null;
+      debugPrint('[sync] incoming ${song.id} timed out; aborting');
+      _track(_abortIncoming(peerId, song.id));
+    });
+    _incoming[song.id] = inc;
     _setProgress(TransferProgress(
       peerId: peerId,
       songId: song.id,
@@ -379,7 +451,10 @@ class SyncService extends ChangeNotifier {
   }
 
   void _onBinary(String peerId, Uint8List bytes) {
-    if (bytes.isEmpty || bytes[0] != 0x50) return;
+    if (bytes.isEmpty || bytes[0] != 0x50) {
+      debugPrint('[sync][diag] <- $peerId: binary frame NOT an envelope (len=${bytes.length}, first=${bytes.isEmpty ? 'none' : bytes[0]})');
+      return;
+    }
     var off = 1;
     if (bytes.length < 3) return;
     final idLen = (bytes[off] << 8) | bytes[off + 1];
@@ -394,10 +469,26 @@ class SyncService extends ChangeNotifier {
     final payload = bytes.sublist(off);
 
     final inc = _incoming[songId];
-    if (inc == null) return;
+    if (inc == null) {
+      debugPrint('[sync][diag] <- $peerId: chunk for UNKNOWN song $songId idx=$index/$total dropped');
+      return;
+    }
+    if (index == 0 || index == total - 1) {
+      debugPrint('[sync][diag] <- $peerId: chunk $songId idx=$index/$total (${payload.length} bytes)');
+    }
 
     inc.raf.writeFromSync(payload);
     inc.bytesReceived += payload.length;
+    // Reset the inactivity watchdog: any chunk means the transfer is alive.
+    // A fixed total timeout could abort a large song on a slow link, so this
+    // only fires when the transfer stalls (the peer died / chunks stopped
+    // arriving) — then the partial download is cleaned up, not leaked.
+    inc.timeoutTimer?.cancel();
+    inc.timeoutTimer = Timer(incomingTimeout, () {
+      inc.timeoutTimer = null;
+      debugPrint('[sync] incoming $songId timed out; aborting');
+      _track(_abortIncoming(peerId, songId));
+    });
     final progress = _transfers[TransferProgress(
       peerId: peerId,
       songId: songId,
@@ -440,6 +531,8 @@ class SyncService extends ChangeNotifier {
   Future<void> _finalizeIncoming(String peerId, String songId) async {
     final inc = _incoming.remove(songId);
     if (inc == null) return;
+    inc.timeoutTimer?.cancel();
+    inc.timeoutTimer = null;
     try {
       inc.raf.closeSync();
       final length = await inc.file.length();
@@ -455,6 +548,7 @@ class SyncService extends ChangeNotifier {
         sourceDeviceId: peerId,
         artwork: inc.song.artwork,
       );
+      _finalizeRetries.remove(songId);
       _markComplete(peerId, songId);
       onDownloaded?.call(inc.song.title);
     } catch (e) {
@@ -463,12 +557,31 @@ class SyncService extends ChangeNotifier {
         await inc.file.delete();
       } catch (_) {}
       _removeProgress(peerId, songId);
+      // Self-heal: a failed finalize almost always means a chunk was dropped
+      // (a lost relay_ack, a mis-routed frame, or a stale E2E key raced the
+      // re-derivation). Re-request the song from the sender (up to
+      // [maxFinalizeRetries] times) so the transfer retries instead of
+      // silently vanishing until the next reconnect + manifest exchange.
+      final retries = (_finalizeRetries[songId] ?? 0) + 1;
+      if (retries <= maxFinalizeRetries) {
+        _finalizeRetries[songId] = retries;
+        debugPrint(
+            '[sync] re-requesting $songId from $peerId (attempt $retries/$maxFinalizeRetries)');
+        _send(peerId, {'type': 'request_songs', 'ids': [songId]});
+      } else {
+        _finalizeRetries.remove(songId);
+        debugPrint(
+            '[sync] giving up on $songId after $maxFinalizeRetries failed attempts');
+      }
     }
   }
 
   Future<void> _abortIncoming(String peerId, String songId) async {
     final inc = _incoming.remove(songId);
     if (inc == null) return;
+    inc.timeoutTimer?.cancel();
+    inc.timeoutTimer = null;
+    _finalizeRetries.remove(songId);
     try {
       inc.raf.closeSync();
       await inc.file.delete();
@@ -674,10 +787,16 @@ class SyncService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _resyncTimer?.cancel();
+    _resyncTimer = null;
     _notifyTimer?.cancel();
     _notifyTimer = null;
     _completedTimer?.cancel();
     _completedTimer = null;
+    for (final inc in _incoming.values) {
+      inc.timeoutTimer?.cancel();
+    }
+    _incoming.clear();
     super.dispose();
   }
 }
@@ -689,6 +808,10 @@ class _IncomingFile {
   final RandomAccessFile raf;
   int bytesReceived = 0;
   bool completeChunks = false;
+
+  /// Aborts this download if it never finishes (see
+  /// [SyncService.incomingTimeout]). Cancelled on finalize/abort/detach.
+  Timer? timeoutTimer;
 
   _IncomingFile({
     required this.peerId,

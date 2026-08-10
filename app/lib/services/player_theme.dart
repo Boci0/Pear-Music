@@ -21,37 +21,53 @@ class PlayerTheme extends ChangeNotifier {
   ThemeData _theme = _build(ArtworkPalette.fallback);
   ThemeData get theme => _theme;
 
+  /// Song id whose colour is currently applied. Guards against re-resolving the
+  /// artwork colour on every player notify — play/pause/seek fire constantly,
+  /// but the colour only needs to change when the SONG changes.
+  String? _appliedSongId;
+
   static final Map<Color, ThemeData> _cache = {};
+  static const int _cacheMax = 32;
 
   static ThemeData _build(Color accent) {
     final control = ArtworkPalette.controlAccent(accent);
-    return _cache.putIfAbsent(control, () {
-      final scheme = ColorScheme.fromSeed(
-        seedColor: control,
-        brightness: Brightness.dark,
-      );
-      return ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
+    final cached = _cache[control];
+    if (cached != null) return cached;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: control,
+      brightness: Brightness.dark,
+    );
+    final built = ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: const Color(0xFF121212),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      cardTheme: CardThemeData(
+        color: const Color(0xFF1E1E1E),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
         ),
-        cardTheme: CardThemeData(
-          color: const Color(0xFF1E1E1E),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
-          ),
-        ),
-      );
-    });
+      ),
+    );
+    // Bounded cache: evict the oldest accent so the cache can't grow without
+    // bound as more songs with distinct artwork colours are played.
+    if (_cache.length >= _cacheMax) {
+      _cache.remove(_cache.keys.first);
+    }
+    _cache[control] = built;
+    return built;
   }
 
   void _onPlayerChanged() {
     final song = _player.currentSong;
+    final id = song?.id;
+    if (id == _appliedSongId) return; // same song — colour already applied
+    _appliedSongId = id;
     if (song == null) {
       // Nothing playing -> back to the default purple theme.
       _apply(ArtworkPalette.fallback);

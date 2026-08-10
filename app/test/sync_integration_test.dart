@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/sync_service.dart';
@@ -14,7 +16,7 @@ import 'package:peerm_app/services/sync_service.dart';
 class _FakeChannel extends RTCDataChannel {
   _FakeChannel();
 
-  _FakeChannel? otherSide;
+  RTCDataChannel? otherSide;
 
   @override
   RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
@@ -30,6 +32,42 @@ class _FakeChannel extends RTCDataChannel {
 
   @override
   Future<void> send(RTCDataChannelMessage message) async {
+    otherSide?.onMessage?.call(message);
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+/// A fake channel that drops the FIRST binary frame it sends (simulating a
+/// lost relayed chunk — e.g. a dropped relay_ack or a mis-routed frame) and
+/// forwards everything after. Used to prove a failed finalize self-heals via a
+/// re-request.
+class _DropOnceChannel extends RTCDataChannel {
+  _DropOnceChannel();
+
+  RTCDataChannel? otherSide;
+  bool _dropNextBinary = true;
+
+  @override
+  RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
+
+  @override
+  int? get id => 1;
+
+  @override
+  String? get label => 'peerm';
+
+  @override
+  int? get bufferedAmount => 0;
+
+  @override
+  Future<void> send(RTCDataChannelMessage message) async {
+    if (message.isBinary && _dropNextBinary) {
+      // This chunk never reaches the peer (lost relay frame / lost ack).
+      _dropNextBinary = false;
+      return;
+    }
     otherSide?.onMessage?.call(message);
   }
 
@@ -328,6 +366,80 @@ void main() {
     // Let the receiver's async finalize (index write) finish before teardown.
     await syncA.idle;
     await syncB.idle;
+  });
+
+  test('a dropped chunk self-heals: failed finalize re-requests the song',
+      () async {
+    // A song big enough to span several chunks (200 KB -> 4 chunks). The first
+    // chunk is dropped, so B's first finalize fails on a size mismatch and it
+    // re-requests the song — which then arrives intact.
+    await libA.addLocalFiles([makeAudio('retry.mp3', 200_000)]);
+
+    final chA = _DropOnceChannel();
+    final chB = _FakeChannel();
+    chA.otherSide = chB;
+    chB.otherSide = chA;
+    syncA.attachChannel('device-B', chA);
+    syncB.attachChannel('device-A', chB);
+
+    // B pulls the song (manifest -> request_songs); the dropped chunk makes
+    // the first finalize fail, but the re-request completes the transfer.
+    await waitFor(() => libB.songs.length == 1);
+    expect(libB.songs.first.sourceDeviceId, 'device-A');
+
+    final orig = await libA.songFile(libA.songs.first).readAsBytes();
+    final copy = await libB.songFile(libB.songs.first).readAsBytes();
+    expect(orig.length, copy.length);
+    expect(orig, copy);
+
+    await syncA.idle;
+    await syncB.idle;
+  });
+
+  test('a stalled download times out and cleans up the partial file',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'peerm_device_id': 'device-T',
+      'peerm_device_name': 'Device T',
+    });
+    final idT = IdentityService(await SharedPreferences.getInstance());
+    final tempDir = await Directory.systemTemp.createTemp('peerm-timeout-test');
+    final lib = LibraryService()..debugBaseDirectory = tempDir;
+    await lib.init();
+    final sync = SyncService(
+      identity: idT,
+      library: lib,
+      incomingTimeout: const Duration(milliseconds: 250),
+    );
+
+    final ch = _FakeChannel();
+    sync.attachChannel('device-A', ch);
+
+    // The peer sends a file_meta but never any chunks or file_done (it died
+    // mid-transfer). The download must time out and clean up its partial file
+    // instead of leaking an open handle / orphan file forever.
+    final song = Song(
+      id: 'stalled-1',
+      title: 'Stalled',
+      fileName: 'stalled.mp3',
+      size: 500_000,
+      checksum: 'stall-checksum',
+      addedAt: DateTime.now(),
+    );
+    ch.onMessage?.call(RTCDataChannelMessage(jsonEncode({
+      'type': 'file_meta',
+      'song': song.toJson(),
+    })));
+
+    expect(sync.transfers, isNotEmpty,
+        reason: 'the download should start in-progress');
+    await waitFor(() => sync.transfers.isEmpty,
+        timeout: const Duration(seconds: 10));
+    expect(File(lib.incomingFile(song.id).path).existsSync(), isFalse,
+        reason: 'the timed-out partial file must be deleted');
+
+    await sync.idle;
+    await tempDir.delete(recursive: true);
   });
 }
 

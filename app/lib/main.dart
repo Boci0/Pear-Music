@@ -131,15 +131,21 @@ class PearMusicApp extends StatelessWidget {
       child: Builder(
         builder: (context) {
           final theme = context.watch<PlayerTheme>().theme;
-          return MaterialApp(
-            title: 'Pear Music',
-            debugShowCheckedModeBanner: false,
-            theme: theme,
-            home: AnimatedTheme(
-              data: theme,
-              duration: const Duration(milliseconds: 650),
-              curve: Curves.easeInOutCubic,
-              child: const _MessagesListener(child: HomeShell()),
+          // Fade the WHOLE app to the new song colour — every route, dialog and
+          // the player — by animating MaterialApp.theme itself. TweenAnimationBuilder
+          // lerps ThemeData via ThemeData.lerp (which lerps the colorScheme), so
+          // the shift is smooth instead of snapping. The old approach only wrapped
+          // the home route in AnimatedTheme while MaterialApp.theme snapped, so
+          // pushed screens (player, playlists, settings) changed colour abruptly.
+          return TweenAnimationBuilder<ThemeData>(
+            tween: Tween<ThemeData>(begin: theme, end: theme),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeInOutCubic,
+            builder: (context, animatedTheme, _) => MaterialApp(
+              title: 'Pear Music',
+              debugShowCheckedModeBanner: false,
+              theme: animatedTheme,
+              home: const _MessagesListener(child: HomeShell()),
             ),
           );
         },

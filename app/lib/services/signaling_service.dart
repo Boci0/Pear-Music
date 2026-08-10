@@ -157,6 +157,7 @@ class SignalingService {
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
     await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
+    debugPrint('[diag] decryptTextFor hasKey=${key != null}');
     if (key == null) return null;
     try {
       final raw = base64Decode(b64);
@@ -300,6 +301,7 @@ class SignalingService {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
+          debugPrint('[diag] raw type=${decoded['type']} from=${decoded['from']}');
           if (decoded['type'] == 'relay_ack') {
             // Backpressure signal: our in-flight binary frame was relayed, so
             // the next chunk may go out.

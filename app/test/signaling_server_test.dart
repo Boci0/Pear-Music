@@ -322,5 +322,106 @@ void main() {
         await s.stop();
       }
     });
+
+    test(
+        'register prunes an offline pairing the client no longer reports '
+        '(ghost cleanup)', () async {
+      final a = await connect(port); // the PC
+      final ghost = await connect(port); // the old phone (will never return)
+
+      a.sendText({'type': 'register', 'deviceId': 'PC', 'deviceName': 'PC'});
+      await a.nextJson('registered');
+      ghost.sendText(
+          {'type': 'register', 'deviceId': 'GHOST', 'deviceName': 'Phone'});
+      await ghost.nextJson('registered');
+
+      // Pair GHOST with PC.
+      a.sendText({'type': 'create_pairing'});
+      final created = await a.nextJson('pairing_created');
+      ghost.sendText(
+          {'type': 'pair_with_code', 'code': created['code'] as String});
+      await ghost.nextJson('paired');
+      await a.nextJson('paired');
+
+      // The ghost "dies" (its identity was reset): it disconnects and never
+      // returns, but its persisted pairing to PC lingers.
+      await ghost.close();
+
+      // PC reconnects and reports ONLY its live pairing (the new phone); the
+      // ghost is gone from its list. The server must reconcile: the ghost
+      // (offline and unreported) is pruned from the persisted pairing so it can
+      // never resurrect via another host's state file.
+      final a2 = await connect(port);
+      a2.sendText({
+        'type': 'register',
+        'deviceId': 'PC',
+        'deviceName': 'PC',
+        'pairings': [
+          {'deviceId': 'PHONE', 'deviceName': 'My Phone'},
+        ],
+      });
+      await a2.nextJson('registered');
+      await a2.nextJson('state'); // drain the state sent right after register
+      a2.sendText({'type': 'get_state'});
+      final state = await a2.nextJson('state');
+      final ids = (state['pairings'] as List)
+          .whereType<Map>()
+          .map((p) => p['deviceId'])
+          .toList();
+      expect(ids, contains('PHONE'),
+          reason: 'the live reported pairing must be kept');
+      expect(ids, isNot(contains('GHOST')),
+          reason: 'an offline pairing the client no longer reports is a ghost '
+              'and must be pruned so it cannot resurrect');
+      await a2.close();
+    });
+
+    test('an offline peer not seen within the grace is hidden from state',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('peerm-ghost-grace');
+      final stateFile = File('${dir.path}/state.json');
+      stateFile.writeAsStringSync(jsonEncode({
+        'pairings': [
+          ['PC', 'GHOST'],
+        ],
+        'names': {'PC': 'PC', 'GHOST': 'Ghost'},
+        'secrets': <String, String>{},
+        'lastSeen': {
+          'PC': DateTime.now().toIso8601String(),
+          // GHOST last connected 10 days ago — beyond the offline-report grace.
+          'GHOST':
+              DateTime.now().subtract(const Duration(days: 10)).toIso8601String(),
+        },
+      }));
+
+      final s = SignalingServer(port: 0, host: '127.0.0.1', stateFile: stateFile);
+      await s.start();
+      try {
+        final pc = await connect(s.boundPort);
+        // Even though the client STILL reports the ghost, the server hides it
+        // (its lastSeen is beyond the grace) so the client drops it from its
+        // list and stops re-reporting it — the ghost cleans itself up.
+        pc.sendText({
+          'type': 'register',
+          'deviceId': 'PC',
+          'deviceName': 'PC',
+          'pairings': [
+            {'deviceId': 'GHOST', 'deviceName': 'Ghost'},
+          ],
+        });
+        await pc.nextJson('registered');
+        final state = await pc.nextJson('state');
+        final ids = (state['pairings'] as List)
+            .whereType<Map>()
+            .map((p) => p['deviceId'])
+            .toList();
+        expect(ids, isNot(contains('GHOST')),
+            reason: 'a long-gone offline peer must be hidden from state');
+        await pc.close();
+      } finally {
+        await s.stop();
+        await dir.delete(recursive: true);
+      }
+    });
   });
 }
