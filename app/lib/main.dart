@@ -163,7 +163,17 @@ class _ThemeTween extends Tween<ThemeData> {
   _ThemeTween({super.begin, super.end});
 
   @override
-  ThemeData lerp(double t) => ThemeData.lerp(begin!, end!, t);
+  ThemeData lerp(double t) {
+    // Fade by lerping ONLY the ColorScheme and rebuilding the theme from it.
+    // ThemeData.lerp is deliberately NOT used: it binary-switches a few derived
+    // component themes at t=0.5 (t < 0.5 ? a.x : b.x), which makes the colour
+    // SNAP at the midpoint on desktop when the two accents are very different.
+    // ColorScheme.lerp is fully continuous, and PlayerTheme.buildFromScheme
+    // recomputes derived colours from the animated scheme so everything fades.
+    final a = begin!, b = end!;
+    final scheme = ColorScheme.lerp(a.colorScheme, b.colorScheme, t);
+    return PlayerTheme.buildFromScheme(scheme);
+  }
 }
 
 /// Shows controller.messages as SnackBars.

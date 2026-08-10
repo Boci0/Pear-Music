@@ -29,15 +29,14 @@ class PlayerTheme extends ChangeNotifier {
   static final Map<Color, ThemeData> _cache = {};
   static const int _cacheMax = 32;
 
-  static ThemeData _build(Color accent) {
-    final control = ArtworkPalette.controlAccent(accent);
-    final cached = _cache[control];
-    if (cached != null) return cached;
-    final scheme = ColorScheme.fromSeed(
-      seedColor: control,
-      brightness: Brightness.dark,
-    );
-    final built = ThemeData(
+  /// Builds the app theme around [scheme]: the fixed dark structure (scaffold,
+  /// card, app bar) plus this color scheme. BOTH the per-song target theme and
+  /// every animation frame of a colour transition go through here, so derived
+  /// colours (primaryColor, textTheme, iconTheme, inputDecorationTheme, ...)
+  /// always match the scheme being shown. That keeps the transition a smooth
+  /// fade instead of a snap at the halfway point.
+  static ThemeData buildFromScheme(ColorScheme scheme) {
+    return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: const Color(0xFF121212),
@@ -54,6 +53,16 @@ class PlayerTheme extends ChangeNotifier {
         ),
       ),
     );
+  }
+
+  static ThemeData _build(Color accent) {
+    final control = ArtworkPalette.controlAccent(accent);
+    final cached = _cache[control];
+    if (cached != null) return cached;
+    final built = buildFromScheme(ColorScheme.fromSeed(
+      seedColor: control,
+      brightness: Brightness.dark,
+    ));
     // Bounded cache: evict the oldest accent so the cache can't grow without
     // bound as more songs with distinct artwork colours are played.
     if (_cache.length >= _cacheMax) {
