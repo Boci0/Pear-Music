@@ -61,12 +61,17 @@ class AppController extends ChangeNotifier {
   /// Reliable sync channels to each peer (relayed through the server).
   final Map<String, RelayDataChannel> _relayChannels = {};
 
-  /// Peer announced by the most recent `{t:'bin'}` relay marker; the next raw
-  /// binary frame belongs to that peer.
-  String? _pendingRelayBinaryFrom;
-
-  /// Whether that pending raw binary frame is E2E-encrypted (from the marker).
-  bool _pendingRelayBinaryEnc = false;
+  /// Peers announced by `{t:'bin'}` relay markers that have not yet been
+  /// matched to their raw binary frame, in arrival order (FIFO).
+  ///
+  /// This is a queue rather than a single slot because several peers can be
+  /// relaying binary frames to us at the same time (e.g. two devices each
+  /// sending a song). Each raw frame is paired with the OLDEST unmatched
+  /// marker — the exact order the server relays them (the server forwards
+  /// markers and frames in arrival order and the sender gates one frame in
+  /// flight, so a single slot previously mis-routed frames from a second
+  /// sender to the wrong peer, which failed decryption and dropped the chunk).
+  final List<({String from, bool enc})> _pendingRelayBinaryMarkers = [];
 
   /// Set while a smart pairing attempt is trying multiple servers, so the
   /// per-attempt `error` snackbars are suppressed in favour of one final result.
@@ -282,17 +287,18 @@ class AppController extends ChangeNotifier {
     switch (msg['type']) {
       case '_local':
         if (msg['event'] == 'binary') {
-          // Raw relayed chunk body; route it to the peer announced by the most
-          // recent {t:'bin'} marker.
+          // Raw relayed chunk body; pair it with the oldest unmatched {t:'bin'}
+          // marker (FIFO) so concurrent senders can't mis-route each other's
+          // frames.
           final bytes = msg['bytes'];
-          final from = _pendingRelayBinaryFrom;
-          if (bytes is Uint8List && from != null) {
-            _relayChannels[from]?.handleRelayBinary(
+          if (bytes is Uint8List &&
+              _pendingRelayBinaryMarkers.isNotEmpty) {
+            final marker = _pendingRelayBinaryMarkers.removeAt(0);
+            _relayChannels[marker.from]?.handleRelayBinary(
               bytes,
-              encrypted: _pendingRelayBinaryEnc,
+              encrypted: marker.enc,
             );
           }
-          _pendingRelayBinaryEnc = false;
           break;
         }
         connectionStatus =
@@ -300,8 +306,7 @@ class AppController extends ChangeNotifier {
         if (msg['event'] == 'connected') {
           _onConnected();
         } else {
-          _pendingRelayBinaryFrom = null;
-          _pendingRelayBinaryEnc = false;
+          _pendingRelayBinaryMarkers.clear();
           _onOffline();
         }
         notifyListeners();
@@ -374,8 +379,10 @@ class AppController extends ChangeNotifier {
             } catch (_) {}
           } else {
             // New protocol: the next raw binary frame belongs to this peer.
-            _pendingRelayBinaryFrom = from;
-            _pendingRelayBinaryEnc = data['e'] == 1;
+            // Queue the marker; the frame handler pairs it with the oldest
+            // unmatched marker (a FIFO) so concurrent senders can't mis-route
+            // each other's frames.
+            _pendingRelayBinaryMarkers.add((from: from, enc: data['e'] == 1));
           }
         } else {
           _relayChannels[from]?.handleRelay(
@@ -453,6 +460,19 @@ class AppController extends ChangeNotifier {
   /// server's authoritative pairing `state`. Test hook for [_applyPairings].
   @visibleForTesting
   Future<void> applyPairings(List<dynamic> raw) => _applyPairings(raw);
+
+  /// Test seam: process a server message through the same path as the live
+  /// signaling stream (used to exercise binary relay routing deterministically).
+  @visibleForTesting
+  Future<void> handleServerMessage(Map<String, dynamic> msg) =>
+      _onServerMessage(msg);
+
+  /// Test seam: inject a relay channel for [peerId] so binary relay routing
+  /// can be asserted without a live connection.
+  @visibleForTesting
+  void attachRelayChannelForTesting(String peerId, RelayDataChannel channel) {
+    _relayChannels[peerId] = channel;
+  }
 
   /// Tear down a device we are no longer paired with and delete every song it
   /// shared. Only songs whose [Song.sourceDeviceId] matches are removed —
@@ -765,6 +785,20 @@ class AppController extends ChangeNotifier {
   Future<bool> connectToServer(String url) async {
     final target = url.trim();
     if (target.isEmpty) return false;
+    // Joining a REMOTE host means this device is not the host. Give up the
+    // host role (stop the embedded server + clear isHost) right away instead
+    // of waiting for the 30s reconcile — otherwise a code/QR join leaves two
+    // devices hosting (and running servers) for a while, which shows up as
+    // "weird" pairing behaviour. If the connect then fails, the normal 6s
+    // failover re-hosts this device, so nothing is lost.
+    final isRemote =
+        !target.contains('localhost') && !target.contains('127.0.0.1');
+    if (isRemote && identity.isHost) {
+      _hostReconcileTimer?.cancel();
+      _hostReconcileTimer = null;
+      await identity.setIsHost(false);
+      await server.stop();
+    }
     if (identity.serverUrl != target) {
       await updateServerUrl(target);
     }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -173,5 +174,39 @@ void main() {
     expect(received.length, 2);
     expect(received[0].text, '{"type":"hello"}');
     expect(received[1].binary, [1, 2, 3]);
+  });
+
+  test(
+      'encrypt/decrypt await an in-flight E2E key derivation '
+      '(a frame right after hello is never dropped)', () async {
+    // Two distinct identities, like two real devices.
+    SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-A'});
+    final idA = IdentityService(await SharedPreferences.getInstance());
+    SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-B'});
+    final idB = IdentityService(await SharedPreferences.getInstance());
+    final sigA = SignalingService(idA);
+    final sigB = SignalingService(idB);
+    await sigA.ensureE2E();
+    await sigB.ensureE2E();
+    final pubA = base64Decode(sigA.e2ePubB64!);
+    final pubB = base64Decode(sigB.e2ePubB64!);
+
+    // B starts deriving its key from A's public key FIRE-AND-FORGET, exactly
+    // how the sync hello handler calls setPeerE2E (unawaited).
+    unawaited(sigB.setPeerE2E('device-A', pubA));
+
+    // A awaits its own derivation, then encrypts.
+    await sigA.setPeerE2E('device-B', pubB);
+    final payload = Uint8List.fromList(
+      List<int>.generate(70000, (i) => (i * 17) % 251),
+    );
+    final enc = await sigA.encryptBinaryFor('device-B', payload);
+    expect(enc, isNotNull);
+
+    // B decrypts WITHOUT awaiting the derivation it started. The decrypt
+    // helper must wait for the in-flight key internally, otherwise the frame
+    // is dropped (the "size mismatch got 0" failure).
+    final dec = await sigB.decryptBinaryFor('device-A', enc!);
+    expect(dec, payload);
   });
 }
