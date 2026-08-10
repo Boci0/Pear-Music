@@ -1,0 +1,16 @@
+name: peerm_ytdlp
+description: Bundled yt-dlp (youtubedl-android) platform bridge for Pear Music. Lets the phone rip YouTube/Spotify audio even when YouTube rate-limits the built-in downloader.
+version: 0.1.0
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.peerm.peerm_ytdlp
+        pluginClass: YtDlpPlugin

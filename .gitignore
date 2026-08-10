@@ -1,0 +1,37 @@
+# --- Unrelated / personal files (not part of the app) ---
+.vscode/
+.github/modernize/
+PROJECT_BRIEF.md
+test_out.txt
+screen.png
+screen2.png
+screen_after_back.png
+screen_gpm.png
+screen_playing.png
+shade.png
+
+# --- Flutter / Dart build artifacts (app/) ---
+app/.dart_tool/
+app/build/
+**/build/
+app/android/.gradle/
+app/android/local.properties
+app/*.iml
+app/.idea/
+app/windows/flutter/ephemeral/
+app/windows/flutter/generated_plugins.cmake
+app/windows/flutter/generated_plugin_registrant.cc
+app/windows/flutter/generated_plugin_registrant.h
+
+# --- Backup files ---
+*.bak
+
+# --- Server (runtime state / deps) ---
+server/node_modules/
+server/state.json
+server/*.log
+server/.env
+
+# --- OS cruft ---
+Thumbs.db
+Desktop.ini

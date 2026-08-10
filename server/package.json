@@ -1,0 +1,17 @@
+{
+  "name": "peerm-signaling-server",
+  "version": "1.0.0",
+  "description": "Signaling server for PeerM P2P music sync. Handles device registration, pairing codes, presence and WebRTC signaling relay between paired devices.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
