@@ -95,6 +95,7 @@ class SignalingService {
 
   /// Derive + cache the shared AES key for [peerId] from their public key.
   Future<void> setPeerE2E(String peerId, Uint8List peerPubBytes) async {
+    debugPrint('[e2e] deriving shared key for $peerId');
     await ensureE2E();
     final shared = await _x25519.sharedSecretKey(
       keyPair: _e2ePair!,

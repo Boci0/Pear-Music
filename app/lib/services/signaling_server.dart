@@ -438,9 +438,17 @@ class SignalingServer {
             target.send({'type': 'relay', 'from': id, 'data': data});
           } else {
             // New: the chunk body follows as a raw binary frame. Tell the
-            // target which peer the frame is from, then remember the route so
-            // the frame handler can forward the bytes unchanged.
-            target.send({'type': 'relay', 'from': id, 'data': {'t': 'bin'}});
+            // target which peer the frame is from, remember the route so the
+            // frame handler can forward the bytes unchanged, and PRESERVE the
+            // `e:1` encryption flag — the receiver must know to decrypt the
+            // frame. (This was dropped before, which broke sync once E2E
+            // encryption actually turned on.)
+            final e = (data is Map<String, dynamic>) ? data['e'] : null;
+            target.send({
+              'type': 'relay',
+              'from': id,
+              'data': {'t': 'bin', if (e == 1) 'e': 1},
+            });
             _pendingBin[id] = to;
           }
         } else {

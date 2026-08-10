@@ -511,6 +511,7 @@ class AppController extends ChangeNotifier {
         continue;
       }
       if (sync.hasChannel(peer.deviceId)) continue;
+      debugPrint('[sync] attaching relay channel to ${peer.deviceName} (${peer.deviceId})');
       final relay =
           RelayDataChannel(peerId: peer.deviceId, signaling: signaling);
       _relayChannels[peer.deviceId] = relay;
