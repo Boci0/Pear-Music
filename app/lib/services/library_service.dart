@@ -55,8 +55,15 @@ class LibraryService extends ChangeNotifier {
 
   File songFile(Song song) => File(p.join(_libraryDir!.path, song.fileName));
 
-  File incomingFile(String songId) =>
-      File(p.join(_libraryDir!.path, '_incoming', '$songId.part'));
+  File incomingFile(String songId) {
+    final file = File(p.join(_libraryDir!.path, '_incoming', '$songId.part'));
+    if (!file.parent.existsSync()) {
+      try {
+        file.parent.createSync(recursive: true);
+      } catch (_) {}
+    }
+    return file;
+  }
 
   Future<void> _loadIndex() async {
     _songs.clear();
