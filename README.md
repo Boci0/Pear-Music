@@ -2,8 +2,8 @@
 
 > A peer-to-peer music sync app for Windows and Android. No cloud, no accounts.
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases)
-[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip)
+[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built%20with-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 [![Server](https://img.shields.io/badge/Server-Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](server/)
@@ -36,11 +36,13 @@ and Android, backed by a small Node.js signaling server.
 
 ## Download
 
-Grab the latest build from the [Releases](https://github.com/Boci0/Pear-Music/releases) page:
+The buttons at the top download the latest build directly. They point at the
+release assets, so the [Releases](https://github.com/Boci0/Pear-Music/releases)
+page is just the backup if you want a specific version:
 
-| Platform | File | How to run |
-| --- | --- | --- |
-| **Windows** | `PearMusic-Windows-x64.zip` | Extract, then run `peerm_app.exe` |
+| Platform    | File                          | How to run                        |
+| ----------- | ----------------------------- | --------------------------------- |
+| **Windows** | `PearMusic-Windows-x64.zip`   | Extract, then run `peerm_app.exe` |
 | **Android** | `PearMusic-Android-arm64.apk` | Open the file, allow unknown apps |
 
 > The Windows binary is not code-signed, so SmartScreen may warn the first time
@@ -74,12 +76,12 @@ Open the app's Settings, point the signaling server URL at your server
 
 ## Usage
 
-| Action | How |
-| --- | --- |
+| Action            | How                                                |
+| ----------------- | -------------------------------------------------- |
 | **Pair a device** | Devices -> Pair a device, generate or enter a code |
-| **Add music** | Drop a file, use Add music, or paste a link |
-| **Play** | Tap a song |
-| **Unpair** | Devices, remove the device |
+| **Add music**     | Drop a file, use Add music, or paste a link        |
+| **Play**          | Tap a song                                         |
+| **Unpair**        | Devices, remove the device                         |
 
 ---
 
