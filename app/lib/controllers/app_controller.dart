@@ -553,8 +553,16 @@ class AppController extends ChangeNotifier {
 
   Future<void> unpair(PeerDevice peer) async {
     // Ask the server to break the pairing; both devices get 'unpaired' and
-    // each deletes the songs it received from the other.
+    // each deletes the songs it received from the other. Also remove it
+    // locally so the UI always responds, even if the server had lost the
+    // pairing (a stale entry) and its unpair would otherwise have no-op'd.
     signaling.unpair(peer.deviceId);
+    await identity.removePairedDevice(peer.deviceId);
+    await _handlePeerGone(
+      peer.deviceId,
+      deviceName: peer.deviceName,
+      explicit: true,
+    );
   }
 
   // ---------- library ----------

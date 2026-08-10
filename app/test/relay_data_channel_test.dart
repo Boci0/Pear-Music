@@ -97,6 +97,25 @@ void main() {
     );
   });
 
+  test(
+      'a fresh SignalingService generates its E2E key automatically '
+      '(no manual ensureE2E needed)', () async {
+    // Regression: the X25519 keypair used to only be generated inside
+    // setPeerE2E, which never fired because no `hello` carried a key — so the
+    // fingerprint never appeared and relay encryption silently stayed off in
+    // real use (only tests called ensureE2E explicitly). The constructor now
+    // kicks off key generation, so a new instance's key becomes available on
+    // its own.
+    final sig = SignalingService(identity);
+    var pub = sig.e2ePubB64;
+    for (var i = 0; i < 50 && pub == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 20));
+      pub = sig.e2ePubB64;
+    }
+    expect(pub, isNotNull,
+        reason: 'constructor should auto-generate the X25519 public key');
+  });
+
   test('relay E2E: encrypted text and binary are decrypted on receipt', () async {
     // Two signaling services derive the SAME shared key from each other's
     // public key, exactly like two real devices would after the hello handshake.

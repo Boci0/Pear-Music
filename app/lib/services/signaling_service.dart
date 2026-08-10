@@ -19,7 +19,15 @@ import 'identity_service.dart';
 class SignalingService {
   final IdentityService identity;
 
-  SignalingService(this.identity);
+  SignalingService(this.identity) {
+    // Generate the ephemeral X25519 keypair up front (fire-and-forget). It must
+    // exist BEFORE any peer `hello` is sent or received — otherwise no hello
+    // ever carries our public key, so neither side can derive the shared key or
+    // the fingerprint. That left the Devices screen stuck on "Waiting for the
+    // encrypted key exchange..." and, worse, silently disabled relay encryption
+    // in real use (only unit tests generated the key explicitly).
+    unawaited(ensureE2E());
+  }
 
   final _incoming = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get stream => _incoming.stream;

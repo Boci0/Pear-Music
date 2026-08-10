@@ -255,7 +255,9 @@ class _VerifyCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Waiting for the encrypted key exchange…',
+                peer.online
+                    ? 'Exchanging encryption keys…'
+                    : 'The fingerprint will appear when this device is online.',
                 style: theme.textTheme.bodySmall?.copyWith(color: dim),
               ),
             ),

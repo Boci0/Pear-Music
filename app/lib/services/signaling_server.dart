@@ -457,7 +457,13 @@ class SignalingServer {
         final id = conn.deviceId;
         if (id == null) return;
         final peerId = (msg['peerId'] as String? ?? '').trim();
-        if (!conn.pairings.contains(peerId)) return;
+        if (peerId.isEmpty) return;
+        // Remove the pairing regardless of whether THIS connection currently
+        // lists it — the client may be clearing a stale/phantom entry. The
+        // notify below makes sure the requesting client removes it locally
+        // even if the server had already lost the pairing.
+        final hadPairing = conn.pairings.contains(peerId) ||
+            (_persistedPairs[id]?.contains(peerId) ?? false);
         _removePair(id, peerId);
         final peer = _peerInfo(peerId);
         conn.send({
@@ -473,7 +479,9 @@ class SignalingServer {
               ? {'deviceId': me['deviceId'], 'deviceName': me['deviceName']}
               : {'deviceId': id},
         });
-        _log('[unpair] ${conn.name} removed ${peer?['deviceName'] ?? peerId}');
+        _log(hadPairing
+            ? '[unpair] ${conn.name} removed ${peer?['deviceName'] ?? peerId}'
+            : '[unpair] ${conn.name} cleared stale pairing ${peer?['deviceName'] ?? peerId}');
         break;
       }
 
