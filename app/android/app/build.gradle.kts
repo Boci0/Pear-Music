@@ -32,6 +32,15 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+
+            // R8 minification is on for release. Keep the classes that
+            // youtubedl-android / commons-compress need at runtime (see
+            // proguard-rules.pro) so "Add from link" downloads don't crash.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 
