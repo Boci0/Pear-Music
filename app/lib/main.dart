@@ -137,17 +137,24 @@ class PearMusicApp extends StatelessWidget {
           // the shift is smooth instead of snapping. The old approach only wrapped
           // the home route in AnimatedTheme while MaterialApp.theme snapped, so
           // pushed screens (player, playlists, settings) changed colour abruptly.
-          return TweenAnimationBuilder<ThemeData>(
-            tween: _ThemeTween(begin: theme, end: theme),
-            // Short enough to stay cheap on mobile, long enough to read as a
-            // graceful fade rather than a hard snap.
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOutCubic,
-            builder: (context, animatedTheme, _) => MaterialApp(
-              title: 'Pear Music',
-              debugShowCheckedModeBanner: false,
-              theme: animatedTheme,
-              home: const _MessagesListener(child: HomeShell()),
+          return MaterialApp(
+            title: 'Pear Music',
+            debugShowCheckedModeBanner: false,
+            // The app theme is the TARGET colour, applied instantly. Animating
+            // MaterialApp.theme rebuilt the WHOLE tree (Navigator + every route)
+            // on every frame of the fade — that was the mobile lag. Instead only
+            // the current screen fades below; pushed routes (player, playlists)
+            // use the target colour directly, and the player has its own cheap
+            // artwork-colour wash animation for the visible fade.
+            theme: theme,
+            home: TweenAnimationBuilder<ThemeData>(
+              tween: _ThemeTween(begin: theme, end: theme),
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeInOutCubic,
+              builder: (context, animatedTheme, _) => Theme(
+                data: animatedTheme,
+                child: const _MessagesListener(child: HomeShell()),
+              ),
             ),
           );
         },
