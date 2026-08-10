@@ -1,30 +1,29 @@
 /// Parsing/encoding for the pairing QR payload.
 ///
-/// The host QR encodes a deep link that carries BOTH the 6-char pairing code
-/// AND (when the host is running its embedded server) the server address the
-/// joiner must connect to, so scanning it switches the joiner onto the right
-/// server and pairs it in one step:
+/// The host QR encodes the 6-char pairing code:
 ///
 ///   pearmusic://pair/ABC123
-///   pearmusic://pair/ABC123?server=ws%3A%2F%2F192.168.1.5%3A8080
 ///
-/// A bare 6-char code (no scheme/query) is also accepted, matching the old
-/// behaviour for codes typed/printed without the server hint.
+/// The old format could also carry a server hint
+/// (`pearmusic://pair/ABC123?server=…`) — `parse` still understands it so
+/// previously-printed QRs keep working, but the app no longer encodes it:
+/// discovery (ServerDiscovery) finds the host automatically instead.
 class PairingLink {
   const PairingLink({required this.code, this.server});
 
   final String code;
+
+  /// Only present in the legacy QR format; ignored by the current flow.
   final String? server;
 
   static const String prefix = 'pearmusic://pair/';
   // Client-side lenient check (the server enforces the strict alphabet).
   static final RegExp _codeRe = RegExp(r'^[A-Z0-9]{6}$');
 
-  /// Builds the QR payload for [code], optionally appending the host server.
-  static String encode(String code, {String? server}) {
+  /// Builds the QR payload for [code]: `pearmusic://pair/<CODE>`.
+  static String encode(String code) {
     final c = code.trim().toUpperCase();
-    if (server == null || server.isEmpty) return '$prefix$c';
-    return '$prefix$c?server=${Uri.encodeComponent(server)}';
+    return '$prefix$c';
   }
 
   /// Parses a scanned value (raw code or deep link). Returns null if it isn't

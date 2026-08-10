@@ -55,17 +55,6 @@ class AppController extends ChangeNotifier {
   /// The LAN address other devices should connect to, when hosting.
   String? get serverLanIp => server.lanIp;
 
-  /// The default server URL this device uses when it hosts.
-  String get localServerUrl => 'ws://localhost:${server.boundPort}';
-
-  /// The address OTHER devices should use to reach this device's embedded
-  /// server, when hosting. Null if not hosting or no LAN IP could be resolved.
-  String? get hostServerUrl {
-    if (!server.isRunning) return null;
-    final ip = server.lanIp;
-    if (ip == null) return null;
-    return 'ws://$ip:${server.boundPort}';
-  }
 
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
@@ -83,6 +72,10 @@ class AppController extends ChangeNotifier {
   /// Set while a smart pairing attempt is trying multiple servers, so the
   /// per-attempt `error` snackbars are suppressed in favour of one final result.
   bool _pairSmartActive = false;
+
+  /// Set when the app is shutting down, to stop background work (auto-discovery)
+  /// from touching a disposed controller.
+  bool _closing = false;
 
   List<Song> get songs => library.songs;
 
@@ -142,11 +135,28 @@ class AppController extends ChangeNotifier {
     // tens of seconds — the long black screen on launch that only cleared once
     // the connect finally failed. Start it in the background: the UI renders
     // immediately and flips to "offline" until the connection succeeds.
-    unawaited(signaling.start());
+    unawaited(_startWithAutoFallback());
     notifyListeners();
   }
 
+  /// Zero-config connect: connect to the remembered server, then if it is
+  /// still offline after a short grace period, auto-discover a nearby host and
+  /// connect to it (remembering it). This replaces manual server setup — the
+  /// app finds the host by itself.
+  Future<void> _startWithAutoFallback() async {
+    await signaling.start();
+    // Give the remembered server a moment to connect before falling back.
+    await Future.delayed(const Duration(seconds: 6));
+    if (_closing || connectionStatus == 'connected') return;
+    final hosts = await discoverNearby();
+    if (hosts.isEmpty) return;
+    final host = hosts.first;
+    debugPrint('[connect] auto-discovered host: ${host.url}');
+    await updateServerUrl(host.url);
+  }
+
   Future<void> disposeAll() async {
+    _closing = true;
     for (final s in _subs) {
       await s.cancel();
     }

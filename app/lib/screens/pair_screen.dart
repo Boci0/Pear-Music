@@ -136,10 +136,7 @@ class _PairScreenState extends State<PairScreen> {
           child: Column(
             children: [
               QrImageView(
-                data: PairingLink.encode(
-                  code,
-                  server: controller.hostServerUrl,
-                ),
+                data: PairingLink.encode(code),
                 version: QrVersions.auto,
                 size: 180,
                 backgroundColor: Colors.white,
@@ -173,45 +170,15 @@ class _PairScreenState extends State<PairScreen> {
                 'Expires in 10 minutes · one-time use',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              if (controller.hostServerUrl != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'Auto-connect: scanning this QR switches the other device '
-                  'to this server and pairs it automatically.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: SelectableText(
-                        controller.hostServerUrl!,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+              const SizedBox(height: 12),
+              Text(
+                'The other device can scan this QR or enter the code — it '
+                'will find this device automatically.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.copy, size: 16),
-                      tooltip: 'Copy server address',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () {
-                        Clipboard.setData(
-                          ClipboardData(text: controller.hostServerUrl!),
-                        );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Server address copied'),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ],
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),
@@ -285,24 +252,10 @@ class _PairScreenState extends State<PairScreen> {
       );
       return;
     }
-    // Smart Connect: if the QR carries a server and it differs from ours,
-    // switch to it and wait for the connection before sending the code.
-    final hostServer = link.server;
-    if (hostServer != null && hostServer != controller.identity.serverUrl) {
-      final connected = await controller.connectToServer(hostServer);
-      if (!mounted) return;
-      if (!connected) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not reach the host at $hostServer')),
-        );
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connected to the host. Pairing…')),
-      );
-    }
+    // The QR only carries the code. If this device is on a different server
+    // than the host, pairSmart auto-discovers the host and connects there.
     _codeController.text = link.code;
-    _join(controller);
+    await _join(controller);
   }
 
   Future<void> _join(AppController controller) async {

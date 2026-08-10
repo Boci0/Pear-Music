@@ -74,9 +74,15 @@ class HomeScreen extends StatelessWidget {
           // the pear title keeps its full size (the chips would crowd it and
           // squeeze the image down on narrow screens). Desktop keeps the chips.
           if (_isDesktop)
-            _ConnectionChip(status: controller.connectionStatus)
+            _ConnectionChip(
+              status: controller.connectionStatus,
+              hosting: controller.isHostingServer,
+            )
           else
-            _ConnectionDot(status: controller.connectionStatus),
+            _ConnectionDot(
+              status: controller.connectionStatus,
+              hosting: controller.isHostingServer,
+            ),
           if (controller.pairedDevices.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -114,12 +120,15 @@ class HomeScreen extends StatelessWidget {
 
 class _ConnectionChip extends StatelessWidget {
   final String status;
-  const _ConnectionChip({required this.status});
+  final bool hosting;
+  const _ConnectionChip({required this.status, required this.hosting});
 
   @override
   Widget build(BuildContext context) {
     final (color, label) = switch (status) {
-      'connected' => (Colors.green, 'Online'),
+      'connected' => hosting
+          ? (Colors.teal, 'Hosting')
+          : (Colors.green, 'Online'),
       'connecting' => (Colors.orange, 'Connecting…'),
       _ => (Colors.grey, 'Offline'),
     };
@@ -138,12 +147,13 @@ class _ConnectionChip extends StatelessWidget {
 /// dot instead of a full chip, so the title is never squeezed out).
 class _ConnectionDot extends StatelessWidget {
   final String status;
-  const _ConnectionDot({required this.status});
+  final bool hosting;
+  const _ConnectionDot({required this.status, required this.hosting});
 
   @override
   Widget build(BuildContext context) {
     final color = switch (status) {
-      'connected' => Colors.green,
+      'connected' => hosting ? Colors.teal : Colors.green,
       'connecting' => Colors.orange,
       _ => Colors.grey,
     };

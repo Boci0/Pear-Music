@@ -125,31 +125,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const _HostingStatus(),
-                  TextField(
-                    controller: _serverController,
-                    focusNode: _serverUrlFocus,
-                    decoration: const InputDecoration(
-                      labelText: 'Signaling server URL',
-                      helperText:
-                          'WebSocket URL (ws:// or wss://). All devices must '
-                          'point to the same server.',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        controller.updateServerUrl(_serverController.text);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Reconnecting to server…')),
-                        );
-                      },
-                      icon: const Icon(Icons.cloud_sync),
-                      label: const Text('Connect'),
-                    ),
+                  const Divider(height: 8),
+                  // Manual server URL is an advanced setting now — discovery
+                  // finds the host automatically in normal use.
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Advanced: server settings'),
+                    childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
+                    children: [
+                      TextField(
+                        controller: _serverController,
+                        focusNode: _serverUrlFocus,
+                        decoration: const InputDecoration(
+                          labelText: 'Signaling server URL',
+                          helperText:
+                              'WebSocket URL (ws:// or wss://). All devices '
+                              'must point to the same server.',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            controller.updateServerUrl(_serverController.text);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Reconnecting to server…')),
+                            );
+                          },
+                          icon: const Icon(Icons.cloud_sync),
+                          label: const Text('Connect'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
