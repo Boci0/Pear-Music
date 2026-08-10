@@ -505,25 +505,36 @@ class SignalingServer {
       return;
     }
 
-    // Device-authentication secret: a wrong secret is rejected, an empty
-    // secret re-binds a fresh one (never locks out an upgrade/reinstall).
-    final existingSecret = _persistedSecrets[id];
-    if (existingSecret != null) {
-      if (givenSecret.isNotEmpty && givenSecret != existingSecret) {
-        _log('[auth] rejected register for $id (mismatched secret)');
-        conn.send({'type': 'error', 'message': 'unauthorized'});
-        try {
-          conn.ws.close(4001, 'unauthorized');
-        } catch (_) {}
-        return;
-      }
-      if (givenSecret.isEmpty) {
-        _persistedSecrets[id] = _randomSecret();
-        _saveState();
-      }
-    } else {
+    // The host's OWN device is always authorized on its own server. During a
+    // host failover the client secret was issued by the PREVIOUS host's server
+    // and may not match the secret persisted in THIS host's state file - so
+    // instead of locking itself out, adopt the client's secret (or re-bind a
+    // fresh one) and let it in.
+    final isOwnDevice = advertiseDeviceId != null && advertiseDeviceId == id;
+    if (isOwnDevice) {
       _persistedSecrets[id] = givenSecret.isNotEmpty ? givenSecret : _randomSecret();
       _saveState();
+    } else {
+      // Device-authentication secret: a wrong secret is rejected, an empty
+      // secret re-binds a fresh one (never locks out an upgrade/reinstall).
+      final existingSecret = _persistedSecrets[id];
+      if (existingSecret != null) {
+        if (givenSecret.isNotEmpty && givenSecret != existingSecret) {
+          _log('[auth] rejected register for $id (mismatched secret)');
+          conn.send({'type': 'error', 'message': 'unauthorized'});
+          try {
+            conn.ws.close(4001, 'unauthorized');
+          } catch (_) {}
+          return;
+        }
+        if (givenSecret.isEmpty) {
+          _persistedSecrets[id] = _randomSecret();
+          _saveState();
+        }
+      } else {
+        _persistedSecrets[id] = givenSecret.isNotEmpty ? givenSecret : _randomSecret();
+        _saveState();
+      }
     }
 
     // If this device was connected elsewhere, kick the old socket.

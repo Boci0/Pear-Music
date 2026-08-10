@@ -260,5 +260,55 @@ void main() {
       await s2.stop();
       await dir.delete(recursive: true);
     });
+
+    test(
+        "the host's own device can always register (no self-lockout after failover)",
+        () async {
+      final s = SignalingServer(
+          port: 0, host: '127.0.0.1', advertiseDeviceId: 'HOST');
+      await s.start();
+      try {
+        // A peer registers with its own secret and is accepted.
+        final peer = await connect(s.boundPort);
+        peer.sendText({
+          'type': 'register',
+          'deviceId': 'PEER',
+          'deviceName': 'Peer',
+          'secret': 'S1',
+        });
+        await peer.nextJson('registered');
+
+        // The same peer re-registering with a WRONG secret is still rejected
+        // (normal auth still applies to non-own devices).
+        final impostor = await connect(s.boundPort);
+        impostor.sendText({
+          'type': 'register',
+          'deviceId': 'PEER',
+          'deviceName': 'Peer',
+          'secret': 'WRONG',
+        });
+        final err = await impostor.nextJson('error');
+        expect(err['message'], 'unauthorized');
+
+        // The server's OWN device registering with a stale (wrong) secret is
+        // ACCEPTED and re-bound — the host can never lock itself out.
+        final host = await connect(s.boundPort);
+        host.sendText({
+          'type': 'register',
+          'deviceId': 'HOST',
+          'deviceName': 'Host',
+          'secret': 'STALE',
+        });
+        final reg = await host.nextJson('registered');
+        expect(reg['secret'], 'STALE',
+            reason: "own device's secret is adopted, not rejected");
+
+        await host.close();
+        await peer.close();
+        await impostor.close();
+      } finally {
+        await s.stop();
+      }
+    });
   });
 }

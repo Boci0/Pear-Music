@@ -309,11 +309,17 @@ class SignalingService {
             identity.setDeviceSecret(decoded['secret'] as String);
           }
           if (decoded['type'] == 'error' && decoded['message'] == 'unauthorized') {
-            // The server rejected our deviceId+secret. Stop reconnecting (it
-            // would loop forever) and surface it so the UI can react.
-            debugPrint('[signaling] register rejected: unauthorized device identity');
-            _manualStop = true;
+            // The server rejected our deviceId+secret. In the host-election
+            // model a device's stored secret was often issued by a PREVIOUS
+            // host's server and is stale against the new host. Clear it and
+            // reconnect: an empty secret makes the server re-bind a fresh one
+            // (never locks out), so we recover on the next attempt. Still
+            // surface it so the UI/log can react.
+            debugPrint(
+                '[signaling] register rejected: unauthorized - clearing stale secret and retrying');
+            identity.clearDeviceSecret();
             _incoming.add({'type': '_local', 'event': 'unauthorized'});
+            _handleDisconnect();
             return;
           }
           _incoming.add(decoded);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -153,5 +154,14 @@ class IdentityService {
     if (secret.isEmpty || secret == deviceSecret) return;
     deviceSecret = secret;
     await _prefs.setString(_deviceSecretKey, secret);
+  }
+
+  /// Forget the device-auth secret. Used after an `unauthorized` rejection:
+  /// the stored secret was issued by a PREVIOUS host's server and is stale
+  /// against the current host, so we clear it and reconnect with an empty
+  /// secret, which makes the server re-bind a fresh one (never locks out).
+  void clearDeviceSecret() {
+    deviceSecret = '';
+    unawaited(_prefs.setString(_deviceSecretKey, ''));
   }
 }
