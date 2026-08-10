@@ -78,6 +78,11 @@ class SignalingService {
   Uint8List? _e2ePub;
   final Map<String, SecretKey> _peerKeys = {};
 
+  /// In-flight E2E key derivations per peer (set by [setPeerE2E]). Encrypt and
+  /// decrypt await any pending derivation so a frame that arrives right after
+  /// the `hello` that started it is never dropped for lack of a key.
+  final Map<String, Future<void>> _e2eDerivations = {};
+
   /// Generate this device's ephemeral keypair (once) and cache its public key.
   Future<void> ensureE2E() async {
     if (_e2ePair == null) {
@@ -94,7 +99,19 @@ class SignalingService {
   }
 
   /// Derive + cache the shared AES key for [peerId] from their public key.
-  Future<void> setPeerE2E(String peerId, Uint8List peerPubBytes) async {
+  ///
+  /// Records the derivation as in-flight so a frame that arrives before it
+  /// finishes (e.g. the hello that started it was processed, then a file_meta
+  /// + first chunk follow immediately) waits for the key instead of being
+  /// dropped. The `hello` handler calls this fire-and-forget; [setPeerE2E]
+  /// still returns the future for callers that want to await it.
+  Future<void> setPeerE2E(String peerId, Uint8List peerPubBytes) {
+    final future = _deriveKey(peerId, peerPubBytes);
+    _e2eDerivations[peerId] = future;
+    return future;
+  }
+
+  Future<void> _deriveKey(String peerId, Uint8List peerPubBytes) async {
     debugPrint('[e2e] deriving shared key for $peerId');
     await ensureE2E();
     final shared = await _x25519.sharedSecretKey(
@@ -108,11 +125,25 @@ class SignalingService {
     );
   }
 
+  /// Wait for an in-flight E2E key derivation for [peerId] to finish (if any)
+  /// so the shared key is available before encrypting/decrypting. Failures are
+  /// swallowed: the caller falls back to plaintext (sender) or drops the frame
+  /// (receiver) exactly as it would with no key at all.
+  Future<void> _awaitE2E(String peerId) async {
+    final pending = _e2eDerivations[peerId];
+    if (pending == null) return;
+    _e2eDerivations.remove(peerId);
+    try {
+      await pending;
+    } catch (_) {}
+  }
+
   bool hasPeerKey(String peerId) => _peerKeys.containsKey(peerId);
 
   /// AES-GCM encrypt [plaintext] for [peerId] → base64(nonce||ct||tag),
   /// or null if there's no shared key (caller should send plaintext).
   Future<String?> encryptTextFor(String peerId, String plaintext) async {
+    await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
     if (key == null) return null;
     final aes = AesGcm.with256bits();
@@ -124,6 +155,7 @@ class SignalingService {
 
   /// Decrypt base64(nonce||ct||tag) from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
+    await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
     if (key == null) return null;
     try {
@@ -137,6 +169,7 @@ class SignalingService {
 
   /// AES-GCM encrypt [bytes] for [peerId] → nonce||ct||tag, or null if no key.
   Future<Uint8List?> encryptBinaryFor(String peerId, Uint8List bytes) async {
+    await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
     if (key == null) return null;
     final aes = AesGcm.with256bits();
@@ -147,6 +180,7 @@ class SignalingService {
 
   /// Decrypt nonce||ct||tag from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptBinaryFor(String peerId, Uint8List frame) async {
+    await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
     if (key == null) return null;
     try {

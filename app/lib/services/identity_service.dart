@@ -45,17 +45,25 @@ class IdentityService {
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
     }
+    // Migrate the old "localhost" default (Android's hostname is literally
+    // "localhost") to a friendly name so the phone never shows up as
+    // "localhost" in the paired-device list.
+    if (Platform.isAndroid && deviceName.toLowerCase() == 'localhost') {
+      deviceName = 'My Phone';
+      unawaited(_prefs.setString(_deviceNameKey, deviceName));
+    }
   }
 
   String _uuid() => const Uuid().v4();
 
   String _defaultName() {
-    // Try to use the OS host/device name when available.
+    // Try to use the OS host/device name when available. On Android this is
+    // literally "localhost" (a useless name), so use a friendly default there.
     try {
       final host = Platform.localHostname;
-      if (host.isNotEmpty) return host;
+      if (host.isNotEmpty && host.toLowerCase() != 'localhost') return host;
     } catch (_) {}
-    return 'My Device';
+    return Platform.isAndroid ? 'My Phone' : 'My Device';
   }
 
   Map<String, String> _decodePaired(String? raw) {
