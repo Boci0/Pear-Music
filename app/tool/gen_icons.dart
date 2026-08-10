@@ -30,26 +30,13 @@ import 'package:image/image.dart' as img;
 // ---------------------------------------------------------------------------
 img.Color c(int r, int g, int b) => img.ColorRgb8(r, g, b);
 
-// Thick near-black outline (dark green-black so it stays cohesive with the
-// greens but reads as "black" like the user's sketch).
-final outline = c(0x1C, 0x2A, 0x1C);
-// Light lime base so the interior never has white holes between scribbles.
-final baseFill = c(0xDD, 0xEB, 0xB2);
-// Scribble palette: light lime, light green, medium green, olive, brownish,
-// dark green.
-const scribbleColors = [
-  [0xC5, 0xE1, 0xA5], // light lime
-  [0xAE, 0xD5, 0x81], // light green
-  [0x8B, 0xC3, 0x4A], // medium green
-  [0x7C, 0xB3, 0x42], // medium green (darker)
-  [0x9E, 0x9D, 0x24], // olive
-  [0x82, 0x77, 0x17], // olive (darker)
-  [0x8D, 0x6E, 0x63], // brownish-green
-  [0x55, 0x8B, 0x2F], // dark green
-];
+// Thick true-black outline (the user's simple pear has a bold black outline).
+final outline = c(0x00, 0x00, 0x00);
+// Solid bright lime fill.
+final baseFill = c(0xBE, 0xE1, 0x2B);
 // Stem / leaf fills.
 final stemFill = c(0x8D, 0x6E, 0x63); // brownish-green
-final leafFill = c(0xAE, 0xD5, 0x81); // light green
+final leafFill = c(0x9E, 0xD8, 0x5B); // light green
 
 // ---------------------------------------------------------------------------
 // Pear geometry (unit square, y down)
@@ -172,41 +159,14 @@ img.Image render({required int size, required double zoom, required bool whiteBg
     img.fillRect(im, x1: 0, y1: 0, x2: size, y2: size, color: img.ColorRgb8(255, 255, 255));
   }
 
-  final rng = math.Random(0x50A); // fixed seed -> reproducible icon
-
-  // 1. Base silhouette fill (light lime) so scribbles never leave holes.
+  // 1. Solid bright-lime silhouette fill.
   final boundary = pearBoundary(220);
   img.fillPolygon(im,
       vertices: [for (final (ux, uy) in boundary) P(m, ux, uy)],
       color: baseFill);
 
-  // 2. Scribble interior: dense short horizontal/diagonal strokes in greens.
-  final outlineR = 0.022;
-  for (var i = 0; i < 150; i++) {
-    var x = 0.0, y = 0.0, tries = 0;
-    do {
-      x = 0.28 + rng.nextDouble() * 0.44;
-      y = 0.20 + rng.nextDouble() * 0.58;
-      tries++;
-    } while (!insidePear(x, y) && tries < 50);
-    if (!insidePear(x, y)) continue;
-
-    // Mostly horizontal/diagonal (±~55°), sometimes steeper.
-    final ang = rng.nextDouble() < 0.75
-        ? (rng.nextDouble() - 0.5) * 1.9 // -55°..55°
-        : (rng.nextDouble() < 0.5 ? -1.5 + rng.nextDouble() * 0.9 : 0.6 + rng.nextDouble() * 0.9);
-    final len = 0.055 + rng.nextDouble() * 0.11;
-    final half = len / 2;
-    final dx = math.cos(ang) * half, dy = math.sin(ang) * half;
-    // Curved control point for a sketchy wobble.
-    final cxx = x + (rng.nextDouble() - 0.5) * len * 0.6;
-    final cyy = y + (rng.nextDouble() - 0.5) * len * 0.6;
-    final col = scribbleColors[rng.nextInt(scribbleColors.length)];
-    stampScribble(im, m, x - dx, y - dy, cxx, cyy, x + dx, y + dy,
-        c(col[0], col[1], col[2]), 0.009 + rng.nextDouble() * 0.006);
-  }
-
-  // 3. Thick dark outline around the whole silhouette.
+  // 2. Thick black outline around the whole silhouette.
+  final outlineR = 0.032;
   for (final (ux, uy) in boundary) {
     img.fillCircle(im,
         x: m.px(ux).round(),
@@ -290,16 +250,65 @@ void writeIco(String path, Map<int, img.Image> images) {
 }
 
 // ---------------------------------------------------------------------------
+// Optional user-provided source image
+// ---------------------------------------------------------------------------
+// If the user drops their own pear drawing at assets/source_pear.png, every
+// icon is generated from it instead of the procedural render below.
+img.Image? _sourceIcon;
+
+img.Image makeTransparent(img.Image im) {
+  final out = img.Image(width: im.width, height: im.height, numChannels: 4);
+  for (final p in im) {
+    final r = p.r.toInt(), g = p.g.toInt(), b = p.b.toInt(), a = p.a.toInt();
+    if (r > 235 && g > 235 && b > 235) {
+      out.setPixelRgba(p.x, p.y, 0, 0, 0, 0);
+    } else {
+      out.setPixelRgba(p.x, p.y, r, g, b, a);
+    }
+  }
+  return out;
+}
+
+img.Image generateIcon(
+    {required int size, required double zoom, required bool whiteBg}) {
+  final src = _sourceIcon;
+  if (src != null) {
+    final inner = (size * zoom).round();
+    final scaled = img.copyResize(src,
+        width: inner, height: inner, interpolation: img.Interpolation.cubic);
+    final out = img.Image(width: size, height: size, numChannels: 4);
+    if (whiteBg) {
+      img.fillRect(
+          out, x1: 0, y1: 0, x2: size, y2: size, color: img.ColorRgb8(255, 255, 255));
+    }
+    img.compositeImage(
+        out, scaled, dstX: (size - inner) ~/ 2, dstY: (size - inner) ~/ 2);
+    return out;
+  }
+  return render(size: size, zoom: zoom, whiteBg: whiteBg);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 void main() {
   final root = Directory.current.path;
   final res = '$root/android/app/src/main/res';
 
+  // Prefer a real drawing if the user saved one at assets/source_pear.png.
+  final sourcePath = '$root/assets/source_pear.png';
+  if (File(sourcePath).existsSync()) {
+    final decoded = img.decodePng(File(sourcePath).readAsBytesSync());
+    if (decoded != null) {
+      _sourceIcon = makeTransparent(decoded);
+      stdout.writeln('Using user-provided source: $sourcePath');
+    }
+  }
+
   // Legacy launcher icons (white background, full bleed).
   const legacySizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192};
   for (final e in legacySizes.entries) {
-    final im = render(size: e.value, zoom: 1.0, whiteBg: true);
+    final im = generateIcon(size: e.value, zoom: 1.0, whiteBg: true);
     File('$res/mipmap-${e.key}/ic_launcher.png').writeAsBytesSync(img.encodePng(im));
     stdout.writeln('ic_launcher ${e.key} (${e.value}px)');
   }
@@ -309,7 +318,7 @@ void main() {
   // square). Android tints it white in the status bar.
   const notifSizes = {'mdpi': 24, 'hdpi': 36, 'xhdpi': 48, 'xxhdpi': 72, 'xxxhdpi': 96};
   for (final e in notifSizes.entries) {
-    final im = render(size: e.value, zoom: 0.85, whiteBg: false);
+    final im = generateIcon(size: e.value, zoom: 0.85, whiteBg: false);
     File('$res/mipmap-${e.key}/ic_notification.png')
         .writeAsBytesSync(img.encodePng(im));
     stdout.writeln('ic_notification ${e.key} (${e.value}px)');
@@ -318,14 +327,14 @@ void main() {
   // In-app pear logo (transparent background) used in the app bar, etc.
   final assetsDir = '$root/assets';
   Directory(assetsDir).createSync(recursive: true);
-  final logo = render(size: 160, zoom: 0.85, whiteBg: false);
+  final logo = generateIcon(size: 160, zoom: 0.85, whiteBg: false);
   File('$assetsDir/pear_logo.png').writeAsBytesSync(img.encodePng(logo));
   stdout.writeln('assets/pear_logo.png (160px, transparent)');
 
   // Adaptive icon foregrounds (transparent background, pear in the safe zone).
   const fgSizes = {'mdpi': 108, 'hdpi': 162, 'xhdpi': 216, 'xxhdpi': 324, 'xxxhdpi': 432};
   for (final e in fgSizes.entries) {
-    final im = render(size: e.value, zoom: 0.85, whiteBg: false);
+    final im = generateIcon(size: e.value, zoom: 0.85, whiteBg: false);
     File('$res/mipmap-${e.key}/ic_launcher_foreground.png')
         .writeAsBytesSync(img.encodePng(im));
     stdout.writeln('ic_launcher_foreground ${e.key} (${e.value}px)');
@@ -360,7 +369,7 @@ void main() {
   // Windows .ico.
   final ico = <int, img.Image>{};
   for (final s in [16, 24, 32, 48, 64, 128, 256]) {
-    ico[s] = render(size: s, zoom: 1.0, whiteBg: true);
+    ico[s] = generateIcon(size: s, zoom: 1.0, whiteBg: true);
   }
   writeIco('$root/windows/runner/resources/app_icon.ico', ico);
   stdout.writeln('app_icon.ico written');

@@ -146,38 +146,120 @@ class _PeerTile extends StatelessWidget {
     final theme = Theme.of(context);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor:
-              peer.online ? theme.colorScheme.primaryContainer : theme.dividerColor,
-          child: Text(
-            peer.deviceName.isEmpty
-                ? '?'
-                : peer.deviceName[0].toUpperCase(),
-            style: TextStyle(
-              color: peer.online
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurfaceVariant,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: peer.online
+                  ? theme.colorScheme.primaryContainer
+                  : theme.dividerColor,
+              child: Text(
+                peer.deviceName.isEmpty
+                    ? '?'
+                    : peer.deviceName[0].toUpperCase(),
+                style: TextStyle(
+                  color: peer.online
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            title: Text(peer.deviceName),
+            subtitle: Row(
+              children: [
+                Icon(
+                  peer.online ? Icons.circle : Icons.circle_outlined,
+                  size: 10,
+                  color: peer.online ? Colors.green : Colors.grey,
+                ),
+                const SizedBox(width: 6),
+                Text(peer.online ? 'Online · connected' : 'Offline'),
+              ],
+            ),
+            trailing: IconButton(
+              tooltip: 'Unpair',
+              icon: Icon(Icons.link_off, color: theme.colorScheme.error),
+              onPressed: onUnpair,
             ),
           ),
-        ),
-        title: Text(peer.deviceName),
-        subtitle: Row(
-          children: [
-            Icon(
-              peer.online ? Icons.circle : Icons.circle_outlined,
-              size: 10,
-              color: peer.online ? Colors.green : Colors.grey,
+          _VerifyCard(peer: peer),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shows the E2E fingerprint for a paired device and lets the user mark it as
+/// verified (both devices display the same code, so matching codes prove the
+/// connection isn't being intercepted).
+class _VerifyCard extends StatelessWidget {
+  final PeerDevice peer;
+  const _VerifyCard({required this.peer});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AppController>();
+    final theme = Theme.of(context);
+    final fp = controller.e2eFingerprintFor(peer.deviceId);
+    final verified = controller.isPeerVerified(peer.deviceId);
+    final dim = theme.colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                verified ? Icons.verified_user : Icons.shield_outlined,
+                size: 16,
+                color: verified ? Colors.green : dim,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                verified
+                    ? 'Verified — secure connection'
+                    : 'Verify this device',
+                style: theme.textTheme.bodySmall?.copyWith(color: dim),
+              ),
+            ],
+          ),
+          if (fp != null) ...[
+            const SizedBox(height: 6),
+            SelectableText(
+              fp,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+                letterSpacing: 2,
+              ),
             ),
-            const SizedBox(width: 6),
-            Text(peer.online ? 'Online · connected' : 'Offline'),
-          ],
-        ),
-        trailing: IconButton(
-          tooltip: 'Unpair',
-          icon: Icon(Icons.link_off, color: theme.colorScheme.error),
-          onPressed: onUnpair,
-        ),
+            const SizedBox(height: 4),
+            Text(
+              'Compare this code with the one shown on ${peer.deviceName}. '
+              'They must match, otherwise the connection may be intercepted.',
+              style: theme.textTheme.bodySmall?.copyWith(color: dim),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () =>
+                    controller.setPeerVerified(peer.deviceId, !verified),
+                icon: Icon(
+                    verified ? Icons.close : Icons.check_circle_outline,
+                    size: 16),
+                label: Text(verified ? 'Remove verification' : "They match — verify"),
+              ),
+            ),
+          ] else
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Waiting for the encrypted key exchange…',
+                style: theme.textTheme.bodySmall?.copyWith(color: dim),
+              ),
+            ),
+        ],
       ),
     );
   }

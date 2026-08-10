@@ -22,6 +22,7 @@ class IdentityService {
   static const _deviceSecretKey = 'peerm_device_secret';
   static const _isHostKey = 'peerm_is_host';
   static const _pairedIdsKey = 'peerm_paired_device_ids';
+  static const _verifiedKey = 'peerm_verified_peers';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -29,7 +30,8 @@ class IdentityService {
   late String serverUrl;
   late String deviceSecret;
   late bool isHost;
-  late List<String> _pairedIds;
+  late Map<String, String> _paired; // deviceId -> last known name
+  late Set<String> _verifiedIds;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -39,7 +41,11 @@ class IdentityService {
     // A fresh device is its own host; it becomes a client only after another
     // host is found (or the other device defers to it).
     isHost = _prefs.getBool(_isHostKey) ?? true;
-    _pairedIds = _decodePairedIds(_prefs.getString(_pairedIdsKey));
+    _paired = _decodePaired(_prefs.getString(_pairedIdsKey));
+    _verifiedIds = (_prefs.getString(_verifiedKey) ?? '')
+        .split(',')
+        .where((s) => s.isNotEmpty)
+        .toSet();
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -57,34 +63,56 @@ class IdentityService {
     return 'My Device';
   }
 
-  List<String> _decodePairedIds(String? raw) {
-    if (raw == null || raw.isEmpty) return [];
+  Map<String, String> _decodePaired(String? raw) {
+    if (raw == null || raw.isEmpty) return {};
     try {
-      final list = jsonDecode(raw);
-      if (list is List) return list.whereType<String>().toList();
+      final d = jsonDecode(raw);
+      if (d is Map) {
+        return d.map((k, v) => MapEntry('$k', '$v'));
+      }
+      if (d is List) {
+        // Legacy format: a plain array of ids (no names known).
+        return {for (final id in d.whereType<String>()) id: ''};
+      }
     } catch (_) {}
-    return [];
+    return {};
   }
 
   /// The device IDs this device is paired with (read-only view).
-  List<String> get pairedDeviceIds => List.unmodifiable(_pairedIds);
+  List<String> get pairedDeviceIds => _paired.keys.toList();
+
+  /// Paired device IDs with their last-known names (id -> name). Sent to a new
+  /// host on register so it can restore the pairing WITH names after failover.
+  Map<String, String> get pairedDeviceNames => Map.unmodifiable(_paired);
 
   /// Replace the known paired-device list (e.g. from the server's `state`).
-  Future<void> setPairedDevices(Iterable<String> ids) async {
-    _pairedIds = ids.where((id) => id.isNotEmpty).toSet().toList();
-    await _prefs.setString(_pairedIdsKey, jsonEncode(_pairedIds));
+  Future<void> setPairedDevices(
+      Iterable<MapEntry<String, String>> entries) async {
+    final next = <String, String>{
+      for (final e in entries)
+        if (e.key.isNotEmpty) e.key: e.value,
+    };
+    _paired = next;
+    await _prefs.setString(_pairedIdsKey, jsonEncode(next));
   }
 
-  Future<void> addPairedDevice(String id) async {
-    if (id.isEmpty || _pairedIds.contains(id)) return;
-    _pairedIds.add(id);
-    await _prefs.setString(_pairedIdsKey, jsonEncode(_pairedIds));
+  Future<void> addPairedDevice(String id, {String name = ''}) async {
+    if (id.isEmpty) return;
+    if (_paired.containsKey(id)) {
+      if (name.isNotEmpty && _paired[id] != name) {
+        _paired[id] = name;
+        await _prefs.setString(_pairedIdsKey, jsonEncode(_paired));
+      }
+      return;
+    }
+    _paired[id] = name;
+    await _prefs.setString(_pairedIdsKey, jsonEncode(_paired));
   }
 
   Future<void> removePairedDevice(String id) async {
-    if (!_pairedIds.contains(id)) return;
-    _pairedIds.remove(id);
-    await _prefs.setString(_pairedIdsKey, jsonEncode(_pairedIds));
+    if (!_paired.containsKey(id)) return;
+    _paired.remove(id);
+    await _prefs.setString(_pairedIdsKey, jsonEncode(_paired));
   }
 
   /// Set whether this device is the host (runs the embedded server).
@@ -92,6 +120,16 @@ class IdentityService {
     if (value == isHost) return;
     isHost = value;
     await _prefs.setBool(_isHostKey, value);
+  }
+
+  /// Whether the user has confirmed [id]'s E2E fingerprint matches.
+  bool isPeerVerified(String id) => _verifiedIds.contains(id);
+
+  Future<void> setPeerVerified(String id, bool verified) async {
+    final changed =
+        verified ? _verifiedIds.add(id) : _verifiedIds.remove(id);
+    if (!changed) return;
+    await _prefs.setString(_verifiedKey, _verifiedIds.join(','));
   }
 
   Future<void> setDeviceName(String name) async {

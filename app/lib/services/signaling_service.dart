@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -71,6 +72,10 @@ class SignalingService {
   SimpleKeyPair? _e2ePair;
   Uint8List? _e2ePub;
   final Map<String, SecretKey> _peerKeys = {};
+  // Peers' raw X25519 public keys, kept for fingerprint verification.
+  final Map<String, Uint8List> _peerPubs = {};
+
+  static const String _fpAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   /// Generate this device's ephemeral keypair (once) and cache its public key.
   Future<void> ensureE2E() async {
@@ -87,8 +92,38 @@ class SignalingService {
     return pub == null ? null : base64Encode(pub);
   }
 
+  /// A short code derived from BOTH devices' public keys — both sides display
+  /// the SAME value, so users compare them to detect a man-in-the-middle (the
+  /// X25519 exchange itself is unauthenticated). Null until the peer's key has
+  /// been exchanged.
+  String? e2eFingerprintFor(String peerId) {
+    final myPub = _e2ePub;
+    final peerPub = _peerPubs[peerId];
+    if (myPub == null || peerPub == null) return null;
+    // Same canonical order on both sides so the codes match.
+    final a = List<int>.from(myPub);
+    final b = List<int>.from(peerPub);
+    final data = _compareBytes(a, b) <= 0 ? [...a, ...b] : [...b, ...a];
+    final digest = crypto.sha256.convert(data).bytes;
+    final sb = StringBuffer();
+    for (var i = 0; i < 10; i++) {
+      sb.write(_fpAlphabet[digest[i] % _fpAlphabet.length]);
+    }
+    final code = sb.toString();
+    return '${code.substring(0, 5)}-${code.substring(5)}';
+  }
+
+  static int _compareBytes(List<int> a, List<int> b) {
+    final len = a.length < b.length ? a.length : b.length;
+    for (var i = 0; i < len; i++) {
+      if (a[i] != b[i]) return a[i] - b[i];
+    }
+    return a.length - b.length;
+  }
+
   /// Derive + cache the shared AES key for [peerId] from their public key.
   Future<void> setPeerE2E(String peerId, Uint8List peerPubBytes) async {
+    _peerPubs[peerId] = peerPubBytes;
     await ensureE2E();
     final shared = await _x25519.sharedSecretKey(
       keyPair: _e2ePair!,
@@ -208,15 +243,19 @@ class SignalingService {
       _incoming.add({'type': '_local', 'event': 'connected'});
       // Register once the socket is open. If the server previously issued us
       // a device-auth secret, present it so the registration is authorized.
-      // We also tell the server which devices we're already paired with — if
-      // this is a NEW host (after failover) it uses these to restore the
-      // pairing instead of starting empty and unpairing us.
+      // We also tell the server which devices we're already paired with (id +
+      // name) — if this is a NEW host (after failover) it uses these to restore
+      // the pairing instead of starting empty and unpairing us.
+      final pairings = <Map<String, String>>[
+        for (final entry in identity.pairedDeviceNames.entries)
+          {'deviceId': entry.key, 'deviceName': entry.value},
+      ];
       send({
         'type': 'register',
         'deviceId': identity.deviceId,
         'deviceName': identity.deviceName,
         'secret': identity.deviceSecret,
-        'pairings': identity.pairedDeviceIds,
+        'pairings': pairings,
       });
       channel.stream.listen(
         (raw) => _handleRaw(raw),

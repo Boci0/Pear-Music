@@ -548,13 +548,23 @@ class SignalingServer {
     final restored = msg['pairings'];
     var restoredAny = false;
     if (restored is List) {
-      for (final pid in restored) {
-        if (pid is String && pid.isNotEmpty && pid != id) {
-          if (conn.pairings.add(pid)) {
-            _persistedPairs.putIfAbsent(id, () => <String>{}).add(pid);
-            _persistedPairs.putIfAbsent(pid, () => <String>{}).add(id);
-            restoredAny = true;
-          }
+      for (final item in restored) {
+        String? pid;
+        String? pname;
+        if (item is String) {
+          pid = item;
+        } else if (item is Map) {
+          pid = item['deviceId'] as String?;
+          pname = item['deviceName'] as String?;
+        }
+        if (pid == null || pid.isEmpty || pid == id) continue;
+        if (conn.pairings.add(pid)) {
+          _persistedPairs.putIfAbsent(id, () => <String>{}).add(pid);
+          _persistedPairs.putIfAbsent(pid, () => <String>{}).add(id);
+          restoredAny = true;
+        }
+        if (pname != null && pname.isNotEmpty) {
+          _persistedNames[pid] = pname;
         }
       }
     }
@@ -701,6 +711,12 @@ class SignalingServer {
     // name so the pairing survives and the client keeps its shared songs.
     final name = _persistedNames[id];
     if (name != null) return {'deviceId': id, 'deviceName': name, 'online': false};
+    // A pairing we know about (restored after a host change) whose device
+    // hasn't reconnected yet — keep it visible so a failover never looks like
+    // an unpair (which would show '0 paired' on the client).
+    if (_persistedPairs.containsKey(id)) {
+      return {'deviceId': id, 'deviceName': 'Unknown device', 'online': false};
+    }
     return null;
   }
 

@@ -186,13 +186,15 @@ void main() {
     test('register restores pairings on a fresh host (host failover)', () async {
       final a = await connect(port);
       final b = await connect(port);
-      // A claims it is already paired with B — as a client would after the
-      // host fails over to this device.
+      // A claims it is already paired with B (id + name) — as a client would
+      // after the host fails over to this device.
       a.sendText({
         'type': 'register',
         'deviceId': 'A',
         'deviceName': 'Dev A',
-        'pairings': ['B'],
+        'pairings': [
+          {'deviceId': 'B', 'deviceName': 'Dev B'},
+        ],
       });
       await a.nextJson('registered');
       // The initial state sent right after register can't include B yet
@@ -201,16 +203,20 @@ void main() {
       b.sendText({'type': 'register', 'deviceId': 'B', 'deviceName': 'Dev B'});
       await b.nextJson('registered');
 
-      // The server should now consider A paired with B (restored by A), so
-      // get_state reports B — the pairing survived the host change.
+      // The server should now consider A paired with B (restored by A, with
+      // its name), so get_state reports B — the pairing survived the host
+      // change and the offline peer stays visible.
       a.sendText({'type': 'get_state'});
       final state = await a.nextJson('state');
       final pairings = state['pairings'] as List;
-      expect(
-        pairings.any((p) => (p as Map)['deviceId'] == 'B'),
-        isTrue,
-        reason: 'restored pairing should be reported in state',
-      );
+      final bPeer = pairings
+          .whereType<Map>()
+          .where((p) => p['deviceId'] == 'B')
+          .toList();
+      expect(bPeer, isNotEmpty,
+          reason: 'restored pairing should be reported in state');
+      expect(bPeer.first['deviceName'], 'Dev B',
+          reason: 'restored pairing should keep the peer name');
       await a.close();
       await b.close();
     });

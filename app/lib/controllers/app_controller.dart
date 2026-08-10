@@ -55,6 +55,14 @@ class AppController extends ChangeNotifier {
   /// The LAN address other devices should connect to, when hosting.
   String? get serverLanIp => server.lanIp;
 
+  /// E2E fingerprint for [peerId] — both devices show the same code so users
+  /// can verify the connection isn't being intercepted.
+  String? e2eFingerprintFor(String peerId) =>
+      signaling.e2eFingerprintFor(peerId);
+
+  bool isPeerVerified(String peerId) => identity.isPeerVerified(peerId);
+  Future<void> setPeerVerified(String peerId, bool verified) =>
+      identity.setPeerVerified(peerId, verified);
 
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
@@ -298,13 +306,14 @@ class AppController extends ChangeNotifier {
 
       case 'state':
         unawaited(_applyPairings(msg['pairings'] as List? ?? []));
-        // Persist the paired-device list locally so a new host (after a
+        // Persist the paired-device list (with names) so a new host (after a
         // failover) can be told about the pairing on register.
         unawaited(identity.setPairedDevices(
-          (msg['pairings'] as List? ?? [])
-              .whereType<Map>()
-              .map((m) => m['deviceId'] as String? ?? '')
-              .where((id) => id.isNotEmpty),
+          (msg['pairings'] as List? ?? []).whereType<Map>().map((m) =>
+              MapEntry(
+                m['deviceId'] as String? ?? '',
+                m['deviceName'] as String? ?? '',
+              )),
         ));
         break;
 
@@ -318,7 +327,7 @@ class AppController extends ChangeNotifier {
           Map<String, dynamic>.from(msg['peer'] as Map),
         );
         _upsertPeer(peer);
-        await identity.addPairedDevice(peer.deviceId);
+        await identity.addPairedDevice(peer.deviceId, name: peer.deviceName);
         _postMessage('Paired with ${peer.deviceName}');
         await _reconcileConnections();
         break;

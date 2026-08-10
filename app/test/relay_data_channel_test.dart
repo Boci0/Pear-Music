@@ -156,4 +156,29 @@ void main() {
     expect(received[0].text, '{"type":"hello"}');
     expect(received[1].binary, [1, 2, 3]);
   });
+
+  test('E2E fingerprints match on both sides and detect a wrong key', () async {
+    final sigA = SignalingService(identity);
+    final sigB = SignalingService(identity);
+    await sigA.ensureE2E();
+    await sigB.ensureE2E();
+    final pubA = base64Decode(sigA.e2ePubB64!);
+    final pubB = base64Decode(sigB.e2ePubB64!);
+    await sigA.setPeerE2E('device-B', pubB);
+    await sigB.setPeerE2E('device-A', pubA);
+
+    // Both sides compute the SAME code from the two public keys.
+    final fpA = sigA.e2eFingerprintFor('device-B');
+    final fpB = sigB.e2eFingerprintFor('device-A');
+    expect(fpA, isNotNull);
+    expect(fpA, fpB);
+    expect(RegExp(r'^[A-Z0-9]{5}-[A-Z0-9]{5}$').hasMatch(fpA!), isTrue);
+
+    // A different key (a man-in-the-middle) yields a different code.
+    final sigM = SignalingService(identity);
+    await sigM.ensureE2E();
+    final pubM = base64Decode(sigM.e2ePubB64!);
+    await sigA.setPeerE2E('device-B', pubM);
+    expect(sigA.e2eFingerprintFor('device-B'), isNot(fpA));
+  });
 }
