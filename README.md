@@ -4,6 +4,7 @@
 
 [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip)
 [![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
+[![Download for Android (ARMv7)](https://img.shields.io/badge/Download-Android%20ARMv7-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built%20with-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 [![Server](https://img.shields.io/badge/Server-Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](server/)
@@ -44,6 +45,7 @@ page is just the backup if you want a specific version:
 | ----------- | ----------------------------- | --------------------------------- |
 | **Windows** | `PearMusic-Windows-x64.zip`   | Extract, then run `peerm_app.exe` |
 | **Android** | `PearMusic-Android-arm64.apk` | Open the file, allow unknown apps |
+| **Android (older)** | `PearMusic-Android-armv7.apk` | Open the file, allow unknown apps |
 
 > The Windows binary is not code-signed, so SmartScreen may warn the first time
 > you run it. Click "More info", then "Run anyway".
