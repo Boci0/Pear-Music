@@ -139,7 +139,9 @@ class PearMusicApp extends StatelessWidget {
           // pushed screens (player, playlists, settings) changed colour abruptly.
           return TweenAnimationBuilder<ThemeData>(
             tween: _ThemeTween(begin: theme, end: theme),
-            duration: const Duration(milliseconds: 700),
+            // Short enough to stay cheap on mobile, long enough to read as a
+            // graceful fade rather than a hard snap.
+            duration: const Duration(milliseconds: 400),
             curve: Curves.easeInOutCubic,
             builder: (context, animatedTheme, _) => MaterialApp(
               title: 'Pear Music',
@@ -164,15 +166,16 @@ class _ThemeTween extends Tween<ThemeData> {
 
   @override
   ThemeData lerp(double t) {
-    // Fade by lerping ONLY the ColorScheme and rebuilding the theme from it.
-    // ThemeData.lerp is deliberately NOT used: it binary-switches a few derived
-    // component themes at t=0.5 (t < 0.5 ? a.x : b.x), which makes the colour
-    // SNAP at the midpoint on desktop when the two accents are very different.
-    // ColorScheme.lerp is fully continuous, and PlayerTheme.buildFromScheme
-    // recomputes derived colours from the animated scheme so everything fades.
+    // Cheap, continuous fade: lerp ONLY the ColorScheme and drop it onto the
+    // target theme with copyWith. ThemeData.lerp is deliberately avoided — it
+    // binary-switches a few derived component themes at t=0.5 (snap on desktop)
+    // — and building a full ThemeData from the scheme every frame was janky on
+    // mobile. copyWith does no per-frame recomputation, so the fade stays
+    // smooth AND cheap.
     final a = begin!, b = end!;
-    final scheme = ColorScheme.lerp(a.colorScheme, b.colorScheme, t);
-    return PlayerTheme.buildFromScheme(scheme);
+    return b.copyWith(
+      colorScheme: ColorScheme.lerp(a.colorScheme, b.colorScheme, t),
+    );
   }
 }
 
