@@ -33,12 +33,18 @@ class SignalingServer {
     this.host = '0.0.0.0',
     this.stateFile,
     this.onLog,
+    this.advertiseName = 'Pear Music device',
+    this.advertiseDeviceId,
   });
 
   final int port;
   final String host;
   final File? stateFile;
   final void Function(String message)? onLog;
+
+  /// Device identity advertised during LAN discovery (the name peers see).
+  String advertiseName;
+  String? advertiseDeviceId;
 
   // ---- Limits (mirror server/src/index.js) ----
   static const int maxPayload = 2 * 1024 * 1024; // 2 MB per frame
@@ -56,6 +62,16 @@ class SignalingServer {
   static const Duration codeTtl = Duration(minutes: 10);
   static final RegExp codeRe = RegExp(r'^[A-HJ-NP-Z2-9]{6}$');
   static const Duration serverPingInterval = Duration(seconds: 30);
+
+  // ---- LAN discovery (LocalSend-style) ----
+  // A fixed multicast group in 224.0.0.0/24 (the range Android devices
+  // reliably receive) plus an HTTP /discover endpoint as the subnet-scan
+  // fallback. Peers find this server by either path.
+  static const String multicastGroup = '224.0.0.173';
+  static const String _probeType = 'peerm_probe';
+  static const String _helloType = 'peerm_hello';
+  RawDatagramSocket? _multicastSocket;
+  Timer? _announceTimer;
 
   // ---- Runtime state ----
   final Map<String, _Conn> _devices = {}; // deviceId -> connection
@@ -103,12 +119,19 @@ class SignalingServer {
     _log('Pear Music signaling server listening on $host:$port (ws)');
     _log('  ws://localhost:$port   (other devices: ws://${lanIp ?? host}:$port)');
     if (stateFile != null) _log('  persistent state: ${stateFile!.path}');
+    _startMulticast();
   }
 
   Future<void> stop() async {
     _running = false;
     _codeExpiryTimer?.cancel();
     _codeExpiryTimer = null;
+    _announceTimer?.cancel();
+    _announceTimer = null;
+    try {
+      _multicastSocket?.close();
+    } catch (_) {}
+    _multicastSocket = null;
     for (final conn in _devices.values) {
       try {
         conn.ws.close(1001, 'server stopping');
@@ -145,11 +168,84 @@ class SignalingServer {
         'time': DateTime.now().toIso8601String(),
       }));
       await req.response.close();
+    } else if (path == '/discover') {
+      // LAN discovery endpoint (subnet-scan fallback + QR-less joiner finds
+      // this host). Mirrors the UDP multicast hello so both paths agree.
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(jsonEncode(_helloJson()));
+      await req.response.close();
     } else {
       req.response.statusCode = HttpStatus.notFound;
       req.response.write('Not found');
       await req.response.close();
     }
+  }
+
+  /// The `peerm_hello` payload used by both the `/discover` endpoint and the
+  /// UDP multicast announcements.
+  Map<String, dynamic> _helloJson() {
+    final ip = lanIp ?? '127.0.0.1';
+    return {
+      'type': _helloType,
+      'name': advertiseName,
+      'deviceId': advertiseDeviceId,
+      'url': 'ws://$ip:$boundPort',
+    };
+  }
+
+  /// Joins the multicast group, answers `peerm_probe` messages with our hello
+  /// (unicast back to the sender), and periodically announces ourselves so
+  /// passive listeners see us. All best-effort: if the network/firewall drops
+  /// multicast, discovery still works via the `/discover` subnet scan.
+  void _startMulticast() {
+    try {
+      RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        port,
+        reuseAddress: true,
+        reusePort: true,
+      ).then((socket) {
+        _multicastSocket = socket;
+        try {
+          socket.joinMulticast(InternetAddress(multicastGroup));
+        } catch (_) {}
+        socket.listen((event) {
+          if (event != RawSocketEvent.read) return;
+          final dg = socket.receive();
+          if (dg == null) return;
+          final msg = utf8.decode(dg.data, allowMalformed: true).trim();
+          if (msg.contains(_probeType)) {
+            try {
+              socket.send(
+                utf8.encode(jsonEncode(_helloJson())),
+                dg.address,
+                dg.port,
+              );
+              _log('[discover] answered probe from ${dg.address.address}');
+            } catch (_) {}
+          }
+        });
+        _log('[discover] multicast listening on $multicastGroup:$port');
+      }).catchError((Object e) {
+        _log('[discover] multicast unavailable: $e');
+      });
+    } catch (_) {}
+    _announceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _sendAnnouncement();
+    });
+    _sendAnnouncement();
+  }
+
+  void _sendAnnouncement() {
+    final socket = _multicastSocket;
+    if (socket == null) return;
+    try {
+      socket.send(
+        utf8.encode(jsonEncode(_helloJson())),
+        InternetAddress(multicastGroup),
+        port,
+      );
+    } catch (_) {}
   }
 
   void _handleConnection(WebSocket ws, HttpRequest req) {

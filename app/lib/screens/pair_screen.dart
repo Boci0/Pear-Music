@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/pairing_link.dart';
+import '../services/server_discovery.dart';
 import 'qr_scan_screen.dart';
 
 /// Two-way pairing:
@@ -262,6 +263,12 @@ class _PairScreenState extends State<PairScreen> {
           icon: const Icon(Icons.qr_code_scanner),
           label: const Text('Scan QR code'),
         ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => _findNearby(controller),
+          icon: const Icon(Icons.wifi_find),
+          label: const Text('Find nearby device'),
+        ),
       ],
     );
   }
@@ -298,7 +305,7 @@ class _PairScreenState extends State<PairScreen> {
     _join(controller);
   }
 
-  void _join(AppController controller) {
+  Future<void> _join(AppController controller) async {
     final code = _codeController.text.trim();
     if (code.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -306,10 +313,67 @@ class _PairScreenState extends State<PairScreen> {
       );
       return;
     }
-    controller.joinWithCode(code);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Pairing…')),
     );
+    // Smart pairing: tries the current server, then discovers nearby hosts
+    // and retries there (so typing the code works even when this device is
+    // on a different server than the host).
+    final error = await controller.pairSmart(code);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error)),
+      );
+    }
+  }
+
+  /// LocalSend-style: scan the LAN for nearby Pear Music hosts and let the
+  /// user pick one to connect to.
+  Future<void> _findNearby(AppController controller) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Looking for nearby devices…')),
+    );
+    final hosts = await controller.discoverNearby();
+    if (!mounted) return;
+    if (hosts.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+            content: Text('No nearby Pear Music devices found.')),
+      );
+      return;
+    }
+    final selected = await showModalBottomSheet<DiscoveredServer>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Nearby devices',
+                  style: Theme.of(context).textTheme.titleMedium),
+            ),
+            for (final host in hosts)
+              ListTile(
+                leading: const Icon(Icons.dns),
+                title: Text(host.name),
+                subtitle: Text(host.url),
+                onTap: () => Navigator.of(context).pop(host),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    final ok = await controller.connectToServer(selected.url);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Connected to ${selected.name}. Enter its code to pair.'
+          : 'Could not connect to ${selected.name}.'),
+    ));
   }
 }
 

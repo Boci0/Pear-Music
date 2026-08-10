@@ -83,6 +83,8 @@ Future<void> main() async {
       '${(await getApplicationSupportDirectory()).path}/peerm_server_state.json',
     ),
     onLog: (m) => debugPrint('[server] $m'),
+    advertiseName: identity.deviceName,
+    advertiseDeviceId: identity.deviceId,
   );
   try {
     await server.start();

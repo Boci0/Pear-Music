@@ -12,6 +12,7 @@ import '../services/identity_service.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../services/relay_data_channel.dart';
+import '../services/server_discovery.dart';
 import '../services/signaling_server.dart';
 import '../services/signaling_service.dart';
 import '../services/sync_service.dart';
@@ -78,6 +79,10 @@ class AppController extends ChangeNotifier {
 
   /// Whether that pending raw binary frame is E2E-encrypted (from the marker).
   bool _pendingRelayBinaryEnc = false;
+
+  /// Set while a smart pairing attempt is trying multiple servers, so the
+  /// per-attempt `error` snackbars are suppressed in favour of one final result.
+  bool _pairSmartActive = false;
 
   List<Song> get songs => library.songs;
 
@@ -266,7 +271,11 @@ class AppController extends ChangeNotifier {
         break;
 
       case 'error':
-        _postMessage(msg['message'] as String? ?? 'Server error');
+        // While a smart pairing attempt is trying several servers, don't
+        // snackbar each failure — pairSmart surfaces the final result.
+        if (!_pairSmartActive) {
+          _postMessage(msg['message'] as String? ?? 'Server error');
+        }
         break;
     }
   }
@@ -630,6 +639,72 @@ class AppController extends ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 250));
     }
     return connectionStatus == 'connected';
+  }
+
+  /// LocalSend-style LAN discovery: finds nearby Pear Music servers on the
+  /// same network (multicast + subnet scan). Excludes this device itself.
+  Future<List<DiscoveredServer>> discoverNearby() async {
+    try {
+      final found = await ServerDiscovery.discover();
+      return found
+          .where((d) => d.deviceId != null && d.deviceId != identity.deviceId)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Smart pairing for MANUAL code entry (LocalSend-style): tries the code on
+  /// the current server, then discovers nearby devices and retries the code on
+  /// each, so typing the code works even when this device is on a different
+  /// server than the host. Returns an error message on failure, null on success.
+  Future<String?> pairSmart(String code) async {
+    final c = code.trim().toUpperCase();
+    if (c.length != 6) return 'Enter the 6-character code';
+
+    _pairSmartActive = true;
+    try {
+      // 1) Try on the current server first (fast path when already aligned).
+      if (connectionStatus == 'connected') {
+        signaling.pairWithCode(c);
+        if (await _waitForPairingOutcome(const Duration(seconds: 5))) return null;
+      }
+
+      // 2) Discover nearby hosts and try the code on each.
+      final hosts = await discoverNearby();
+      for (final host in hosts) {
+        if (host.url == identity.serverUrl) continue;
+        if (!await connectToServer(host.url)) continue;
+        signaling.pairWithCode(c);
+        if (await _waitForPairingOutcome(const Duration(seconds: 5))) return null;
+      }
+
+      return 'No device found with that code. Make sure the other device is '
+          'open on the Pair screen, or scan its QR.';
+    } finally {
+      _pairSmartActive = false;
+    }
+  }
+
+  /// Waits up to [timeout] for the server to confirm (paired) or reject
+  /// (error) the current pairing attempt. True = paired.
+  Future<bool> _waitForPairingOutcome(Duration timeout) async {
+    final completer = Completer<bool>();
+    late final StreamSubscription<Map<String, dynamic>> sub;
+    final timer = Timer(timeout, () {
+      if (!completer.isCompleted) completer.complete(false);
+    });
+    sub = signaling.stream.listen((msg) {
+      if (msg['type'] == 'paired') {
+        if (!completer.isCompleted) completer.complete(true);
+      } else if (msg['type'] == 'error') {
+        if (!completer.isCompleted) completer.complete(false);
+      }
+    });
+    final result = await completer.future;
+    timer.cancel();
+    await sub.cancel();
+    return result;
   }
 
   // ---------- playback (delegated) ----------

@@ -99,6 +99,19 @@ void main() {
       client.close();
     });
 
+    test('discover endpoint returns peerm_hello (LAN discovery)', () async {
+      final client = HttpClient();
+      final req = await client.get('127.0.0.1', port, '/discover');
+      final res = await req.close();
+      expect(res.statusCode, 200);
+      final body = await res.transform(utf8.decoder).join();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      expect(data['type'], 'peerm_hello');
+      expect(data['url'], startsWith('ws://'));
+      expect(data['name'], isNotEmpty);
+      client.close();
+    });
+
     test('register -> create_pairing -> pair_with_code -> relay text -> relay binary -> unpair',
         () async {
       final a = await connect(port);
