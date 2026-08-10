@@ -161,18 +161,22 @@ class SyncService extends ChangeNotifier {
     _send(peerId, {
       'type': 'hello',
       'deviceName': identity.deviceName,
-      'e2ePub': ?e2ePub,
+      'e2ePub': e2ePub,
     });
     // Advertise our whole library; the peer asks for what it's missing.
-    _send(peerId, {
-      'type': 'manifest',
-      'songs': library.songs.map((s) => s.toJson()).toList(),
-    });
-    // Advertise our playlists (and deletions) so both sides converge.
+    _send(peerId, _manifestMessage());
     _send(peerId, _playlistManifestMessage());
     notifyListeners();
     _startResyncTimer();
   }
+
+  Map<String, dynamic> _manifestMessage() => {
+        'type': 'manifest',
+        'songs': library.songs
+            .where((s) => library.songFile(s).existsSync())
+            .map((s) => s.toJson())
+            .toList(),
+      };
 
   /// Keeps a periodic re-advertisement running while any channel is attached.
   void _startResyncTimer() {
@@ -180,11 +184,6 @@ class SyncService extends ChangeNotifier {
     _resyncTimer = Timer.periodic(resyncInterval, (_) => _resyncManifests());
   }
 
-  /// Re-advertise our library + playlists to every online peer so anything the
-  /// peer is still missing (a transfer that failed and exhausted its retries)
-  /// is re-requested automatically. Cheap (small JSON) and idempotent — the
-  /// peer's `_onManifest` only requests what it genuinely lacks, and in-flight
-  /// sends are deduped by the per-peer `_sending` guard.
   /// Demand manifests from all connected peers immediately.
   void demandManifests() {
     if (_channels.isEmpty) return;
@@ -196,10 +195,7 @@ class SyncService extends ChangeNotifier {
   void _resyncManifests() {
     if (_channels.isEmpty) return;
     for (final peerId in _channels.keys.toList()) {
-      _send(peerId, {
-        'type': 'manifest',
-        'songs': library.songs.map((s) => s.toJson()).toList(),
-      });
+      _send(peerId, _manifestMessage());
       _send(peerId, _playlistManifestMessage());
     }
   }
@@ -257,17 +253,11 @@ class SyncService extends ChangeNotifier {
         // The peer announced itself. Reply with our manifest so both sides
         // always exchange library state, even if our initial manifest was
         // sent before their channel handler was attached.
-        _send(peerId, {
-          'type': 'manifest',
-          'songs': library.songs.map((s) => s.toJson()).toList(),
-        });
+        _send(peerId, _manifestMessage());
         _send(peerId, _playlistManifestMessage());
         break;
       case 'get_manifest':
-        _send(peerId, {
-          'type': 'manifest',
-          'songs': library.songs.map((s) => s.toJson()).toList(),
-        });
+        _send(peerId, _manifestMessage());
         _send(peerId, _playlistManifestMessage());
         break;
       case 'manifest':

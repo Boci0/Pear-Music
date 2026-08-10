@@ -493,11 +493,11 @@ void main() {
     await waitFor(() => libB.findById(song.id) != null,
         timeout: const Duration(seconds: 10));
 
-    expect(syncA.isIdle, isTrue);
-    expect(syncB.isIdle, isTrue);
-
     await syncA.idle;
     await syncB.idle;
+
+    expect(syncA.isIdle, isTrue);
+    expect(syncB.isIdle, isTrue);
   });
 }
 
