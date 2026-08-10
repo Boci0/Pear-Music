@@ -485,13 +485,16 @@ void main() {
     syncA.attachChannel('device-B', chA);
     syncB.attachChannel('device-A', chB);
 
+    await waitFor(() => libB.findById(song.id) != null,
+        timeout: const Duration(seconds: 10));
+
+    await syncA.idle;
+    await syncB.idle;
+
     expect(syncA.isIdle, isTrue);
     expect(syncB.isIdle, isTrue);
 
     syncB.demandManifests();
-
-    await waitFor(() => libB.findById(song.id) != null,
-        timeout: const Duration(seconds: 10));
 
     await syncA.idle;
     await syncB.idle;
