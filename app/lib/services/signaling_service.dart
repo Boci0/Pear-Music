@@ -60,9 +60,12 @@ class SignalingService {
   // wait for the server's `relay_ack`. The server only acks once it has
   // relayed the frame, and it delays the ack if the receiving peer is slow —
   // so a large file sync can never blow up memory on either side.
-  Completer<void>? _relayGate;
-  Completer<void>? _pendingRelayAck;
-  Timer? _relayAckTimeout;
+  static const int maxRelayWindow = 8;
+  int _nextRelaySeq = 1;
+  final Map<String, int> _peerInFlight = {};
+  final Map<String, List<Completer<void>>> _peerWindowWaiters = {};
+  final Map<int, Completer<void>> _pendingRelayAcks = {};
+  final Map<int, Timer> _relayAckTimeouts = {};
 
   // ---- End-to-end relay encryption ----
   //
@@ -303,9 +306,9 @@ class SignalingService {
         if (decoded is Map<String, dynamic>) {
           debugPrint('[diag] raw type=${decoded['type']} from=${decoded['from']}');
           if (decoded['type'] == 'relay_ack') {
-            // Backpressure signal: our in-flight binary frame was relayed, so
-            // the next chunk may go out.
-            _onRelayAck();
+            final rawSeq = decoded['seq'];
+            final int? seq = rawSeq is num ? rawSeq.toInt() : null;
+            _onRelayAck(seq);
             return;
           }
           if (decoded['type'] == 'pong') {
@@ -429,20 +432,28 @@ class SignalingService {
   /// is acked or after a short safety timeout (a lost ack is healed by the
   /// reconnect + manifest re-sync, never by stalling forever).
   Future<void> sendRelayBinary(String peerId, Uint8List bytes) async {
-    // Serialize all binary sequences globally: exactly one marker+frame pair
-    // is in flight at a time, so the server always pairs each frame with the
-    // right marker and the next ack always belongs to our frame.
-    while (_relayGate != null) {
-      await _relayGate!.future;
+    while ((_peerInFlight[peerId] ?? 0) >= maxRelayWindow) {
+      final waiter = Completer<void>();
+      _peerWindowWaiters.putIfAbsent(peerId, () => []).add(waiter);
+      await waiter.future;
     }
-    final gate = Completer<void>();
-    _relayGate = gate;
+
+    final ch = _channel;
+    if (ch == null) return;
+
+    final seq = _nextRelaySeq++;
+    _peerInFlight[peerId] = (_peerInFlight[peerId] ?? 0) + 1;
+
+    final ack = Completer<void>();
+    _pendingRelayAcks[seq] = ack;
+
+    // Safety timeout: if the ack is lost (e.g. server restarted mid-sync),
+    // complete the completer so we don't stall the channel forever.
+    _relayAckTimeouts[seq] = Timer(const Duration(seconds: 5), () {
+      if (!ack.isCompleted) ack.complete();
+    });
+
     try {
-      final ch = _channel;
-      if (ch == null) return;
-      // E2E: encrypt the whole chunk envelope (nonce||ct||tag) and mark the
-      // marker with e:1 when a shared key exists; no key → plaintext so old
-      // peers keep working.
       final encrypted = _peerKeys.containsKey(peerId);
       final payload = encrypted
           ? (await encryptBinaryFor(peerId, bytes)) ?? bytes
@@ -450,34 +461,45 @@ class SignalingService {
       ch.sink.add(jsonEncode({
         'type': 'relay',
         'to': peerId,
-        'data': {'t': 'bin', if (encrypted) 'e': 1},
+        'data': {
+          't': 'bin',
+          if (encrypted) 'e': 1,
+          'seq': seq,
+        },
       }));
       ch.sink.add(payload);
 
-      final ack = Completer<void>();
-      _pendingRelayAck = ack;
-      // Safety timeout: if the ack is lost (e.g. server restarted mid-sync),
-      // don't stall the channel forever — the resync heals it.
-      _relayAckTimeout?.cancel();
-      _relayAckTimeout = Timer(const Duration(seconds: 5), () {
-        if (!ack.isCompleted) ack.complete();
-      });
-      try {
-        await ack.future;
-      } finally {
-        _relayAckTimeout?.cancel();
-        _relayAckTimeout = null;
-        if (identical(_pendingRelayAck, ack)) _pendingRelayAck = null;
-      }
-    } finally {
-      _relayGate = null;
-      if (!gate.isCompleted) gate.complete();
+      unawaited(ack.future.then((_) {
+        _relayAckTimeouts.remove(seq)?.cancel();
+        _pendingRelayAcks.remove(seq);
+        _releaseWindowSlot(peerId);
+      }));
+    } catch (_) {
+      _relayAckTimeouts.remove(seq)?.cancel();
+      _pendingRelayAcks.remove(seq);
+      _releaseWindowSlot(peerId);
     }
   }
 
-  void _onRelayAck() {
-    final ack = _pendingRelayAck;
-    if (ack != null && !ack.isCompleted) ack.complete();
+  void _releaseWindowSlot(String peerId) {
+    _peerInFlight[peerId] = math.max(0, (_peerInFlight[peerId] ?? 1) - 1);
+    final waiters = _peerWindowWaiters[peerId];
+    if (waiters != null && waiters.isNotEmpty) {
+      final next = waiters.removeAt(0);
+      if (!next.isCompleted) next.complete();
+    }
+  }
+
+  void _onRelayAck(int? seq) {
+    if (seq != null) {
+      final ack = _pendingRelayAcks[seq];
+      if (ack != null && !ack.isCompleted) ack.complete();
+    } else if (_pendingRelayAcks.isNotEmpty) {
+      // Legacy server: complete the oldest pending ack.
+      final firstSeq = _pendingRelayAcks.keys.first;
+      final ack = _pendingRelayAcks[firstSeq];
+      if (ack != null && !ack.isCompleted) ack.complete();
+    }
   }
 
   void _startHeartbeat() {
@@ -500,14 +522,21 @@ class SignalingService {
   }
 
   void _resetRelayState() {
-    _relayAckTimeout?.cancel();
-    _relayAckTimeout = null;
-    final ack = _pendingRelayAck;
-    if (ack != null && !ack.isCompleted) ack.complete();
-    _pendingRelayAck = null;
-    final gate = _relayGate;
-    if (gate != null && !gate.isCompleted) gate.complete();
-    _relayGate = null;
+    for (final timer in _relayAckTimeouts.values) {
+      timer.cancel();
+    }
+    _relayAckTimeouts.clear();
+    for (final ack in _pendingRelayAcks.values) {
+      if (!ack.isCompleted) ack.complete();
+    }
+    _pendingRelayAcks.clear();
+    for (final waiters in _peerWindowWaiters.values) {
+      for (final w in waiters) {
+        if (!w.isCompleted) w.complete();
+      }
+    }
+    _peerWindowWaiters.clear();
+    _peerInFlight.clear();
   }
 
   void unpair(String peerId) => send({'type': 'unpair', 'peerId': peerId});

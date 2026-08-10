@@ -441,6 +441,37 @@ void main() {
     await sync.idle;
     await tempDir.delete(recursive: true);
   });
+
+  test('request_chunks resumes partial file download from startIndex', () async {
+    await libA.addLocalFiles([makeAudio('resume.mp3', 600 * 1024)]);
+    final song = libA.songs.first;
+
+    final chA = _FakeChannel();
+    final chB = _FakeChannel();
+    chA.otherSide = chB;
+    chB.otherSide = chA;
+
+    syncA.attachChannel('device-B', chA);
+    syncB.attachChannel('device-A', chB);
+
+    // Pre-create partial file in libB for chunk 0 (256 KB)
+    final incFile = libB.incomingFile(song.id);
+    final chunk0 = List<int>.filled(256 * 1024, 42);
+    await incFile.writeAsBytes(chunk0);
+
+    // Trigger file send from A to B
+    unawaitedSync(syncA.broadcastSong(song));
+
+    await waitFor(() => libB.findById(song.id) != null,
+        timeout: const Duration(seconds: 10));
+
+    final downloaded = libB.findById(song.id)!;
+    expect(downloaded.size, song.size);
+    expect(downloaded.checksum, song.checksum);
+
+    await syncA.idle;
+    await syncB.idle;
+  });
 }
 
 /// Fire-and-forget wrapper so tests read cleanly.

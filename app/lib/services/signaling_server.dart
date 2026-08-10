@@ -97,7 +97,7 @@ class SignalingServer {
   // ---- Runtime state ----
   final Map<String, _Conn> _devices = {}; // deviceId -> connection
   final Map<String, _Pairing> _pairingCodes = {}; // code -> host info
-  final Map<String, String> _pendingBin = {}; // fromDeviceId -> toDeviceId
+  final Map<String, _PendingBinRoute> _pendingBin = {}; // fromDeviceId -> route (toDeviceId + optional seq)
   final Map<String, int> _ipCounts = {}; // ip -> open connections
   final Map<String, _WindowCounter> _pairOps = {}; // per-device pair counter
   final _WindowCounter _globalPairOps =
@@ -389,14 +389,16 @@ class SignalingServer {
           } catch (_) {}
           return;
         }
-        final to = _pendingBin[id];
-        if (to != null) {
-          _pendingBin.remove(id);
-          if (conn.pairings.contains(to)) {
-            final target = _devices[to];
+        final route = _pendingBin.remove(id);
+        if (route != null) {
+          if (conn.pairings.contains(route.to)) {
+            final target = _devices[route.to];
             if (target != null) {
               target.send(bytes);
-              conn.send({'type': 'relay_ack'});
+              conn.send({
+                'type': 'relay_ack',
+                'seq': ?route.seq,
+              });
             }
           }
         }
@@ -492,12 +494,18 @@ class SignalingServer {
             // frame. (This was dropped before, which broke sync once E2E
             // encryption actually turned on.)
             final e = (data is Map<String, dynamic>) ? data['e'] : null;
+            final rawSeq = (data is Map<String, dynamic>) ? data['seq'] : null;
+            final int? seq = rawSeq is num ? rawSeq.toInt() : null;
             target.send({
               'type': 'relay',
               'from': id,
-              'data': {'t': 'bin', if (e == 1) 'e': 1},
+              'data': {
+                't': 'bin',
+                if (e == 1) 'e': 1,
+                'seq': ?seq,
+              },
             });
-            _pendingBin[id] = to;
+            _pendingBin[id] = _PendingBinRoute(to, seq);
           }
         } else {
           target.send({'type': 'relay', 'from': id, 'data': data});
@@ -1085,6 +1093,12 @@ class _Conn {
       // socket raced to closed — ignore
     }
   }
+}
+
+class _PendingBinRoute {
+  final String to;
+  final int? seq;
+  _PendingBinRoute(this.to, this.seq);
 }
 
 class _Pairing {

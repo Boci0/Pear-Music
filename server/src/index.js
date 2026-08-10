@@ -238,12 +238,13 @@ function sendBin(ws, buf) {
 // the high-water mark), the ack is held until the target drains — this paces
 // the sender to the target's real consumption rate and keeps the relay
 // memory-bounded without ever dropping a chunk.
-function relayBinary(senderWs, target, raw) {
+function relayBinary(senderWs, target, raw, seq) {
   sendBin(target.ws, raw);
+  const ackMsg = { type: 'relay_ack', ...(seq !== undefined ? { seq } : {}) };
   if (target.ws.bufferedAmount > RELAY_HIGH_WATER) {
-    target.ws.once('drain', () => send(senderWs, { type: 'relay_ack' }));
+    target.ws.once('drain', () => send(senderWs, ackMsg));
   } else {
-    send(senderWs, { type: 'relay_ack' });
+    send(senderWs, ackMsg);
   }
 }
 
@@ -358,12 +359,14 @@ wss.on('connection', (ws, req) => {
           ws.close(4003, 'relay budget exceeded');
           return;
         }
-        const to = pendingBin.get(deviceId);
-        if (to !== undefined) {
+        const route = pendingBin.get(deviceId);
+        if (route !== undefined) {
           pendingBin.delete(deviceId);
-          if (getPeerSet(deviceId).has(to)) {
-            const target = devices.get(to);
-            if (target) relayBinary(ws, target, raw);
+          const targetId = typeof route === 'string' ? route : route.to;
+          const seq = typeof route === 'object' ? route.seq : undefined;
+          if (getPeerSet(deviceId).has(targetId)) {
+            const target = devices.get(targetId);
+            if (target) relayBinary(ws, target, raw, seq);
           }
         }
       }
@@ -532,12 +535,17 @@ wss.on('connection', (ws, req) => {
             // can forward them unchanged. PRESERVE the `e:1` encryption flag —
             // the receiver must know to decrypt the frame (dropping it broke
             // sync once E2E encryption actually turned on).
+            const seq = msg.data?.seq;
             send(target.ws, {
               type: 'relay',
               from: deviceId,
-              data: { t: 'bin', ...(msg.data?.e === 1 ? { e: 1 } : {}) },
+              data: {
+                t: 'bin',
+                ...(msg.data?.e === 1 ? { e: 1 } : {}),
+                ...(seq !== undefined ? { seq } : {}),
+              },
             });
-            pendingBin.set(deviceId, to);
+            pendingBin.set(deviceId, { to, seq });
           }
         } else {
           send(target.ws, { type: 'relay', from: deviceId, data: msg.data });

@@ -50,7 +50,7 @@ class TransferProgress {
 ///   text  {type:'file_error', id, message}
 ///   binary [magic 0x50][idLen u16][songId][chunkIndex u32][totalChunks u32][payload]
 class SyncService extends ChangeNotifier {
-  static const int chunkSize = 64 * 1024;
+  static const int chunkSize = 256 * 1024;
 
   /// How long an in-progress download may sit without finishing before it is
   /// aborted. A peer that dies mid-transfer (or a chunk that never arrives)
@@ -252,6 +252,10 @@ class SyncService extends ChangeNotifier {
         debugPrint('[sync][diag] <- $peerId: request_songs (${(msg['ids'] as List?)?.length ?? 0})');
         _onRequestSongs(peerId, msg['ids'] as List? ?? []);
         break;
+      case 'request_chunks':
+        debugPrint('[sync][diag] <- $peerId: request_chunks id=${msg['id']} startIndex=${msg['startIndex']}');
+        _onRequestChunks(peerId, msg);
+        break;
       case 'file_meta':
         debugPrint('[sync][diag] <- $peerId: file_meta (${(msg['song'] as Map)['title'] ?? '?'})');
         _startIncoming(peerId, msg['song'] as Map<String, dynamic>);
@@ -319,6 +323,17 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  void _onRequestChunks(String peerId, Map<String, dynamic> msg) {
+    final id = msg['id'] as String?;
+    final startIndex = (msg['startIndex'] as num?)?.toInt() ?? 0;
+    if (id != null) {
+      final song = library.findById(id);
+      if (song != null) {
+        unawaited(_sendFile(peerId, song, startIndex: startIndex));
+      }
+    }
+  }
+
   // ---------- sending ----------
 
   /// Send a song to every online peer.
@@ -328,7 +343,7 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  Future<void> _sendFile(String peerId, Song song) async {
+  Future<void> _sendFile(String peerId, Song song, {int startIndex = 0}) async {
     final sendKey = _sendKey(peerId, song.id);
     if (_sending.containsKey(sendKey)) return;
     final channel = _channels[peerId];
@@ -345,29 +360,50 @@ class SyncService extends ChangeNotifier {
       ),
     );
 
-    _send(peerId, {'type': 'file_meta', 'song': song.toJson()});
+    if (startIndex == 0) {
+      _send(peerId, {'type': 'file_meta', 'song': song.toJson()});
+    }
 
     try {
       final file = library.songFile(song);
       if (!await file.exists()) throw Exception('local file missing');
-      final total = (song.size / chunkSize).ceil();
-      var index = 0;
-      var sentBytes = 0;
-      final reader = file.openRead();
+      final total = song.size == 0 ? 1 : (song.size / chunkSize).ceil();
+      final startOffset = startIndex * chunkSize;
+      var index = startIndex;
+      var sentBytes = math.min(startOffset, song.size);
+      final reader = file.openRead(startOffset);
+      final pendingChunk = BytesBuilder(copy: false);
+
       await for (final buffer in reader) {
         var offset = 0;
         while (offset < buffer.length) {
-          final end = math.min(offset + chunkSize, buffer.length);
-          final piece = buffer.sublist(offset, end);
-          await _sendChunk(channel, song.id, index, total, piece);
-          index++;
-          offset = end;
-          sentBytes += piece.length;
-          _updateUploadProgress(peerId, song.id, sentBytes);
+          final need = chunkSize - pendingChunk.length;
+          final take = math.min(need, buffer.length - offset);
+          if (take > 0) {
+            final slice = buffer is Uint8List
+                ? Uint8List.sublistView(buffer, offset, offset + take)
+                : buffer.sublist(offset, offset + take);
+            pendingChunk.add(slice);
+            offset += take;
+          }
+          if (pendingChunk.length >= chunkSize) {
+            final piece = pendingChunk.takeBytes();
+            await _sendChunk(channel, song.id, index, total, piece);
+            index++;
+            sentBytes += piece.length;
+            _updateUploadProgress(peerId, song.id, sentBytes);
+          }
         }
       }
-      if (index != total) {
-        throw Exception('file changed while reading');
+      if (pendingChunk.length > 0) {
+        final piece = pendingChunk.takeBytes();
+        await _sendChunk(channel, song.id, index, total, piece);
+        index++;
+        sentBytes += piece.length;
+        _updateUploadProgress(peerId, song.id, sentBytes);
+      }
+      if (index != total && song.size > 0) {
+        throw Exception('file changed while reading: got $index chunks, expected $total');
       }
       _send(peerId, {'type': 'file_done', 'id': song.id});
       _markComplete(peerId, song.id);
@@ -422,7 +458,26 @@ class SyncService extends ChangeNotifier {
       return;
     }
     final file = library.incomingFile(song.id);
-    if (file.existsSync()) file.deleteSync();
+    var existingLength = 0;
+    if (file.existsSync()) {
+      existingLength = file.lengthSync();
+      if (existingLength > 0 &&
+          existingLength % chunkSize == 0 &&
+          existingLength < song.size) {
+        final startIndex = existingLength ~/ chunkSize;
+        debugPrint('[sync] resuming ${song.title} from chunk $startIndex ($existingLength bytes)');
+        _send(peerId, {
+          'type': 'request_chunks',
+          'id': song.id,
+          'startIndex': startIndex,
+        });
+      } else {
+        try {
+          file.deleteSync();
+        } catch (_) {}
+        existingLength = 0;
+      }
+    }
     final raf = file.openSync(mode: FileMode.append);
     final inc = _IncomingFile(
       peerId: peerId,
@@ -430,6 +485,7 @@ class SyncService extends ChangeNotifier {
       file: file,
       raf: raf,
     );
+    inc.bytesReceived = existingLength;
     // Abort the transfer if it stalls (the peer died / its `file_done` never
     // arrives / chunks stop coming). This is an INACTIVITY watchdog: it is
     // reset on every chunk in `_onBinary`, so a slow-but-progressing transfer
@@ -447,6 +503,7 @@ class SyncService extends ChangeNotifier {
       fileName: song.title,
       isDownload: true,
       totalBytes: song.size,
+      completedBytes: existingLength,
     ));
   }
 
@@ -584,7 +641,10 @@ class SyncService extends ChangeNotifier {
     _finalizeRetries.remove(songId);
     try {
       inc.raf.closeSync();
-      await inc.file.delete();
+      final len = await inc.file.length();
+      if (len == 0 || len % chunkSize != 0 || len >= inc.song.size) {
+        await inc.file.delete();
+      }
     } catch (_) {}
     _removeProgress(peerId, songId);
   }
