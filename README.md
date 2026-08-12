@@ -70,6 +70,8 @@ embedded one.
 
 ---
 
+## Usage
+
 | Action            | How                                                |
 | ----------------- | -------------------------------------------------- |
 | **Pair a device** | Devices -> Pair a device, share code or scan QR    |
