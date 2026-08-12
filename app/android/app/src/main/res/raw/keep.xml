@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release-build resource-keep rule.
+
+  audio_service resolves the notification/control icons at RUNTIME via
+  getIdentifier() (the just_audio_background androidIcon strings such as
+  'drawable/pear_repeat' and 'mipmap/ic_notification' are never referenced
+  statically from Java/Kotlin or the manifest), so AGP's release resource
+  processing treats them as unused and strips them. That made the media
+  notification crash with "You must specify an icon resource id to build a
+  CustomAction" and never appear on release builds.
+
+  tools:keep forces these resources to stay in the release APK.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/pear_repeat, @drawable/pear_repeat_off, @drawable/pear_repeat_one, @drawable/pear_shuffle, @drawable/pear_shuffle_off, @drawable/pear_play, @drawable/pear_pause, @drawable/pear_previous, @drawable/pear_next, @mipmap/ic_notification" />

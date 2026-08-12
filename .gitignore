@@ -1,0 +1,52 @@
+# --- Unrelated / personal files (not part of the app) ---
+.vscode/
+.github/modernize/
+PROJECT_BRIEF.md
+test_out.txt
+screen.png
+screen2.png
+screen_after_back.png
+screen_gpm.png
+screen_playing.png
+shade.png
+
+# --- Fixing plans & implementation docs ---
+*_FIX_PLAN.md
+*FIX_PLAN*.md
+*plan*.md
+*PLAN*.md
+*Fix Plan*.md
+*FIX PLAN*.md
+*Ghost Pairing*.md
+part 2Ghost Pairing.md
+implementation_plan.md
+walkthrough.md
+
+# --- Flutter / Dart build artifacts (app/) ---
+app/.dart_tool/
+app/build/
+**/build/
+**/.gradle/
+app/android/local.properties
+app/*.iml
+app/.idea/
+app/windows/flutter/ephemeral/
+app/windows/flutter/generated_plugins.cmake
+app/windows/flutter/generated_plugin_registrant.cc
+app/windows/flutter/generated_plugin_registrant.h
+
+# --- Backup files ---
+*.bak
+
+# --- Server (runtime state / deps) ---
+server/node_modules/
+server/state.json
+server/*.log
+server/.env
+
+# --- Release artifacts (published via GitHub Releases, not committed) ---
+release/
+
+# --- OS cruft ---
+Thumbs.db
+Desktop.ini
