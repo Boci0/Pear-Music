@@ -9,6 +9,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/youtube_service.dart';
+import '../widgets/about_dialog.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/transfer_list.dart';
 import 'playlists_screen.dart';
@@ -297,6 +298,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   );
+                } else if (val == 'about') {
+                  showPearMusicAboutDialog(context);
                 }
               },
               itemBuilder: (_) => const [
@@ -322,6 +325,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(Icons.sync),
                     title: Text('Force sync files'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'about',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.info_outline),
+                    title: Text('About Pear Music & License'),
                   ),
                 ),
               ],

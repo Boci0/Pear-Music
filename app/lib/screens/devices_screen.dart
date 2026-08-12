@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/peer_device.dart';
+import '../widgets/about_dialog.dart';
 import 'pair_screen.dart';
 
 /// Devices tab: shows this device + all paired devices, with pair/unpair.
@@ -40,6 +41,7 @@ class DevicesScreen extends StatelessWidget {
                   peer: peer,
                   onUnpair: () => _confirmUnpair(context, controller, peer),
                 )),
+            const SizedBox(height: 16),
             Wrap(
               alignment: WrapAlignment.center,
               spacing: 8,
@@ -81,6 +83,14 @@ class DevicesScreen extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => showPearMusicAboutDialog(context),
+              icon: const Icon(Icons.info_outline, size: 18),
+              label: const Text('About Pear Music & License'),
+            ),
           ),
         ],
       ),
