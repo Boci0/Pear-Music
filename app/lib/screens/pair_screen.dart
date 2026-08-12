@@ -159,7 +159,7 @@ class _PairScreenState extends State<PairScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'The other device can scan this QR or enter the code — it '
+                'The other device can scan this QR or enter the code, it '
                 'will find this device automatically.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.primary,

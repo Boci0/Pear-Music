@@ -157,7 +157,7 @@ class AppController extends ChangeNotifier {
     };
 
     // File transfers go over the server relay (RelayDataChannel), not WebRTC
-    // P2P — WebRTC data channels dropped ~0.4s after opening on phone hotspots
+    // P2P, WebRTC data channels dropped ~0.4s after opening on phone hotspots
     // and the native channel could throw an unhandled exception (the black
     // screen during pairing). The WebRTC layer was removed entirely; the relay
     // is stable on every network.
@@ -168,7 +168,7 @@ class AppController extends ChangeNotifier {
     // IMPORTANT: do NOT block the first frame on the server connection.
     // A WebSocket connect has no timeout, so if the server is unreachable
     // (hotspot/server down) `await signaling.start()` could hold up runApp for
-    // tens of seconds — the long black screen on launch that only cleared once
+    // tens of seconds, the long black screen on launch that only cleared once
     // the connect finally failed. Start it in the background: the UI renders
     // immediately and flips to "offline" until the connection succeeds.
     unawaited(_ensureConnection());
