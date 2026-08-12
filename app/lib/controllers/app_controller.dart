@@ -176,8 +176,8 @@ class AppController extends ChangeNotifier {
   }
 
   /// Manually re-trigger file transfer checks and manifest exchange with all connected devices.
-  void forceSync() {
-    sync.resyncNow();
+  int forceSync() {
+    return sync.resyncNow();
   }
 
   /// Zero-config host election. The "last online" device is the host; every

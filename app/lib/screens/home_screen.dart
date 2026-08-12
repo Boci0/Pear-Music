@@ -287,10 +287,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 } else if (val == 'link') {
                   _openYouTubeDialog(context);
                 } else if (val == 'sync') {
-                  controller.forceSync();
+                  final count = controller.forceSync();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Force sync initiated with paired devices'),
+                    SnackBar(
+                      content: Text(
+                        count > 0
+                            ? 'Force sync sent to $count device(s)'
+                            : 'No active device connections to sync',
+                      ),
                     ),
                   );
                 }
