@@ -40,8 +40,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<AppController>();
-    final player = controller.player;
+    final player = context.watch<PlayerService>();
+    final controller = context.read<AppController>();
     final song = player.currentSong;
     final isWide = MediaQuery.sizeOf(context).width >= 900;
 
@@ -100,41 +100,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final accent = snapshot.data ?? ArtworkPalette.fallback;
           return TweenAnimationBuilder<Color?>(
             tween: ColorTween(begin: ArtworkPalette.fallback, end: accent),
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeOutCubic,
-            builder: (context, value, child) => _AccentBackground(
-              accent: value ?? ArtworkPalette.fallback,
-              child: child!,
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: isWide
-                    ? _WideBody(
-                        controller: controller,
-                        player: player,
-                        song: song,
-                        duration: duration,
-                        activePlaylistId: _activePlaylistId,
-                        onActivePlaylistChanged: (id) =>
-                            setState(() => _activePlaylistId = id),
-                      )
-                    : landscape
-                        ? _LandscapeBody(
-                            controller: controller,
-                            player: player,
-                            song: song,
-                            duration: duration,
-                          )
-                        : _PortraitBody(
-                            controller: controller,
-                            player: player,
-                            song: song,
-                            duration: duration,
-                          ),
-              ),
-            ),
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            builder: (context, animColor, _) {
+              final activeAccent = animColor ?? ArtworkPalette.fallback;
+              return SafeArea(
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  child: isWide
+                      ? _WideBody(
+                          controller: controller,
+                          player: player,
+                          song: song,
+                          duration: duration,
+                          accent: activeAccent,
+                          activePlaylistId: _activePlaylistId,
+                          onActivePlaylistChanged: (id) =>
+                              setState(() => _activePlaylistId = id),
+                        )
+                      : landscape
+                          ? _LandscapeBody(
+                              controller: controller,
+                              player: player,
+                              song: song,
+                              duration: duration,
+                              accent: activeAccent,
+                            )
+                          : _PortraitBody(
+                              controller: controller,
+                              player: player,
+                              song: song,
+                              duration: duration,
+                              accent: activeAccent,
+                            ),
+                ),
+              );
+            },
           );
         },
       ),
@@ -142,29 +144,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 }
 
-/// A very dark tint of the artwork colour, painted as a soft radial wash so
-/// the album art subtly colours the player background (low-key, never harsh).
-class _AccentBackground extends StatelessWidget {
-  final Color accent;
-  final Widget child;
-  const _AccentBackground({required this.accent, required this.child});
 
-  @override
-  Widget build(BuildContext context) {
-    final base = Theme.of(context).scaffoldBackgroundColor;
-    final tint = ArtworkPalette.wash(accent);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: const Alignment(0, -0.6),
-          radius: 1.4,
-          colors: [tint, base],
-        ),
-      ),
-      child: child,
-    );
-  }
-}
 
 /// Portrait layout: artwork on top, controls below.
 class _PortraitBody extends StatelessWidget {
@@ -172,11 +152,13 @@ class _PortraitBody extends StatelessWidget {
   final PlayerService player;
   final Song song;
   final Duration duration;
+  final Color accent;
   const _PortraitBody({
     required this.controller,
     required this.player,
     required this.song,
     required this.duration,
+    required this.accent,
   });
 
   @override
@@ -184,7 +166,7 @@ class _PortraitBody extends StatelessWidget {
     return Column(
       children: [
         const Spacer(),
-        _Artwork(size: 240, artwork: ArtworkPalette.bytes(song)),
+        _Artwork(size: 240, artwork: ArtworkPalette.bytes(song), accent: accent),
         const SizedBox(height: 32),
         _SongInfo(song: song),
         const Spacer(),
@@ -211,11 +193,13 @@ class _LandscapeBody extends StatelessWidget {
   final PlayerService player;
   final Song song;
   final Duration duration;
+  final Color accent;
   const _LandscapeBody({
     required this.controller,
     required this.player,
     required this.song,
     required this.duration,
+    required this.accent,
   });
 
   @override
@@ -240,7 +224,8 @@ class _LandscapeBody extends StatelessWidget {
                       children: [
                         _Artwork(
                             size: artSize,
-                            artwork: ArtworkPalette.bytes(song)),
+                            artwork: ArtworkPalette.bytes(song),
+                            accent: accent),
                         const SizedBox(height: 20),
                         _SongInfo(song: song),
                       ],
@@ -517,12 +502,14 @@ class _VolumeSliderState extends State<_VolumeSlider> {
 class _Artwork extends StatelessWidget {
   final Uint8List? artwork;
   final double size;
-  const _Artwork({this.artwork, this.size = 240});
+  final Color? accent;
+  const _Artwork({this.artwork, this.size = 240, this.accent});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(size * 0.1);
+    final radius = BorderRadius.circular(16);
+    final glowColor = accent ?? scheme.primary;
     final placeholder = Container(
       width: size,
       height: size,
@@ -532,17 +519,10 @@ class _Artwork extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            scheme.primary,
+            glowColor,
             scheme.tertiary.withValues(alpha: 0.7),
           ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.35),
-            blurRadius: size * 0.17,
-            offset: const Offset(0, 12),
-          ),
-        ],
       ),
       child: Icon(Icons.music_note, size: size * 0.4, color: scheme.onPrimary),
     );
@@ -553,13 +533,6 @@ class _Artwork extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         borderRadius: radius,
-        boxShadow: [
-          BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.35),
-            blurRadius: size * 0.17,
-            offset: const Offset(0, 12),
-          ),
-        ],
       ),
       child: ClipRRect(
         borderRadius: radius,
@@ -587,6 +560,7 @@ class _WideBody extends StatelessWidget {
   final PlayerService player;
   final Song song;
   final Duration duration;
+  final Color accent;
   final String? activePlaylistId;
   final ValueChanged<String?> onActivePlaylistChanged;
   const _WideBody({
@@ -594,6 +568,7 @@ class _WideBody extends StatelessWidget {
     required this.player,
     required this.song,
     required this.duration,
+    required this.accent,
     required this.activePlaylistId,
     required this.onActivePlaylistChanged,
   });
@@ -601,19 +576,16 @@ class _WideBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // Side panes get a subtle background + inner border so the wide layout
-    // reads as a proper three-pane desktop player, not three loose columns.
     Widget side({required bool left, required Widget child}) {
       return DecoratedBox(
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerLow,
           border: Border(
             right: left
-                ? BorderSide(color: scheme.outlineVariant)
+                ? BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.2))
                 : BorderSide.none,
             left: left
                 ? BorderSide.none
-                : BorderSide(color: scheme.outlineVariant),
+                : BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.2)),
           ),
         ),
         child: child,
@@ -649,6 +621,7 @@ class _WideBody extends StatelessWidget {
                 player: player,
                 song: song,
                 duration: duration,
+                accent: accent,
               ),
             ),
           ),

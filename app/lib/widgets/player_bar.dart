@@ -39,7 +39,15 @@ class PlayerBar extends StatelessWidget {
           color: barColor,
           child: InkWell(
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PlayerScreen()),
+              PageRouteBuilder(
+                transitionDuration: const Duration(milliseconds: 150),
+                reverseTransitionDuration: const Duration(milliseconds: 150),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const PlayerScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) =>
+                        FadeTransition(opacity: animation, child: child),
+              ),
             ),
             child: Padding(
               padding:

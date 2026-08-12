@@ -18,6 +18,7 @@
         android:label="Pear Music"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
         android:usesCleartextTraffic="true">
         <!-- android:name must be AudioServiceActivity so audio_service can host
              the playback notification. (Temporary: reverted from .MainActivity to

@@ -70,14 +70,14 @@ embedded one.
 
 ---
 
-## Usage
-
 | Action            | How                                                |
 | ----------------- | -------------------------------------------------- |
-| **Pair a device** | Devices -> Pair a device, generate or enter a code |
-| **Add music**     | Drop a file, use Add music, or paste a link        |
+| **Pair a device** | Devices -> Pair a device, share code or scan QR    |
+| **Add music**     | Drop a file, tap "+", or paste a link              |
+| **Multi-select**  | Long-press a song or tap the checklist icon        |
+| **Force sync**    | Devices -> Force Sync or "+" -> Force sync files    |
 | **Play**          | Tap a song                                         |
-| **Unpair**        | Devices, remove the device                         |
+| **Unpair**        | Devices -> remove the device                       |
 
 ---
 

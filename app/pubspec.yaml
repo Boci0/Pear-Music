@@ -1,5 +1,5 @@
 name: peerm_app
-description: "A new Flutter project."
+description: "Pear Music - Peer-to-peer music sync for Windows and Android."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
@@ -52,7 +52,7 @@ dependencies:
   just_audio_background: ^0.0.1-beta.17
   permission_handler: ^13.0.0
   mobile_scanner: ^7.0.0
-  # Bundled yt-dlp for the phone (youtubedl-android) — rips reliably even when
+  # Bundled yt-dlp for the phone (youtubedl-android), rips reliably even when
   # YouTube rate-limits the built-in downloader. Android-only native plugin.
   peerm_ytdlp:
     path: plugins/peerm_ytdlp

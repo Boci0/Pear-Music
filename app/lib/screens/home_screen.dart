@@ -6,22 +6,195 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../models/playlist.dart';
+import '../models/song.dart';
 import '../services/youtube_service.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/transfer_list.dart';
 import 'playlists_screen.dart';
 
 /// Library tab: drag & drop (Windows) or picker, then play.
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _isSelecting = false;
+  final Set<String> _selectedIds = {};
 
   bool get _isDesktop =>
       !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+  void _toggleSelection(String songId, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedIds.add(songId);
+      } else {
+        _selectedIds.remove(songId);
+      }
+    });
+  }
+
+  void _selectAll(List<Song> songs) {
+    setState(() {
+      if (_selectedIds.length == songs.length) {
+        _selectedIds.clear();
+      } else {
+        _selectedIds.addAll(songs.map((s) => s.id));
+      }
+    });
+  }
+
+  Future<void> _batchDelete(AppController controller, List<Song> songs) async {
+    if (_selectedIds.isEmpty) return;
+    final selectedSongs = songs.where((s) => _selectedIds.contains(s.id)).toList();
+    final count = selectedSongs.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove $count ${count == 1 ? "song" : "songs"}?'),
+        content: const Text(
+          'This deletes the selected songs from this device and removes them from '
+          'any playlists.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove All'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      for (final song in selectedSongs) {
+        await controller.removeSong(song);
+      }
+      if (mounted) {
+        setState(() {
+          _isSelecting = false;
+          _selectedIds.clear();
+        });
+      }
+    }
+  }
+
+  Future<void> _batchAddToPlaylist(
+      AppController controller, List<Song> songs) async {
+    if (_selectedIds.isEmpty) return;
+    final selectedSongs = songs.where((s) => _selectedIds.contains(s.id)).toList();
+    final playlists = controller.library.playlists;
+    final playlist = await showModalBottomSheet<Playlist>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('Add ${selectedSongs.length} songs to playlist',
+                  style: Theme.of(ctx).textTheme.titleMedium),
+            ),
+            const Divider(height: 1),
+            if (playlists.isEmpty)
+              const ListTile(title: Text('No playlists created yet'))
+            else
+              ...playlists.map(
+                (p) => ListTile(
+                  leading: const Icon(Icons.queue_music),
+                  title: Text(p.name),
+                  subtitle: Text('${p.songIds.length} songs'),
+                  onTap: () => Navigator.pop(ctx, p),
+                ),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('Create new playlist'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await _showCreatePlaylistDialog(controller, selectedSongs);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+    if (playlist != null) {
+      for (final song in selectedSongs) {
+        await controller.library.addSongToPlaylist(playlist.id, song.id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Added ${selectedSongs.length} songs to ${playlist.name}'),
+          ),
+        );
+        setState(() {
+          _isSelecting = false;
+          _selectedIds.clear();
+        });
+      }
+    }
+  }
+
+  Future<void> _showCreatePlaylistDialog(
+      AppController controller, List<Song> selectedSongs) async {
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Playlist'),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Playlist name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (name != null && name.isNotEmpty) {
+      final p = await controller.library.createPlaylist(name);
+      for (final song in selectedSongs) {
+        await controller.library.addSongToPlaylist(p.id, song.id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text('Created "$name" with ${selectedSongs.length} songs')),
+        );
+        setState(() {
+          _isSelecting = false;
+          _selectedIds.clear();
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
     final songs = controller.songs;
+    final theme = Theme.of(context);
+    final currentSongId = controller.player.currentSong?.id;
 
     final content = CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -40,8 +213,19 @@ class HomeScreen extends StatelessWidget {
               itemBuilder: (context, i) {
                 final song = songs[i];
                 return SongTile(
+                  key: ValueKey(song.id),
                   song: song,
-                  isCurrent: controller.player.currentSong?.id == song.id,
+                  isCurrent: currentSongId == song.id,
+                  isSelecting: _isSelecting,
+                  isSelected: _selectedIds.contains(song.id),
+                  onSelectionChanged: (val) =>
+                      _toggleSelection(song.id, val ?? false),
+                  onLongPress: () {
+                    setState(() {
+                      _isSelecting = true;
+                      _selectedIds.add(song.id);
+                    });
+                  },
                 );
               },
             ),
@@ -61,87 +245,131 @@ class HomeScreen extends StatelessWidget {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Image.asset(
-          'assets/pear_logo.png',
-          width: 36,
-          height: 36,
-          filterQuality: FilterQuality.medium,
-        ),
-        actions: [
-          // On mobile, a compact status dot keeps the app bar uncluttered so
-          // the pear title keeps its full size (the chips would crowd it and
-          // squeeze the image down on narrow screens). Desktop keeps the chips.
-          if (_isDesktop)
-            _ConnectionChip(
-              status: controller.connectionStatus,
-              hosting: controller.isHostingServer,
-            )
-          else
-            _ConnectionDot(
-              status: controller.connectionStatus,
-              hosting: controller.isHostingServer,
+    final appBarActions = _isSelecting
+        ? [
+            IconButton(
+              tooltip: _selectedIds.length == songs.length
+                  ? 'Deselect all'
+                  : 'Select all',
+              icon: Icon(_selectedIds.length == songs.length
+                  ? Icons.deselect
+                  : Icons.select_all),
+              onPressed: () => _selectAll(songs),
             ),
-          if (controller.pairedDevices.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Chip(
-                avatar: const Icon(Icons.devices, size: 16),
-                label: Text(
-                    '${controller.pairedDevices.length} paired'),
-                visualDensity: VisualDensity.compact,
+            IconButton(
+              tooltip: 'Add to playlist',
+              icon: const Icon(Icons.playlist_add),
+              onPressed: _selectedIds.isEmpty
+                  ? null
+                  : () => _batchAddToPlaylist(controller, songs),
+            ),
+            IconButton(
+              tooltip: 'Delete selected',
+              icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+              onPressed: _selectedIds.isEmpty
+                  ? null
+                  : () => _batchDelete(controller, songs),
+            ),
+            const SizedBox(width: 4),
+          ]
+        : [
+            IconButton(
+              tooltip: 'Select music',
+              icon: const Icon(Icons.checklist),
+              onPressed: () => setState(() => _isSelecting = true),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Add & Sync options',
+              icon: const Icon(Icons.add),
+              onSelected: (val) {
+                if (val == 'local') {
+                  controller.addFilesFromPicker();
+                } else if (val == 'link') {
+                  _openYouTubeDialog(context);
+                } else if (val == 'sync') {
+                  controller.forceSync();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Force sync initiated with paired devices'),
+                    ),
+                  );
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'local',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.folder_open),
+                    title: Text('Add local audio files'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'link',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.add_link),
+                    title: Text('Download from YouTube / Link'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'sync',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.sync),
+                    title: Text('Force sync files'),
+                  ),
+                ),
+              ],
+            ),
+            IconButton(
+              tooltip: 'Playlists',
+              icon: const Icon(Icons.queue_music),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
               ),
             ),
-          IconButton(
-            tooltip: 'Add from YouTube / Spotify',
-            icon: const Icon(Icons.add_link),
-            onPressed: () => _openYouTubeDialog(context),
-          ),
-          IconButton(
-            tooltip: 'Playlists',
-            icon: const Icon(Icons.queue_music),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
+            const SizedBox(width: 4),
+          ];
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: _isSelecting
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() {
+                  _isSelecting = false;
+                  _selectedIds.clear();
+                }),
+              )
+            : null,
+        title: _isSelecting
+            ? Text('${_selectedIds.length} selected')
+            : Row(
+                children: [
+                  Image.asset(
+                    'assets/pear_logo.png',
+                    width: 28,
+                    height: 28,
+                    filterQuality: FilterQuality.medium,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Library'),
+                  const SizedBox(width: 8),
+                  _ConnectionDot(
+                    status: controller.connectionStatus,
+                    hosting: controller.isHostingServer,
+                  ),
+                ],
+              ),
+        actions: appBarActions,
       ),
       body: body,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => controller.addFilesFromPicker(),
-        icon: const Icon(Icons.library_music),
-        label: const Text('Add music'),
-      ),
     );
   }
 }
 
-class _ConnectionChip extends StatelessWidget {
-  final String status;
-  final bool hosting;
-  const _ConnectionChip({required this.status, required this.hosting});
 
-  @override
-  Widget build(BuildContext context) {
-    final (color, label) = switch (status) {
-      'connected' => hosting
-          ? (Colors.teal, 'Hosting')
-          : (Colors.green, 'Online'),
-      'connecting' => (Colors.orange, 'Connecting…'),
-      _ => (Colors.grey, 'Offline'),
-    };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Chip(
-        avatar: Icon(Icons.circle, size: 10, color: color),
-        label: Text(label, style: const TextStyle(fontSize: 12)),
-        visualDensity: VisualDensity.compact,
-      ),
-    );
-  }
-}
 
 /// Compact connection indicator for narrow/mobile app bars (a plain colored
 /// dot instead of a full chip, so the title is never squeezed out).

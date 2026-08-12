@@ -166,15 +166,13 @@ class SyncService extends ChangeNotifier {
   /// Keeps a periodic re-advertisement running while any channel is attached.
   void _startResyncTimer() {
     _resyncTimer?.cancel();
-    _resyncTimer = Timer.periodic(resyncInterval, (_) => _resyncManifests());
+    _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
   }
 
-  /// Re-advertise our library + playlists to every online peer so anything the
+  /// Manually re-advertise our library + playlists to every online peer so anything the
   /// peer is still missing (a transfer that failed and exhausted its retries)
-  /// is re-requested automatically. Cheap (small JSON) and idempotent — the
-  /// peer's `_onManifest` only requests what it genuinely lacks, and in-flight
-  /// sends are deduped by the per-peer `_sending` guard.
-  void _resyncManifests() {
+  /// is re-requested automatically.
+  void resyncNow() {
     if (_channels.isEmpty) return;
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {
@@ -539,12 +537,21 @@ class SyncService extends ChangeNotifier {
       if (length != inc.song.size) {
         throw Exception('size mismatch: got $length, expected ${inc.song.size}');
       }
+      // Verify the bytes we actually received match what the sender claimed,
+      // instead of trusting `inc.song.checksum` at face value. A same-length
+      // corruption (or a sender that mislabels a file) would otherwise be
+      // silently accepted and stored under an unverified checksum forever.
+      final actualChecksum = await LibraryService.checksum(inc.file);
+      if (actualChecksum != inc.song.checksum) {
+        throw Exception(
+            'checksum mismatch: got $actualChecksum, expected ${inc.song.checksum}');
+      }
       await library.addReceivedSong(
         id: songId,
         title: inc.song.title,
         fileName: inc.song.fileName,
         size: inc.song.size,
-        checksum: inc.song.checksum,
+        checksum: actualChecksum,
         sourceDeviceId: peerId,
         artwork: inc.song.artwork,
       );

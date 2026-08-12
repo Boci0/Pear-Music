@@ -514,6 +514,79 @@ class SignalingService {
 
   void getState() => send({'type': 'get_state'});
 
+  /// One-shot "pairing check-in" with [url], independent of this instance's
+  /// main connection. Registers reporting [pairings] (our own believed
+  /// pairing list) and returns the peer map from an `unpaired` push if that
+  /// server says this device's pairing to one of them is dead (tombstoned);
+  /// returns null on success/no correction/any failure. Always closes the
+  /// socket before returning — this never leaves a lingering connection.
+  ///
+  /// Needed because normal pairing reconciliation only runs when a device
+  /// REGISTERS with a host. If two paired devices both end up independently
+  /// hosting their own server (a "split brain" — e.g. after a failover where
+  /// host-election never makes either defer to the other), neither's
+  /// register-time reconciliation ever runs against the other, so a pairing
+  /// broken on one side can appear to "stick forever" on the other. This
+  /// lets a host proactively check in with such a peer without disturbing
+  /// its own hosting role or its main connection.
+  static Future<Map<String, dynamic>?> checkInWithHost({
+    required String url,
+    required String deviceId,
+    required String deviceName,
+    required List<Map<String, String>> pairings,
+    Duration timeout = const Duration(seconds: 5),
+    Duration graceAfterRegistered = const Duration(milliseconds: 400),
+  }) async {
+    WebSocketChannel? channel;
+    StreamSubscription<dynamic>? sub;
+    Timer? graceTimer;
+    try {
+      channel = WebSocketChannel.connect(Uri.parse(url));
+      await channel.ready.timeout(timeout);
+      final completer = Completer<Map<String, dynamic>?>();
+      sub = channel.stream.listen((raw) {
+        if (raw is! String || completer.isCompleted) return;
+        Map<String, dynamic> msg;
+        try {
+          msg = jsonDecode(raw) as Map<String, dynamic>;
+        } catch (_) {
+          return;
+        }
+        if (msg['type'] == 'unpaired') {
+          completer.complete(Map<String, dynamic>.from(msg['peer'] as Map));
+        } else if (msg['type'] == 'registered') {
+          // The server sends any correction ('unpaired') right after
+          // 'registered', synchronously, in the same register handler — so a
+          // short grace window is enough to know "no correction is coming"
+          // without blocking the full [timeout] on every ordinary check-in.
+          graceTimer ??= Timer(graceAfterRegistered, () {
+            if (!completer.isCompleted) completer.complete(null);
+          });
+        }
+      }, onError: (_) {
+        if (!completer.isCompleted) completer.complete(null);
+      }, onDone: () {
+        if (!completer.isCompleted) completer.complete(null);
+      });
+      channel.sink.add(jsonEncode({
+        'type': 'register',
+        'deviceId': deviceId,
+        'deviceName': deviceName,
+        'secret': '',
+        'pairings': pairings,
+      }));
+      return await completer.future.timeout(timeout, onTimeout: () => null);
+    } catch (_) {
+      return null;
+    } finally {
+      graceTimer?.cancel();
+      await sub?.cancel();
+      try {
+        unawaited(channel?.sink.close());
+      } catch (_) {}
+    }
+  }
+
   void dispose() {
     _disposed = true;
     _generation++;

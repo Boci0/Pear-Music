@@ -11,8 +11,20 @@ import 'playlist_actions.dart';
 class SongTile extends StatelessWidget {
   final Song song;
   final bool isCurrent;
+  final bool isSelecting;
+  final bool isSelected;
+  final ValueChanged<bool?>? onSelectionChanged;
+  final VoidCallback? onLongPress;
 
-  const SongTile({super.key, required this.song, this.isCurrent = false});
+  const SongTile({
+    super.key,
+    required this.song,
+    this.isCurrent = false,
+    this.isSelecting = false,
+    this.isSelected = false,
+    this.onSelectionChanged,
+    this.onLongPress,
+  });
 
   Future<void> _showMenu(BuildContext context) async {
     final controller = context.read<AppController>();
@@ -94,8 +106,19 @@ class SongTile extends StatelessWidget {
     final fromPeer = song.sourceDeviceId != null;
 
     return ListTile(
+      selected: isSelected,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      leading: _Artwork(song: song, isCurrent: isCurrent),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isSelecting)
+            Checkbox(
+              value: isSelected,
+              onChanged: onSelectionChanged,
+            ),
+          _Artwork(song: song, isCurrent: isCurrent),
+        ],
+      ),
       title: Text(
         song.title,
         maxLines: 1,
@@ -124,45 +147,52 @@ class SongTile extends StatelessWidget {
           ),
         ],
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(
-              isCurrent ? Icons.graphic_eq : Icons.play_circle_outline,
-              color: theme.colorScheme.primary,
+      trailing: isSelecting
+          ? null
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isCurrent)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(Icons.graphic_eq,
+                        color: theme.colorScheme.primary),
+                  ),
+                PopupMenuButton<String>(
+                  tooltip: 'More options',
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (v) {
+                    if (v == 'playlist' || v == 'remove') _showMenu(context);
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'playlist',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.playlist_add),
+                        title: Text('Add to playlist'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'remove',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_outline),
+                        title: Text('Remove from library'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            onPressed: () => controller.playSong(song),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            icon: const Icon(Icons.more_vert),
-            onSelected: (v) {
-              if (v == 'playlist' || v == 'remove') _showMenu(context);
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'playlist',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.playlist_add),
-                  title: Text('Add to playlist'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'remove',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.delete_outline),
-                  title: Text('Remove from library'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      onTap: () => controller.playSong(song),
-      onLongPress: () => _showMenu(context),
+      onTap: () {
+        if (isSelecting) {
+          onSelectionChanged?.call(!isSelected);
+        } else {
+          controller.playSong(song);
+        }
+      },
+      onLongPress: isSelecting ? null : (onLongPress ?? () => _showMenu(context)),
     );
   }
 }
@@ -195,26 +225,19 @@ class _Artwork extends StatelessWidget {
           )
         : _placeholder(scheme);
     if (!isCurrent) return image;
-    // Now-playing tile: ring the artwork with the song's colour so the colour
-    // also shows in the library, not just the full player.
-    return FutureBuilder<Color>(
-      future: ArtworkPalette.dominant(song),
-      builder: (context, snapshot) {
-        final accent = snapshot.data ?? ArtworkPalette.fallback;
-        return Container(
-          width: 48,
-          height: 48,
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: ArtworkPalette.controlAccent(accent),
-              width: 2,
-            ),
-          ),
-          child: image,
-        );
-      },
+    final accent = ArtworkPalette.dominantSync(song);
+    return Container(
+      width: 48,
+      height: 48,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: ArtworkPalette.controlAccent(accent),
+          width: 2,
+        ),
+      ),
+      child: image,
     );
   }
 

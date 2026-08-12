@@ -35,6 +35,7 @@ class SignalingServer {
     this.onLog,
     this.advertiseName = 'Pear Music device',
     this.advertiseDeviceId,
+    this.trustProxyHeaders = false,
   });
 
   final int port;
@@ -42,12 +43,25 @@ class SignalingServer {
   final File? stateFile;
   final void Function(String message)? onLog;
 
+  /// Whether to trust a client-supplied `X-Forwarded-For` header as the
+  /// connecting IP. Only meaningful if this server is actually deployed
+  /// behind a real reverse proxy (it isn't, for the embedded on-device
+  /// server this app runs — see [_clientIp]). Defaults to false so a remote
+  /// WebSocket client can't just claim to be any IP it likes.
+  final bool trustProxyHeaders;
+
   /// Device identity advertised during LAN discovery (the name peers see).
   String advertiseName;
   String? advertiseDeviceId;
 
   // ---- Limits (mirror server/src/index.js) ----
   static const int maxPayload = 2 * 1024 * 1024; // 2 MB per frame
+  // Text/control frames (register, manifest, etc.) had no size cap at all —
+  // only binary chunk frames did. A single oversized text frame could spike
+  // memory before the rate limiter or JSON decode ever runs, on what may
+  // just be someone's phone. Generous enough for a very large library's
+  // manifest, far below "unbounded".
+  static const int maxTextPayload = 4 * 1024 * 1024; // 4 MB per text frame
   static const int maxConnsPerIp = 8;
   static const Duration registerTimeout = Duration(seconds: 10);
   static const int pairOpLimit = 10;
@@ -80,8 +94,21 @@ class SignalingServer {
   //      unpaired ghost can never be resurrected by another host's state.
   //   3. [staleAfter] GC: a persisted pairing where BOTH devices have been
   //      un-seen for this long is removed from the state file entirely.
+  //   4. Unpair tombstones: mechanism #2 assumes the reporting device's list
+  //      is trustworthy, but a device that was OFFLINE at the moment its peer
+  //      unpaired it never learns that and keeps reporting the dead pairing
+  //      forever — which used to make register()  silently RE-ADD it (the
+  //      classic "ghost pairing": device A unpairs device B while B is
+  //      offline, B is reachable again and reconnects/re-hosts, and the old
+  //      pairing comes back on A's side too, or B is stuck forever showing
+  //      "paired" to a peer that has no record of it at all). Every explicit
+  //      unpair now leaves a persisted tombstone for [tombstoneTtl]; register()
+  //      refuses to restore a tombstoned pair from a client's self-reported
+  //      list and instead tells the client to drop it, so an unpair sticks
+  //      even across the unpaired device's own restarts.
   static const Duration offlineReportGrace = Duration(days: 7);
   static const Duration staleAfter = Duration(days: 30);
+  static const Duration tombstoneTtl = Duration(days: 30);
   static const Duration gcPeriod = Duration(hours: 6);
 
   // ---- LAN discovery (LocalSend-style) ----
@@ -108,7 +135,24 @@ class SignalingServer {
   final Map<String, String> _persistedNames = {};
   final Map<String, String> _persistedSecrets = {};
   final Map<String, DateTime> _persistedLastSeen = {};
+  // Explicit-unpair tombstones, keyed by the pair (order-independent). See
+  // "Ghost-pair cleanup" mechanism #4 above.
+  final Map<String, DateTime> _pairTombstones = {};
   Timer? _gcTimer;
+
+  static String _pairKey(String aId, String bId) =>
+      aId.compareTo(bId) < 0 ? '$aId|$bId' : '$bId|$aId';
+
+  void _tombstonePair(String aId, String bId) {
+    _pairTombstones[_pairKey(aId, bId)] = DateTime.now();
+  }
+
+  bool _isTombstoned(String aId, String bId) =>
+      _pairTombstones.containsKey(_pairKey(aId, bId));
+
+  void _clearTombstone(String aId, String bId) {
+    _pairTombstones.remove(_pairKey(aId, bId));
+  }
 
   final Random _rng = Random.secure();
   HttpServer? _server;
@@ -337,10 +381,17 @@ class SignalingServer {
   }
 
   String _clientIp(HttpRequest req) {
-    // Behind a proxy the real IP is in x-forwarded-for.
-    final xff = req.headers.value('x-forwarded-for');
-    if (xff != null && xff.trim().isNotEmpty) {
-      return xff.split(',').first.trim();
+    // Behind a REAL reverse proxy the true client IP is in x-forwarded-for.
+    // This embedded, on-device server is normally reached directly (it's a
+    // zero-config LAN server, not something deployed behind a proxy), so any
+    // WebSocket client could set this header to whatever it likes. Only
+    // trust it when explicitly opted in via [trustProxyHeaders]; otherwise
+    // always use the real TCP peer address, which a client cannot spoof.
+    if (trustProxyHeaders) {
+      final xff = req.headers.value('x-forwarded-for');
+      if (xff != null && xff.trim().isNotEmpty) {
+        return xff.split(',').first.trim();
+      }
     }
     return req.connectionInfo?.remoteAddress.address ?? 'unknown';
   }
@@ -401,6 +452,16 @@ class SignalingServer {
           }
         }
       }
+      return;
+    }
+
+    // Text (control) frame: bound its size before doing any work on it (rate
+    // limiting, JSON decode) — same idea as the binary cap above, just for
+    // text frames, which previously had no limit at all.
+    if (data.length > maxTextPayload) {
+      try {
+        conn.ws.close(1009, 'message too big');
+      } catch (_) {}
       return;
     }
 
@@ -574,7 +635,20 @@ class SignalingServer {
     // and may not match the secret persisted in THIS host's state file - so
     // instead of locking itself out, adopt the client's secret (or re-bind a
     // fresh one) and let it in.
-    final isOwnDevice = advertiseDeviceId != null && advertiseDeviceId == id;
+    //
+    // IMPORTANT: `advertiseDeviceId` is NOT a secret — it's broadcast in the
+    // clear over LAN discovery (multicast hello + the /discover endpoint) so
+    // other devices can find this host to pair with it. Matching it alone is
+    // not proof this connection is really the host's own app; anyone on the
+    // LAN could otherwise claim it and skip the secret check entirely. The
+    // host's own app only ever reconnects to itself over loopback
+    // (`ws://localhost:<port>` — see AppController._ensureConnection /
+    // _takeOverAsHost), so this bypass is additionally restricted to
+    // loopback connections. A non-loopback connection claiming the same id
+    // still goes through the normal secret check in the `else` branch below.
+    final isLoopback = conn.ip == '127.0.0.1' || conn.ip == '::1';
+    final isOwnDevice =
+        advertiseDeviceId != null && advertiseDeviceId == id && isLoopback;
     if (isOwnDevice) {
       _persistedSecrets[id] = givenSecret.isNotEmpty ? givenSecret : _randomSecret();
       _saveState();
@@ -622,6 +696,11 @@ class SignalingServer {
     // of starting empty (which would unpair them and wipe shared songs).
     final restored = msg['pairings'];
     final reportedIds = <String>{};
+    // Peers this device still thinks it's paired with, but that were
+    // EXPLICITLY unpaired (by the other side, or by a previous host) while
+    // this device was offline. We must not let its stale self-report
+    // resurrect them — instead we tell it to drop them below.
+    final revokedPeers = <Map<String, String>>[];
     var restoredAny = false;
     if (restored is List) {
       for (final item in restored) {
@@ -634,6 +713,16 @@ class SignalingServer {
           pname = item['deviceName'] as String?;
         }
         if (pid == null || pid.isEmpty || pid == id) continue;
+        if (_isTombstoned(id, pid)) {
+          conn.pairings.remove(pid);
+          _removePersistedPair(id, pid);
+          revokedPeers.add({
+            'deviceId': pid,
+            'deviceName': pname ?? _persistedNames[pid] ?? 'Unnamed device',
+          });
+          continue; // do NOT add to reportedIds — a tombstoned pair must not
+          // survive the reconcile step below either.
+        }
         reportedIds.add(pid);
         if (conn.pairings.add(pid)) {
           _persistedPairs.putIfAbsent(id, () => <String>{}).add(pid);
@@ -694,6 +783,14 @@ class SignalingServer {
       'deviceId': id,
       'secret': _persistedSecrets[id],
     });
+    // Explicitly correct any ghost pairings before sending state, so the
+    // client's local paired-device cache (and shared songs from that peer)
+    // are cleared immediately instead of silently dropping out of `state`.
+    for (final peer in revokedPeers) {
+      conn.send({'type': 'unpaired', 'peer': peer});
+      _log('[unpair] told ${conn.name} to drop stale pairing '
+          '${peer['deviceName']} (${peer['deviceId']}) — tombstoned');
+    }
     _sendState(conn);
     _notifyPresence(id);
     _log('[register] $name ($id)');
@@ -772,6 +869,10 @@ class SignalingServer {
     _pairingsOf(aId).add(bId);
     _pairingsOf(bId).add(aId);
     _addPersistedPair(aId, bId);
+    // A fresh, deliberate re-pair always wins over a stale tombstone from a
+    // previous unpair — otherwise two devices could never re-pair after
+    // unpairing once.
+    _clearTombstone(aId, bId);
     _saveState();
   }
 
@@ -779,6 +880,10 @@ class SignalingServer {
     _pairingsOf(aId).remove(bId);
     _pairingsOf(bId).remove(aId);
     _removePersistedPair(aId, bId);
+    // Record that this pair was EXPLICITLY broken, so a device that was
+    // offline at the time (and still reports the old pairing when it comes
+    // back) can't silently resurrect it — see mechanism #4 above.
+    _tombstonePair(aId, bId);
     _saveState();
   }
 
@@ -833,12 +938,25 @@ class SignalingServer {
         }
       }
     });
-    if (stalePairs.isEmpty) return;
+    final expiredTombstones = <String>[];
+    _pairTombstones.forEach((key, at) {
+      if (now.difference(at) > tombstoneTtl) expiredTombstones.add(key);
+    });
+    for (final key in expiredTombstones) {
+      _pairTombstones.remove(key);
+    }
+
+    if (stalePairs.isEmpty && expiredTombstones.isEmpty) return;
     for (final (a, b) in stalePairs) {
       _removePersistedPair(a, b);
     }
     _saveState();
-    _log('[persist] cleaned ${stalePairs.length} stale pairing(s)');
+    if (stalePairs.isNotEmpty) {
+      _log('[persist] cleaned ${stalePairs.length} stale pairing(s)');
+    }
+    if (expiredTombstones.isNotEmpty) {
+      _log('[persist] expired ${expiredTombstones.length} unpair tombstone(s)');
+    }
   }
 
   bool _isStale(String id, DateTime now) {
@@ -931,6 +1049,10 @@ class SignalingServer {
           for (final e in _persistedLastSeen.entries)
             e.key: e.value.toIso8601String(),
         },
+        'tombstones': {
+          for (final e in _pairTombstones.entries)
+            e.key: e.value.toIso8601String(),
+        },
       }));
     } catch (e) {
       _log('[persist] failed to save state: $e');
@@ -976,6 +1098,15 @@ class SignalingServer {
           if (id is String && id.isNotEmpty && ts is String) {
             final t = DateTime.tryParse(ts);
             if (t != null) _persistedLastSeen[id] = t;
+          }
+        });
+      }
+      final tombstones = data['tombstones'];
+      if (tombstones is Map) {
+        tombstones.forEach((key, ts) {
+          if (key is String && key.isNotEmpty && ts is String) {
+            final t = DateTime.tryParse(ts);
+            if (t != null) _pairTombstones[key] = t;
           }
         });
       }
