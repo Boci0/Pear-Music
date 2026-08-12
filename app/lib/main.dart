@@ -131,31 +131,11 @@ class PearMusicApp extends StatelessWidget {
       child: Builder(
         builder: (context) {
           final theme = context.watch<PlayerTheme>().theme;
-          // Fade the WHOLE app to the new song colour — every route, dialog and
-          // the player — by animating MaterialApp.theme itself. TweenAnimationBuilder
-          // lerps ThemeData via ThemeData.lerp (which lerps the colorScheme), so
-          // the shift is smooth instead of snapping. The old approach only wrapped
-          // the home route in AnimatedTheme while MaterialApp.theme snapped, so
-          // pushed screens (player, playlists, settings) changed colour abruptly.
           return MaterialApp(
             title: 'Pear Music',
             debugShowCheckedModeBanner: false,
-            // The app theme is the TARGET colour, applied instantly. Animating
-            // MaterialApp.theme rebuilt the WHOLE tree (Navigator + every route)
-            // on every frame of the fade — that was the mobile lag. Instead only
-            // the current screen fades below; pushed routes (player, playlists)
-            // use the target colour directly, and the player has its own cheap
-            // artwork-colour wash animation for the visible fade.
             theme: theme,
-            home: TweenAnimationBuilder<ThemeData>(
-              tween: _ThemeTween(begin: theme, end: theme),
-              duration: const Duration(milliseconds: 350),
-              curve: Curves.easeInOutCubic,
-              builder: (context, animatedTheme, _) => Theme(
-                data: animatedTheme,
-                child: const _MessagesListener(child: HomeShell()),
-              ),
-            ),
+            home: const _MessagesListener(child: HomeShell()),
           );
         },
       ),
@@ -163,28 +143,7 @@ class PearMusicApp extends StatelessWidget {
   }
 }
 
-/// A [Tween] for [ThemeData] that delegates to [ThemeData.lerp]. The generic
-/// [Tween.lerp] does arithmetic (`begin + (end - begin) * t`), which [ThemeData]
-/// doesn't support — it throws "Cannot lerp between ThemeData#..." and shows a
-/// red error screen the moment the song colour changes. Using [ThemeData.lerp]
-/// is what actually fades the whole app's colour scheme smoothly.
-class _ThemeTween extends Tween<ThemeData> {
-  _ThemeTween({super.begin, super.end});
 
-  @override
-  ThemeData lerp(double t) {
-    // Cheap, continuous fade: lerp ONLY the ColorScheme and drop it onto the
-    // target theme with copyWith. ThemeData.lerp is deliberately avoided — it
-    // binary-switches a few derived component themes at t=0.5 (snap on desktop)
-    // — and building a full ThemeData from the scheme every frame was janky on
-    // mobile. copyWith does no per-frame recomputation, so the fade stays
-    // smooth AND cheap.
-    final a = begin!, b = end!;
-    return b.copyWith(
-      colorScheme: ColorScheme.lerp(a.colorScheme, b.colorScheme, t),
-    );
-  }
-}
 
 /// Shows controller.messages as SnackBars.
 class _MessagesListener extends StatefulWidget {

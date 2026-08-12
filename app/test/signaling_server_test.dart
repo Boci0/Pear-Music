@@ -185,6 +185,24 @@ void main() {
       await c.close();
     });
 
+    test('an oversized text frame is rejected instead of being processed',
+        () async {
+      final a = await connect(port);
+      // A single text frame well over maxTextPayload (4 MB). It must be
+      // rejected (socket closed) before it's ever JSON-decoded, not
+      // silently accepted like every text frame used to be.
+      final huge = 'x' * (SignalingServer.maxTextPayload + 1024);
+      a.ws.add(huge);
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (a.ws.readyState == WebSocket.open &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(a.ws.readyState, isNot(WebSocket.open),
+          reason: 'an oversized text frame must close the connection');
+      await a.close();
+    });
+
     test('pairing with a wrong code fails with an error', () async {
       final a = await connect(port);
       a.sendText({'type': 'register', 'deviceId': 'A', 'deviceName': 'Dev A'});
@@ -318,6 +336,85 @@ void main() {
         await host.close();
         await peer.close();
         await impostor.close();
+      } finally {
+        await s.stop();
+      }
+    });
+
+    test(
+        'a spoofed X-Forwarded-For is ignored by default (own-device bypass '
+        'still keys off the REAL loopback address)', () async {
+      // trustProxyHeaders defaults to false — a client-supplied header must
+      // not change what IP the server thinks this connection is from.
+      final s = SignalingServer(
+          port: 0, host: '127.0.0.1', advertiseDeviceId: 'HOST');
+      await s.start();
+      try {
+        final ws = await WebSocket.connect(
+          'ws://127.0.0.1:${s.boundPort}',
+          headers: {'X-Forwarded-For': '203.0.113.5'},
+        );
+        final c = _Client(ws)..listen();
+        // Claims to be the host's own device with a stale/wrong secret. This
+        // must still be ACCEPTED: the real TCP peer is loopback regardless
+        // of the forged header, so the own-device bypass still applies.
+        c.sendText({
+          'type': 'register',
+          'deviceId': 'HOST',
+          'deviceName': 'Host',
+          'secret': 'STALE',
+        });
+        final reg = await c.nextJson('registered');
+        expect(reg['secret'], 'STALE');
+        await c.close();
+      } finally {
+        await s.stop();
+      }
+    });
+
+    test(
+        'a non-loopback address (only reachable by opting into '
+        'trustProxyHeaders) cannot bypass the own-device secret check',
+        () async {
+      final s = SignalingServer(
+        port: 0,
+        host: '127.0.0.1',
+        advertiseDeviceId: 'HOST',
+        trustProxyHeaders: true,
+      );
+      await s.start();
+      try {
+        // Establish the host's real secret via a normal (loopback, no
+        // forwarded-for) connection.
+        final host = await connect(s.boundPort);
+        host.sendText({
+          'type': 'register',
+          'deviceId': 'HOST',
+          'deviceName': 'Host',
+          'secret': 'REAL',
+        });
+        await host.nextJson('registered');
+        await host.close();
+
+        // An attacker on the LAN learns 'HOST' from discovery (it's public)
+        // and connects claiming a non-loopback address (only possible here
+        // because this server opted into trustProxyHeaders) with the WRONG
+        // secret. Since the claimed address isn't loopback, the own-device
+        // bypass must NOT apply — normal secret auth kicks in and rejects it.
+        final attacker = await WebSocket.connect(
+          'ws://127.0.0.1:${s.boundPort}',
+          headers: {'X-Forwarded-For': '203.0.113.5'},
+        );
+        final c = _Client(attacker)..listen();
+        c.sendText({
+          'type': 'register',
+          'deviceId': 'HOST',
+          'deviceName': 'Host',
+          'secret': 'WRONG',
+        });
+        final err = await c.nextJson('error');
+        expect(err['message'], 'unauthorized');
+        await c.close();
       } finally {
         await s.stop();
       }

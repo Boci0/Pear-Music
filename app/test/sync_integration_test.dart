@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +67,50 @@ class _DropOnceChannel extends RTCDataChannel {
     if (message.isBinary && _dropNextBinary) {
       // This chunk never reaches the peer (lost relay frame / lost ack).
       _dropNextBinary = false;
+      return;
+    }
+    otherSide?.onMessage?.call(message);
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+/// A fake channel that flips one payload byte in the FIRST binary frame it
+/// sends (simulating same-length corruption — e.g. a bit flip — as opposed
+/// to a dropped chunk, which changes the total length and is already caught
+/// by the size check). Forwards everything after untouched. Used to prove
+/// the receiving side verifies the actual checksum of what it downloaded,
+/// not just its length.
+class _CorruptOnceChannel extends RTCDataChannel {
+  _CorruptOnceChannel();
+
+  RTCDataChannel? otherSide;
+  bool _corruptNextBinary = true;
+
+  @override
+  RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
+
+  @override
+  int? get id => 1;
+
+  @override
+  String? get label => 'peerm';
+
+  @override
+  int? get bufferedAmount => 0;
+
+  @override
+  Future<void> send(RTCDataChannelMessage message) async {
+    if (message.isBinary && _corruptNextBinary && message.binary.isNotEmpty) {
+      _corruptNextBinary = false;
+      // Flip the last byte (always part of the payload, after the fixed
+      // [magic][idLen][songId][index][total] header) — same length, wrong
+      // content.
+      final corrupted = Uint8List.fromList(message.binary);
+      corrupted[corrupted.length - 1] ^= 0xFF;
+      otherSide?.onMessage
+          ?.call(RTCDataChannelMessage.fromBinary(corrupted));
       return;
     }
     otherSide?.onMessage?.call(message);
@@ -391,6 +436,38 @@ void main() {
     final copy = await libB.songFile(libB.songs.first).readAsBytes();
     expect(orig.length, copy.length);
     expect(orig, copy);
+
+    await syncA.idle;
+    await syncB.idle;
+  });
+
+  test(
+      'same-length corruption is caught by checksum verification and self-heals',
+      () async {
+    // A song big enough to span several chunks. The first chunk arrives with
+    // one flipped byte — same total length as expected, so the OLD
+    // size-only check would have silently accepted it. The checksum check
+    // must catch the mismatch, causing the same self-heal (re-request) path
+    // as a dropped chunk uses.
+    await libA.addLocalFiles([makeAudio('corrupt.mp3', 200_000)]);
+
+    final chA = _CorruptOnceChannel();
+    final chB = _FakeChannel();
+    chA.otherSide = chB;
+    chB.otherSide = chA;
+    syncA.attachChannel('device-B', chA);
+    syncB.attachChannel('device-A', chB);
+
+    await waitFor(() => libB.songs.length == 1);
+    expect(libB.songs.first.sourceDeviceId, 'device-A');
+
+    final orig = await libA.songFile(libA.songs.first).readAsBytes();
+    final copy = await libB.songFile(libB.songs.first).readAsBytes();
+    expect(orig.length, copy.length);
+    expect(orig, copy,
+        reason: 'the corrupted first attempt must never be kept — only the '
+            'clean retry should end up on disk');
+    expect(libB.songs.first.checksum, libA.songs.first.checksum);
 
     await syncA.idle;
     await syncB.idle;

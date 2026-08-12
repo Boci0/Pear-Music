@@ -157,7 +157,7 @@ class AppController extends ChangeNotifier {
     };
 
     // File transfers go over the server relay (RelayDataChannel), not WebRTC
-    // P2P — WebRTC data channels dropped ~0.4s after opening on phone hotspots
+    // P2P, WebRTC data channels dropped ~0.4s after opening on phone hotspots
     // and the native channel could throw an unhandled exception (the black
     // screen during pairing). The WebRTC layer was removed entirely; the relay
     // is stable on every network.
@@ -168,11 +168,16 @@ class AppController extends ChangeNotifier {
     // IMPORTANT: do NOT block the first frame on the server connection.
     // A WebSocket connect has no timeout, so if the server is unreachable
     // (hotspot/server down) `await signaling.start()` could hold up runApp for
-    // tens of seconds — the long black screen on launch that only cleared once
+    // tens of seconds, the long black screen on launch that only cleared once
     // the connect finally failed. Start it in the background: the UI renders
     // immediately and flips to "offline" until the connection succeeds.
     unawaited(_ensureConnection());
     notifyListeners();
+  }
+
+  /// Manually re-trigger file transfer checks and manifest exchange with all connected devices.
+  void forceSync() {
+    sync.resyncNow();
   }
 
   /// Zero-config host election. The "last online" device is the host; every
@@ -239,11 +244,23 @@ class AppController extends ChangeNotifier {
   /// defer to it so there is always exactly one host. Also re-checks every 30s
   /// while hosting, so this device hands back to the original host as soon as
   /// it returns (host switching recovers fast in BOTH directions).
+  ///
+  /// Runs [_reconcileGhostPairings] on the same cadence: host election alone
+  /// only makes ONE of two rival hosts defer (whichever has the lower-
+  /// priority deviceId) — the other keeps hosting indefinitely and may never
+  /// register with (and thus never reconcile against) a paired peer that's
+  /// also independently hosting. Ghost-pairing cleanup can't wait for host
+  /// election to converge, since for the "losing" side it may never converge.
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
-    Timer(const Duration(seconds: 3), () => unawaited(_reconcileHost()));
-    _hostReconcileTimer = Timer.periodic(
-        const Duration(seconds: 30), (_) => unawaited(_reconcileHost()));
+    Timer(const Duration(seconds: 3), () {
+      unawaited(_reconcileHost());
+      unawaited(_reconcileGhostPairings());
+    });
+    _hostReconcileTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      unawaited(_reconcileHost());
+      unawaited(_reconcileGhostPairings());
+    });
   }
 
   Future<void> _reconcileHost() async {
@@ -260,6 +277,51 @@ class AppController extends ChangeNotifier {
         await updateServerUrl(host.url);
         return;
       }
+    }
+  }
+
+  /// Checks in with any PAIRED peer that is independently running its own
+  /// server right now (a "split brain": we believe we're paired with it, but
+  /// nothing has ever made either of us register with the other's server, so
+  /// neither side's register-time pairing reconciliation has ever run
+  /// against the other — see host reconcile's doc comment above). Best-
+  /// effort and silent on failure: this must never disrupt normal hosting,
+  /// and in ordinary operation (single real host, everyone else a plain
+  /// client) no paired peer ever shows up here, since only the current host
+  /// runs a server at all.
+  Future<void> _reconcileGhostPairings() async {
+    if (_closing || !identity.isHost) return;
+    final paired = identity.pairedDeviceIds;
+    if (paired.isEmpty) return;
+    final others = _filterReachable(await discoverNearby());
+    for (final host in others) {
+      if (host.deviceId == null || !paired.contains(host.deviceId)) continue;
+      final pairings = <Map<String, String>>[
+        for (final e in identity.pairedDeviceNames.entries)
+          {'deviceId': e.key, 'deviceName': e.value},
+      ];
+      Map<String, dynamic>? revoked;
+      try {
+        revoked = await SignalingService.checkInWithHost(
+          url: host.url,
+          deviceId: identity.deviceId,
+          deviceName: identity.deviceName,
+          pairings: pairings,
+        );
+      } catch (e) {
+        debugPrint('[host] ghost-pairing check-in with ${host.url} failed: $e');
+        continue;
+      }
+      if (revoked == null || _closing) continue;
+      final peer = PeerDevice.fromJson(Map<String, dynamic>.from(revoked));
+      debugPrint('[host] ${host.url} confirmed ${peer.deviceId} is unpaired '
+          '(ghost pairing) — dropping it locally');
+      await identity.removePairedDevice(peer.deviceId);
+      await _handlePeerGone(
+        peer.deviceId,
+        deviceName: peer.deviceName,
+        explicit: true,
+      );
     }
   }
 

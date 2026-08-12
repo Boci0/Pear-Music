@@ -32,6 +32,29 @@ class ArtworkPalette {
   static final LinkedHashMap<String, Uint8List> _bytesCache =
       LinkedHashMap<String, Uint8List>();
 
+  static final LinkedHashMap<String, Color> _resolvedColors =
+      LinkedHashMap<String, Color>();
+
+  /// Synchronous cached color extraction for zero-latency widget rendering.
+  static Color dominantSync(Song song) {
+    final art = song.artwork;
+    if (art == null || art.isEmpty) return fallback;
+    final id = song.id;
+    final cached = _resolvedColors.remove(id);
+    if (cached != null) {
+      _resolvedColors[id] = cached;
+      return cached;
+    }
+    try {
+      final color = computeDominant(art);
+      _resolvedColors[id] = color;
+      _trim(_resolvedColors, _maxColorEntries);
+      return color;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   /// Returns the dominant colour for [song] (or [fallback] when the song has
   /// no artwork). The returned future is cached, so repeated calls are free.
   static Future<Color> dominant(Song song) {
@@ -74,7 +97,7 @@ class ArtworkPalette {
 
   static Future<Color> _extract(String base64Art) async {
     try {
-      return await compute(computeDominant, base64Art);
+      return computeDominant(base64Art);
     } catch (_) {
       return fallback;
     }

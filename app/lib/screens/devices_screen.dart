@@ -35,17 +35,36 @@ class DevicesScreen extends StatelessWidget {
           const SizedBox(height: 8),
           if (peers.isEmpty)
             _EmptyPeers(onPair: () => _openPair(context))
-          else
+          else ...[
             ...peers.map((peer) => _PeerTile(
                   peer: peer,
                   onUnpair: () => _confirmUnpair(context, controller, peer),
                 )),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () => _openPair(context),
-            icon: const Icon(Icons.link),
-            label: const Text('Pair a device'),
-          ),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _openPair(context),
+                  icon: const Icon(Icons.link),
+                  label: const Text('Pair another device'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    controller.forceSync();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Force sync initiated with paired devices'),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.sync),
+                  label: const Text('Force Sync'),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 24),
           Text(
             'How it works:\n'
@@ -206,7 +225,11 @@ class _EmptyPeers extends StatelessWidget {
           Text('No devices paired yet',
               style: theme.textTheme.titleSmall),
           const SizedBox(height: 4),
-          TextButton(onPressed: onPair, child: const Text('Pair a device')),
+          FilledButton.icon(
+            onPressed: onPair,
+            icon: const Icon(Icons.link),
+            label: const Text('Pair a device'),
+          ),
         ],
       ),
     );

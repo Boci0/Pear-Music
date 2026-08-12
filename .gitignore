@@ -10,6 +10,18 @@ screen_gpm.png
 screen_playing.png
 shade.png
 
+# --- Fixing plans & implementation docs ---
+*_FIX_PLAN.md
+*FIX_PLAN*.md
+*plan*.md
+*PLAN*.md
+*Fix Plan*.md
+*FIX PLAN*.md
+*Ghost Pairing*.md
+part 2Ghost Pairing.md
+implementation_plan.md
+walkthrough.md
+
 # --- Flutter / Dart build artifacts (app/) ---
 app/.dart_tool/
 app/build/

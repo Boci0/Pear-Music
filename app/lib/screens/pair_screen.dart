@@ -101,26 +101,14 @@ class _PairScreenState extends State<PairScreen> {
   }
 
   Widget _buildHost(AppController controller) {
-    final code = controller.pendingPairingCode;
-    if (code == null) {
-      return Column(
-        children: [
-          Icon(Icons.qr_code_2, size: 64, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: 16),
-          const Text(
-            'Generate a one-time code. The other device enters it, or scans '
-            'the QR from the Join tab, to pair.',
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: controller.generatePairingCode,
-            icon: const Icon(Icons.qr_code),
-            label: const Text('Generate pairing code'),
-          ),
-        ],
-      );
+    if (controller.pendingPairingCode == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller.pendingPairingCode == null) {
+          controller.generatePairingCode();
+        }
+      });
     }
+    final code = controller.pendingPairingCode ?? '';
     return Column(
       children: [
         Text('Show this code to the other device',
@@ -171,7 +159,7 @@ class _PairScreenState extends State<PairScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'The other device can scan this QR or enter the code — it '
+                'The other device can scan this QR or enter the code, it '
                 'will find this device automatically.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.primary,
@@ -210,10 +198,15 @@ class _PairScreenState extends State<PairScreen> {
             letterSpacing: 6,
             fontWeight: FontWeight.bold,
           ),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             counterText: '',
             hintText: 'AB12CD',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              tooltip: 'Scan QR code',
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: () => _scan(controller),
+            ),
           ),
           onSubmitted: (_) => _join(controller),
         ),
@@ -222,12 +215,6 @@ class _PairScreenState extends State<PairScreen> {
           onPressed: () => _join(controller),
           icon: const Icon(Icons.link),
           label: const Text('Pair'),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () => _scan(controller),
-          icon: const Icon(Icons.qr_code_scanner),
-          label: const Text('Scan QR code'),
         ),
       ],
     );
