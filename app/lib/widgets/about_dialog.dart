@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 void showPearMusicAboutDialog(BuildContext context) {
   showAboutDialog(
@@ -30,15 +29,11 @@ void showPearMusicAboutDialog(BuildContext context) {
         style: TextStyle(fontSize: 11, color: Colors.grey),
       ),
       const SizedBox(height: 12),
-      TextButton.icon(
-        onPressed: () async {
-          final uri = Uri.parse('https://github.com/Boci0/Pear-Music');
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri);
-          }
-        },
-        icon: const Icon(Icons.code),
-        label: const Text('View GitHub Repository'),
+      SelectableText(
+        'GitHub: https://github.com/Boci0/Pear-Music',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+            ),
       ),
     ],
   );
