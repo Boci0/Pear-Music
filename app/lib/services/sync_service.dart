@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -171,16 +170,21 @@ class SyncService extends ChangeNotifier {
 
   /// Manually re-advertise our library + playlists to every online peer so anything the
   /// peer is still missing (a transfer that failed and exhausted its retries)
-  /// is re-requested automatically.
-  void resyncNow() {
-    if (_channels.isEmpty) return;
+  /// is re-requested automatically. Clears stale send locks and retries.
+  int resyncNow() {
+    _sending.clear();
+    _finalizeRetries.clear();
+    if (_channels.isEmpty) return 0;
+    final count = _channels.length;
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {
         'type': 'manifest',
         'songs': library.songs.map((s) => s.toJson()).toList(),
       });
       _send(peerId, _playlistManifestMessage());
+      _send(peerId, {'type': 'request_manifest'});
     }
+    return count;
   }
 
   void detachChannel(String peerId) {
@@ -272,6 +276,13 @@ class SyncService extends ChangeNotifier {
       case 'playlist_delete':
         _track(_onPlaylistDelete(peerId, msg));
         break;
+      case 'request_manifest':
+        _send(peerId, {
+          'type': 'manifest',
+          'songs': library.songs.map((s) => s.toJson()).toList(),
+        });
+        _send(peerId, _playlistManifestMessage());
+        break;
     }
   }
 
@@ -348,24 +359,28 @@ class SyncService extends ChangeNotifier {
     try {
       final file = library.songFile(song);
       if (!await file.exists()) throw Exception('local file missing');
-      final total = (song.size / chunkSize).ceil();
+      final fileSize = await file.length();
+      final total = fileSize == 0 ? 1 : (fileSize / chunkSize).ceil();
       var index = 0;
       var sentBytes = 0;
+      final pending = <int>[];
       final reader = file.openRead();
       await for (final buffer in reader) {
-        var offset = 0;
-        while (offset < buffer.length) {
-          final end = math.min(offset + chunkSize, buffer.length);
-          final piece = buffer.sublist(offset, end);
+        pending.addAll(buffer);
+        while (pending.length >= chunkSize) {
+          final piece = pending.sublist(0, chunkSize);
+          pending.removeRange(0, chunkSize);
           await _sendChunk(channel, song.id, index, total, piece);
           index++;
-          offset = end;
           sentBytes += piece.length;
           _updateUploadProgress(peerId, song.id, sentBytes);
         }
       }
-      if (index != total) {
-        throw Exception('file changed while reading');
+      if (pending.isNotEmpty || index < total) {
+        await _sendChunk(channel, song.id, index, total, pending);
+        index++;
+        sentBytes += pending.length;
+        _updateUploadProgress(peerId, song.id, sentBytes);
       }
       _send(peerId, {'type': 'file_done', 'id': song.id});
       _markComplete(peerId, song.id);
