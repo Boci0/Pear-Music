@@ -187,7 +187,7 @@ class YoutubeService {
 
       onStatus?.call('Adding to library…');
       final base = p.basenameWithoutExtension(audioFile.path);
-      final title = base.replaceFirst(RegExp(r'\s+\[[^\]]+\]$'), '');
+      final title = sanitizeTitle(base);
       return await library.addScrapedFile(
         audioFile,
         title: title,
@@ -310,7 +310,7 @@ class YoutubeService {
 
       onStatus?.call('Adding to library…');
       final base = p.basenameWithoutExtension(audioFile.path);
-      final title = base.replaceFirst(RegExp(r'\s+\[[^\]]+\]$'), '');
+      final title = sanitizeTitle(base);
       return await library.addScrapedFile(
         audioFile,
         title: title,
@@ -324,6 +324,22 @@ class YoutubeService {
         await tempDir?.delete(recursive: true);
       } catch (_) {}
     }
+  }
+
+  /// Clean up video title noise like `(Official Video)`, `[Official Music Video]`,
+  /// `(Lyric Video)`, `(Audio)`, `(Official HD Video)`, `[Visualizer]`, etc.
+  @visibleForTesting
+  static String sanitizeTitle(String rawTitle) {
+    var title = rawTitle.replaceFirst(RegExp(r'\s+\[[^\]]+\]$'), '').trim();
+    title = title.replaceAll(
+      RegExp(
+        r'[\(\[]\s*(?:official\s+)?(?:music\s+)?(?:video|audio|lyric\s+video|lyrics|hd|4k|visualizer|mv|topic)\s*[\)\]]',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    title = title.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return title.isEmpty ? rawTitle : title;
   }
 
   /// Parse yt-dlp's `[download] 12.3% of 3.42MiB …` progress lines into the
