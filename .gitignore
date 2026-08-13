@@ -47,6 +47,7 @@ server/.env
 # --- Release artifacts (published via GitHub Releases, not committed) ---
 release/
 release_assets/
+tool/Output/
 
 # --- OS cruft ---
 Thumbs.db

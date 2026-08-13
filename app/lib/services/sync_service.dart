@@ -158,6 +158,7 @@ class SyncService extends ChangeNotifier {
     });
     // Advertise our playlists (and deletions) so both sides converge.
     _send(peerId, _playlistManifestMessage());
+    _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
     _startResyncTimer();
   }
@@ -287,16 +288,11 @@ class SyncService extends ChangeNotifier {
   }
 
   void _onManifest(String peerId, List<dynamic> rawSongs) {
-    final have = library.songs.map((s) => s.checksum).toSet();
     final missing = <String>[];
     for (final raw in rawSongs) {
       if (raw is! Map) continue;
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
       if (song.sourceDeviceId == identity.deviceId) {
-        // This is a song we originally owned and shared with this peer. If we
-        // no longer have it, we deleted it: tell the peer to drop their copy
-        // and never request it back. Without this, reconnecting peers re-download
-        // our own deleted song and BOTH sides end up marked "Shared".
         if (library.findById(song.id) == null) {
           _send(peerId, {
             'type': 'song_deleted',
@@ -307,15 +303,23 @@ class SyncService extends ChangeNotifier {
         }
         continue;
       }
-      if (!have.contains(song.checksum) && library.findById(song.id) == null) {
+      final localSong = library.findById(song.id);
+      final hasFile = library.hasSongFile(song);
+      final hasChecksum = library.songs.any(
+        (s) => s.checksum == song.checksum && library.hasSongFile(s),
+      );
+
+      if (!hasChecksum || localSong == null || !hasFile) {
         missing.add(song.id);
       }
     }
     if (missing.isNotEmpty) {
-      debugPrint('[sync][diag] requesting $missing.length missing songs from $peerId');
+      debugPrint(
+          '[sync][diag] requesting ${missing.length} missing songs from $peerId');
       _send(peerId, {'type': 'request_songs', 'ids': missing});
     } else {
-      debugPrint('[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised, have ${have.length})');
+      debugPrint(
+          '[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised)');
     }
   }
 

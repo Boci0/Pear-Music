@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../services/update_service.dart';
+
 void showPearMusicAboutDialog(BuildContext context) {
   showAboutDialog(
     context: context,
     applicationName: 'Pear Music',
-    applicationVersion: '1.0.0',
-    applicationIcon: const Icon(
-      Icons.music_note_rounded,
-      size: 48,
-      color: Colors.greenAccent,
+    applicationVersion: '1.1.8',
+    applicationIcon: Image.asset(
+      'assets/pear_logo.png',
+      width: 56,
+      height: 56,
     ),
     applicationLegalese: 'Copyright (c) 2026 Boci0\nLicensed under the MIT License.',
     children: [
@@ -27,6 +29,12 @@ void showPearMusicAboutDialog(BuildContext context) {
         'without restriction, including without limitation the rights to use, copy, modify, '
         'merge, publish, distribute, sublicense, and/or sell copies of the Software.',
         style: TextStyle(fontSize: 11, color: Colors.grey),
+      ),
+      const SizedBox(height: 16),
+      OutlinedButton.icon(
+        onPressed: () => UpdateService.checkForUpdates(context),
+        icon: const Icon(Icons.system_update_outlined),
+        label: const Text('Check for Updates'),
       ),
       const SizedBox(height: 12),
       SelectableText(

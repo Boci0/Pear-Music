@@ -122,14 +122,13 @@ class YoutubeService {
           '%(title).80B [%(id)s].%(ext)s';
       final args = [
         '-f', 'bestaudio[ext=m4a]/bestaudio',
-        // NOTE: no --extractor-args — forcing a player client (e.g. android)
-        // fails with "Requested format is not available". The default client
-        // works with a current yt-dlp.
         '--newline',
         '--no-playlist',
         '--no-part',
         '--no-mtime',
         '--write-thumbnail',
+        '--no-check-certificates',
+        '--concurrent-fragments', '4',
         '-o', outTemplate,
         url,
       ];

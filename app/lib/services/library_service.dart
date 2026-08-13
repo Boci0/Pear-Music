@@ -55,6 +55,15 @@ class LibraryService extends ChangeNotifier {
 
   File songFile(Song song) => File(p.join(_libraryDir!.path, song.fileName));
 
+  bool hasSongFile(Song song) {
+    try {
+      final file = songFile(song);
+      return file.existsSync() && file.lengthSync() > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   File incomingFile(String songId) =>
       File(p.join(_libraryDir!.path, '_incoming', '$songId.part'));
 
