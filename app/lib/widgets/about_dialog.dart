@@ -6,7 +6,7 @@ void showPearMusicAboutDialog(BuildContext context) {
   showAboutDialog(
     context: context,
     applicationName: 'Pear Music',
-    applicationVersion: '1.1.8',
+    applicationVersion: '1.1.9',
     applicationIcon: Image.asset(
       'assets/pear_logo.png',
       width: 56,

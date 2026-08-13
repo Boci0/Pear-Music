@@ -72,4 +72,21 @@ void main() {
       expect(calls, 0);
     });
   });
+
+  group('sanitizeTitle', () {
+    test('strips video noise like (Official Video) and video IDs', () {
+      expect(
+        YoutubeService.sanitizeTitle('Rick Astley - Never Gonna Give You Up (Official Music Video) [dQw4w9WgXcQ]'),
+        'Rick Astley - Never Gonna Give You Up',
+      );
+      expect(
+        YoutubeService.sanitizeTitle('Artist - Track Title [Official Audio]'),
+        'Artist - Track Title',
+      );
+      expect(
+        YoutubeService.sanitizeTitle('Song Name (Lyric Video) (HD)'),
+        'Song Name',
+      );
+    });
+  });
 }
