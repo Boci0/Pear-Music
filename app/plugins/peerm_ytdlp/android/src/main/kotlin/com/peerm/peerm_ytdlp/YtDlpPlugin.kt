@@ -112,17 +112,10 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     @Synchronized
     private fun ensureInit(ctx: Context) {
         if (initialized) return
-        // Downloads the raw audio stream (bestaudio m4a/webm), so no ffmpeg
-        // conversion is needed day-to-day, but including + initializing it
-        // makes `--ffmpeg-location` resolve and keeps fallbacks safe.
         YoutubeDL.getInstance().init(ctx)
         FFmpeg.getInstance().init(ctx)
         initialized = true
-        // The bundled yt-dlp goes stale as YouTube changes (it starts returning
-        // 403 / "format not available"). Refresh it from the stable channel so
-        // downloads keep working. Python 3.12 is bundled, so the latest yt-dlp
-        // runs fine. Only touches the network once per process. NOTE: must run
-        // AFTER init() (updateYoutubeDL asserts the instance is initialized).
+
         if (!updateChecked) {
             updateChecked = true
             try {
@@ -155,11 +148,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 ensureInit(ctx)
                 val request = YoutubeDLRequest(url)
                 request.addOption("-f", "bestaudio[ext=m4a]/bestaudio")
-                // NOTE: no --extractor-args here. Forcing a specific player
-                // client (e.g. android) fails with "Requested format is not
-                // available" (YouTube's SABR experiment). The DEFAULT client
-                // works with the CURRENT yt-dlp, which ensureInit() refreshes
-                // from the stable channel.
                 request.addOption(
                     "-o",
                     File(outputDir, "%(title).80B [%(id)s].%(ext)s").absolutePath,
@@ -170,6 +158,10 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 request.addOption("--no-mtime")
                 request.addOption("--write-thumbnail")
                 request.addOption("--no-warnings")
+                request.addOption("--force-ipv4")
+                request.addOption("--no-check-certificates")
+                request.addOption("--concurrent-fragments", "4")
+                
                 val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
                     sendEvent(
                         mapOf(
@@ -201,8 +193,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     }
 
     private fun sendEvent(data: Map<String, Any?>) {
-        // EventSink.success must run on the main thread; the yt-dlp progress
-        // callback fires on the downloader thread.
         mainHandler.post { eventSink?.success(data) }
     }
 

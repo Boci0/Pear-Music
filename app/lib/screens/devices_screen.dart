@@ -53,17 +53,25 @@ class DevicesScreen extends StatelessWidget {
                   label: const Text('Pair another device'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    final count = controller.forceSync();
+                  onPressed: () async {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          count > 0
-                              ? 'Force sync sent to $count device(s)'
-                              : 'No active device connections to sync',
-                        ),
+                      const SnackBar(
+                        content: Text('Reconnecting & Syncing library...'),
+                        duration: Duration(seconds: 2),
                       ),
                     );
+                    final count = await controller.forceSync();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            count > 0
+                                ? 'Resynced with $count active peer(s)'
+                                : 'Reconnected signaling; scanning for peers',
+                          ),
+                        ),
+                      );
+                    }
                   },
                   icon: const Icon(Icons.sync),
                   label: const Text('Force Sync'),
