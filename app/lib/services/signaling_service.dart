@@ -209,6 +209,12 @@ class SignalingService {
     await _connect();
   }
 
+  Future<void> restart() async {
+    await stop();
+    _attempt = 0;
+    await start();
+  }
+
   Future<void> stop() async {
     _manualStop = true;
     _generation++; // invalidate any in-flight _connect

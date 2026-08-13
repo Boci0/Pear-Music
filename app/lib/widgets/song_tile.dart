@@ -158,30 +158,10 @@ class SongTile extends StatelessWidget {
                     child: Icon(Icons.graphic_eq,
                         color: theme.colorScheme.primary),
                   ),
-                PopupMenuButton<String>(
+                IconButton(
                   tooltip: 'More options',
                   icon: const Icon(Icons.more_vert),
-                  onSelected: (v) {
-                    if (v == 'playlist' || v == 'remove') _showMenu(context);
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'playlist',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.playlist_add),
-                        title: Text('Add to playlist'),
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'remove',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.delete_outline),
-                        title: Text('Remove from library'),
-                      ),
-                    ),
-                  ],
+                  onPressed: () => _showMenu(context),
                 ),
               ],
             ),

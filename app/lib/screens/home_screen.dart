@@ -209,24 +209,27 @@ class _HomeScreenState extends State<HomeScreen> {
         else
           SliverPadding(
             padding: const EdgeInsets.only(bottom: 24),
-            sliver: SliverList.builder(
+            sliver: SliverFixedExtentList.builder(
+              itemExtent: 68.0,
               itemCount: songs.length,
               itemBuilder: (context, i) {
                 final song = songs[i];
-                return SongTile(
-                  key: ValueKey(song.id),
-                  song: song,
-                  isCurrent: currentSongId == song.id,
-                  isSelecting: _isSelecting,
-                  isSelected: _selectedIds.contains(song.id),
-                  onSelectionChanged: (val) =>
-                      _toggleSelection(song.id, val ?? false),
-                  onLongPress: () {
-                    setState(() {
-                      _isSelecting = true;
-                      _selectedIds.add(song.id);
-                    });
-                  },
+                return RepaintBoundary(
+                  child: SongTile(
+                    key: ValueKey(song.id),
+                    song: song,
+                    isCurrent: currentSongId == song.id,
+                    isSelecting: _isSelecting,
+                    isSelected: _selectedIds.contains(song.id),
+                    onSelectionChanged: (val) =>
+                        _toggleSelection(song.id, val ?? false),
+                    onLongPress: () {
+                      setState(() {
+                        _isSelecting = true;
+                        _selectedIds.add(song.id);
+                      });
+                    },
+                  ),
                 );
               },
             ),
@@ -282,24 +285,30 @@ class _HomeScreenState extends State<HomeScreen> {
             PopupMenuButton<String>(
               tooltip: 'Add & Sync options',
               icon: const Icon(Icons.add),
-              onSelected: (val) {
+               onSelected: (val) async {
                 if (val == 'local') {
                   controller.addFilesFromPicker();
                 } else if (val == 'link') {
                   _openYouTubeDialog(context);
                 } else if (val == 'sync') {
-                  final count = controller.forceSync();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        count > 0
-                            ? 'Force sync sent to $count device(s)'
-                            : 'No active device connections to sync',
-                      ),
+                    const SnackBar(
+                      content: Text('Reconnecting & Syncing library...'),
+                      duration: Duration(seconds: 2),
                     ),
                   );
-                } else if (val == 'about') {
-                  showPearMusicAboutDialog(context);
+                  final count = await controller.forceSync();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          count > 0
+                              ? 'Resynced with $count active peer(s)'
+                              : 'Reconnected signaling; scanning for peers',
+                        ),
+                      ),
+                    );
+                  }
                 }
               },
               itemBuilder: (_) => const [
@@ -327,14 +336,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: Text('Force sync files'),
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'about',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.info_outline),
-                    title: Text('About Pear Music & License'),
-                  ),
-                ),
               ],
             ),
             IconButton(
@@ -343,6 +344,11 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
               ),
+            ),
+            IconButton(
+              tooltip: 'About & License',
+              icon: const Icon(Icons.info_outline),
+              onPressed: () => showPearMusicAboutDialog(context),
             ),
             const SizedBox(width: 4),
           ];

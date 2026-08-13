@@ -175,9 +175,14 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Manually re-trigger file transfer checks and manifest exchange with all connected devices.
-  int forceSync() {
-    return sync.resyncNow();
+  /// Reset connection and re-trigger file transfer checks and manifest exchange with all devices.
+  Future<int> forceSync() async {
+    await signaling.restart();
+    await _ensureConnection();
+    await Future.delayed(const Duration(milliseconds: 1200));
+    final count = sync.resyncNow();
+    notifyListeners();
+    return count;
   }
 
   /// Zero-config host election. The "last online" device is the host; every
