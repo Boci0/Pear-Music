@@ -855,6 +855,53 @@ class AppController extends ChangeNotifier {
     return null;
   }
 
+  /// Searches YouTube using InnerTube.
+  Future<List<YouTubeSearchResult>> searchYouTube(String query) {
+    return YouTubeSearchService.search(query);
+  }
+
+  /// Downloads a YouTube search result via yt-dlp, adds to library, and returns
+  /// the downloaded or existing Song for playback.
+  Future<({Song? song, String? error})> downloadAndGetYouTubeSong(
+    YouTubeSearchResult result, {
+    YoutubeProgressCallback? onProgress,
+    DownloadCancellation? cancel,
+  }) async {
+    final initialIds = library.songs.map((s) => s.id).toSet();
+
+    final err = await addFromLink(
+      result.url,
+      onProgress: onProgress,
+      cancel: cancel,
+    );
+
+    if (err != null && !err.contains('already in your library')) {
+      return (song: null, error: err);
+    }
+
+    // Check for freshly added song.
+    final newSongs = library.songs.where((s) => !initialIds.contains(s.id));
+    if (newSongs.isNotEmpty) {
+      return (song: newSongs.first, error: null);
+    }
+
+    // Check for matching title in library if already present.
+    final cleanTitle = result.title.toLowerCase().trim();
+    for (final s in library.songs) {
+      final sTitle = s.title.toLowerCase().trim();
+      if (sTitle == cleanTitle ||
+          sTitle.contains(cleanTitle) ||
+          cleanTitle.contains(sTitle)) {
+        return (song: s, error: null);
+      }
+    }
+
+    return (
+      song: library.songs.isNotEmpty ? library.songs.first : null,
+      error: null,
+    );
+  }
+
   /// Turn known YouTube/network errors into a short, actionable message.
   String _friendlyDownloadError(Object e) {
     if (e is TimeoutException) {
@@ -876,31 +923,6 @@ class AppController extends ChangeNotifier {
           'Wait a while and try again.';
     }
     return 'Download failed: $e';
-  }
-
-  /// Search YouTube for online songs.
-  Future<List<YouTubeSearchResult>> searchYouTube(String query) async {
-    return YouTubeSearchService.search(query);
-  }
-
-  /// Play a YouTube search result directly via online streaming.
-  Future<bool> playYouTubeStream(YouTubeSearchResult result) async {
-    return player.playStream(result);
-  }
-
-  /// Download a YouTube search result to the local library via yt-dlp.
-  Future<String?> downloadYouTubeResult(
-    YouTubeSearchResult result, {
-    YoutubeStatusCallback? onStatus,
-    YoutubeProgressCallback? onProgress,
-    DownloadCancellation? cancel,
-  }) async {
-    return addFromLink(
-      result.url,
-      onStatus: onStatus,
-      onProgress: onProgress,
-      cancel: cancel,
-    );
   }
 
   /// Play every song in [playlist] in order.

@@ -270,9 +270,7 @@ class _SongInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    final player = controller.player;
     final isFav = controller.isFavorite(song.id);
-    final isStream = player.isCurrentStreamed;
     final theme = Theme.of(context);
     return Column(
       children: [
@@ -289,42 +287,19 @@ class _SongInfo extends StatelessWidget {
                 style: theme.textTheme.headlineSmall,
               ),
             ),
-            if (isStream && player.currentStream != null)
-              IconButton(
-                icon: const Icon(Icons.download),
-                tooltip: 'Download to library',
-                onPressed: () async {
-                  final stream = player.currentStream!;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Downloading "${stream.title}"...')),
-                  );
-                  final err = await controller.downloadYouTubeResult(stream);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(err ?? 'Downloaded "${stream.title}" to library.'),
-                        backgroundColor: err != null ? Colors.redAccent : Colors.teal,
-                      ),
-                    );
-                  }
-                },
-              )
-            else
-              IconButton(
-                icon: Icon(
-                  isFav ? Icons.favorite : Icons.favorite_border,
-                  color: isFav ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                ),
-                tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
-                onPressed: () => controller.toggleFavorite(song.id),
+            IconButton(
+              icon: Icon(
+                isFav ? Icons.favorite : Icons.favorite_border,
+                color: isFav ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
               ),
+              tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
+              onPressed: () => controller.toggleFavorite(song.id),
+            ),
           ],
         ),
         const SizedBox(height: 4),
         Text(
-          isStream
-              ? 'Streaming from YouTube (${player.currentStream?.author ?? ""})'
-              : (song.sourceDeviceId == null ? 'Added on this device' : 'Shared'),
+          song.sourceDeviceId == null ? 'Added on this device' : 'Shared',
           style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -552,7 +527,6 @@ class _Artwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final player = context.watch<PlayerService>();
     final radius = BorderRadius.circular(16);
     final glowColor = accent ?? scheme.primary;
     final placeholder = Container(
@@ -571,25 +545,6 @@ class _Artwork extends StatelessWidget {
       ),
       child: Icon(Icons.music_note, size: size * 0.4, color: scheme.onPrimary),
     );
-
-    if (player.isCurrentStreamed && player.currentStream?.thumbnailUrl != null) {
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(borderRadius: radius),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Image.network(
-            player.currentStream!.thumbnailUrl!,
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => placeholder,
-          ),
-        ),
-      );
-    }
-
     final art = artwork;
     if (art == null || art.isEmpty) return placeholder;
     return Container(

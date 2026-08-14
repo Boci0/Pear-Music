@@ -31,7 +31,6 @@ class PlayerService extends ChangeNotifier {
   final math.Random _random = math.Random();
 
   Song? currentSong;
-  YouTubeSearchResult? currentStream;
   List<Song> _queue = [];
   int _queueIndex = -1;
   LoopSetting _loopMode = LoopSetting.off;
@@ -42,7 +41,6 @@ class PlayerService extends ChangeNotifier {
   PlayerService(this.library);
 
   Song? get song => currentSong;
-  bool get isCurrentStreamed => currentStream != null;
   Duration? get position => _player.position;
   Duration? get duration => _player.duration;
   bool get playing => _player.playing;
@@ -125,7 +123,6 @@ class PlayerService extends ChangeNotifier {
     // play shows the notification; the prompt does not delay playback.
     _requestNotificationPermissionIfNeeded();
 
-    currentStream = null;
     _queue = queue ?? library.songs;
     if (_queue.isEmpty) _queue = [song];
     _queueIndex = _queue.indexWhere((s) => s.id == song.id);
@@ -161,54 +158,6 @@ class PlayerService extends ChangeNotifier {
     }
     _publishNotificationState();
     notifyListeners();
-  }
-
-  /// Stream a YouTube track directly on-demand without writing to disk.
-  Future<bool> playStream(YouTubeSearchResult result) async {
-    _requestNotificationPermissionIfNeeded();
-
-    currentStream = result;
-    final dummySong = Song(
-      id: 'yt_${result.videoId}',
-      title: result.title,
-      fileName: '${result.videoId}.opus',
-      size: 0,
-      checksum: '',
-      addedAt: DateTime.now(),
-    );
-    currentSong = dummySong;
-    _queue = [dummySong];
-    _queueIndex = 0;
-    notifyListeners();
-
-    try {
-      final streamUri = await YouTubeSearchService.getAudioStreamUri(result.videoId);
-      if (streamUri == null) {
-        debugPrint('[player] could not extract audio stream for ${result.videoId}');
-        return false;
-      }
-
-      await _player.setLoopMode(LoopMode.off);
-      await _player.setAudioSource(
-        AudioSource.uri(
-          streamUri,
-          tag: MediaItem(
-            id: 'yt_${result.videoId}',
-            title: result.title,
-            artist: result.author,
-            album: 'YouTube',
-            artUri: result.thumbnailUrl != null ? Uri.parse(result.thumbnailUrl!) : null,
-          ),
-        ),
-      );
-      await _player.play();
-      _publishNotificationState();
-      notifyListeners();
-      return true;
-    } catch (e) {
-      debugPrint('[player] stream playback failed for ${result.title}: $e');
-      return false;
-    }
   }
 
   Future<void> toggle() async {
@@ -359,7 +308,6 @@ class PlayerService extends ChangeNotifier {
   Future<void> stop() async {
     await _player.stop();
     currentSong = null;
-    currentStream = null;
     _queue = [];
     _queueIndex = -1;
     notifyListeners();

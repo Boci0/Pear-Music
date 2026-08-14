@@ -62,22 +62,6 @@ class YouTubeSearchService {
     }
   }
 
-  /// Extracts the direct audio stream URL for a given [videoId].
-  static Future<Uri?> getAudioStreamUri(String videoId) async {
-    try {
-      final manifest = await _client.videos.streamsClient.getManifest(videoId);
-      final audioStreams = manifest.audioOnly;
-      if (audioStreams.isEmpty) return null;
-
-      // Select the audio stream with the highest bitrate (opus/m4a).
-      final bestAudio = audioStreams.withHighestBitrate();
-      return bestAudio.url;
-    } catch (e) {
-      debugPrint('[YouTubeSearchService] Stream extraction error for $videoId: $e');
-      return null;
-    }
-  }
-
   /// Close client resources.
   static void dispose() {
     _yt?.close();
