@@ -223,6 +223,44 @@ class _HomeScreenState extends State<HomeScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         const SliverToBoxAdapter(child: TransferList()),
+        if (_showOnlyFavorites)
+          SliverToBoxAdapter(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.favorite, size: 16, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Showing Favorites (${songs.length})',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  InkWell(
+                    onTap: () => setState(() => _showOnlyFavorites = false),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      child: Text(
+                        'Show all',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         if (songs.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
@@ -319,37 +357,6 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.search),
           onPressed: () => setState(() => _isSearching = true),
         ),
-        IconButton(
-          tooltip: _showOnlyFavorites ? 'Show all songs' : 'Show favorites',
-          icon: Icon(
-            _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
-            color: _showOnlyFavorites ? theme.colorScheme.primary : null,
-          ),
-          onPressed: () =>
-              setState(() => _showOnlyFavorites = !_showOnlyFavorites),
-        ),
-        PopupMenuButton<SortOption>(
-          tooltip: 'Sort songs',
-          icon: const Icon(Icons.sort),
-          onSelected: (opt) => controller.setSortOption(opt),
-          itemBuilder: (_) => SortOption.values
-              .map(
-                (o) => PopupMenuItem(
-                  value: o,
-                  child: Row(
-                    children: [
-                      Icon(
-                        o == controller.sortOption ? Icons.check : Icons.sort,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(o.label),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
-        ),
         PopupMenuButton<String>(
           tooltip: 'Add & Sync options',
           icon: const Icon(Icons.add),
@@ -358,8 +365,6 @@ class _HomeScreenState extends State<HomeScreen> {
               controller.addFilesFromPicker();
             } else if (val == 'link') {
               _openYouTubeDialog(context);
-            } else if (val == 'select') {
-              setState(() => _isSelecting = true);
             } else if (val == 'sync') {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -399,14 +404,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             PopupMenuItem(
-              value: 'select',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.checklist),
-                title: Text('Select multiple songs'),
-              ),
-            ),
-            PopupMenuItem(
               value: 'sync',
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -416,17 +413,106 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        IconButton(
-          tooltip: 'Playlists',
-          icon: const Icon(Icons.queue_music),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
-          ),
-        ),
-        IconButton(
-          tooltip: 'About & License',
-          icon: const Icon(Icons.info_outline),
-          onPressed: () => showPearMusicAboutDialog(context),
+        PopupMenuButton<String>(
+          tooltip: 'More options',
+          icon: const Icon(Icons.more_vert),
+          onSelected: (val) async {
+            if (val == 'fav_toggle') {
+              setState(() => _showOnlyFavorites = !_showOnlyFavorites);
+            } else if (val == 'sort_date') {
+              await controller.setSortOption(SortOption.dateAdded);
+            } else if (val == 'sort_title') {
+              await controller.setSortOption(SortOption.title);
+            } else if (val == 'sort_size') {
+              await controller.setSortOption(SortOption.size);
+            } else if (val == 'select') {
+              setState(() => _isSelecting = true);
+            } else if (val == 'playlists') {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
+              );
+            } else if (val == 'about') {
+              showPearMusicAboutDialog(context);
+            }
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem(
+              value: 'fav_toggle',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+                  color: _showOnlyFavorites ? theme.colorScheme.primary : null,
+                ),
+                title: Text(_showOnlyFavorites ? 'Show all songs' : 'Show favorites only'),
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'sort_date',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  controller.sortOption == SortOption.dateAdded
+                      ? Icons.check
+                      : Icons.calendar_today,
+                  size: 20,
+                ),
+                title: const Text('Sort: Date Added'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'sort_title',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  controller.sortOption == SortOption.title
+                      ? Icons.check
+                      : Icons.sort_by_alpha,
+                  size: 20,
+                ),
+                title: const Text('Sort: Title'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'sort_size',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  controller.sortOption == SortOption.size
+                      ? Icons.check
+                      : Icons.data_usage,
+                  size: 20,
+                ),
+                title: const Text('Sort: File Size'),
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem(
+              value: 'select',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.checklist),
+                title: Text('Select multiple songs'),
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'playlists',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.queue_music),
+                title: Text('Playlists'),
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'about',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.info_outline),
+                title: Text('About & License'),
+              ),
+            ),
+          ],
         ),
         const SizedBox(width: 4),
       ];
@@ -467,6 +553,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       leading = null;
       title = Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Image.asset(
             'assets/pear_logo.png',
