@@ -55,6 +55,38 @@ class AppController extends ChangeNotifier {
   /// The LAN address other devices should connect to, when hosting.
   String? get serverLanIp => server.lanIp;
 
+  List<Song> get songs => library.songs;
+
+  Set<String> get favoriteSongIds => identity.favoriteSongIds;
+  bool isFavorite(String songId) => identity.isFavorite(songId);
+  Future<void> toggleFavorite(String songId) async {
+    await identity.toggleFavorite(songId);
+    notifyListeners();
+  }
+
+  SortOption get sortOption => identity.sortOption;
+  Future<void> setSortOption(SortOption option) async {
+    await identity.setSortOption(option);
+    notifyListeners();
+  }
+
+  List<Song> getSortedSongs(List<Song> songList) {
+    final list = List<Song>.from(songList);
+    switch (identity.sortOption) {
+      case SortOption.title:
+        list.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+      case SortOption.size:
+        list.sort((a, b) => b.size.compareTo(a.size));
+        break;
+      case SortOption.dateAdded:
+      default:
+        list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+        break;
+    }
+    return list;
+  }
+
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
 
@@ -112,8 +144,6 @@ class AppController extends ChangeNotifier {
   Timer? _failoverTimer;
   Timer? _hostReconcileTimer;
   DateTime? _offlineSince;
-
-  List<Song> get songs => library.songs;
 
   String connectionStatus = 'offline'; // 'connecting' | 'connected' | 'offline'
   String? pendingPairingCode;

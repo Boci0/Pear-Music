@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
+import '../services/identity_service.dart';
 import '../services/youtube_service.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/song_tile.dart';
@@ -24,7 +25,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _isSelecting = false;
+  bool _isSearching = false;
+  bool _showOnlyFavorites = false;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = {};
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   bool get _isDesktop =>
       !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
@@ -193,7 +204,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    final songs = controller.songs;
+    List<Song> rawSongs = controller.songs;
+
+    if (_showOnlyFavorites) {
+      rawSongs = rawSongs.where((s) => controller.isFavorite(s.id)).toList();
+    }
+
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.trim().toLowerCase();
+      rawSongs = rawSongs.where((s) => s.title.toLowerCase().contains(q)).toList();
+    }
+
+    final songs = controller.getSortedSongs(rawSongs);
     final theme = Theme.of(context);
     final currentSongId = controller.player.currentSong?.id;
 
@@ -249,140 +271,224 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final appBarActions = _isSelecting
-        ? [
-            IconButton(
-              tooltip: _selectedIds.length == songs.length
-                  ? 'Deselect all'
-                  : 'Select all',
-              icon: Icon(_selectedIds.length == songs.length
-                  ? Icons.deselect
-                  : Icons.select_all),
-              onPressed: () => _selectAll(songs),
-            ),
-            IconButton(
-              tooltip: 'Add to playlist',
-              icon: const Icon(Icons.playlist_add),
-              onPressed: _selectedIds.isEmpty
-                  ? null
-                  : () => _batchAddToPlaylist(controller, songs),
-            ),
-            IconButton(
-              tooltip: 'Delete selected',
-              icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
-              onPressed: _selectedIds.isEmpty
-                  ? null
-                  : () => _batchDelete(controller, songs),
-            ),
-            const SizedBox(width: 4),
-          ]
-        : [
-            IconButton(
-              tooltip: 'Select music',
-              icon: const Icon(Icons.checklist),
-              onPressed: () => setState(() => _isSelecting = true),
-            ),
-            PopupMenuButton<String>(
-              tooltip: 'Add & Sync options',
-              icon: const Icon(Icons.add),
-               onSelected: (val) async {
-                if (val == 'local') {
-                  controller.addFilesFromPicker();
-                } else if (val == 'link') {
-                  _openYouTubeDialog(context);
-                } else if (val == 'sync') {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Reconnecting & Syncing library...'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                  final count = await controller.forceSync();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          count > 0
-                              ? 'Resynced with $count active peer(s)'
-                              : 'Reconnected signaling; scanning for peers',
-                        ),
+    final List<Widget> appBarActions;
+    if (_isSearching) {
+      appBarActions = [
+        IconButton(
+          tooltip: 'Clear search',
+          icon: const Icon(Icons.close),
+          onPressed: () {
+            setState(() {
+              _searchQuery = '';
+              _searchController.clear();
+            });
+          },
+        ),
+      ];
+    } else if (_isSelecting) {
+      appBarActions = [
+        IconButton(
+          tooltip: _selectedIds.length == songs.length
+              ? 'Deselect all'
+              : 'Select all',
+          icon: Icon(_selectedIds.length == songs.length
+              ? Icons.deselect
+              : Icons.select_all),
+          onPressed: () => _selectAll(songs),
+        ),
+        IconButton(
+          tooltip: 'Add to playlist',
+          icon: const Icon(Icons.playlist_add),
+          onPressed: _selectedIds.isEmpty
+              ? null
+              : () => _batchAddToPlaylist(controller, songs),
+        ),
+        IconButton(
+          tooltip: 'Delete selected',
+          icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+          onPressed: _selectedIds.isEmpty
+              ? null
+              : () => _batchDelete(controller, songs),
+        ),
+        const SizedBox(width: 4),
+      ];
+    } else {
+      appBarActions = [
+        IconButton(
+          tooltip: 'Search library',
+          icon: const Icon(Icons.search),
+          onPressed: () => setState(() => _isSearching = true),
+        ),
+        IconButton(
+          tooltip: _showOnlyFavorites ? 'Show all songs' : 'Show favorites',
+          icon: Icon(
+            _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+            color: _showOnlyFavorites ? theme.colorScheme.primary : null,
+          ),
+          onPressed: () =>
+              setState(() => _showOnlyFavorites = !_showOnlyFavorites),
+        ),
+        PopupMenuButton<SortOption>(
+          tooltip: 'Sort songs',
+          icon: const Icon(Icons.sort),
+          onSelected: (opt) => controller.setSortOption(opt),
+          itemBuilder: (_) => SortOption.values
+              .map(
+                (o) => PopupMenuItem(
+                  value: o,
+                  child: Row(
+                    children: [
+                      Icon(
+                        o == controller.sortOption ? Icons.check : Icons.sort,
+                        size: 18,
                       ),
-                    );
-                  }
-                }
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'local',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.folder_open),
-                    title: Text('Add local audio files'),
+                      const SizedBox(width: 8),
+                      Text(o.label),
+                    ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'link',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.add_link),
-                    title: Text('Download from YouTube / Link'),
-                  ),
+              )
+              .toList(),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'Add & Sync options',
+          icon: const Icon(Icons.add),
+          onSelected: (val) async {
+            if (val == 'local') {
+              controller.addFilesFromPicker();
+            } else if (val == 'link') {
+              _openYouTubeDialog(context);
+            } else if (val == 'select') {
+              setState(() => _isSelecting = true);
+            } else if (val == 'sync') {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Reconnecting & Syncing library...'),
+                  duration: Duration(seconds: 2),
                 ),
-                PopupMenuItem(
-                  value: 'sync',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.sync),
-                    title: Text('Force sync files'),
+              );
+              final count = await controller.forceSync();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      count > 0
+                          ? 'Resynced with $count active peer(s)'
+                          : 'Reconnected signaling; scanning for peers',
+                    ),
                   ),
-                ),
-              ],
-            ),
-            IconButton(
-              tooltip: 'Playlists',
-              icon: const Icon(Icons.queue_music),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
+                );
+              }
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'local',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.folder_open),
+                title: Text('Add local audio files'),
               ),
             ),
-            IconButton(
-              tooltip: 'About & License',
-              icon: const Icon(Icons.info_outline),
-              onPressed: () => showPearMusicAboutDialog(context),
+            PopupMenuItem(
+              value: 'link',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.add_link),
+                title: Text('Download from YouTube / Link'),
+              ),
             ),
-            const SizedBox(width: 4),
-          ];
+            PopupMenuItem(
+              value: 'select',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.checklist),
+                title: Text('Select multiple songs'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'sync',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.sync),
+                title: Text('Force sync files'),
+              ),
+            ),
+          ],
+        ),
+        IconButton(
+          tooltip: 'Playlists',
+          icon: const Icon(Icons.queue_music),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
+          ),
+        ),
+        IconButton(
+          tooltip: 'About & License',
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => showPearMusicAboutDialog(context),
+        ),
+        const SizedBox(width: 4),
+      ];
+    }
+
+    Widget? leading;
+    Widget title;
+
+    if (_isSearching) {
+      leading = IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () {
+          setState(() {
+            _isSearching = false;
+            _searchQuery = '';
+            _searchController.clear();
+          });
+        },
+      );
+      title = TextField(
+        controller: _searchController,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: 'Search title...',
+          border: InputBorder.none,
+        ),
+        onChanged: (v) => setState(() => _searchQuery = v),
+      );
+    } else if (_isSelecting) {
+      leading = IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () => setState(() {
+          _isSelecting = false;
+          _selectedIds.clear();
+        }),
+      );
+      title = Text('${_selectedIds.length} selected');
+    } else {
+      leading = null;
+      title = Row(
+        children: [
+          Image.asset(
+            'assets/pear_logo.png',
+            width: 28,
+            height: 28,
+            filterQuality: FilterQuality.medium,
+          ),
+          const SizedBox(width: 8),
+          const Text('Library'),
+          const SizedBox(width: 8),
+          _ConnectionDot(
+            status: controller.connectionStatus,
+            hosting: controller.isHostingServer,
+          ),
+        ],
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
-        leading: _isSelecting
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => setState(() {
-                  _isSelecting = false;
-                  _selectedIds.clear();
-                }),
-              )
-            : null,
-        title: _isSelecting
-            ? Text('${_selectedIds.length} selected')
-            : Row(
-                children: [
-                  Image.asset(
-                    'assets/pear_logo.png',
-                    width: 28,
-                    height: 28,
-                    filterQuality: FilterQuality.medium,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('Library'),
-                  const SizedBox(width: 8),
-                  _ConnectionDot(
-                    status: controller.connectionStatus,
-                    hosting: controller.isHostingServer,
-                  ),
-                ],
-              ),
+        leading: leading,
+        title: title,
         actions: appBarActions,
       ),
       body: body,

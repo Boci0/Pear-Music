@@ -5,6 +5,15 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+enum SortOption {
+  dateAdded('Date Added'),
+  title('Title'),
+  size('File Size');
+
+  final String label;
+  const SortOption(this.label);
+}
+
 /// Persistent identity + settings for this device.
 ///
 /// - [deviceId]: a random UUID generated once on first launch. It is what the
@@ -23,6 +32,8 @@ class IdentityService {
   static const _deviceSecretKey = 'peerm_device_secret';
   static const _isHostKey = 'peerm_is_host';
   static const _pairedIdsKey = 'peerm_paired_device_ids';
+  static const _favoriteIdsKey = 'peerm_favorite_song_ids';
+  static const _sortOptionKey = 'peerm_sort_option';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -31,16 +42,23 @@ class IdentityService {
   late String deviceSecret;
   late bool isHost;
   late Map<String, String> _paired; // deviceId -> last known name
+  late Set<String> _favoriteSongIds;
+  late SortOption _sortOption;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
     deviceName = _prefs.getString(_deviceNameKey) ?? _defaultName();
     serverUrl = _prefs.getString(_serverUrlKey) ?? 'ws://localhost:8080';
     deviceSecret = _prefs.getString(_deviceSecretKey) ?? '';
-    // A fresh device is its own host; it becomes a client only after another
-    // host is found (or the other device defers to it).
     isHost = _prefs.getBool(_isHostKey) ?? true;
     _paired = _decodePaired(_prefs.getString(_pairedIdsKey));
+
+    _favoriteSongIds = Set<String>.from(_prefs.getStringList(_favoriteIdsKey) ?? []);
+    final sortStr = _prefs.getString(_sortOptionKey);
+    _sortOption = SortOption.values.firstWhere(
+      (e) => e.name == sortStr,
+      orElse: () => SortOption.dateAdded,
+    );
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -155,5 +173,25 @@ class IdentityService {
   void clearDeviceSecret() {
     deviceSecret = '';
     unawaited(_prefs.setString(_deviceSecretKey, ''));
+  }
+
+  Set<String> get favoriteSongIds => Set.unmodifiable(_favoriteSongIds);
+
+  bool isFavorite(String songId) => _favoriteSongIds.contains(songId);
+
+  Future<void> toggleFavorite(String songId) async {
+    if (_favoriteSongIds.contains(songId)) {
+      _favoriteSongIds.remove(songId);
+    } else {
+      _favoriteSongIds.add(songId);
+    }
+    await _prefs.setStringList(_favoriteIdsKey, _favoriteSongIds.toList());
+  }
+
+  SortOption get sortOption => _sortOption;
+
+  Future<void> setSortOption(SortOption option) async {
+    _sortOption = option;
+    await _prefs.setString(_sortOptionKey, option.name);
   }
 }
