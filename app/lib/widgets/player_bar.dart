@@ -68,7 +68,9 @@ class PlayerBar extends StatelessWidget {
                           style: theme.textTheme.titleSmall,
                         ),
                         Text(
-                          'Playing on this device',
+                          player.isCurrentStreamed
+                              ? 'Streaming from YouTube'
+                              : 'Playing on this device',
                           style: theme.textTheme.labelSmall,
                         ),
                       ],
@@ -111,7 +113,7 @@ class _Thumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final artwork = song.artwork;
+    final player = context.watch<PlayerService>();
     final placeholder = Container(
       width: 40,
       height: 40,
@@ -127,6 +129,21 @@ class _Thumb extends StatelessWidget {
       child: Icon(Icons.music_note,
           color: theme.colorScheme.onPrimaryContainer, size: 20),
     );
+
+    if (player.isCurrentStreamed && player.currentStream?.thumbnailUrl != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          player.currentStream!.thumbnailUrl!,
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => placeholder,
+        ),
+      );
+    }
+
+    final artwork = song.artwork;
     if (artwork == null || artwork.isEmpty) return placeholder;
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),

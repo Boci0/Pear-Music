@@ -16,6 +16,7 @@ import '../services/server_discovery.dart';
 import '../services/signaling_server.dart';
 import '../services/signaling_service.dart';
 import '../services/sync_service.dart';
+import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
 /// Central state + orchestration for the whole app.
@@ -875,6 +876,31 @@ class AppController extends ChangeNotifier {
           'Wait a while and try again.';
     }
     return 'Download failed: $e';
+  }
+
+  /// Search YouTube for online songs.
+  Future<List<YouTubeSearchResult>> searchYouTube(String query) async {
+    return YouTubeSearchService.search(query);
+  }
+
+  /// Play a YouTube search result directly via online streaming.
+  Future<bool> playYouTubeStream(YouTubeSearchResult result) async {
+    return player.playStream(result);
+  }
+
+  /// Download a YouTube search result to the local library via yt-dlp.
+  Future<String?> downloadYouTubeResult(
+    YouTubeSearchResult result, {
+    YoutubeStatusCallback? onStatus,
+    YoutubeProgressCallback? onProgress,
+    DownloadCancellation? cancel,
+  }) async {
+    return addFromLink(
+      result.url,
+      onStatus: onStatus,
+      onProgress: onProgress,
+      cancel: cancel,
+    );
   }
 
   /// Play every song in [playlist] in order.

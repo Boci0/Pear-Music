@@ -61,6 +61,7 @@ dependencies:
   # package downscales the artwork for embedding in the Song model.
   image: ^4.8.0
   cryptography: ^2.9.0
+  youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:
