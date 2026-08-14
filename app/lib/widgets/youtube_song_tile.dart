@@ -3,9 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/youtube_search_service.dart';
-import '../services/youtube_service.dart';
 
-/// A list tile representing a YouTube search result.
+/// A list tile representing a YouTube search result with tap-to-download-and-play.
 class YouTubeSongTile extends StatefulWidget {
   final YouTubeSearchResult result;
   final bool isCurrent;
@@ -72,28 +71,31 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.play_arrow),
-              title: const Text('Play online stream'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                controller.playYouTubeStream(widget.result);
-              },
-            ),
-            ListTile(
               leading: _isDownloading
                   ? const SizedBox(
                       width: 24,
                       height: 24,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.download),
-              title: const Text('Download to Library'),
-              subtitle: const Text('Save for offline listening and P2P sync'),
+                  : const Icon(Icons.play_circle_outline),
+              title: const Text('Download & Play'),
+              subtitle: const Text('Save to library and start playback'),
               onTap: _isDownloading
                   ? null
                   : () {
                       Navigator.of(ctx).pop();
-                      _startDownload(context, controller);
+                      _downloadAndPlay(context, controller, autoPlay: true);
+                    },
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('Download to Library only'),
+              subtitle: const Text('Save for offline listening without interrupting playback'),
+              onTap: _isDownloading
+                  ? null
+                  : () {
+                      Navigator.of(ctx).pop();
+                      _downloadAndPlay(context, controller, autoPlay: false);
                     },
             ),
           ],
@@ -102,7 +104,13 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     );
   }
 
-  Future<void> _startDownload(BuildContext context, AppController controller) async {
+  Future<void> _downloadAndPlay(
+    BuildContext context,
+    AppController controller, {
+    required bool autoPlay,
+  }) async {
+    if (_isDownloading) return;
+
     setState(() {
       _isDownloading = true;
       _downloadProgress = null;
@@ -110,12 +118,12 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Downloading "${widget.result.title}"...'),
+        content: Text('Downloading "${widget.result.title}" to library...'),
         duration: const Duration(seconds: 3),
       ),
     );
 
-    final error = await controller.downloadYouTubeResult(
+    final res = await controller.downloadAndGetYouTubeSong(
       widget.result,
       onProgress: (downloaded, total) {
         if (mounted) {
@@ -131,17 +139,32 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
         _isDownloading = false;
         _downloadProgress = null;
       });
-      if (error != null) {
+
+      if (res.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), backgroundColor: Colors.redAccent),
+          SnackBar(content: Text(res.error!), backgroundColor: Colors.redAccent),
         );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Downloaded "${widget.result.title}" to library.'),
-            backgroundColor: Colors.teal,
-          ),
-        );
+      } else if (res.song != null) {
+        if (autoPlay) {
+          await controller.playSong(res.song!);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Playing "${res.song!.title}"'),
+                backgroundColor: Colors.teal,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Downloaded "${res.song!.title}" to library.'),
+              backgroundColor: Colors.teal,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     }
   }
@@ -234,13 +257,18 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             )
           else
             IconButton(
-              icon: const Icon(Icons.more_vert),
-              tooltip: 'Song options',
-              onPressed: () => _showOptions(context, controller),
+              icon: const Icon(Icons.download_for_offline_outlined),
+              tooltip: 'Download & Play',
+              onPressed: () => _downloadAndPlay(context, controller, autoPlay: true),
             ),
+          IconButton(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Song options',
+            onPressed: () => _showOptions(context, controller),
+          ),
         ],
       ),
-      onTap: () => controller.playYouTubeStream(widget.result),
+      onTap: () => _downloadAndPlay(context, controller, autoPlay: true),
     );
   }
 }
