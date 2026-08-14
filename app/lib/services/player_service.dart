@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/song.dart';
 import 'artwork_service.dart';
 import 'library_service.dart';
+import 'youtube_search_service.dart';
 
 /// How the queue advances when a track ends or the user skips.
 enum LoopSetting { off, all, one }
