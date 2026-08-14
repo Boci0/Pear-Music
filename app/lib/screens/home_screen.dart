@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -9,11 +10,16 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
+import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/transfer_list.dart';
+import '../widgets/youtube_song_tile.dart';
 import 'playlists_screen.dart';
+
+/// Categories for search filtering.
+enum SearchFilter { all, library, youtube }
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
@@ -27,14 +33,42 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSelecting = false;
   bool _isSearching = false;
   bool _showOnlyFavorites = false;
+  SearchFilter _searchFilter = SearchFilter.all;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = {};
+  List<YouTubeSearchResult> _ytResults = [];
+  bool _isSearchingYt = false;
+  Timer? _ytSearchDebounce;
 
   @override
   void dispose() {
+    _ytSearchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchQueryChanged(String v) {
+    setState(() => _searchQuery = v);
+    _ytSearchDebounce?.cancel();
+    if (v.trim().length < 2) {
+      setState(() {
+        _ytResults = [];
+        _isSearchingYt = false;
+      });
+      return;
+    }
+    if (_searchFilter == SearchFilter.library) return;
+    setState(() => _isSearchingYt = true);
+    _ytSearchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final res = await YouTubeSearchService.search(v);
+      if (mounted && _searchQuery == v) {
+        setState(() {
+          _ytResults = res;
+          _isSearchingYt = false;
+        });
+      }
+    });
   }
 
   bool get _isDesktop =>
@@ -190,8 +224,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text('Created "$name" with ${selectedSongs.length} songs')),
+            content:
+                Text('Created "$name" with ${selectedSongs.length} songs')),
         );
         setState(() {
           _isSelecting = false;
@@ -206,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final controller = context.watch<AppController>();
     List<Song> rawSongs = controller.songs;
 
-    if (_showOnlyFavorites) {
+    if (_showOnlyFavorites && !_isSearching) {
       rawSongs = rawSongs.where((s) => controller.isFavorite(s.id)).toList();
     }
 
@@ -219,83 +253,239 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
     final currentSongId = controller.player.currentSong?.id;
 
-    final content = CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        const SliverToBoxAdapter(child: TransferList()),
-        if (_showOnlyFavorites)
+    final Widget content;
+    if (_isSearching) {
+      content = CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
           SliverToBoxAdapter(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(8),
-              ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  Icon(Icons.favorite, size: 16, color: theme.colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Showing Favorites (${songs.length})',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  ChoiceChip(
+                    label: const Text('All'),
+                    selected: _searchFilter == SearchFilter.all,
+                    onSelected: (_) {
+                      setState(() => _searchFilter = SearchFilter.all);
+                      _onSearchQueryChanged(_searchQuery);
+                    },
                   ),
-                  const Spacer(),
-                  InkWell(
-                    onTap: () => setState(() => _showOnlyFavorites = false),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      child: Text(
-                        'Show all',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Library'),
+                    selected: _searchFilter == SearchFilter.library,
+                    onSelected: (_) => setState(() => _searchFilter = SearchFilter.library),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('YouTube'),
+                    selected: _searchFilter == SearchFilter.youtube,
+                    onSelected: (_) {
+                      setState(() => _searchFilter = SearchFilter.youtube);
+                      _onSearchQueryChanged(_searchQuery);
+                    },
                   ),
                 ],
               ),
             ),
           ),
-        if (songs.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _EmptyState(onAdd: () => controller.addFilesFromPicker()),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.only(bottom: 24),
-            sliver: SliverFixedExtentList.builder(
-              itemExtent: 68.0,
-              itemCount: songs.length,
-              itemBuilder: (context, i) {
-                final song = songs[i];
-                return RepaintBoundary(
-                  child: SongTile(
-                    key: ValueKey(song.id),
-                    song: song,
-                    isCurrent: currentSongId == song.id,
-                    isSelecting: _isSelecting,
-                    isSelected: _selectedIds.contains(song.id),
-                    onSelectionChanged: (val) =>
-                        _toggleSelection(song.id, val ?? false),
-                    onLongPress: () {
-                      setState(() {
-                        _isSelecting = true;
-                        _selectedIds.add(song.id);
-                      });
-                    },
+          if (_searchFilter != SearchFilter.youtube) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Text(
+                  'IN YOUR LIBRARY (${songs.length})',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
                   ),
-                );
-              },
+                ),
+              ),
             ),
-          ),
-      ],
-    );
+            if (songs.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'No local matches',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                ),
+              )
+            else
+              SliverFixedExtentList.builder(
+                itemExtent: 68.0,
+                itemCount: songs.length,
+                itemBuilder: (context, i) {
+                  final song = songs[i];
+                  return RepaintBoundary(
+                    child: SongTile(
+                      key: ValueKey(song.id),
+                      song: song,
+                      isCurrent: currentSongId == song.id,
+                      isSelecting: _isSelecting,
+                      isSelected: _selectedIds.contains(song.id),
+                      onSelectionChanged: (val) =>
+                          _toggleSelection(song.id, val ?? false),
+                      onLongPress: () {
+                        setState(() {
+                          _isSelecting = true;
+                          _selectedIds.add(song.id);
+                        });
+                      },
+                    ),
+                  );
+                },
+              ),
+          ],
+          if (_searchFilter != SearchFilter.library) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      'YOUTUBE / ONLINE (${_ytResults.length})',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    if (_isSearchingYt) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (_isSearchingYt && _ytResults.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (_ytResults.isEmpty && _searchQuery.trim().length >= 2)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'No online results found',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                ),
+              )
+            else if (_searchQuery.trim().length < 2)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'Type at least 2 characters to search YouTube',
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                ),
+              )
+            else
+              SliverList.builder(
+                itemCount: _ytResults.length,
+                itemBuilder: (context, i) {
+                  final result = _ytResults[i];
+                  return YouTubeSongTile(
+                    key: ValueKey(result.videoId),
+                    result: result,
+                    isCurrent: controller.player.currentSong?.title == result.title,
+                  );
+                },
+              ),
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 32)),
+        ],
+      );
+    } else {
+      content = CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          const SliverToBoxAdapter(child: TransferList()),
+          if (_showOnlyFavorites)
+            SliverToBoxAdapter(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.favorite, size: 16, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Showing Favorites (${songs.length})',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    InkWell(
+                      onTap: () => setState(() => _showOnlyFavorites = false),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Text(
+                          'Show all',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (songs.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptyState(onAdd: () => controller.addFilesFromPicker()),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: 24),
+              sliver: SliverFixedExtentList.builder(
+                itemExtent: 68.0,
+                itemCount: songs.length,
+                itemBuilder: (context, i) {
+                  final song = songs[i];
+                  return RepaintBoundary(
+                    child: SongTile(
+                      key: ValueKey(song.id),
+                      song: song,
+                      isCurrent: currentSongId == song.id,
+                      isSelecting: _isSelecting,
+                      isSelected: _selectedIds.contains(song.id),
+                      onSelectionChanged: (val) =>
+                          _toggleSelection(song.id, val ?? false),
+                      onLongPress: () {
+                        setState(() {
+                          _isSelecting = true;
+                          _selectedIds.add(song.id);
+                        });
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      );
+    }
 
     Widget body = content;
     if (_isDesktop) {
@@ -318,6 +508,8 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () {
             setState(() {
               _searchQuery = '';
+              _ytResults = [];
+              _isSearchingYt = false;
               _searchController.clear();
             });
           },
@@ -353,7 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       appBarActions = [
         IconButton(
-          tooltip: 'Search library',
+          tooltip: 'Search library & YouTube',
           icon: const Icon(Icons.search),
           onPressed: () => setState(() => _isSearching = true),
         ),
@@ -363,8 +555,6 @@ class _HomeScreenState extends State<HomeScreen> {
           onSelected: (val) async {
             if (val == 'local') {
               controller.addFilesFromPicker();
-            } else if (val == 'link') {
-              _openYouTubeDialog(context);
             } else if (val == 'sync') {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -393,14 +583,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.folder_open),
                 title: Text('Add local audio files'),
-              ),
-            ),
-            PopupMenuItem(
-              value: 'link',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.add_link),
-                title: Text('Download from YouTube / Link'),
               ),
             ),
             PopupMenuItem(
@@ -528,6 +710,8 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _isSearching = false;
             _searchQuery = '';
+            _ytResults = [];
+            _isSearchingYt = false;
             _searchController.clear();
           });
         },
@@ -536,10 +720,10 @@ class _HomeScreenState extends State<HomeScreen> {
         controller: _searchController,
         autofocus: true,
         decoration: const InputDecoration(
-          hintText: 'Search title...',
+          hintText: 'Search songs, artists, or YouTube...',
           border: InputBorder.none,
         ),
-        onChanged: (v) => setState(() => _searchQuery = v),
+        onChanged: _onSearchQueryChanged,
       );
     } else if (_isSelecting) {
       leading = IconButton(

@@ -16,6 +16,7 @@ import '../services/server_discovery.dart';
 import '../services/signaling_server.dart';
 import '../services/signaling_service.dart';
 import '../services/sync_service.dart';
+import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
 /// Central state + orchestration for the whole app.
@@ -852,6 +853,53 @@ class AppController extends ChangeNotifier {
       '${sync.channelCount} device(s).',
     );
     return null;
+  }
+
+  /// Searches YouTube using InnerTube.
+  Future<List<YouTubeSearchResult>> searchYouTube(String query) {
+    return YouTubeSearchService.search(query);
+  }
+
+  /// Downloads a YouTube search result via yt-dlp, adds to library, and returns
+  /// the downloaded or existing Song for playback.
+  Future<({Song? song, String? error})> downloadAndGetYouTubeSong(
+    YouTubeSearchResult result, {
+    YoutubeProgressCallback? onProgress,
+    DownloadCancellation? cancel,
+  }) async {
+    final initialIds = library.songs.map((s) => s.id).toSet();
+
+    final err = await addFromLink(
+      result.url,
+      onProgress: onProgress,
+      cancel: cancel,
+    );
+
+    if (err != null && !err.contains('already in your library')) {
+      return (song: null, error: err);
+    }
+
+    // Check for freshly added song.
+    final newSongs = library.songs.where((s) => !initialIds.contains(s.id));
+    if (newSongs.isNotEmpty) {
+      return (song: newSongs.first, error: null);
+    }
+
+    // Check for matching title in library if already present.
+    final cleanTitle = result.title.toLowerCase().trim();
+    for (final s in library.songs) {
+      final sTitle = s.title.toLowerCase().trim();
+      if (sTitle == cleanTitle ||
+          sTitle.contains(cleanTitle) ||
+          cleanTitle.contains(sTitle)) {
+        return (song: s, error: null);
+      }
+    }
+
+    return (
+      song: library.songs.isNotEmpty ? library.songs.first : null,
+      error: null,
+    );
   }
 
   /// Turn known YouTube/network errors into a short, actionable message.
