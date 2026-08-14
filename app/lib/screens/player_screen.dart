@@ -269,20 +269,39 @@ class _SongInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AppController>();
+    final isFav = controller.isFavorite(song.id);
+    final theme = Theme.of(context);
     return Column(
       children: [
-        Text(
-          song.title,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.headlineSmall,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(width: 48),
+            Expanded(
+              child: Text(
+                song.title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.headlineSmall,
+              ),
+            ),
+            IconButton(
+              icon: Icon(
+                isFav ? Icons.favorite : Icons.favorite_border,
+                color: isFav ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+              ),
+              tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
+              onPressed: () => controller.toggleFavorite(song.id),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         Text(
           song.sourceDeviceId == null ? 'Added on this device' : 'Shared',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+          style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
         ),
       ],

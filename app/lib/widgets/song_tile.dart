@@ -28,6 +28,7 @@ class SongTile extends StatelessWidget {
 
   Future<void> _showMenu(BuildContext context) async {
     final controller = context.read<AppController>();
+    final isFav = controller.isFavorite(song.id);
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -42,6 +43,14 @@ class SongTile extends StatelessWidget {
               dense: true,
             ),
             const Divider(height: 1),
+            ListTile(
+              leading: Icon(
+                isFav ? Icons.favorite : Icons.favorite_border,
+                color: isFav ? Theme.of(ctx).colorScheme.primary : null,
+              ),
+              title: Text(isFav ? 'Remove from favorites' : 'Add to favorites'),
+              onTap: () => Navigator.pop(ctx, 'favorite'),
+            ),
             ListTile(
               leading: const Icon(Icons.playlist_add),
               title: const Text('Add to playlist'),
@@ -60,7 +69,9 @@ class SongTile extends StatelessWidget {
       ),
     );
     if (!context.mounted) return;
-    if (action == 'playlist') {
+    if (action == 'favorite') {
+      await controller.toggleFavorite(song.id);
+    } else if (action == 'playlist') {
       await showAddToPlaylistSheet(context, controller, song);
     } else if (action == 'remove') {
       await _confirmRemove(context, controller);
@@ -101,9 +112,10 @@ class SongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.read<AppController>();
+    final controller = context.watch<AppController>();
     final theme = Theme.of(context);
     final fromPeer = song.sourceDeviceId != null;
+    final isFav = controller.isFavorite(song.id);
 
     return ListTile(
       selected: isSelected,
@@ -152,6 +164,13 @@ class SongTile extends StatelessWidget {
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (isFav)
+                  IconButton(
+                    iconSize: 20,
+                    tooltip: 'Favorite',
+                    icon: Icon(Icons.favorite, color: theme.colorScheme.primary),
+                    onPressed: () => controller.toggleFavorite(song.id),
+                  ),
                 if (isCurrent)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
