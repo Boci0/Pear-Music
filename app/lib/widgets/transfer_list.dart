@@ -17,11 +17,15 @@ class TransferList extends StatefulWidget {
 
 class _TransferListState extends State<TransferList> {
   bool _expanded = false;
+  double _lastMaxFraction = 0.0;
 
   @override
   Widget build(BuildContext context) {
     final transfers = context.watch<SyncService>().transfers;
-    if (transfers.isEmpty) return const SizedBox.shrink();
+    if (transfers.isEmpty) {
+      _lastMaxFraction = 0.0;
+      return const SizedBox.shrink();
+    }
 
     final isBatch = transfers.length > 3;
 
@@ -32,9 +36,17 @@ class _TransferListState extends State<TransferList> {
       final completedBytes = transfers.fold<int>(0, (sum, t) => sum + t.completedBytes);
       final activeTransfer = transfers.firstWhere((t) => !t.isDone, orElse: () => transfers.last);
 
-      final overallFraction = totalBytes > 0
-          ? (completedBytes / totalBytes).clamp(0.0, 1.0)
-          : (doneFiles / totalFiles).clamp(0.0, 1.0);
+      final activeFraction = activeTransfer.isDone ? 0.0 : activeTransfer.fraction;
+      final rawOverallFraction = totalFiles > 0
+          ? ((doneFiles + activeFraction) / totalFiles).clamp(0.0, 1.0)
+          : 0.0;
+
+      if (doneFiles == 0 && activeFraction == 0.0) {
+        _lastMaxFraction = rawOverallFraction;
+      } else if (rawOverallFraction > _lastMaxFraction) {
+        _lastMaxFraction = rawOverallFraction;
+      }
+      final overallFraction = _lastMaxFraction.clamp(0.0, 1.0);
 
       final completedMb = (completedBytes / (1024 * 1024)).toStringAsFixed(1);
       final totalMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
@@ -59,6 +71,14 @@ class _TransferListState extends State<TransferList> {
                             ),
                       ),
                     ),
+                    Text(
+                      '${(overallFraction * 100).toInt()}%',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                    const SizedBox(width: 4),
                     IconButton(
                       icon: const Icon(Icons.expand_more, size: 20),
                       tooltip: 'Show details',
@@ -67,7 +87,18 @@ class _TransferListState extends State<TransferList> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                LinearProgressIndicator(value: overallFraction),
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: overallFraction),
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, val, _) => ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: val,
+                      minHeight: 6,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -175,58 +206,67 @@ class _TransferTileState extends State<_TransferTile>
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: p.fraction),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        builder: (context, animFraction, _) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                p.isDownload ? Icons.download_rounded : Icons.upload_rounded,
-                size: 16,
-                color: theme.colorScheme.primary,
+              Row(
+                children: [
+                  Icon(
+                    p.isDownload ? Icons.download_rounded : Icons.upload_rounded,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      p.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, child) {
+                      if (_controller.value > 0) {
+                        return Transform.scale(
+                          scale: _scale.value,
+                          child: Icon(
+                            Icons.check_circle_rounded,
+                            size: 18,
+                            color: Colors.greenAccent.shade400,
+                          ),
+                        );
+                      }
+                      final pct = (animFraction * 100).toInt();
+                      return Text('$pct%', style: theme.textTheme.bodySmall);
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  p.fileName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium,
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: animFraction,
+                  minHeight: 3,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    p.isDone
+                        ? Colors.greenAccent.shade400
+                        : theme.colorScheme.primary,
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  if (_controller.value > 0) {
-                    return Transform.scale(
-                      scale: _scale.value,
-                      child: Icon(
-                        Icons.check_circle_rounded,
-                        size: 18,
-                        color: Colors.greenAccent.shade400,
-                      ),
-                    );
-                  }
-                  final pct = (p.fraction * 100).toInt();
-                  return Text('$pct%', style: theme.textTheme.bodySmall);
-                },
-              ),
             ],
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: p.fraction,
-              minHeight: 3,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                p.isDone ? Colors.greenAccent.shade400 : theme.colorScheme.primary,
-              ),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
