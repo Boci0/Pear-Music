@@ -144,7 +144,7 @@ class YoutubeService {
 
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
         final args = [
-          '-f', 'bestaudio[ext=m4a]/bestaudio',
+          '-f', 'bestaudio[ext=m4a]/bestaudio/best',
           '--newline',
           '--no-playlist',
           '--no-part',
@@ -187,10 +187,10 @@ class YoutubeService {
         return exit;
       }
 
-      // Attempt 1: Mobile client emulation (ios, android, mweb) to avoid bot detection.
+      // Attempt 1: Client emulation (android, web, mweb) with audio stream support.
       int exitCode = await runDownloadWithArgs([
         '--extractor-args',
-        'youtube:player_client=ios,android,mweb',
+        'youtube:player_client=android,web,mweb',
       ]);
 
       // Attempt 2 (Fallback): Standard extraction if attempt 1 encountered an error.
