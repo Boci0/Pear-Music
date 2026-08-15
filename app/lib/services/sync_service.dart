@@ -396,13 +396,13 @@ class SyncService extends ChangeNotifier {
         }
         continue;
       }
-      final localSong = library.findById(song.id);
-      final hasFile = library.hasSongFile(song);
-      final hasChecksum = library.songs.any(
-        (s) => s.checksum == song.checksum && library.hasSongFile(s),
+      final hasMatchingSong = library.songs.any(
+        (s) =>
+            (s.id == song.id || s.checksum == song.checksum) &&
+            library.hasSongFile(s),
       );
 
-      if (!hasChecksum || localSong == null || !hasFile) {
+      if (!hasMatchingSong) {
         missing.add(song.id);
       }
     }
