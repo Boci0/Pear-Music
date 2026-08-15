@@ -154,6 +154,8 @@ void main() {
   });
 
   tearDown(() async {
+    syncA.dispose();
+    syncB.dispose();
     await tempDirA.delete(recursive: true);
     await tempDirB.delete(recursive: true);
   });
