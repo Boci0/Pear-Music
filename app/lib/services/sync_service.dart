@@ -432,7 +432,7 @@ class SyncService extends ChangeNotifier {
     final song = Song.fromJson(songJson);
     // Duplicate?
     if (library.findById(song.id) != null ||
-        library.songs.any((s) => s.checksum == song.checksum)) {
+        library.hasChecksum(song.checksum)) {
       debugPrint('[sync][diag] file_meta for ${song.title} already have; skipping');
       // We already have it; skip.
       _send(peerId, {'type': 'file_done', 'id': song.id});
