@@ -68,7 +68,10 @@ class AppController extends ChangeNotifier {
   SortOption get sortOption => identity.sortOption;
   Future<void> setSortOption(SortOption option) async {
     await identity.setSortOption(option);
-    if (player.hasLoaded) {
+    if (player.hasLoaded &&
+        (player.queueSourceId == 'library' ||
+            player.queueSourceId == 'favorites' ||
+            player.queueSourceId == null)) {
       final sorted = getSortedSongs(player.queue);
       player.updateQueue(sorted);
     }
@@ -939,7 +942,12 @@ class AppController extends ChangeNotifier {
       _postMessage('This playlist is empty.');
       return;
     }
-    await player.playSong(songs.first, queue: songs);
+    await player.playSong(
+      songs.first,
+      queue: songs,
+      sourceId: 'playlist:${playlist.id}',
+      sourceTitle: playlist.name,
+    );
   }
 
   /// Remove [song] from this device's library (and from any playlist). If it
@@ -1097,8 +1105,18 @@ class AppController extends ChangeNotifier {
 
   // ---------- playback (delegated) ----------
 
-  Future<void> playSong(Song song, {List<Song>? queue}) =>
-      player.playSong(song, queue: queue ?? getSortedSongs(library.songs));
+  Future<void> playSong(
+    Song song, {
+    List<Song>? queue,
+    String? sourceId,
+    String? sourceTitle,
+  }) =>
+      player.playSong(
+        song,
+        queue: queue ?? getSortedSongs(library.songs),
+        sourceId: sourceId ?? (queue != null ? null : 'library'),
+        sourceTitle: sourceTitle,
+      );
   Future<void> togglePlayback() => player.toggle();
   Future<void> nextTrack() => player.next();
   Future<void> previousTrack() => player.previous();

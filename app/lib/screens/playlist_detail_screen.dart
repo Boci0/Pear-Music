@@ -111,8 +111,12 @@ class PlaylistDetailScreen extends StatelessWidget {
                         isPlaying: isPlaying,
                         onPlay: isPlaying
                             ? () => controller.togglePlayback()
-                            : () =>
-                                controller.player.playSong(song, queue: songs),
+                            : () => controller.player.playSong(
+                                  song,
+                                  queue: songs,
+                                  sourceId: 'playlist:${playlist.id}',
+                                  sourceTitle: playlist.name,
+                                ),
                         onRemove: () => controller
                             .removeSongFromPlaylist(playlist.id, song.id),
                       );
