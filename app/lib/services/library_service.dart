@@ -19,7 +19,28 @@ import '../models/song.dart';
 ///   `_incoming/`             -> partial downloads, cleaned up on failure
 class LibraryService extends ChangeNotifier {
   final List<Song> _songs = [];
+  final Map<String, Song> _songsById = {};
+  final Set<String> _checksums = {};
   List<Song> get songs => List.unmodifiable(_songs);
+
+  void _rebuildIndexMaps() {
+    _songsById.clear();
+    _checksums.clear();
+    for (final s in _songs) {
+      _songsById[s.id] = s;
+      _checksums.add(s.checksum);
+    }
+  }
+
+  void _indexSong(Song s) {
+    _songsById[s.id] = s;
+    _checksums.add(s.checksum);
+  }
+
+  void _unindexSong(Song s) {
+    _songsById.remove(s.id);
+    _checksums.remove(s.checksum);
+  }
 
   final List<Playlist> _playlists = [];
   List<Playlist> get playlists => List.unmodifiable(_playlists);
@@ -69,12 +90,18 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> _loadIndex() async {
     _songs.clear();
+    _songsById.clear();
+    _checksums.clear();
     if (_indexFile == null || !await _indexFile!.exists()) return;
     try {
       final decoded = jsonDecode(await _indexFile!.readAsString());
       if (decoded is List) {
         for (final item in decoded) {
-          if (item is Map<String, dynamic>) _songs.add(Song.fromJson(item));
+          if (item is Map<String, dynamic>) {
+            final s = Song.fromJson(item);
+            _songs.add(s);
+            _indexSong(s);
+          }
         }
       }
     } catch (_) {
@@ -138,12 +165,9 @@ class LibraryService extends ChangeNotifier {
     return sink.value!.toString();
   }
 
-  Song? findById(String id) {
-    for (final s in _songs) {
-      if (s.id == id) return s;
-    }
-    return null;
-  }
+  Song? findById(String id) => _songsById[id];
+
+  bool hasChecksum(String checksum) => _checksums.contains(checksum);
 
   /// Copy externally picked files into the library. Deduplicates by checksum.
   /// Returns the songs that were actually added.
@@ -152,7 +176,7 @@ class LibraryService extends ChangeNotifier {
     for (final file in files) {
       if (!await file.exists()) continue;
       final sum = await checksum(file);
-      if (_songs.any((s) => s.checksum == sum)) continue; // already have it
+      if (hasChecksum(sum)) continue; // already have it
 
       final id = const Uuid().v4();
       final ext = p.extension(file.path).isEmpty ? '.mp3' : p.extension(file.path);
@@ -169,6 +193,7 @@ class LibraryService extends ChangeNotifier {
         addedAt: DateTime.now(),
       );
       _songs.add(song);
+      _indexSong(song);
       added.add(song);
     }
     if (added.isNotEmpty) {
@@ -205,6 +230,7 @@ class LibraryService extends ChangeNotifier {
       addedAt: DateTime.now(),
     );
     _songs.add(song);
+    _indexSong(song);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -221,7 +247,7 @@ class LibraryService extends ChangeNotifier {
   }) async {
     if (!await file.exists()) return null;
     final sum = await checksum(file);
-    if (_songs.any((s) => s.checksum == sum)) return null; // already have it
+    if (hasChecksum(sum)) return null; // already have it
 
     final id = const Uuid().v4();
     final ext =
@@ -242,6 +268,7 @@ class LibraryService extends ChangeNotifier {
       addedAt: DateTime.now(),
     );
     _songs.add(song);
+    _indexSong(song);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -251,6 +278,7 @@ class LibraryService extends ChangeNotifier {
     final song = findById(id);
     if (song == null) return;
     _songs.remove(song);
+    _unindexSong(song);
     final f = songFile(song);
     if (await f.exists()) await f.delete();
     _stripSongFromPlaylists(id);
@@ -266,6 +294,7 @@ class LibraryService extends ChangeNotifier {
     if (toRemove.isEmpty) return 0;
     for (final song in toRemove) {
       _songs.remove(song);
+      _unindexSong(song);
       final f = songFile(song);
       if (await f.exists()) await f.delete();
       _stripSongFromPlaylists(song.id);
