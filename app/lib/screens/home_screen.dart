@@ -324,6 +324,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       key: ValueKey(song.id),
                       song: song,
                       queue: songs,
+                      sourceId: 'search',
+                      sourceTitle: 'Search',
                       isCurrent: currentSongId == song.id,
                       isSelecting: _isSelecting,
                       isSelected: _selectedIds.contains(song.id),
@@ -437,9 +439,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     InkWell(
                       onTap: () {
                         setState(() => _showOnlyFavorites = false);
-                        if (controller.player.hasLoaded) {
+                        if (controller.player.hasLoaded &&
+                            (controller.player.queueSourceId == 'library' ||
+                                controller.player.queueSourceId == 'favorites' ||
+                                controller.player.queueSourceId == null)) {
                           final updatedQueue = controller.getSortedSongs(controller.songs);
-                          controller.player.updateQueue(updatedQueue);
+                          controller.player.updateQueue(
+                            updatedQueue,
+                            sourceId: 'library',
+                            sourceTitle: 'Library',
+                          );
                         }
                       },
                       child: Padding(
@@ -475,6 +484,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       key: ValueKey(song.id),
                       song: song,
                       queue: songs,
+                      sourceId: _showOnlyFavorites ? 'favorites' : 'library',
+                      sourceTitle: _showOnlyFavorites ? 'Favorites' : 'Library',
                       isCurrent: currentSongId == song.id,
                       isSelecting: _isSelecting,
                       isSelected: _selectedIds.contains(song.id),
@@ -610,13 +621,20 @@ class _HomeScreenState extends State<HomeScreen> {
             if (val == 'fav_toggle') {
               final newFavState = !_showOnlyFavorites;
               setState(() => _showOnlyFavorites = newFavState);
-              if (controller.player.hasLoaded) {
+              if (controller.player.hasLoaded &&
+                  (controller.player.queueSourceId == 'library' ||
+                      controller.player.queueSourceId == 'favorites' ||
+                      controller.player.queueSourceId == null)) {
                 var currentList = controller.songs;
                 if (newFavState && !_isSearching) {
                   currentList = currentList.where((s) => controller.isFavorite(s.id)).toList();
                 }
                 final updatedQueue = controller.getSortedSongs(currentList);
-                controller.player.updateQueue(updatedQueue);
+                controller.player.updateQueue(
+                  updatedQueue,
+                  sourceId: newFavState ? 'favorites' : 'library',
+                  sourceTitle: newFavState ? 'Favorites' : 'Library',
+                );
               }
             } else if (val == 'sort_date') {
               await controller.setSortOption(SortOption.dateAdded);
