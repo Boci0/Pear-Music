@@ -160,6 +160,26 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates the current queue without restarting playback. Adjusts the active
+  /// index to keep tracking [currentSong] in the updated list.
+  void updateQueue(List<Song> newQueue) {
+    if (newQueue.isEmpty) return;
+    _queue = List.from(newQueue);
+    if (currentSong != null) {
+      final idx = _queue.indexWhere((s) => s.id == currentSong!.id);
+      if (idx >= 0) {
+        _queueIndex = idx;
+      } else {
+        // Retain the current song at the beginning if not in the new filter.
+        _queue = [currentSong!, ..._queue];
+        _queueIndex = 0;
+      }
+    } else {
+      _queueIndex = -1;
+    }
+    notifyListeners();
+  }
+
   Future<void> toggle() async {
     if (currentSong == null) {
       if (library.songs.isNotEmpty) {

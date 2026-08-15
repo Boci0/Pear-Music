@@ -68,6 +68,10 @@ class AppController extends ChangeNotifier {
   SortOption get sortOption => identity.sortOption;
   Future<void> setSortOption(SortOption option) async {
     await identity.setSortOption(option);
+    if (player.hasLoaded) {
+      final sorted = getSortedSongs(player.queue);
+      player.updateQueue(sorted);
+    }
     notifyListeners();
   }
 
@@ -1093,7 +1097,8 @@ class AppController extends ChangeNotifier {
 
   // ---------- playback (delegated) ----------
 
-  Future<void> playSong(Song song) => player.playSong(song);
+  Future<void> playSong(Song song, {List<Song>? queue}) =>
+      player.playSong(song, queue: queue ?? getSortedSongs(library.songs));
   Future<void> togglePlayback() => player.toggle();
   Future<void> nextTrack() => player.next();
   Future<void> previousTrack() => player.previous();
