@@ -96,16 +96,28 @@ class LibraryService extends ChangeNotifier {
     try {
       final decoded = jsonDecode(await _indexFile!.readAsString());
       if (decoded is List) {
+        final seenIds = <String>{};
+        final seenChecksums = <String>{};
+        var hadDuplicates = false;
         for (final item in decoded) {
           if (item is Map<String, dynamic>) {
             final s = Song.fromJson(item);
+            if (seenIds.contains(s.id) || seenChecksums.contains(s.checksum)) {
+              hadDuplicates = true;
+              continue;
+            }
+            seenIds.add(s.id);
+            seenChecksums.add(s.checksum);
             _songs.add(s);
             _indexSong(s);
           }
         }
+        if (hadDuplicates) {
+          await _saveIndex();
+        }
       }
     } catch (_) {
-      // Corrupt index — start fresh but keep any orphaned files.
+      // Corrupt index - start fresh but keep any orphaned files.
     }
   }
 
@@ -229,7 +241,15 @@ class LibraryService extends ChangeNotifier {
       artwork: artwork,
       addedAt: DateTime.now(),
     );
-    _songs.add(song);
+    final existingIdx =
+        _songs.indexWhere((s) => s.id == id || s.checksum == checksum);
+    if (existingIdx >= 0) {
+      final existing = _songs[existingIdx];
+      _unindexSong(existing);
+      _songs[existingIdx] = song;
+    } else {
+      _songs.add(song);
+    }
     _indexSong(song);
     await _saveIndex();
     notifyListeners();
