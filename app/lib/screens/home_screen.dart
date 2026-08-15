@@ -317,6 +317,12 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverFixedExtentList.builder(
                 itemExtent: 68.0,
                 itemCount: songs.length,
+                findChildIndexCallback: (Key key) {
+                  final valueKey = key as ValueKey<String>?;
+                  if (valueKey == null) return null;
+                  final index = songs.indexWhere((s) => s.id == valueKey.value);
+                  return index >= 0 ? index : null;
+                },
                 itemBuilder: (context, i) {
                   final song = songs[i];
                   return RepaintBoundary(
@@ -477,6 +483,12 @@ class _HomeScreenState extends State<HomeScreen> {
               sliver: SliverFixedExtentList.builder(
                 itemExtent: 68.0,
                 itemCount: songs.length,
+                findChildIndexCallback: (Key key) {
+                  final valueKey = key as ValueKey<String>?;
+                  if (valueKey == null) return null;
+                  final index = songs.indexWhere((s) => s.id == valueKey.value);
+                  return index >= 0 ? index : null;
+                },
                 itemBuilder: (context, i) {
                   final song = songs[i];
                   return RepaintBoundary(

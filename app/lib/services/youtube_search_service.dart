@@ -31,13 +31,19 @@ class YouTubeSearchResult {
 /// Service that handles searching YouTube and extracting playable audio stream URLs.
 class YouTubeSearchService {
   static YoutubeExplode? _yt;
+  static final Map<String, List<YouTubeSearchResult>> _cache = {};
+  static const int _maxCacheEntries = 40;
 
   static YoutubeExplode get _client => _yt ??= YoutubeExplode();
 
   /// Search YouTube for songs/videos matching [query].
   static Future<List<YouTubeSearchResult>> search(String query, {int limit = 20}) async {
-    final clean = query.trim();
+    final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return const [];
+
+    if (_cache.containsKey(clean)) {
+      return _cache[clean]!;
+    }
 
     try {
       final searchResults = await _client.search.search(clean);
@@ -55,6 +61,12 @@ class YouTubeSearchService {
           ),
         );
       }
+
+      if (_cache.length >= _maxCacheEntries) {
+        _cache.remove(_cache.keys.first);
+      }
+      _cache[clean] = list;
+
       return list;
     } catch (e) {
       debugPrint('[YouTubeSearchService] Search error: $e');
