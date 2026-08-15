@@ -10,6 +10,7 @@ import 'playlist_actions.dart';
 /// "Add to playlist" and "Remove song".
 class SongTile extends StatelessWidget {
   final Song song;
+  final List<Song>? queue;
   final bool isCurrent;
   final bool isSelecting;
   final bool isSelected;
@@ -19,6 +20,7 @@ class SongTile extends StatelessWidget {
   const SongTile({
     super.key,
     required this.song,
+    this.queue,
     this.isCurrent = false,
     this.isSelecting = false,
     this.isSelected = false,
@@ -188,7 +190,7 @@ class SongTile extends StatelessWidget {
         if (isSelecting) {
           onSelectionChanged?.call(!isSelected);
         } else {
-          controller.playSong(song);
+          controller.playSong(song, queue: queue);
         }
       },
       onLongPress: isSelecting ? null : (onLongPress ?? () => _showMenu(context)),

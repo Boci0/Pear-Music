@@ -323,6 +323,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: SongTile(
                       key: ValueKey(song.id),
                       song: song,
+                      queue: songs,
                       isCurrent: currentSongId == song.id,
                       isSelecting: _isSelecting,
                       isSelected: _selectedIds.contains(song.id),
@@ -434,7 +435,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const Spacer(),
                     InkWell(
-                      onTap: () => setState(() => _showOnlyFavorites = false),
+                      onTap: () {
+                        setState(() => _showOnlyFavorites = false);
+                        if (controller.player.hasLoaded) {
+                          final updatedQueue = controller.getSortedSongs(controller.songs);
+                          controller.player.updateQueue(updatedQueue);
+                        }
+                      },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                         child: Text(
@@ -467,6 +474,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: SongTile(
                       key: ValueKey(song.id),
                       song: song,
+                      queue: songs,
                       isCurrent: currentSongId == song.id,
                       isSelecting: _isSelecting,
                       isSelected: _selectedIds.contains(song.id),
@@ -600,7 +608,16 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.more_vert),
           onSelected: (val) async {
             if (val == 'fav_toggle') {
-              setState(() => _showOnlyFavorites = !_showOnlyFavorites);
+              final newFavState = !_showOnlyFavorites;
+              setState(() => _showOnlyFavorites = newFavState);
+              if (controller.player.hasLoaded) {
+                var currentList = controller.songs;
+                if (newFavState && !_isSearching) {
+                  currentList = currentList.where((s) => controller.isFavorite(s.id)).toList();
+                }
+                final updatedQueue = controller.getSortedSongs(currentList);
+                controller.player.updateQueue(updatedQueue);
+              }
             } else if (val == 'sort_date') {
               await controller.setSortOption(SortOption.dateAdded);
             } else if (val == 'sort_title') {
