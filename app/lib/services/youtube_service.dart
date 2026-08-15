@@ -93,6 +93,27 @@ class YoutubeService {
     return null;
   }
 
+  static bool _updateChecked = false;
+
+  /// Runs a background, non-blocking `yt-dlp -U` once per session on Windows
+  /// so the desktop binary stays updated against YouTube cipher changes.
+  static Future<void> checkDesktopYtDlpUpdate() async {
+    if (kIsWeb || !Platform.isWindows || _updateChecked) return;
+    _updateChecked = true;
+    try {
+      final bin = await ytDlpPath();
+      if (bin != null) {
+        unawaited(
+          Process.run(bin, ['-U']).then((r) {
+            debugPrint('[pearmusic] Desktop yt-dlp -U exit code: ${r.exitCode}');
+          }).catchError((e) {
+            debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
+          }),
+        );
+      }
+    } catch (_) {}
+  }
+
   /// True when a yt-dlp binary is reachable on the desktop.
   static Future<bool> isYtDlpAvailable() async => await ytDlpPath() != null;
 
@@ -120,45 +141,66 @@ class YoutubeService {
       tempDir = await Directory.systemTemp.createTemp('peerm-ytdlp-');
       final outTemplate = '${tempDir.path}${Platform.pathSeparator}'
           '%(title).80B [%(id)s].%(ext)s';
-      final args = [
-        '-f', 'bestaudio[ext=m4a]/bestaudio',
-        '--newline',
-        '--no-playlist',
-        '--no-part',
-        '--no-mtime',
-        '--write-thumbnail',
-        '--no-check-certificates',
-        '--concurrent-fragments', '4',
-        '-o', outTemplate,
-        url,
-      ];
-      final proc = await Process.start(bin, args);
-      if (cancel != null) {
-        unawaited(cancel.whenCancelled.then((_) {
-          try {
-            proc.kill();
-          } catch (_) {}
-        }));
+
+      Future<int> runDownloadWithArgs(List<String> extraArgs) async {
+        final args = [
+          '-f', 'bestaudio[ext=m4a]/bestaudio',
+          '--newline',
+          '--no-playlist',
+          '--no-part',
+          '--no-mtime',
+          '--write-thumbnail',
+          '--no-check-certificates',
+          '--concurrent-fragments', '4',
+          ...extraArgs,
+          '-o', outTemplate,
+          url,
+        ];
+        final proc = await Process.start(bin, args);
+        if (cancel != null) {
+          unawaited(cancel.whenCancelled.then((_) {
+            try {
+              proc.kill();
+            } catch (_) {}
+          }));
+        }
+        final outBuf = StringBuffer();
+        final errBuf = StringBuffer();
+        final outSub = proc.stdout.transform(utf8.decoder).listen(outBuf.write);
+        final errSub = proc.stderr.transform(utf8.decoder).listen((chunk) {
+          errBuf.write(chunk);
+          _parseYtDlpProgress(chunk, onProgress);
+        });
+        final exit = await proc.exitCode.timeout(const Duration(minutes: 6));
+        await outSub.cancel();
+        await errSub.cancel();
+        if (cancel?.isCancelled ?? false) {
+          throw DownloadCancelledException();
+        }
+        if (exit != 0) {
+          final lines = errBuf.toString().trim().split('\n');
+          final tail = lines.length > 4
+              ? lines.sublist(lines.length - 4).join('\n')
+              : lines.join('\n');
+          debugPrint('[pearmusic] yt-dlp attempt failed (exit $exit): $tail');
+        }
+        return exit;
       }
-      final outBuf = StringBuffer();
-      final errBuf = StringBuffer();
-      final outSub = proc.stdout.transform(utf8.decoder).listen(outBuf.write);
-      final errSub = proc.stderr.transform(utf8.decoder).listen((chunk) {
-        errBuf.write(chunk);
-        _parseYtDlpProgress(chunk, onProgress);
-      });
-      final exit = await proc.exitCode.timeout(const Duration(minutes: 6));
-      await outSub.cancel();
-      await errSub.cancel();
-      if (cancel?.isCancelled ?? false) {
-        throw DownloadCancelledException();
+
+      // Attempt 1: Mobile client emulation (ios, android, mweb) to avoid bot detection.
+      int exitCode = await runDownloadWithArgs([
+        '--extractor-args',
+        'youtube:player_client=ios,android,mweb',
+      ]);
+
+      // Attempt 2 (Fallback): Standard extraction if attempt 1 encountered an error.
+      if (exitCode != 0 && !(cancel?.isCancelled ?? false)) {
+        onStatus?.call('Retrying with fallback client…');
+        exitCode = await runDownloadWithArgs([]);
       }
-      if (exit != 0) {
-        final lines = errBuf.toString().trim().split('\n');
-        final tail = lines.length > 4
-            ? lines.sublist(lines.length - 4).join('\n')
-            : lines.join('\n');
-        throw Exception('yt-dlp failed (exit $exit): $tail');
+
+      if (exitCode != 0) {
+        throw Exception('yt-dlp failed (exit $exitCode).');
       }
 
       onStatus?.call('Finding audio file…');
