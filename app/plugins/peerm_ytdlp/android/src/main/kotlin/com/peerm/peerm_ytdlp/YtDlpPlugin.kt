@@ -146,32 +146,51 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         executor.execute {
             try {
                 ensureInit(ctx)
-                val request = YoutubeDLRequest(url)
-                request.addOption("-f", "bestaudio[ext=m4a]/bestaudio")
-                request.addOption(
-                    "-o",
-                    File(outputDir, "%(title).80B [%(id)s].%(ext)s").absolutePath,
-                )
-                request.addOption("--newline")
-                request.addOption("--no-playlist")
-                request.addOption("--no-part")
-                request.addOption("--no-mtime")
-                request.addOption("--write-thumbnail")
-                request.addOption("--no-warnings")
-                request.addOption("--force-ipv4")
-                request.addOption("--no-check-certificates")
-                request.addOption("--concurrent-fragments", "4")
-                request.addOption("--extractor-args", "youtube:player_client=ios,android,mweb")
-                
-                val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
-                    sendEvent(
-                        mapOf(
-                            "progress" to (progress ?: 0.0f),
-                            "eta" to (eta ?: 0L),
-                            "line" to (line ?: ""),
-                        )
+                fun makeRequest(useExtractorArgs: Boolean): YoutubeDLRequest {
+                    val req = YoutubeDLRequest(url)
+                    req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                    req.addOption(
+                        "-o",
+                        File(outputDir, "%(title).80B [%(id)s].%(ext)s").absolutePath,
                     )
+                    req.addOption("--newline")
+                    req.addOption("--no-playlist")
+                    req.addOption("--no-part")
+                    req.addOption("--no-mtime")
+                    req.addOption("--write-thumbnail")
+                    req.addOption("--no-warnings")
+                    req.addOption("--force-ipv4")
+                    req.addOption("--no-check-certificates")
+                    req.addOption("--concurrent-fragments", "4")
+                    if (useExtractorArgs) {
+                        req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
+                    }
+                    return req
                 }
+
+                var response = try {
+                    YoutubeDL.getInstance().execute(makeRequest(true), processId) { progress, eta, line ->
+                        sendEvent(
+                            mapOf(
+                                "progress" to (progress ?: 0.0f),
+                                "eta" to (eta ?: 0L),
+                                "line" to (line ?: ""),
+                            )
+                        )
+                    }
+                } catch (firstErr: Exception) {
+                    android.util.Log.w(TAG, "Attempt 1 failed: ${firstErr.message}, trying fallback...")
+                    YoutubeDL.getInstance().execute(makeRequest(false), processId) { progress, eta, line ->
+                        sendEvent(
+                            mapOf(
+                                "progress" to (progress ?: 0.0f),
+                                "eta" to (eta ?: 0L),
+                                "line" to (line ?: ""),
+                            )
+                        )
+                    }
+                }
+                
                 sendEvent(mapOf("done" to true))
                 mainHandler.post {
                     result.success(mapOf("ok" to true, "exitCode" to response.exitCode))
