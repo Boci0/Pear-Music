@@ -161,6 +161,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 request.addOption("--force-ipv4")
                 request.addOption("--no-check-certificates")
                 request.addOption("--concurrent-fragments", "4")
+                request.addOption("--extractor-args", "youtube:player_client=ios,android,mweb")
                 
                 val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
                     sendEvent(
