@@ -6,7 +6,7 @@ import 'package:peerm_app/services/player_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('PlayerService queue updates', () {
+  group('PlayerService queue updates and context isolation', () {
     final songA = Song(
       id: 'a',
       title: 'Alpha',
@@ -42,9 +42,10 @@ void main() {
 
     test('updateQueue updates queue and preserves current song index', () {
       // Initial queue: [A, B, C]
-      player.updateQueue([songA, songB, songC]);
+      player.updateQueue([songA, songB, songC], sourceId: 'library', sourceTitle: 'Library');
       expect(player.queue.length, 3);
       expect(player.queue[0].id, 'a');
+      expect(player.queueSourceId, 'library');
 
       // Set currentSong to songB
       player.currentSong = songB;
@@ -61,12 +62,31 @@ void main() {
       player.currentSong = songA;
       
       // Filter contains only [B, C]
-      player.updateQueue([songB, songC]);
+      player.updateQueue([songB, songC], sourceId: 'favorites', sourceTitle: 'Favorites');
 
       // Current song A should remain in queue at index 0
       expect(player.queue.first.id, 'a');
       expect(player.queueIndex, 0);
       expect(player.queue.length, 3);
+      expect(player.queueSourceId, 'favorites');
+    });
+
+    test('Playlist queue source is isolated and preserved', () {
+      // User starts a playlist
+      player.updateQueue(
+        [songB, songA],
+        sourceId: 'playlist:pl_1',
+        sourceTitle: 'My Playlist',
+      );
+      player.currentSong = songB;
+
+      expect(player.queueSourceId, 'playlist:pl_1');
+      expect(player.queue.length, 2);
+      expect(player.queue[0].id, 'b');
+      expect(player.queue[1].id, 'a');
+
+      // When checking queue source, it is clearly identified as a playlist
+      expect(player.queueSourceId?.startsWith('playlist:'), isTrue);
     });
   });
 }

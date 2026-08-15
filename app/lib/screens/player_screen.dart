@@ -39,6 +39,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
+  void initState() {
+    super.initState();
+    final player = context.read<PlayerService>();
+    if (player.queueSourceId != null && player.queueSourceId!.startsWith('playlist:')) {
+      _activePlaylistId = player.queueSourceId!.substring('playlist:'.length);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerService>();
     final controller = context.read<AppController>();
@@ -743,9 +752,20 @@ class _SongsPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final playlist = _playlistById(controller, activePlaylistId);
-    final songs = playlist != null
-        ? _songsForPlaylist(controller, playlist)
-        : controller.getSortedSongs(controller.songs);
+    final String paneTitle;
+    final List<Song> songs;
+    if (playlist != null) {
+      paneTitle = playlist.name;
+      songs = _songsForPlaylist(controller, playlist);
+    } else if (player.queueSourceId == 'favorites') {
+      paneTitle = 'Favorites';
+      songs = controller.getSortedSongs(
+          controller.songs.where((s) => controller.isFavorite(s.id)).toList());
+    } else {
+      paneTitle = 'All Songs';
+      songs = controller.getSortedSongs(controller.songs);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -757,7 +777,7 @@ class _SongsPane extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  playlist == null ? 'All Songs' : playlist.name,
+                  paneTitle,
                   style: Theme.of(context).textTheme.titleSmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -801,7 +821,16 @@ class _SongsPane extends StatelessWidget {
                               )
                             : null,
                       ),
-                      onTap: () => player.playSong(s, queue: songs),
+                      onTap: () => player.playSong(
+                        s,
+                        queue: songs,
+                        sourceId: playlist != null
+                            ? 'playlist:${playlist.id}'
+                            : (player.queueSourceId == 'favorites'
+                                ? 'favorites'
+                                : 'library'),
+                        sourceTitle: paneTitle,
+                      ),
                     );
                   },
                 ),
@@ -834,9 +863,19 @@ class _PlayerDrawer extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final playlists = controller.playlists;
     final playlist = _playlistById(controller, activePlaylistId);
-    final songs = playlist != null
-        ? _songsForPlaylist(controller, playlist)
-        : controller.getSortedSongs(controller.songs);
+    final String sectionTitle;
+    final List<Song> songs;
+    if (playlist != null) {
+      sectionTitle = playlist.name;
+      songs = _songsForPlaylist(controller, playlist);
+    } else if (player.queueSourceId == 'favorites') {
+      sectionTitle = 'Favorites';
+      songs = controller.getSortedSongs(
+          controller.songs.where((s) => controller.isFavorite(s.id)).toList());
+    } else {
+      sectionTitle = 'All Songs';
+      songs = controller.getSortedSongs(controller.songs);
+    }
 
     return Drawer(
       child: SafeArea(
@@ -895,7 +934,7 @@ class _PlayerDrawer extends StatelessWidget {
                   const Divider(),
                   _DrawerHeader(
                     icon: Icons.music_note,
-                    label: playlist == null ? 'All Songs' : playlist.name,
+                    label: sectionTitle,
                   ),
                   if (songs.isEmpty)
                     const Padding(
@@ -927,7 +966,16 @@ class _PlayerDrawer extends StatelessWidget {
                         ),
                         onTap: () {
                           Navigator.of(context).pop();
-                          player.playSong(s, queue: songs);
+                          player.playSong(
+                            s,
+                            queue: songs,
+                            sourceId: playlist != null
+                                ? 'playlist:${playlist.id}'
+                                : (player.queueSourceId == 'favorites'
+                                    ? 'favorites'
+                                    : 'library'),
+                            sourceTitle: sectionTitle,
+                          );
                         },
                       ),
                 ],

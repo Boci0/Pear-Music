@@ -33,6 +33,8 @@ class PlayerService extends ChangeNotifier {
   Song? currentSong;
   List<Song> _queue = [];
   int _queueIndex = -1;
+  String? queueSourceId; // 'library' | 'favorites' | 'search' | 'playlist:<id>'
+  String? queueTitle;
   LoopSetting _loopMode = LoopSetting.off;
   bool _shuffle = false;
 
@@ -117,13 +119,25 @@ class PlayerService extends ChangeNotifier {
       );
 
   /// Play [song], optionally in the context of [queue] (e.g. a playlist).
-  Future<void> playSong(Song song, {List<Song>? queue}) async {
+  Future<void> playSong(
+    Song song, {
+    List<Song>? queue,
+    String? sourceId,
+    String? sourceTitle,
+  }) async {
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
     // play shows the notification; the prompt does not delay playback.
     _requestNotificationPermissionIfNeeded();
 
     _queue = queue ?? library.songs;
+    if (sourceId != null) {
+      queueSourceId = sourceId;
+      queueTitle = sourceTitle;
+    } else if (queue == null) {
+      queueSourceId = 'library';
+      queueTitle = 'Library';
+    }
     if (_queue.isEmpty) _queue = [song];
     _queueIndex = _queue.indexWhere((s) => s.id == song.id);
     if (_queueIndex < 0) {
@@ -162,9 +176,17 @@ class PlayerService extends ChangeNotifier {
 
   /// Updates the current queue without restarting playback. Adjusts the active
   /// index to keep tracking [currentSong] in the updated list.
-  void updateQueue(List<Song> newQueue) {
+  void updateQueue(
+    List<Song> newQueue, {
+    String? sourceId,
+    String? sourceTitle,
+  }) {
     if (newQueue.isEmpty) return;
     _queue = List.from(newQueue);
+    if (sourceId != null) {
+      queueSourceId = sourceId;
+      queueTitle = sourceTitle;
+    }
     if (currentSong != null) {
       final idx = _queue.indexWhere((s) => s.id == currentSong!.id);
       if (idx >= 0) {
