@@ -174,6 +174,7 @@ class SyncService extends ChangeNotifier {
   /// is re-requested automatically. Clears stale send locks and retries.
   int resyncNow() {
     _sending.clear();
+    _sendQueues.clear();
     _finalizeRetries.clear();
     if (_channels.isEmpty) return 0;
     final count = _channels.length;
@@ -190,6 +191,7 @@ class SyncService extends ChangeNotifier {
 
   void detachChannel(String peerId) {
     _channels.remove(peerId);
+    _sendQueues.remove(peerId);
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
       _resyncTimer = null;
@@ -323,11 +325,26 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  final Map<String, Future<void>> _sendQueues = {};
+
+  void _enqueueSend(String peerId, Song song) {
+    final prev = _sendQueues[peerId] ?? Future<void>.value();
+    final next = prev.then((_) async {
+      if (_channels.containsKey(peerId)) {
+        await _sendFile(peerId, song);
+      }
+    }).catchError((Object e) {
+      debugPrint('[sync] send error for ${song.title}: $e');
+    });
+    _sendQueues[peerId] = next;
+    _track(next);
+  }
+
   void _onRequestSongs(String peerId, List<dynamic> ids) {
     for (final id in ids) {
       final song = library.findById(id as String);
       if (song != null) {
-        unawaited(_sendFile(peerId, song));
+        _enqueueSend(peerId, song);
       }
     }
   }
@@ -337,7 +354,7 @@ class SyncService extends ChangeNotifier {
   /// Send a song to every online peer.
   Future<void> broadcastSong(Song song) async {
     for (final peerId in _channels.keys.toList()) {
-      await _sendFile(peerId, song);
+      _enqueueSend(peerId, song);
     }
   }
 
