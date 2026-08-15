@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -70,6 +71,7 @@ Future<void> main() async {
   final sync = SyncService(identity: identity, library: library);
   final player = PlayerService(library);
   final youtube = YoutubeService();
+  unawaited(YoutubeService.checkDesktopYtDlpUpdate());
 
   // Embedded signaling server. It is NOT started here — the controller starts
   // it only when this device is the host (the "last online" device), so at any
