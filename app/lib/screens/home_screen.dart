@@ -725,22 +725,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 title: Text('Select multiple songs'),
               ),
             ),
-            const PopupMenuItem(
-              value: 'playlists',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.queue_music),
-                title: Text('Playlists'),
+            if (!_isDesktop && MediaQuery.sizeOf(context).width < 850) ...[
+              const PopupMenuItem(
+                value: 'playlists',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.queue_music),
+                  title: Text('Playlists'),
+                ),
               ),
-            ),
-            const PopupMenuItem(
-              value: 'about',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.info_outline),
-                title: Text('About & License'),
+              const PopupMenuItem(
+                value: 'about',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.info_outline),
+                  title: Text('About & License'),
+                ),
               ),
-            ),
+            ],
           ],
         ),
         const SizedBox(width: 4),
