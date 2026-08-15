@@ -3,11 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../services/sync_service.dart';
 
-/// Shows in-flight uploads/downloads with a live progress bar.
-///
-/// When 1-3 files are syncing, renders individual progress rows. When a large
-/// batch is transferring (4+ files), aggregates them into a single clean
-/// Unified Batch Sync Card to avoid cluttering the UI with dozens of bars.
+/// Shows in-flight uploads/downloads in a single unified sync card.
 class TransferList extends StatefulWidget {
   const TransferList({super.key});
 
@@ -16,7 +12,6 @@ class TransferList extends StatefulWidget {
 }
 
 class _TransferListState extends State<TransferList> {
-  bool _expanded = false;
   double _lastMaxFraction = 0.0;
 
   @override
@@ -27,246 +22,105 @@ class _TransferListState extends State<TransferList> {
       return const SizedBox.shrink();
     }
 
-    final isBatch = transfers.length > 3;
+    final totalFiles = transfers.length;
+    final doneFiles = transfers.where((t) => t.isDone).length;
+    final totalBytes = transfers.fold<int>(0, (sum, t) => sum + t.totalBytes);
+    final completedBytes = transfers.fold<int>(0, (sum, t) => sum + t.completedBytes);
+    final activeTransfer = transfers.firstWhere((t) => !t.isDone, orElse: () => transfers.last);
 
-    if (isBatch && !_expanded) {
-      final totalFiles = transfers.length;
-      final doneFiles = transfers.where((t) => t.isDone).length;
-      final totalBytes = transfers.fold<int>(0, (sum, t) => sum + t.totalBytes);
-      final completedBytes = transfers.fold<int>(0, (sum, t) => sum + t.completedBytes);
-      final activeTransfer = transfers.firstWhere((t) => !t.isDone, orElse: () => transfers.last);
+    final activeFraction = activeTransfer.isDone ? 1.0 : activeTransfer.fraction;
+    final rawOverallFraction = totalFiles > 1
+        ? ((doneFiles + activeFraction) / totalFiles).clamp(0.0, 1.0)
+        : activeFraction;
 
-      final activeFraction = activeTransfer.isDone ? 0.0 : activeTransfer.fraction;
-      final rawOverallFraction = totalFiles > 0
-          ? ((doneFiles + activeFraction) / totalFiles).clamp(0.0, 1.0)
-          : 0.0;
-
-      if (doneFiles == 0 && activeFraction == 0.0) {
-        _lastMaxFraction = rawOverallFraction;
-      } else if (rawOverallFraction > _lastMaxFraction) {
-        _lastMaxFraction = rawOverallFraction;
-      }
-      final overallFraction = _lastMaxFraction.clamp(0.0, 1.0);
-
-      final completedMb = (completedBytes / (1024 * 1024)).toStringAsFixed(1);
-      final totalMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
-
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.sync, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Syncing Library ($doneFiles of $totalFiles songs)',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                    ),
-                    Text(
-                      '${(overallFraction * 100).toInt()}%',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(Icons.expand_more, size: 20),
-                      tooltip: 'Show details',
-                      onPressed: () => setState(() => _expanded = true),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: 0, end: overallFraction),
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, val, _) => ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: val,
-                      minHeight: 6,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        activeTransfer.fileName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$completedMb MB / $totalMb MB',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey,
-                          ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+    if (doneFiles == 0 && activeFraction == 0.0) {
+      _lastMaxFraction = rawOverallFraction;
+    } else if (rawOverallFraction > _lastMaxFraction) {
+      _lastMaxFraction = rawOverallFraction;
     }
+    final overallFraction = _lastMaxFraction.clamp(0.0, 1.0);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Syncing',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(color: Theme.of(context).colorScheme.primary),
-              ),
-              if (isBatch && _expanded)
-                IconButton(
-                  icon: const Icon(Icons.expand_less, size: 20),
-                  tooltip: 'Collapse batch view',
-                  onPressed: () => setState(() => _expanded = false),
-                ),
-            ],
-          ),
-        ),
-        ...transfers.map((t) => _TransferTile(progress: t)),
-        const Divider(height: 8),
-      ],
-    );
-  }
-}
+    final isSingle = totalFiles == 1;
+    final headerTitle = isSingle
+        ? (activeTransfer.isDownload ? 'Downloading Song' : 'Uploading Song')
+        : 'Syncing Library ($doneFiles of $totalFiles songs)';
 
-class _TransferTile extends StatefulWidget {
-  final TransferProgress progress;
-
-  const _TransferTile({required this.progress});
-
-  @override
-  State<_TransferTile> createState() => _TransferTileState();
-}
-
-class _TransferTileState extends State<_TransferTile>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 450),
-    );
-    _scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutBack);
-    if (widget.progress.isDone) {
-      _controller.value = 1.0;
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _TransferTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.progress.isDone && _controller.value < 1) {
-      _controller.forward(from: 0);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final p = widget.progress;
+    final displayedMb = isSingle
+        ? '${(activeTransfer.completedBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(activeTransfer.totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+        : '${(completedBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: TweenAnimationBuilder<double>(
-        tween: Tween<double>(begin: 0, end: p.fraction),
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        builder: (context, animFraction, _) {
-          return Column(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Icon(
-                    p.isDownload ? Icons.download_rounded : Icons.upload_rounded,
-                    size: 16,
-                    color: theme.colorScheme.primary,
+                    activeTransfer.isDownload
+                        ? Icons.download_rounded
+                        : Icons.upload_rounded,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      p.fileName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
+                      headerTitle,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  AnimatedBuilder(
-                    animation: _controller,
-                    builder: (context, child) {
-                      if (_controller.value > 0) {
-                        return Transform.scale(
-                          scale: _scale.value,
-                          child: Icon(
-                            Icons.check_circle_rounded,
-                            size: 18,
-                            color: Colors.greenAccent.shade400,
-                          ),
-                        );
-                      }
-                      final pct = (animFraction * 100).toInt();
-                      return Text('$pct%', style: theme.textTheme.bodySmall);
-                    },
+                  Text(
+                    '${(overallFraction * 100).toInt()}%',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: LinearProgressIndicator(
-                  value: animFraction,
-                  minHeight: 3,
-                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    p.isDone
-                        ? Colors.greenAccent.shade400
-                        : theme.colorScheme.primary,
+              const SizedBox(height: 8),
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: overallFraction),
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                builder: (context, val, _) => ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: val,
+                    minHeight: 6,
                   ),
                 ),
               ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      activeTransfer.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    displayedMb,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey,
+                        ),
+                  ),
+                ],
+              ),
             ],
-          );
-        },
+          ),
+        ),
       ),
     );
   }
