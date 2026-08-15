@@ -2,14 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
-import '../models/playlist.dart';
 import '../widgets/desktop_player_bar.dart';
 import '../widgets/player_bar.dart';
 import 'devices_screen.dart';
 import 'home_screen.dart';
-import 'pair_screen.dart';
 import 'playlist_detail_screen.dart';
-import 'playlists_screen.dart';
 import 'settings_screen.dart';
 
 /// Root shell with responsive switching between mobile touch layout and
@@ -26,7 +23,6 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _screens = [
     HomeScreen(),
-    PlaylistsScreen(),
     DevicesScreen(),
     SettingsScreen(),
   ];
@@ -66,19 +62,15 @@ class _HomeShellState extends State<HomeShell> {
     // Mobile layout
     return Scaffold(
       body: IndexedStack(
-        index: _index >= 3 ? 2 : _index,
-        children: const [
-          HomeScreen(),
-          DevicesScreen(),
-          SettingsScreen(),
-        ],
+        index: _index,
+        children: _screens,
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const PlayerBar(),
           NavigationBar(
-            selectedIndex: _index >= 3 ? 2 : _index,
+            selectedIndex: _index,
             onDestinationSelected: (i) => setState(() => _index = i),
             destinations: const [
               NavigationDestination(
@@ -120,10 +112,9 @@ class _DesktopSidebar extends StatelessWidget {
     final controller = context.watch<AppController>();
     final playlists = controller.playlists;
     final pairedCount = controller.pairedDevices.length;
-    final isOnline = controller.signaling.isConnected;
 
     return Container(
-      width: 240,
+      width: 230,
       color: scheme.surfaceContainerLow,
       child: SafeArea(
         child: Column(
@@ -136,12 +127,12 @@ class _DesktopSidebar extends StatelessWidget {
                 children: [
                   Image.asset(
                     'assets/pear_logo.png',
-                    width: 32,
-                    height: 32,
+                    width: 30,
+                    height: 30,
                     errorBuilder: (_, _, _) => Icon(
                       Icons.music_note,
                       color: scheme.primary,
-                      size: 30,
+                      size: 28,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -152,44 +143,6 @@ class _DesktopSidebar extends StatelessWidget {
                       letterSpacing: -0.3,
                     ),
                   ),
-                  const Spacer(),
-                  if (isOnline)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.green.withValues(alpha: 0.45),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: Colors.green,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'Online',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -206,27 +159,19 @@ class _DesktopSidebar extends StatelessWidget {
               onTap: () => onDestinationSelected(0),
             ),
             _SidebarNavTile(
-              icon: Icons.queue_music_outlined,
-              selectedIcon: Icons.queue_music,
-              label: 'Playlists',
-              count: playlists.length,
-              isSelected: selectedIndex == 1,
-              onTap: () => onDestinationSelected(1),
-            ),
-            _SidebarNavTile(
               icon: Icons.devices_other_outlined,
               selectedIcon: Icons.devices_other,
               label: 'Devices',
               count: pairedCount > 0 ? pairedCount : null,
-              isSelected: selectedIndex == 2,
-              onTap: () => onDestinationSelected(2),
+              isSelected: selectedIndex == 1,
+              onTap: () => onDestinationSelected(1),
             ),
             _SidebarNavTile(
               icon: Icons.settings_outlined,
               selectedIcon: Icons.settings,
               label: 'Settings',
-              isSelected: selectedIndex == 3,
-              onTap: () => onDestinationSelected(3),
+              isSelected: selectedIndex == 2,
+              onTap: () => onDestinationSelected(2),
             ),
 
             const Padding(
@@ -305,29 +250,6 @@ class _DesktopSidebar extends StatelessWidget {
                       },
                     ),
             ),
-
-            // Bottom Action: Pair Device
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonalIcon(
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  icon: const Icon(Icons.qr_code_scanner, size: 18),
-                  label: const Text('Pair Device', style: TextStyle(fontSize: 13)),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const PairScreen()),
-                    );
-                  },
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -403,21 +325,27 @@ class _SidebarNavTile extends StatelessWidget {
                 Icon(
                   isSelected ? selectedIcon : icon,
                   size: 20,
-                  color: isSelected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant,
+                  color: isSelected
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     label,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                      color: isSelected ? scheme.onPrimaryContainer : scheme.onSurface,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                      color: isSelected
+                          ? scheme.onPrimaryContainer
+                          : scheme.onSurface,
                     ),
                   ),
                 ),
                 if (count != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? scheme.onPrimaryContainer.withValues(alpha: 0.12)
