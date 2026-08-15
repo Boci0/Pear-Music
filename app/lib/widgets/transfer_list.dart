@@ -16,38 +16,38 @@ class _TransferListState extends State<TransferList> {
 
   @override
   Widget build(BuildContext context) {
-    final transfers = context.watch<SyncService>().transfers;
-    if (transfers.isEmpty) {
+    final sync = context.watch<SyncService>();
+    final batch = sync.batchState;
+    if (batch == null) {
       _lastMaxFraction = 0.0;
       return const SizedBox.shrink();
     }
 
-    final totalFiles = transfers.length;
-    final doneFiles = transfers.where((t) => t.isDone).length;
-    final totalBytes = transfers.fold<int>(0, (sum, t) => sum + t.totalBytes);
-    final completedBytes = transfers.fold<int>(0, (sum, t) => sum + t.completedBytes);
-    final activeTransfer = transfers.firstWhere((t) => !t.isDone, orElse: () => transfers.last);
+    final totalSongs = batch.totalSongs;
+    final completedSongs = batch.completedSongs;
+    final activeFraction = batch.progressFraction;
 
-    final activeFraction = activeTransfer.isDone ? 1.0 : activeTransfer.fraction;
-    final rawOverallFraction = totalFiles > 1
-        ? ((doneFiles + activeFraction) / totalFiles).clamp(0.0, 1.0)
-        : activeFraction;
-
-    if (doneFiles == 0 && activeFraction == 0.0) {
-      _lastMaxFraction = rawOverallFraction;
-    } else if (rawOverallFraction > _lastMaxFraction) {
-      _lastMaxFraction = rawOverallFraction;
+    if (completedSongs == 0 && activeFraction == 0.0) {
+      _lastMaxFraction = activeFraction;
+    } else if (activeFraction > _lastMaxFraction) {
+      _lastMaxFraction = activeFraction;
     }
-    final overallFraction = _lastMaxFraction.clamp(0.0, 1.0);
+    final overallFraction = batch.isDone ? 1.0 : _lastMaxFraction.clamp(0.0, 1.0);
 
-    final isSingle = totalFiles == 1;
-    final headerTitle = isSingle
-        ? (activeTransfer.isDownload ? 'Downloading Song' : 'Uploading Song')
-        : 'Syncing Library ($doneFiles of $totalFiles songs)';
+    final isSingle = totalSongs <= 1;
+    final headerTitle = batch.isDone
+        ? 'Sync Complete'
+        : (isSingle
+            ? (batch.isDownload ? 'Downloading Song' : 'Uploading Song')
+            : 'Syncing Library ($completedSongs of $totalSongs songs)');
 
-    final displayedMb = isSingle
-        ? '${(activeTransfer.completedBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(activeTransfer.totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
-        : '${(completedBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    final completedMb = (batch.completedBytes / (1024 * 1024)).toStringAsFixed(1);
+    final totalMb = (batch.totalBytes / (1024 * 1024)).toStringAsFixed(1);
+    final displayedMb = batch.totalBytes > 0
+        ? '$completedMb MB / $totalMb MB'
+        : (batch.activeTotalBytes > 0
+            ? '${(batch.activeBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(batch.activeTotalBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+            : '');
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -60,11 +60,15 @@ class _TransferListState extends State<TransferList> {
               Row(
                 children: [
                   Icon(
-                    activeTransfer.isDownload
-                        ? Icons.download_rounded
-                        : Icons.upload_rounded,
+                    batch.isDone
+                        ? Icons.check_circle_rounded
+                        : (batch.isDownload
+                            ? Icons.download_rounded
+                            : Icons.upload_rounded),
                     size: 20,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: batch.isDone
+                        ? Colors.greenAccent.shade400
+                        : Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -79,7 +83,9 @@ class _TransferListState extends State<TransferList> {
                     '${(overallFraction * 100).toInt()}%',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
+                          color: batch.isDone
+                              ? Colors.greenAccent.shade400
+                              : Theme.of(context).colorScheme.primary,
                         ),
                   ),
                 ],
@@ -94,30 +100,39 @@ class _TransferListState extends State<TransferList> {
                   child: LinearProgressIndicator(
                     value: val,
                     minHeight: 6,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      batch.isDone
+                          ? Colors.greenAccent.shade400
+                          : Theme.of(context).colorScheme.primary,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      activeTransfer.fileName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+              if (!batch.isDone && batch.activeSongTitle.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        batch.activeSongTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    displayedMb,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey,
-                        ),
-                  ),
-                ],
-              ),
+                    if (displayedMb.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        displayedMb,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey,
+                            ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ],
           ),
         ),

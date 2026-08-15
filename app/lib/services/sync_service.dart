@@ -38,33 +38,46 @@ class TransferProgress {
   String get key => '$peerId|$songId|${isDownload ? 'd' : 'u'}';
 }
 
-/// Transfers music files over the WebRTC data channels.
-///
-/// Protocol (all control messages are JSON text; file data is binary):
-///   text  {type:'hello', deviceName}
-///   text  {type:'manifest', songs:[Song.json]}
-///   text  {type:'request_songs', ids:[...]}
-///   text  {type:'file_meta', song: Song.json}
-///   text  {type:'file_done', id}
-///   text  {type:'file_error', id, message}
-///   binary [magic 0x50][idLen u16][songId][chunkIndex u32][totalChunks u32][payload]
+/// Overall batch state for single-card progress display.
+class SyncBatchState {
+  final int totalSongs;
+  final int completedSongs;
+  final String activeSongTitle;
+  final int activeBytes;
+  final int activeTotalBytes;
+  final int totalBytes;
+  final int completedBytes;
+  final bool isDownload;
+  final bool isDone;
+
+  const SyncBatchState({
+    required this.totalSongs,
+    required this.completedSongs,
+    required this.activeSongTitle,
+    required this.activeBytes,
+    required this.activeTotalBytes,
+    required this.totalBytes,
+    required this.completedBytes,
+    required this.isDownload,
+    this.isDone = false,
+  });
+
+  double get progressFraction {
+    if (isDone) return 1.0;
+    if (totalSongs <= 0) return 0.0;
+    final activeFraction = activeTotalBytes > 0
+        ? (activeBytes / activeTotalBytes).clamp(0.0, 1.0)
+        : 0.0;
+    return ((completedSongs + activeFraction) / totalSongs).clamp(0.0, 1.0);
+  }
+}
+
+/// Transfers music files over WebRTC data channels.
 class SyncService extends ChangeNotifier {
   static const int chunkSize = 64 * 1024;
 
-  /// How long an in-progress download may sit without finishing before it is
-  /// aborted. A peer that dies mid-transfer (or a chunk that never arrives)
-  /// must not leak an open file handle or a partial file forever — the song is
-  /// re-requested and healed instead. Configurable for tests.
   final Duration incomingTimeout;
-
-  /// How many times a failed finalize re-requests the song from the sender
-  /// before giving up (prevents an infinite request/re-send loop when the
-  /// sender genuinely cannot deliver).
   static const int maxFinalizeRetries = 2;
-
-  /// While channels are attached, re-advertise our library every this often so
-  /// a transfer that failed (dropped chunk, abort, sender hiccup) is re-requested
-  /// automatically instead of waiting for a full reconnect + manifest exchange.
   static const Duration resyncInterval = Duration(seconds: 45);
 
   final IdentityService identity;
@@ -83,24 +96,112 @@ class SyncService extends ChangeNotifier {
   final Map<String, bool> _sending = {};
   final Map<String, TransferProgress> _transfers = {};
 
-  /// Retry count per song for failed finalizes (see [maxFinalizeRetries]).
   final Map<String, int> _finalizeRetries = {};
-
-  /// Transfers that just finished, kept around briefly so the UI can animate a
-  /// "done" state before they disappear.
   final Map<String, TransferProgress> _completed = {};
   Timer? _completedTimer;
 
   Timer? _notifyTimer;
   bool _notifyQueued = false;
 
-  /// Tracks in-flight async protocol handlers (file finalize, remote song
-  /// deletions, playlist merges) so tests can await them via [idle], and so a
-  /// slow/failing handler never surfaces as an unhandled async error.
-  Future<void> _syncTail = Future<void>.value();
+  // ---- Set-based Deduplicated Batch Tracking ----
+  final Set<String> _inboundPending = {};
+  final Set<String> _inboundCompleted = {};
+  final Set<String> _outboundPending = {};
+  final Set<String> _outboundCompleted = {};
 
-  /// Completes when every previously-dispatched protocol handler has finished
-  /// (including its file writes). Tests await this before tearing down.
+  Timer? _batchCompletionTimer;
+  bool _batchIsDone = false;
+
+  SyncBatchState? get batchState {
+    final inTotal = _inboundPending.length + _inboundCompleted.length;
+    if (inTotal > 0 && (_inboundPending.isNotEmpty || _batchIsDone)) {
+      final active = _transfers.values.where((t) => t.isDownload).firstOrNull ??
+          _completed.values.where((t) => t.isDownload).lastOrNull;
+      final totalB = _transfers.values
+          .where((t) => t.isDownload)
+          .fold<int>(0, (sum, t) => sum + t.totalBytes);
+      final compB = _transfers.values
+          .where((t) => t.isDownload)
+          .fold<int>(0, (sum, t) => sum + t.completedBytes);
+      return SyncBatchState(
+        totalSongs: inTotal,
+        completedSongs: _inboundCompleted.length,
+        activeSongTitle: active?.fileName ?? '',
+        activeBytes: active?.completedBytes ?? 0,
+        activeTotalBytes: active?.totalBytes ?? 0,
+        totalBytes: totalB,
+        completedBytes: compB,
+        isDownload: true,
+        isDone: _batchIsDone || _inboundPending.isEmpty,
+      );
+    }
+
+    final outTotal = _outboundPending.length + _outboundCompleted.length;
+    if (outTotal > 0 && (_outboundPending.isNotEmpty || _batchIsDone)) {
+      final active = _transfers.values.where((t) => !t.isDownload).firstOrNull ??
+          _completed.values.where((t) => !t.isDownload).lastOrNull;
+      final totalB = _transfers.values
+          .where((t) => !t.isDownload)
+          .fold<int>(0, (sum, t) => sum + t.totalBytes);
+      final compB = _transfers.values
+          .where((t) => !t.isDownload)
+          .fold<int>(0, (sum, t) => sum + t.completedBytes);
+      return SyncBatchState(
+        totalSongs: outTotal,
+        completedSongs: _outboundCompleted.length,
+        activeSongTitle: active?.fileName ?? '',
+        activeBytes: active?.completedBytes ?? 0,
+        activeTotalBytes: active?.totalBytes ?? 0,
+        totalBytes: totalB,
+        completedBytes: compB,
+        isDownload: false,
+        isDone: _batchIsDone || _outboundPending.isEmpty,
+      );
+    }
+
+    if (transfers.isNotEmpty) {
+      final active = transfers.firstWhere((t) => !t.isDone, orElse: () => transfers.last);
+      final totalB = transfers.fold<int>(0, (sum, t) => sum + t.totalBytes);
+      final compB = transfers.fold<int>(0, (sum, t) => sum + t.completedBytes);
+      final doneCount = transfers.where((t) => t.isDone).length;
+      return SyncBatchState(
+        totalSongs: transfers.length,
+        completedSongs: doneCount,
+        activeSongTitle: active.fileName,
+        activeBytes: active.completedBytes,
+        activeTotalBytes: active.totalBytes,
+        totalBytes: totalB,
+        completedBytes: compB,
+        isDownload: active.isDownload,
+        isDone: doneCount >= transfers.length,
+      );
+    }
+    return null;
+  }
+
+  void _checkBatchCompletion() {
+    final inTotal = _inboundPending.length + _inboundCompleted.length;
+    final outTotal = _outboundPending.length + _outboundCompleted.length;
+
+    final inboundFinished = inTotal > 0 && _inboundPending.isEmpty;
+    final outboundFinished = outTotal > 0 && _outboundPending.isEmpty;
+
+    if (inboundFinished || outboundFinished) {
+      _batchIsDone = true;
+      _flushNotify();
+      _batchCompletionTimer?.cancel();
+      _batchCompletionTimer = Timer(const Duration(milliseconds: 2200), () {
+        _inboundPending.clear();
+        _inboundCompleted.clear();
+        _outboundPending.clear();
+        _outboundCompleted.clear();
+        _batchIsDone = false;
+        _flushNotify();
+      });
+    }
+  }
+
+  Future<void> _syncTail = Future<void>.value();
   Future<void> get idle => _syncTail;
 
   void _track(Future<void> future) {
@@ -113,11 +214,7 @@ class SyncService extends ChangeNotifier {
     });
   }
 
-  /// A paired device deleted an original song we had a shared copy of; called
-  /// AFTER the copy has been removed (id + title for the controller).
   Future<void> Function(String songId, String title)? onRemoteDeleted;
-
-  /// A song finished downloading from a paired device (UI feedback).
   void Function(String title)? onDownloaded;
 
   List<TransferProgress> get transfers => [
@@ -126,7 +223,6 @@ class SyncService extends ChangeNotifier {
       ];
 
   bool hasChannel(String peerId) => _channels.containsKey(peerId);
-
   int get channelCount => _channels.length;
 
   void detachChannelAll() {
@@ -140,38 +236,38 @@ class SyncService extends ChangeNotifier {
   void attachChannel(String peerId, RTCDataChannel channel) {
     _channels[peerId] = channel;
     channel.onMessage = (msg) => _onMessage(peerId, msg);
-    // E2E: advertise our ephemeral X25519 public key in `hello` so the peer
-    // can derive a shared key to encrypt the relayed file stream. Only the
-    // relay transport does this (WebRTC is already DTLS-encrypted).
     final e2ePub =
         channel is RelayDataChannel ? channel.signaling.e2ePubB64 : null;
     debugPrint('[sync] attachChannel $peerId (e2ePub present: ${e2ePub != null})');
     _send(peerId, {
       'type': 'hello',
       'deviceName': identity.deviceName,
-      'e2ePub': ?e2ePub,
+      'e2ePub': e2ePub,
     });
-    // Advertise our whole library; the peer asks for what it's missing.
     _send(peerId, {
       'type': 'manifest',
       'songs': library.songs.map((s) => s.toJson()).toList(),
     });
-    // Advertise our playlists (and deletions) so both sides converge.
     _send(peerId, _playlistManifestMessage());
     _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
     _startResyncTimer();
   }
 
-  /// Keeps a periodic re-advertisement running while any channel is attached.
   void _startResyncTimer() {
     _resyncTimer?.cancel();
     _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
   }
 
-  /// Manually re-advertise our library + playlists to every online peer so anything the
-  /// peer is still missing (a transfer that failed and exhausted its retries)
-  /// is re-requested automatically. Clears stale send locks and retries.
+  Map<String, dynamic> _playlistManifestMessage() => {
+        'type': 'playlist_manifest',
+        'playlists': library.playlists.map((pl) => pl.toJson()).toList(),
+        'deleted': {
+          for (final e in library.deletedPlaylistsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
+      };
+
   int resyncNow() {
     _sending.clear();
     _sendQueues.clear();
@@ -196,7 +292,6 @@ class SyncService extends ChangeNotifier {
       _resyncTimer?.cancel();
       _resyncTimer = null;
     }
-    // Clean up partial downloads from this peer.
     final incomplete =
         _incoming.values.where((inc) => inc.peerId == peerId).toList();
     for (final inc in incomplete) {
@@ -204,6 +299,7 @@ class SyncService extends ChangeNotifier {
       _incoming.remove(inc.song.id);
       _finalizeRetries.remove(inc.song.id);
       try {
+        inc.raf.closeSync();
         library.incomingFile(inc.song.id).deleteSync();
       } catch (_) {}
       _removeProgress(peerId, inc.song.id);
@@ -231,8 +327,6 @@ class SyncService extends ChangeNotifier {
     switch (msg['type']) {
       case 'hello':
         debugPrint('[sync] <- $peerId: hello (e2ePub: ${msg['e2ePub'] != null})');
-        // E2E: if the peer advertised their X25519 public key, derive the
-        // shared key used to encrypt relayed data between us and them.
         final e2ePub = msg['e2ePub'];
         final ch = _channels[peerId];
         if (e2ePub is String && ch is RelayDataChannel) {
@@ -240,9 +334,6 @@ class SyncService extends ChangeNotifier {
             unawaited(ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub)));
           } catch (_) {}
         }
-        // The peer announced itself. Reply with our manifest so both sides
-        // always exchange library state, even if our initial manifest was
-        // sent before their channel handler was attached.
         _send(peerId, {
           'type': 'manifest',
           'songs': library.songs.map((s) => s.toJson()).toList(),
@@ -318,7 +409,15 @@ class SyncService extends ChangeNotifier {
     if (missing.isNotEmpty) {
       debugPrint(
           '[sync][diag] requesting ${missing.length} missing songs from $peerId');
+      _batchCompletionTimer?.cancel();
+      _batchIsDone = false;
+      for (final id in missing) {
+        if (!_inboundCompleted.contains(id)) {
+          _inboundPending.add(id);
+        }
+      }
       _send(peerId, {'type': 'request_songs', 'ids': missing});
+      _flushNotify();
     } else {
       debugPrint(
           '[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised)');
@@ -344,14 +443,19 @@ class SyncService extends ChangeNotifier {
     for (final id in ids) {
       final song = library.findById(id as String);
       if (song != null) {
+        if (!_outboundCompleted.contains(song.id)) {
+          _outboundPending.add(song.id);
+        }
         _enqueueSend(peerId, song);
       }
     }
+    _batchCompletionTimer?.cancel();
+    _batchIsDone = false;
+    _flushNotify();
   }
 
   // ---------- sending ----------
 
-  /// Send a song to every online peer.
   Future<void> broadcastSong(Song song) async {
     for (final peerId in _channels.keys.toList()) {
       _enqueueSend(peerId, song);
@@ -404,19 +508,21 @@ class SyncService extends ChangeNotifier {
         _updateUploadProgress(peerId, song.id, sentBytes);
       }
       _send(peerId, {'type': 'file_done', 'id': song.id});
+      _outboundPending.remove(song.id);
+      _outboundCompleted.add(song.id);
       _markComplete(peerId, song.id);
+      _checkBatchCompletion();
     } catch (e) {
       debugPrint('[sync] send failed $song: $e');
       _send(peerId, {'type': 'file_error', 'id': song.id, 'message': '$e'});
+      _outboundPending.remove(song.id);
       _removeProgress(peerId, song.id);
+      _checkBatchCompletion();
     } finally {
       _sending.remove(sendKey);
     }
   }
 
-  /// Key for the send-in-progress guard. Per-peer so two peers can receive the
-  /// same song concurrently — keying by song id alone silently dropped the
-  /// second peer's transfer.
   String _sendKey(String peerId, String songId) => '$peerId|$songId';
 
   Future<void> _sendChunk(
@@ -428,8 +534,12 @@ class SyncService extends ChangeNotifier {
   ) async {
     final envelope = _buildEnvelope(songId, index, total, payload);
     await channel.send(RTCDataChannelMessage.fromBinary(envelope));
-    // Throttle so we never flood the channel's send buffer, but never stall
-    // for long if the low-buffer event doesn't fire on this platform.
+
+    // Yield every 2 chunks so the event loop stays responsive
+    if (index % 2 == 0) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
     final buffered = channel.bufferedAmount ?? 0;
     if (buffered > 512 * 1024) {
       final low = Completer<void>();
@@ -447,16 +557,28 @@ class SyncService extends ChangeNotifier {
 
   void _startIncoming(String peerId, Map<String, dynamic> songJson) {
     final song = Song.fromJson(songJson);
-    // Duplicate?
     if (library.findById(song.id) != null ||
         library.hasChecksum(song.checksum)) {
       debugPrint('[sync][diag] file_meta for ${song.title} already have; skipping');
-      // We already have it; skip.
       _send(peerId, {'type': 'file_done', 'id': song.id});
       return;
     }
+
+    final existing = _incoming.remove(song.id);
+    if (existing != null) {
+      existing.timeoutTimer?.cancel();
+      try {
+        existing.raf.closeSync();
+      } catch (_) {}
+    }
+
     final file = library.incomingFile(song.id);
-    if (file.existsSync()) file.deleteSync();
+    file.parent.createSync(recursive: true);
+    if (file.existsSync()) {
+      try {
+        file.deleteSync();
+      } catch (_) {}
+    }
     final raf = file.openSync(mode: FileMode.append);
     final inc = _IncomingFile(
       peerId: peerId,
@@ -464,11 +586,7 @@ class SyncService extends ChangeNotifier {
       file: file,
       raf: raf,
     );
-    // Abort the transfer if it stalls (the peer died / its `file_done` never
-    // arrives / chunks stop coming). This is an INACTIVITY watchdog: it is
-    // reset on every chunk in `_onBinary`, so a slow-but-progressing transfer
-    // is never cut short — only a truly stalled one is cleaned up instead of
-    // leaking an open file handle / partial file forever.
+
     inc.timeoutTimer = Timer(incomingTimeout, () {
       inc.timeoutTimer = null;
       debugPrint('[sync] incoming ${song.id} timed out; aborting');
@@ -486,7 +604,7 @@ class SyncService extends ChangeNotifier {
 
   void _onBinary(String peerId, Uint8List bytes) {
     if (bytes.isEmpty || bytes[0] != 0x50) {
-      debugPrint('[sync][diag] <- $peerId: binary frame NOT an envelope (len=${bytes.length}, first=${bytes.isEmpty ? 'none' : bytes[0]})');
+      debugPrint('[sync][diag] <- $peerId: binary frame NOT an envelope (len=${bytes.length})');
       return;
     }
     var off = 1;
@@ -511,18 +629,20 @@ class SyncService extends ChangeNotifier {
       debugPrint('[sync][diag] <- $peerId: chunk $songId idx=$index/$total (${payload.length} bytes)');
     }
 
-    inc.raf.writeFromSync(payload);
-    inc.bytesReceived += payload.length;
-    // Reset the inactivity watchdog: any chunk means the transfer is alive.
-    // A fixed total timeout could abort a large song on a slow link, so this
-    // only fires when the transfer stalls (the peer died / chunks stopped
-    // arriving) — then the partial download is cleaned up, not leaked.
+    try {
+      inc.raf.writeFromSync(payload);
+      inc.bytesReceived += payload.length;
+    } catch (e) {
+      debugPrint('[sync] error writing chunk for $songId: $e');
+    }
+
     inc.timeoutTimer?.cancel();
     inc.timeoutTimer = Timer(incomingTimeout, () {
       inc.timeoutTimer = null;
       debugPrint('[sync] incoming $songId timed out; aborting');
       _track(_abortIncoming(peerId, songId));
     });
+
     final progress = _transfers[TransferProgress(
       peerId: peerId,
       songId: songId,
@@ -536,15 +656,9 @@ class SyncService extends ChangeNotifier {
     if (index == total - 1) {
       inc.completeChunks = true;
     }
-    // Coalesce per-chunk progress into at most one notify per ~100 ms.
-    // Notifying on every 64 KB chunk made every screen rebuild dozens of
-    // times per second during a transfer, which caused visible jank.
     _throttledNotify();
   }
 
-  /// Emits at most one [notifyListeners] per ~100 ms window. Progress updates
-  /// arrive for every chunk; coalescing them keeps the UI smooth without
-  /// dropping the final state (the last pending notify always fires).
   void _throttledNotify() {
     if (_notifyQueued) return;
     _notifyQueued = true;
@@ -568,15 +682,13 @@ class SyncService extends ChangeNotifier {
     inc.timeoutTimer?.cancel();
     inc.timeoutTimer = null;
     try {
-      inc.raf.closeSync();
+      try {
+        inc.raf.closeSync();
+      } catch (_) {}
       final length = await inc.file.length();
       if (length != inc.song.size) {
         throw Exception('size mismatch: got $length, expected ${inc.song.size}');
       }
-      // Verify the bytes we actually received match what the sender claimed,
-      // instead of trusting `inc.song.checksum` at face value. A same-length
-      // corruption (or a sender that mislabels a file) would otherwise be
-      // silently accepted and stored under an unverified checksum forever.
       final actualChecksum = await LibraryService.checksum(inc.file);
       if (actualChecksum != inc.song.checksum) {
         throw Exception(
@@ -591,20 +703,23 @@ class SyncService extends ChangeNotifier {
         sourceDeviceId: peerId,
         artwork: inc.song.artwork,
       );
+      _inboundPending.remove(songId);
+      _inboundCompleted.add(songId);
       _finalizeRetries.remove(songId);
       _markComplete(peerId, songId);
       onDownloaded?.call(inc.song.title);
+      _checkBatchCompletion();
     } catch (e) {
       debugPrint('[sync] finalize failed $songId: $e');
       try {
-        await inc.file.delete();
+        inc.raf.closeSync();
+      } catch (_) {}
+      try {
+        if (inc.file.existsSync()) {
+          inc.file.deleteSync();
+        }
       } catch (_) {}
       _removeProgress(peerId, songId);
-      // Self-heal: a failed finalize almost always means a chunk was dropped
-      // (a lost relay_ack, a mis-routed frame, or a stale E2E key raced the
-      // re-derivation). Re-request the song from the sender (up to
-      // [maxFinalizeRetries] times) so the transfer retries instead of
-      // silently vanishing until the next reconnect + manifest exchange.
       final retries = (_finalizeRetries[songId] ?? 0) + 1;
       if (retries <= maxFinalizeRetries) {
         _finalizeRetries[songId] = retries;
@@ -613,6 +728,8 @@ class SyncService extends ChangeNotifier {
         _send(peerId, {'type': 'request_songs', 'ids': [songId]});
       } else {
         _finalizeRetries.remove(songId);
+        _inboundPending.remove(songId);
+        _checkBatchCompletion();
         debugPrint(
             '[sync] giving up on $songId after $maxFinalizeRetries failed attempts');
       }
@@ -625,11 +742,17 @@ class SyncService extends ChangeNotifier {
     inc.timeoutTimer?.cancel();
     inc.timeoutTimer = null;
     _finalizeRetries.remove(songId);
+    _inboundPending.remove(songId);
     try {
       inc.raf.closeSync();
-      await inc.file.delete();
+    } catch (_) {}
+    try {
+      if (inc.file.existsSync()) {
+        inc.file.deleteSync();
+      }
     } catch (_) {}
     _removeProgress(peerId, songId);
+    _checkBatchCompletion();
   }
 
   // ---------- helpers ----------
@@ -638,8 +761,6 @@ class SyncService extends ChangeNotifier {
     final channel = _channels[peerId];
     if (channel == null) return;
     try {
-      // Swallow async send errors (e.g. sending on a channel that closed mid
-      // transfer) so they can never crash the app.
       channel.send(RTCDataChannelMessage(jsonEncode(msg))).catchError((Object e) {
         debugPrint('[sync] send failed: $e');
       });
@@ -649,29 +770,36 @@ class SyncService extends ChangeNotifier {
   Uint8List _buildEnvelope(
       String songId, int index, int total, List<int> payload) {
     final idBytes = utf8.encode(songId);
-    final out = BytesBuilder(copy: false);
-    out.addByte(0x50);
-    out.addByte((idBytes.length >> 8) & 0xff);
-    out.addByte(idBytes.length & 0xff);
-    out.add(idBytes);
-    out.add(_uint32(index));
-    out.add(_uint32(total));
-    out.add(payload);
-    return out.toBytes();
+    final idLen = idBytes.length;
+    final totalLen = 1 + 2 + idLen + 4 + 4 + payload.length;
+    final out = Uint8List(totalLen);
+    var off = 0;
+    out[off++] = 0x50;
+    out[off++] = (idLen >> 8) & 0xff;
+    out[off++] = idLen & 0xff;
+    out.setRange(off, off + idLen, idBytes);
+    off += idLen;
+    _writeUint32(out, off, index);
+    off += 4;
+    _writeUint32(out, off, total);
+    off += 4;
+    out.setRange(off, off + payload.length, payload);
+    return out;
   }
 
-  List<int> _uint32(int value) => [
-        (value >> 24) & 0xff,
-        (value >> 16) & 0xff,
-        (value >> 8) & 0xff,
-        value & 0xff,
-      ];
+  int _readUint32(Uint8List bytes, int offset) {
+    return (bytes[offset] << 24) |
+        (bytes[offset + 1] << 16) |
+        (bytes[offset + 2] << 8) |
+        bytes[offset + 3];
+  }
 
-  int _readUint32(Uint8List bytes, int offset) =>
-      (bytes[offset] << 24) |
-      (bytes[offset + 1] << 16) |
-      (bytes[offset + 2] << 8) |
-      bytes[offset + 3];
+  void _writeUint32(Uint8List bytes, int offset, int value) {
+    bytes[offset] = (value >> 24) & 0xff;
+    bytes[offset + 1] = (value >> 16) & 0xff;
+    bytes[offset + 2] = (value >> 8) & 0xff;
+    bytes[offset + 3] = value & 0xff;
+  }
 
   void _setProgress(TransferProgress p) {
     _transfers[p.key] = p;
@@ -683,8 +811,6 @@ class SyncService extends ChangeNotifier {
     _flushNotify();
   }
 
-  /// Move a finished transfer into the short-lived "completed" set so the UI
-  /// can flash a success state before it disappears.
   void _markComplete(String peerId, String songId) {
     TransferProgress? found;
     for (final t in _transfers.values) {
@@ -705,7 +831,6 @@ class SyncService extends ChangeNotifier {
     });
   }
 
-  /// Throttled live progress for an upload (the send loop updates per chunk).
   void _updateUploadProgress(String peerId, String songId, int bytes) {
     final p = _transfers[TransferProgress(
       peerId: peerId,
@@ -719,10 +844,6 @@ class SyncService extends ChangeNotifier {
     _throttledNotify();
   }
 
-  /// Tell every online peer that we deleted an original song (sourceDeviceId
-  /// null) so they drop their shared copy. Songs we merely received are never
-  /// broadcast — the origin owns them. Offline peers are reconciled on the next
-  /// manifest exchange instead.
   void broadcastSongDeleted(Song song) {
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {
@@ -734,9 +855,6 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  /// A peer deleted an original we had a shared copy of: remove the copy and
-  /// notify the controller. Local originals are never touched (ids are unique
-  /// per logical file, but this guard makes deleting our own files impossible).
   Future<void> _onRemoteDeleted(
     String peerId,
     Map<String, dynamic> msg,
@@ -751,15 +869,12 @@ class SyncService extends ChangeNotifier {
 
   // ---------- playlist sync ----------
 
-  /// Broadcast a playlist change (create / rename / add / remove / reorder) to
-  /// every online peer.
   void broadcastPlaylistUpsert(Playlist playlist) {
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {'type': 'playlist_upsert', 'playlist': playlist.toJson()});
     }
   }
 
-  /// Broadcast a playlist deletion to every online peer.
   void broadcastPlaylistDelete(String id, DateTime at) {
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {
@@ -769,15 +884,6 @@ class SyncService extends ChangeNotifier {
       });
     }
   }
-
-  Map<String, dynamic> _playlistManifestMessage() => {
-        'type': 'playlist_manifest',
-        'playlists': library.playlists.map((pl) => pl.toJson()).toList(),
-        'deleted': {
-          for (final e in library.deletedPlaylistsAt.entries)
-            e.key: e.value.toIso8601String(),
-        },
-      };
 
   Future<void> _onPlaylistManifest(
     String peerId,
@@ -797,7 +903,6 @@ class SyncService extends ChangeNotifier {
         if (at != null) deleted[key.toString()] = at;
       });
     }
-    // Merge; echo back any of OUR playlists that are newer than the peer's.
     final echo = await library.mergeRemotePlaylists(playlists, deleted);
     for (final pl in echo) {
       _send(peerId, {'type': 'playlist_upsert', 'playlist': pl.toJson()});
@@ -836,8 +941,13 @@ class SyncService extends ChangeNotifier {
     _notifyTimer = null;
     _completedTimer?.cancel();
     _completedTimer = null;
+    _batchCompletionTimer?.cancel();
+    _batchCompletionTimer = null;
     for (final inc in _incoming.values) {
       inc.timeoutTimer?.cancel();
+      try {
+        inc.raf.closeSync();
+      } catch (_) {}
     }
     _incoming.clear();
     super.dispose();
@@ -851,9 +961,6 @@ class _IncomingFile {
   final RandomAccessFile raf;
   int bytesReceived = 0;
   bool completeChunks = false;
-
-  /// Aborts this download if it never finishes (see
-  /// [SyncService.incomingTimeout]). Cancelled on finalize/abort/detach.
   Timer? timeoutTimer;
 
   _IncomingFile({
