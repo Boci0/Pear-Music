@@ -745,7 +745,7 @@ class _SongsPane extends StatelessWidget {
     final playlist = _playlistById(controller, activePlaylistId);
     final songs = playlist != null
         ? _songsForPlaylist(controller, playlist)
-        : controller.songs;
+        : controller.getSortedSongs(controller.songs);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -801,13 +801,7 @@ class _SongsPane extends StatelessWidget {
                               )
                             : null,
                       ),
-                      onTap: () {
-                        if (playlist != null) {
-                          player.playSong(s, queue: songs);
-                        } else {
-                          controller.playSong(s);
-                        }
-                      },
+                      onTap: () => player.playSong(s, queue: songs),
                     );
                   },
                 ),
@@ -842,7 +836,7 @@ class _PlayerDrawer extends StatelessWidget {
     final playlist = _playlistById(controller, activePlaylistId);
     final songs = playlist != null
         ? _songsForPlaylist(controller, playlist)
-        : controller.songs;
+        : controller.getSortedSongs(controller.songs);
 
     return Drawer(
       child: SafeArea(
@@ -933,11 +927,7 @@ class _PlayerDrawer extends StatelessWidget {
                         ),
                         onTap: () {
                           Navigator.of(context).pop();
-                          if (playlist != null) {
-                            player.playSong(s, queue: songs);
-                          } else {
-                            controller.playSong(s);
-                          }
+                          player.playSong(s, queue: songs);
                         },
                       ),
                 ],
