@@ -497,25 +497,24 @@ class SyncService extends ChangeNotifier {
       final total = fileSize == 0 ? 1 : (fileSize / chunkSize).ceil();
       var index = 0;
       var sentBytes = 0;
-      final pending = <int>[];
-      final reader = file.openRead();
-      await for (final buffer in reader) {
-        pending.addAll(buffer);
-        while (pending.length >= chunkSize) {
-          final piece = pending.sublist(0, chunkSize);
-          pending.removeRange(0, chunkSize);
+
+      final raf = await file.open(mode: FileMode.read);
+      try {
+        while (sentBytes < fileSize) {
+          final toRead = (fileSize - sentBytes) > chunkSize
+              ? chunkSize
+              : (fileSize - sentBytes);
+          final piece = await raf.read(toRead);
+          if (piece.isEmpty) break;
           await _sendChunk(channel, song.id, index, total, piece);
           index++;
           sentBytes += piece.length;
           _updateUploadProgress(peerId, song.id, sentBytes);
         }
+      } finally {
+        await raf.close();
       }
-      if (pending.isNotEmpty || index < total) {
-        await _sendChunk(channel, song.id, index, total, pending);
-        index++;
-        sentBytes += pending.length;
-        _updateUploadProgress(peerId, song.id, sentBytes);
-      }
+
       _send(peerId, {'type': 'file_done', 'id': song.id});
       _outboundPending.remove(song.id);
       _outboundCompleted.add(song.id);
@@ -671,7 +670,7 @@ class SyncService extends ChangeNotifier {
   void _throttledNotify() {
     if (_notifyQueued) return;
     _notifyQueued = true;
-    _notifyTimer ??= Timer(const Duration(milliseconds: 100), () {
+    _notifyTimer ??= Timer(const Duration(milliseconds: 50), () {
       _notifyQueued = false;
       _notifyTimer = null;
       notifyListeners();

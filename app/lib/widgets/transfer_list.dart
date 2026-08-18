@@ -18,11 +18,17 @@ class _TransferListState extends State<TransferList> {
   Widget build(BuildContext context) {
     final sync = context.watch<SyncService>();
     final batch = sync.batchState;
-    if (batch == null) {
-      _lastMaxFraction = 0.0;
-      return const SizedBox.shrink();
-    }
 
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      child: batch == null
+          ? const SizedBox.shrink()
+          : _buildCard(context, batch),
+    );
+  }
+
+  Widget _buildCard(BuildContext context, SyncBatchState batch) {
     final totalSongs = batch.totalSongs;
     final completedSongs = batch.completedSongs;
     final activeFraction = batch.progressFraction;
@@ -93,7 +99,7 @@ class _TransferListState extends State<TransferList> {
               const SizedBox(height: 8),
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: 0, end: overallFraction),
-                duration: const Duration(milliseconds: 250),
+                duration: const Duration(milliseconds: 200),
                 curve: Curves.easeOutCubic,
                 builder: (context, val, _) => ClipRRect(
                   borderRadius: BorderRadius.circular(4),
