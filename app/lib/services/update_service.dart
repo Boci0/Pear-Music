@@ -31,7 +31,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.3.6';
+  static const String currentVersion = '1.3.7';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -242,8 +242,10 @@ del "${zipFile.path}"
         scaffoldMessenger.hideCurrentSnackBar();
         scaffoldMessenger.showSnackBar(
           const SnackBar(
-            content: Text('Download complete. Launching installer...'),
-            duration: Duration(seconds: 3),
+            content: Text(
+              'Download complete. Launching installer... If prompted, allow "Install unknown apps" for Pear Music in Settings.',
+            ),
+            duration: Duration(seconds: 5),
           ),
         );
 
@@ -345,6 +347,38 @@ class _UpdateDialog extends StatelessWidget {
               ),
             ),
           ),
+          if (isAndroidWithApk) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'If prompted during install, allow "Install unknown apps" for Pear Music in your Android Settings.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
       actions: [
