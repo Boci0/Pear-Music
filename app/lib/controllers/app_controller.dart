@@ -201,6 +201,17 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // screen during pairing). The WebRTC layer was removed entirely; the relay
     // is stable on every network.
 
+    _pairedDevices.clear();
+    for (final entry in identity.pairedDeviceNames.entries) {
+      if (entry.key.isNotEmpty) {
+        _pairedDevices.add(PeerDevice(
+          deviceId: entry.key,
+          deviceName: entry.value.isNotEmpty ? entry.value : 'Paired device',
+          online: false,
+        ));
+      }
+    }
+
     // Listen to the server.
     _subs.add(signaling.stream.listen(_onServerMessage));
 
@@ -611,38 +622,29 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       final peer = PeerDevice.fromJson(Map<String, dynamic>.from(item));
       incoming[peer.deviceId] = peer;
     }
-    final pairedIds = incoming.keys.toSet();
 
-    // 1) Peers we were paired with but that the server no longer lists were
-    //    unpaired (explicitly, or the server lost the pairing on restart).
-    //    Drop them from the list and clean up their channels + songs.
-    final gone = _pairedDevices
-        .where((d) => !pairedIds.contains(d.deviceId))
-        .toList();
-    _pairedDevices.removeWhere((d) => !pairedIds.contains(d.deviceId));
-    for (final peer in gone) {
-      await _handlePeerGone(peer.deviceId, deviceName: peer.deviceName);
+    // Update existing paired devices: if the server reports an online/offline status,
+    // apply it. If a peer is currently not reported by the server, keep it as offline.
+    // NEVER wipe or unpair devices just because a server state omitted them.
+    // Unpairing only happens via explicit unpair actions.
+    for (var i = 0; i < _pairedDevices.length; i++) {
+      final existing = _pairedDevices[i];
+      final reported = incoming[existing.deviceId];
+      if (reported != null) {
+        _pairedDevices[i] = reported;
+      } else {
+        _pairedDevices[i] = existing.copyWith(online: false);
+      }
     }
 
-    // 2) Also remove shared songs whose source is no longer paired but that
-    //    have no _pairedDevices entry left to trigger cleanup (e.g. stale from
-    //    a previous session — the app was offline when the pairing ended, or
-    //    the app launched after a server restart). A peer that is merely
-    //    offline is still in the list, so its songs stay. Locally-added songs
-    //    (sourceDeviceId == null) are never affected.
-    final goneIds = gone.map((d) => d.deviceId).toSet();
-    final staleSources = library.songs
-        .map((s) => s.sourceDeviceId)
-        .whereType<String>()
-        .where((id) => !pairedIds.contains(id) && !goneIds.contains(id))
-        .toSet();
-    for (final sourceId in staleSources) {
-      await _handlePeerGone(sourceId);
-    }
-
+    // Add any newly discovered peers reported by the server
     for (final entry in incoming.entries) {
-      _upsertPeer(entry.value);
+      if (!_pairedDevices.any((d) => d.deviceId == entry.key)) {
+        _pairedDevices.add(entry.value);
+      }
+      await identity.addPairedDevice(entry.key, name: entry.value.deviceName);
     }
+
     notifyListeners();
     unawaited(_reconcileConnections());
   }
