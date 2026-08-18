@@ -415,7 +415,21 @@ wss.on('connection', (ws, req) => {
           try { existing.ws.close(4001, 'replaced'); } catch { /* ignore */ }
         }
         deviceId = id;
-        clearTimeout(registerTimer);
+        // Ingest any pairings the client already knows about (crucial when
+        // the server restarted or woke up from cloud hibernation).
+        if (Array.isArray(msg.pairings)) {
+          for (const p of msg.pairings) {
+            if (p && typeof p.deviceId === 'string' && p.deviceId.trim()) {
+              const pid = p.deviceId.trim();
+              if (pid !== id) {
+                addPersistedPair(id, pid);
+                if (typeof p.deviceName === 'string' && p.deviceName.trim()) {
+                  if (!persistedNames.has(pid)) persistedNames.set(pid, p.deviceName.trim());
+                }
+              }
+            }
+          }
+        }
         // Seed pairings from persistence so a restart doesn't unpair devices.
         const pairings = new Set(existing?.pairings || []);
         const persisted = persistedPairs.get(id);
@@ -426,8 +440,8 @@ wss.on('connection', (ws, req) => {
         // Remember the name so offline peers still show it after a restart.
         if (persistedNames.get(id) !== name) {
           persistedNames.set(id, name);
-          saveState();
         }
+        saveState();
         // Drop pairings to peers that are neither registered nor persisted
         // (truly stale/foreign deviceIds). Persisted pairings to offline peers
         // are kept so they survive restarts.
