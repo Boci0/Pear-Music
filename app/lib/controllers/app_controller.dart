@@ -232,9 +232,31 @@ class AppController extends ChangeNotifier {
     if (identity.isHost) {
       // I believe I'm the host. Before hosting, check whether another device
       // already took over as host while I was offline — if so, defer to it.
-      // Skip hosts we recently failed to reach so we don't defer to a stale
-      // URL, fail, take over, re-discover the same URL and loop forever.
-      final others = _filterReachable(await discoverNearby());
+      var others = _filterReachable(await discoverNearby());
+      if (others.isEmpty) {
+        // Router may block UDP multicast. Check if the previously remembered
+        // serverUrl or any known paired device is hosting on HTTP :8080.
+        final candidates = <String>{
+          if (identity.serverUrl.isNotEmpty &&
+              !identity.serverUrl.contains('localhost') &&
+              !identity.serverUrl.contains('127.0.0.1'))
+            identity.serverUrl,
+        };
+        for (final candidate in candidates) {
+          final uri = Uri.tryParse(candidate);
+          if (uri != null) {
+            final host = uri.host;
+            final probed = <String, DiscoveredServer>{};
+            final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 600);
+            await ServerDiscovery.probeCandidate(client, host, probed);
+            client.close(force: true);
+            if (probed.isNotEmpty) {
+              others = _filterReachable(probed.values.toList());
+              break;
+            }
+          }
+        }
+      }
       if (others.isNotEmpty) {
         debugPrint('[host] another host found (${others.first.url}); deferring');
         await identity.setIsHost(false);

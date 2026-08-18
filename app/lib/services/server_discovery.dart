@@ -129,6 +129,16 @@ class ServerDiscovery {
     }
   }
 
+  /// Directly probes a specific candidate host (e.g. remembered host IP)
+  /// without doing any subnet scanning.
+  static Future<void> probeCandidate(
+    HttpClient client,
+    String host,
+    Map<String, DiscoveredServer> out,
+  ) async {
+    await _probeHttp(client, host, out);
+  }
+
   static Future<void> _probeHttp(
     HttpClient client,
     String host,
