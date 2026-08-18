@@ -420,10 +420,10 @@ void main() {
 
   test('a dropped chunk self-heals: failed finalize re-requests the song',
       () async {
-    // A song big enough to span several chunks (200 KB -> 4 chunks). The first
+    // A song big enough to span several chunks (1.2 MB -> 3 chunks). The first
     // chunk is dropped, so B's first finalize fails on a size mismatch and it
     // re-requests the song — which then arrives intact.
-    await libA.addLocalFiles([makeAudio('retry.mp3', 200_000)]);
+    await libA.addLocalFiles([makeAudio('retry.mp3', 1_200_000)]);
 
     final chA = _DropOnceChannel();
     final chB = _FakeChannel();
@@ -454,7 +454,7 @@ void main() {
     // size-only check would have silently accepted it. The checksum check
     // must catch the mismatch, causing the same self-heal (re-request) path
     // as a dropped chunk uses.
-    await libA.addLocalFiles([makeAudio('corrupt.mp3', 200_000)]);
+    await libA.addLocalFiles([makeAudio('corrupt.mp3', 1_200_000)]);
 
     final chA = _CorruptOnceChannel();
     final chB = _FakeChannel();

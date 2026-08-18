@@ -73,7 +73,7 @@ class SyncBatchState {
 
 /// Transfers music files over WebRTC data channels.
 class SyncService extends ChangeNotifier {
-  static const int chunkSize = 64 * 1024;
+  static const int chunkSize = 512 * 1024;
 
   final Duration incomingTimeout;
   static const int maxFinalizeRetries = 2;
@@ -562,15 +562,13 @@ class SyncService extends ChangeNotifier {
     final envelope = _buildEnvelope(songId, index, total, payload);
     await channel.send(RTCDataChannelMessage.fromBinary(envelope));
 
-    // Yield every 2 chunks so the event loop stays responsive
-    if (index % 2 == 0) {
-      await Future<void>.delayed(Duration.zero);
-    }
+    // Yield on every chunk so the UI event loop and animations stay completely smooth
+    await Future<void>.delayed(Duration.zero);
 
     final buffered = channel.bufferedAmount ?? 0;
-    if (buffered > 512 * 1024) {
+    if (buffered > 1024 * 1024) {
       final low = Completer<void>();
-      channel.bufferedAmountLowThreshold = 64 * 1024;
+      channel.bufferedAmountLowThreshold = 256 * 1024;
       channel.onBufferedAmountLow = (_) {
         if (!low.isCompleted) low.complete();
       };
