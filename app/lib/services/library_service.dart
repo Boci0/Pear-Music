@@ -321,6 +321,16 @@ class LibraryService extends ChangeNotifier {
         _songs.indexWhere((s) => s.id == id || s.checksum == checksum);
     if (existingIdx >= 0) {
       final existing = _songs[existingIdx];
+      if (existing.sourceDeviceId == null) {
+        // This song was downloaded or added locally on this device.
+        // Preserve local ownership (sourceDeviceId == null) and discard duplicate.
+        if (await tmp.exists()) {
+          try {
+            await tmp.delete();
+          } catch (_) {}
+        }
+        return existing;
+      }
       _unindexSong(existing);
       _songs[existingIdx] = song;
     } else {
@@ -397,7 +407,6 @@ class LibraryService extends ChangeNotifier {
     for (final song in toRemove) {
       _songs.remove(song);
       _unindexSong(song);
-      recordSongDeleted(song.id, checksum: song.checksum);
       final f = songFile(song);
       if (await f.exists()) await f.delete();
       _stripSongFromPlaylists(song.id);
