@@ -1075,20 +1075,20 @@ class AppController extends ChangeNotifier {
       // 1) Try on the current server first (fast path when already aligned).
       if (connectionStatus == 'connected') {
         signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 5))) return null;
+        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
-      // 2) Discover nearby hosts (actively scanning subnet fallback if multicast misses).
+      // 2) Discover nearby hosts (actively probing subnet fallback if multicast misses).
       final hosts = await discoverNearby(allowSubnetScan: true);
       for (final host in hosts) {
         if (host.url == identity.serverUrl) continue;
         if (!await connectToServer(host.url)) continue;
         signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 5))) return null;
+        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
-      return 'No device found with that code. Make sure the other device is '
-          'open on the Pair screen, or scan its QR.';
+      return 'No device found with that code. Make sure the other device has '
+          'the Pair screen open, or scan its QR code.';
     } finally {
       _pairSmartActive = false;
     }

@@ -20,9 +20,12 @@ class PairingLink {
   // Client-side lenient check (the server enforces the strict alphabet).
   static final RegExp _codeRe = RegExp(r'^[A-Z0-9]{6}$');
 
-  /// Builds the QR payload for [code]: `pearmusic://pair/<CODE>`.
-  static String encode(String code) {
+  /// Builds the QR payload: `pearmusic://pair/<CODE>?server=<WS_URL>`
+  static String encode(String code, {String? server}) {
     final c = code.trim().toUpperCase();
+    if (server != null && server.isNotEmpty) {
+      return '$prefix$c?server=${Uri.encodeQueryComponent(server)}';
+    }
     return '$prefix$c';
   }
 
