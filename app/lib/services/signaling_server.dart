@@ -323,7 +323,7 @@ class SignalingServer {
         _log('[discover] multicast unavailable: $e');
       });
     } catch (_) {}
-    _announceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _announceTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       _sendAnnouncement();
     });
     _sendAnnouncement();

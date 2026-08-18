@@ -41,13 +41,16 @@ class ServerDiscovery {
 
   /// Discovers nearby servers, deduplicated by URL. Never throws.
   ///
-  /// Multicast is tried first. The subnet scan (up to 254 concurrent HTTP
-  /// connection attempts) only runs as a fallback when multicast finds nothing
-  /// — on a typical home LAN multicast works, so the scan is skipped entirely.
-  static Future<List<DiscoveredServer>> discover() async {
+  /// Multicast is always tried. The subnet scan (up to 254 concurrent HTTP
+  /// connection attempts) is strictly opt-in ([allowSubnetScan]) and reserved
+  /// for active manual user pairing. Background discovery and host election
+  /// loops NEVER run subnet scans, preventing network saturation.
+  static Future<List<DiscoveredServer>> discover({
+    bool allowSubnetScan = false,
+  }) async {
     final results = <String, DiscoveredServer>{};
     await _discoverViaMulticast(results);
-    if (results.isEmpty) {
+    if (results.isEmpty && allowSubnetScan) {
       await _discoverViaSubnetScan(results);
     }
     return results.values.toList();

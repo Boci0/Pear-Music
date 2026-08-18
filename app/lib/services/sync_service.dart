@@ -255,12 +255,6 @@ class SyncService extends ChangeNotifier {
     _send(peerId, _playlistManifestMessage());
     _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
-    _startResyncTimer();
-  }
-
-  void _startResyncTimer() {
-    _resyncTimer?.cancel();
-    _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
   }
 
   Map<String, dynamic> _playlistManifestMessage() => {

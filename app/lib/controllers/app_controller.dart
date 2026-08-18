@@ -296,13 +296,11 @@ class AppController extends ChangeNotifier {
   /// election to converge, since for the "losing" side it may never converge.
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
-    // Fire once after a short grace (let the connection settle), then
-    // periodically. 3 minutes is sufficient for host election — topology
-    // changes are rare and each reconcile triggers a LAN scan.
+    _hostReconcileTimer = null;
+    // Fire once after a short grace (let the connection settle).
+    // No periodic polling timer: topology and discovery are event-driven via
+    // UDP multicast announcements when peers join, eliminating periodic sweeps.
     Timer(const Duration(seconds: 3), () => unawaited(_reconcileHostAndGhost()));
-    _hostReconcileTimer = Timer.periodic(const Duration(minutes: 3), (_) {
-      unawaited(_reconcileHostAndGhost());
-    });
   }
 
   /// Single entry point for both host and ghost-pairing reconciliation.
@@ -1047,10 +1045,15 @@ class AppController extends ChangeNotifier {
   }
 
   /// LocalSend-style LAN discovery: finds nearby Pear Music servers on the
-  /// same network (multicast + subnet scan). Excludes this device itself.
-  Future<List<DiscoveredServer>> discoverNearby() async {
+  /// same network. Excludes this device itself. Background callers use passive
+  /// multicast only ([allowSubnetScan] = false).
+  Future<List<DiscoveredServer>> discoverNearby({
+    bool allowSubnetScan = false,
+  }) async {
     try {
-      final found = await ServerDiscovery.discover();
+      final found = await ServerDiscovery.discover(
+        allowSubnetScan: allowSubnetScan,
+      );
       return found
           .where((d) => d.deviceId != null && d.deviceId != identity.deviceId)
           .toList();
@@ -1075,8 +1078,8 @@ class AppController extends ChangeNotifier {
         if (await _waitForPairingOutcome(const Duration(seconds: 5))) return null;
       }
 
-      // 2) Discover nearby hosts and try the code on each.
-      final hosts = await discoverNearby();
+      // 2) Discover nearby hosts (actively scanning subnet fallback if multicast misses).
+      final hosts = await discoverNearby(allowSubnetScan: true);
       for (final host in hosts) {
         if (host.url == identity.serverUrl) continue;
         if (!await connectToServer(host.url)) continue;
