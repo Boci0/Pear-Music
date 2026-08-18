@@ -41,7 +41,7 @@ class SignalingService {
   /// clean close (restart, crashed, half-open link) is detected and reconnected
   /// instead of leaving the app in a fake "connected" state that does nothing.
   static const _pingInterval = Duration(seconds: 15);
-  static const _deadAfter = Duration(seconds: 45);
+  static const Duration _deadAfter = Duration(seconds: 90);
   Timer? _pingTimer;
   DateTime _lastServerActivity = DateTime.now();
 

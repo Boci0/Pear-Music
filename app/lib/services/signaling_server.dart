@@ -465,16 +465,6 @@ class SignalingServer {
       return;
     }
 
-    // Text message: rate-limit control traffic (binary frames are excluded —
-    // they are already paced by relay_ack).
-    if (!conn.controlLimiter.allow()) {
-      _log('[rate] ${conn.name} — control message flood');
-      try {
-        conn.ws.close(4003, 'rate limited');
-      } catch (_) {}
-      return;
-    }
-
     Map<String, dynamic>? msg;
     try {
       final decoded = jsonDecode(data);
@@ -483,6 +473,16 @@ class SignalingServer {
       return; // not JSON — ignore
     }
     if (msg == null) return;
+
+    // Text message: rate-limit general control traffic (pairing brute-force,
+    // reconnect storms). Binary chunk envelope markers ('relay') are excluded
+    // as they are paced by relay_ack during song file streaming.
+    if (msg['type'] != 'relay' && !conn.controlLimiter.allow()) {
+      _log('[rate] ${conn.name} — control message flood');
+      try {
+        conn.ws.close(4003, 'rate limited');
+      } catch (_) {}
+    }
 
     switch (msg['type']) {
       // ---- Register / re-register ----
