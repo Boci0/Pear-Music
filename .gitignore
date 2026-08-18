@@ -5,6 +5,8 @@
 dist/
 release/
 release_assets/
+*.zip
+*.apk
 
 # -----------------------------------------------
 # Flutter / Dart
