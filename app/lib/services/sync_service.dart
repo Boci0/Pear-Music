@@ -260,6 +260,10 @@ class SyncService extends ChangeNotifier {
           for (final e in library.deletedSongsAt.entries)
             e.key: e.value.toIso8601String(),
         },
+        'deleted_checksums': {
+          for (final e in library.deletedChecksumsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
       };
 
   Map<String, dynamic> _playlistManifestMessage() => {
@@ -344,7 +348,12 @@ class SyncService extends ChangeNotifier {
         break;
       case 'manifest':
         debugPrint('[sync][diag] <- $peerId: manifest (${(msg['songs'] as List?)?.length ?? 0} songs)');
-        _onManifest(peerId, msg['songs'] as List? ?? [], msg['deleted'] as Map?);
+        _onManifest(
+          peerId,
+          msg['songs'] as List? ?? [],
+          msg['deleted'] as Map?,
+          msg['deleted_checksums'] as Map?,
+        );
         break;
       case 'request_songs':
         debugPrint('[sync][diag] <- $peerId: request_songs (${(msg['ids'] as List?)?.length ?? 0})');
@@ -379,15 +388,33 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  void _onManifest(String peerId, List<dynamic> rawSongs, [Map? rawDeleted]) {
+  void _onManifest(
+    String peerId,
+    List<dynamic> rawSongs, [
+    Map? rawDeleted,
+    Map? rawDeletedChecksums,
+  ]) {
     if (rawDeleted != null) {
       rawDeleted.forEach((key, value) {
         final id = key.toString();
         final at = DateTime.tryParse(value.toString());
-        library.recordSongDeleted(id, at);
+        library.recordSongDeleted(id, at: at);
         final local = library.findById(id);
         if (local != null) {
           library.removeSong(id);
+        }
+      });
+    }
+
+    if (rawDeletedChecksums != null) {
+      rawDeletedChecksums.forEach((key, value) {
+        final checksum = key.toString();
+        final at = DateTime.tryParse(value.toString());
+        library.recordSongDeleted('', checksum: checksum, at: at);
+        final matching =
+            library.songs.where((s) => s.checksum == checksum).toList();
+        for (final s in matching) {
+          library.removeSong(s.id);
         }
       });
     }
@@ -396,7 +423,7 @@ class SyncService extends ChangeNotifier {
     for (final raw in rawSongs) {
       if (raw is! Map) continue;
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
-      if (library.isSongDeleted(song.id)) {
+      if (library.isSongDeleted(song.id, song.checksum)) {
         _send(peerId, {
           'type': 'song_deleted',
           'id': song.id,
@@ -868,6 +895,23 @@ class SyncService extends ChangeNotifier {
   }
 
   void broadcastSongDeleted(Song song) {
+    // 1. Abort any in-flight incoming transfer for this song
+    final inc = _incoming.remove(song.id);
+    if (inc != null) {
+      inc.timeoutTimer?.cancel();
+      try {
+        inc.raf.closeSync();
+      } catch (_) {}
+      try {
+        if (inc.file.existsSync()) inc.file.deleteSync();
+      } catch (_) {}
+    }
+    _inboundPending.remove(song.id);
+    _inboundCompleted.remove(song.id);
+    _transfers.removeWhere((k, v) => v.songId == song.id);
+    _flushNotify();
+
+    // 2. Broadcast to all active WebRTC data channels
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {
         'type': 'song_deleted',
@@ -883,12 +927,68 @@ class SyncService extends ChangeNotifier {
     Map<String, dynamic> msg,
   ) async {
     final id = msg['id'] as String?;
-    if (id == null) return;
-    final song = library.findById(id);
-    library.recordSongDeleted(id);
+    final checksum = msg['checksum'] as String?;
+    final title = (msg['title'] as String?) ?? '';
+    if (id == null && checksum == null) return;
+
+    // 1. Record tombstones for both id and checksum
+    if (id != null && id.isNotEmpty) {
+      library.recordSongDeleted(id, checksum: checksum);
+    } else if (checksum != null && checksum.isNotEmpty) {
+      library.recordSongDeleted('', checksum: checksum);
+    }
+
+    // 2. Abort any in-flight incoming transfers matching id or checksum
+    if (id != null && id.isNotEmpty) {
+      final inc = _incoming.remove(id);
+      if (inc != null) {
+        inc.timeoutTimer?.cancel();
+        try {
+          inc.raf.closeSync();
+        } catch (_) {}
+        try {
+          if (inc.file.existsSync()) inc.file.deleteSync();
+        } catch (_) {}
+      }
+      _inboundPending.remove(id);
+      _inboundCompleted.remove(id);
+      _transfers.removeWhere((k, v) => v.songId == id);
+    }
+    if (checksum != null && checksum.isNotEmpty) {
+      final matchingIncIds = _incoming.entries
+          .where((e) => e.value.song.checksum == checksum)
+          .map((e) => e.key)
+          .toList();
+      for (final incId in matchingIncIds) {
+        final inc = _incoming.remove(incId);
+        if (inc != null) {
+          inc.timeoutTimer?.cancel();
+          try {
+            inc.raf.closeSync();
+          } catch (_) {}
+          try {
+            if (inc.file.existsSync()) inc.file.deleteSync();
+          } catch (_) {}
+        }
+        _inboundPending.remove(incId);
+        _inboundCompleted.remove(incId);
+        _transfers.removeWhere((k, v) => v.songId == incId);
+      }
+    }
+    _flushNotify();
+
+    // 3. Find and remove local song by ID or checksum
+    Song? song;
+    if (id != null && id.isNotEmpty) {
+      song = library.findById(id);
+    }
+    if (song == null && checksum != null && checksum.isNotEmpty) {
+      song = library.songs.where((s) => s.checksum == checksum).firstOrNull;
+    }
     if (song == null) return;
-    await library.removeSong(id);
-    await onRemoteDeleted?.call(id, song.title);
+
+    await library.removeSong(song.id);
+    await onRemoteDeleted?.call(song.id, song.title.isNotEmpty ? song.title : title);
   }
 
   // ---------- playlist sync ----------

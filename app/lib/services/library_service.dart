@@ -42,16 +42,28 @@ class LibraryService extends ChangeNotifier {
   Map<String, DateTime> get deletedSongsAt =>
       Map.unmodifiable(_deletedSongsAt);
 
-  bool isSongDeleted(String id) => _deletedSongsAt.containsKey(id);
+  /// Audio checksums deleted on this device (checksum → deletion time).
+  final Map<String, DateTime> _deletedChecksumsAt = {};
+  Map<String, DateTime> get deletedChecksumsAt =>
+      Map.unmodifiable(_deletedChecksumsAt);
 
-  void recordSongDeleted(String id, [DateTime? at]) {
-    _deletedSongsAt[id] = at ?? DateTime.now();
+  bool isSongDeleted(String id, [String? checksum]) =>
+      _deletedSongsAt.containsKey(id) ||
+      (checksum != null && _deletedChecksumsAt.containsKey(checksum));
+
+  void recordSongDeleted(String id, {String? checksum, DateTime? at}) {
+    final timestamp = at ?? DateTime.now();
+    _deletedSongsAt[id] = timestamp;
+    if (checksum != null && checksum.isNotEmpty) {
+      _deletedChecksumsAt[checksum] = timestamp;
+    }
     _pruneDeletedSongs();
   }
 
   void _pruneDeletedSongs() {
     final cutoff = DateTime.now().subtract(const Duration(days: 30));
     _deletedSongsAt.removeWhere((_, at) => at.isBefore(cutoff));
+    _deletedChecksumsAt.removeWhere((_, at) => at.isBefore(cutoff));
   }
 
   /// Playlists deleted on this device (id → deletion time). Used to propagate
@@ -147,6 +159,13 @@ class LibraryService extends ChangeNotifier {
             if (at != null) _deletedSongsAt[key.toString()] = at;
           });
         }
+        final deletedChecksums = decoded['deleted_checksums'];
+        if (deletedChecksums is Map) {
+          deletedChecksums.forEach((key, value) {
+            final at = DateTime.tryParse(value.toString());
+            if (at != null) _deletedChecksumsAt[key.toString()] = at;
+          });
+        }
         _pruneDeletedSongs();
       }
     } catch (_) {
@@ -192,6 +211,10 @@ class LibraryService extends ChangeNotifier {
         'songs': _songs.map((s) => s.toJson()).toList(),
         'deleted': {
           for (final e in _deletedSongsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
+        'deleted_checksums': {
+          for (final e in _deletedChecksumsAt.entries)
             e.key: e.value.toIso8601String(),
         },
       }),
@@ -246,6 +269,7 @@ class LibraryService extends ChangeNotifier {
       _songs.add(song);
       _indexSong(song);
       _deletedSongsAt.remove(id);
+      _deletedChecksumsAt.remove(sum);
       added.add(song);
     }
     if (added.isNotEmpty) {
@@ -257,7 +281,8 @@ class LibraryService extends ChangeNotifier {
 
   /// Called when a file arrives from a peer. Moves the fully-downloaded temp
   /// file into the library and records it with the peer as [sourceDeviceId].
-  Future<Song> addReceivedSong({
+  /// Returns null if the song was marked deleted while transfer was in-flight.
+  Future<Song?> addReceivedSong({
     required String id,
     required String title,
     required String fileName,
@@ -267,6 +292,17 @@ class LibraryService extends ChangeNotifier {
     String? artwork,
   }) async {
     final tmp = incomingFile(id);
+    if (isSongDeleted(id, checksum)) {
+      debugPrint(
+          '[library] Discarding incoming song $id ($checksum): already marked deleted');
+      if (await tmp.exists()) {
+        try {
+          await tmp.delete();
+        } catch (_) {}
+      }
+      return null;
+    }
+
     final ext = p.extension(fileName);
     final finalName = '$id$ext';
     await tmp.rename(p.join(_libraryDir!.path, finalName));
@@ -291,7 +327,6 @@ class LibraryService extends ChangeNotifier {
       _songs.add(song);
     }
     _indexSong(song);
-    _deletedSongsAt.remove(id);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -331,6 +366,7 @@ class LibraryService extends ChangeNotifier {
     _songs.add(song);
     _indexSong(song);
     _deletedSongsAt.remove(id);
+    _deletedChecksumsAt.remove(sum);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -338,16 +374,16 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> removeSong(String id) async {
     final song = findById(id);
-    recordSongDeleted(id);
-    if (song == null) {
-      await _saveIndex();
-      return;
+    if (song != null) {
+      recordSongDeleted(id, checksum: song.checksum);
+      _songs.remove(song);
+      _unindexSong(song);
+      final f = songFile(song);
+      if (await f.exists()) await f.delete();
+      _stripSongFromPlaylists(id);
+    } else {
+      recordSongDeleted(id);
     }
-    _songs.remove(song);
-    _unindexSong(song);
-    final f = songFile(song);
-    if (await f.exists()) await f.delete();
-    _stripSongFromPlaylists(id);
     await _saveIndex();
     await _savePlaylists();
     notifyListeners();
@@ -361,7 +397,7 @@ class LibraryService extends ChangeNotifier {
     for (final song in toRemove) {
       _songs.remove(song);
       _unindexSong(song);
-      recordSongDeleted(song.id);
+      recordSongDeleted(song.id, checksum: song.checksum);
       final f = songFile(song);
       if (await f.exists()) await f.delete();
       _stripSongFromPlaylists(song.id);

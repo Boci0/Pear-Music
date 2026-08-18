@@ -19,6 +19,8 @@ import '../services/sync_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
+import 'package:flutter/widgets.dart';
+
 /// Central state + orchestration for the whole app.
 ///
 /// Owns the services and translates signaling / sync / player events into a
@@ -27,7 +29,7 @@ import '../services/youtube_service.dart';
 ///   - the music library
 ///   - in-flight transfer progress
 ///   - playback state
-class AppController extends ChangeNotifier {
+class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final IdentityService identity;
   final LibraryService library;
   final SignalingService signaling;
@@ -208,6 +210,7 @@ class AppController extends ChangeNotifier {
     // tens of seconds, the long black screen on launch that only cleared once
     // the connect finally failed. Start it in the background: the UI renders
     // immediately and flips to "offline" until the connection succeeds.
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_ensureConnection());
     notifyListeners();
   }
@@ -309,10 +312,34 @@ class AppController extends ChangeNotifier {
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
     _hostReconcileTimer = null;
-    // Fire once after a short grace (let the connection settle).
-    // No periodic polling timer: topology and discovery are event-driven via
-    // UDP multicast announcements when peers join, eliminating periodic sweeps.
+    // Fire shortly after becoming host, then periodically every 25 seconds while hosting
+    // if any paired device is offline, so split-brain hosts automatically discover and merge.
+    _hostReconcileTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (_closing || !identity.isHost) {
+        _hostReconcileTimer?.cancel();
+        _hostReconcileTimer = null;
+        return;
+      }
+      final hasOfflinePaired =
+          _pairedDevices.isEmpty || _pairedDevices.any((d) => !d.online);
+      if (hasOfflinePaired) {
+        unawaited(_reconcileHostAndGhost());
+      }
+    });
     Timer(const Duration(seconds: 3), () => unawaited(_reconcileHostAndGhost()));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[lifecycle] App resumed; checking network connections');
+      final hasOfflinePaired =
+          _pairedDevices.isEmpty || _pairedDevices.any((d) => !d.online);
+      if (connectionStatus != 'connected' || hasOfflinePaired) {
+        unawaited(_ensureConnection(allowSubnetScan: true));
+        unawaited(_reconcileHostAndGhost());
+      }
+    }
   }
 
   /// Single entry point for both host and ghost-pairing reconciliation.
@@ -411,6 +438,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> disposeAll() async {
     _closing = true;
+    WidgetsBinding.instance.removeObserver(this);
     _failoverTimer?.cancel();
     _failoverTimer = null;
     _hostReconcileTimer?.cancel();
