@@ -35,8 +35,10 @@ Thumbs.db
 tool/Output/
 
 # -----------------------------------------------
-# Ignored Documentation & Plans
+# Ignored Documentation, Agents, and Plans
 # -----------------------------------------------
+.agents/
+docs/
 *_FIX_PLAN.md
 *plan*.md
 *Fix Plan*.md
@@ -45,4 +47,4 @@ implementation_plan.md
 walkthrough.md
 *WORKFLOW*.md
 *workflow*.md
-docs/GITHUB_RELEASE_WORKFLOW.md
+
