@@ -36,20 +36,12 @@ class SignalingServer {
     this.advertiseName = 'Pear Music device',
     this.advertiseDeviceId,
     this.trustProxyHeaders = false,
-    this.manifestProvider,
-    this.songFileProvider,
-    this.onPeerPaired,
-    this.onPeerUnpaired,
   });
 
   final int port;
   final String host;
   final File? stateFile;
   final void Function(String message)? onLog;
-  final Map<String, dynamic> Function()? manifestProvider;
-  final File? Function(String songId)? songFileProvider;
-  final void Function(String deviceId, String deviceName)? onPeerPaired;
-  final void Function(String deviceId)? onPeerUnpaired;
 
   /// Whether to trust a client-supplied `X-Forwarded-For` header as the
   /// connecting IP. Only meaningful if this server is actually deployed
@@ -248,14 +240,6 @@ class SignalingServer {
   // HTTP + WebSocket entry points
   // ----------------------------------------------------------------------
 
-  String createPairingCode() {
-    final code = _generateCode();
-    final id = advertiseDeviceId ?? 'local';
-    _pairingCodes.removeWhere((_, p) => p.hostDeviceId == id);
-    _pairingCodes[code] = _Pairing(id, DateTime.now());
-    return code;
-  }
-
   Future<void> _handleHttp(HttpRequest req) async {
     if (WebSocketTransformer.isUpgradeRequest(req)) {
       try {
@@ -271,112 +255,16 @@ class SignalingServer {
       req.response.headers.contentType = ContentType.json;
       req.response.write(jsonEncode({
         'ok': true,
-        'service': 'pear-music-node',
-        'deviceId': advertiseDeviceId,
-        'deviceName': advertiseName,
+        'service': 'pear-music-signaling',
         'devices': _devices.length,
         'time': DateTime.now().toIso8601String(),
       }));
       await req.response.close();
     } else if (path == '/discover') {
+      // LAN discovery endpoint (subnet-scan fallback + QR-less joiner finds
+      // this host). Mirrors the UDP multicast hello so both paths agree.
       req.response.headers.contentType = ContentType.json;
       req.response.write(jsonEncode(_helloJson()));
-      await req.response.close();
-    } else if (path == '/api/pair' && req.method == 'POST') {
-      try {
-        final body = await utf8.decodeStream(req);
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        final code = (data['code'] as String? ?? '').trim().toUpperCase();
-        final peerId = data['deviceId'] as String?;
-        final peerName = data['deviceName'] as String? ?? 'Unnamed device';
-
-        if (peerId != null && code.isNotEmpty && _pairingCodes.containsKey(code)) {
-          _pairingCodes.remove(code);
-          if (advertiseDeviceId != null && advertiseDeviceId!.isNotEmpty) {
-            _addPair(advertiseDeviceId!, peerId);
-            _persistedNames[peerId] = peerName;
-            _clearTombstone(advertiseDeviceId!, peerId);
-            _saveState();
-            _notifyPresence(advertiseDeviceId!);
-            _notifyPresence(peerId);
-            final me = _peerInfo(advertiseDeviceId!);
-            final peer = _peerInfo(peerId);
-            _devices[peerId]?.send({'type': 'paired', 'peer': me});
-            _devices[advertiseDeviceId!]?.send({'type': 'paired', 'peer': peer});
-          }
-          onPeerPaired?.call(peerId, peerName);
-          req.response.headers.contentType = ContentType.json;
-          req.response.write(jsonEncode({
-            'ok': true,
-            'deviceId': advertiseDeviceId,
-            'deviceName': advertiseName,
-          }));
-        } else {
-          req.response.statusCode = HttpStatus.badRequest;
-          req.response.headers.contentType = ContentType.json;
-          req.response.write(jsonEncode({
-            'ok': false,
-            'message': 'Invalid or expired pairing code',
-          }));
-        }
-      } catch (e) {
-        req.response.statusCode = HttpStatus.badRequest;
-        req.response.write('Invalid request: $e');
-      }
-      await req.response.close();
-    } else if (path == '/api/unpair' && req.method == 'POST') {
-      try {
-        final body = await utf8.decodeStream(req);
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        final peerId = data['deviceId'] as String?;
-        if (peerId != null && advertiseDeviceId != null && advertiseDeviceId!.isNotEmpty) {
-          _removePair(advertiseDeviceId!, peerId);
-          onPeerUnpaired?.call(peerId);
-        }
-        req.response.headers.contentType = ContentType.json;
-        req.response.write(jsonEncode({'ok': true}));
-      } catch (e) {
-        req.response.statusCode = HttpStatus.badRequest;
-        req.response.write('Invalid request: $e');
-      }
-      await req.response.close();
-    } else if (path == '/api/sync/manifest') {
-      req.response.headers.contentType = ContentType.json;
-      final manifest = manifestProvider?.call() ?? <String, dynamic>{'songs': [], 'playlists': []};
-      req.response.write(jsonEncode(manifest));
-      await req.response.close();
-    } else if (path.startsWith('/api/songs/')) {
-      final segments = req.uri.pathSegments;
-      if (segments.length >= 3) {
-        final songId = segments[2];
-        final file = songFileProvider?.call(songId);
-        if (file != null && await file.exists()) {
-          final length = await file.length();
-          req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-          req.response.headers.contentType = ContentType('audio', 'mpeg');
-
-          final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
-          if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
-            final rangeSpec = rangeHeader.substring(6).split('-')[0];
-            final start = int.tryParse(rangeSpec) ?? 0;
-            if (start < length) {
-              req.response.statusCode = HttpStatus.partialContent;
-              req.response.headers.set(
-                HttpHeaders.contentRangeHeader,
-                'bytes $start-${length - 1}/$length',
-              );
-              req.response.contentLength = length - start;
-              await file.openRead(start).pipe(req.response);
-              return;
-            }
-          }
-          req.response.contentLength = length;
-          await file.openRead().pipe(req.response);
-          return;
-        }
-      }
-      req.response.statusCode = HttpStatus.notFound;
-      req.response.write('Song not found');
       await req.response.close();
     } else {
       req.response.statusCode = HttpStatus.notFound;
@@ -577,6 +465,16 @@ class SignalingServer {
       return;
     }
 
+    // Text message: rate-limit control traffic (binary frames are excluded —
+    // they are already paced by relay_ack).
+    if (!conn.controlLimiter.allow()) {
+      _log('[rate] ${conn.name} — control message flood');
+      try {
+        conn.ws.close(4003, 'rate limited');
+      } catch (_) {}
+      return;
+    }
+
     Map<String, dynamic>? msg;
     try {
       final decoded = jsonDecode(data);
@@ -585,16 +483,6 @@ class SignalingServer {
       return; // not JSON — ignore
     }
     if (msg == null) return;
-
-    // Text message: rate-limit general control traffic (pairing brute-force,
-    // reconnect storms). Binary chunk envelope markers ('relay') are excluded
-    // as they are paced by relay_ack during song file streaming.
-    if (msg['type'] != 'relay' && !conn.controlLimiter.allow()) {
-      _log('[rate] ${conn.name} — control message flood');
-      try {
-        conn.ws.close(4003, 'rate limited');
-      } catch (_) {}
-    }
 
     switch (msg['type']) {
       // ---- Register / re-register ----
@@ -614,7 +502,6 @@ class SignalingServer {
           return;
         }
         // Invalidate any previous pending code for this device.
-        _pairingCodes.removeWhere((_, p) => p.hostDeviceId == id);
         final code = _generateCode();
         _pairingCodes[code] = _Pairing(id, DateTime.now());
         conn.send({
@@ -978,10 +865,8 @@ class SignalingServer {
   }
 
   void _addPair(String aId, String bId) {
-    final a = _devices[aId];
-    if (a != null) a.pairings.add(bId);
-    final b = _devices[bId];
-    if (b != null) b.pairings.add(aId);
+    _pairingsOf(aId).add(bId);
+    _pairingsOf(bId).add(aId);
     _addPersistedPair(aId, bId);
     // A fresh, deliberate re-pair always wins over a stale tombstone from a
     // previous unpair — otherwise two devices could never re-pair after
@@ -991,10 +876,8 @@ class SignalingServer {
   }
 
   void _removePair(String aId, String bId) {
-    final a = _devices[aId];
-    if (a != null) a.pairings.remove(bId);
-    final b = _devices[bId];
-    if (b != null) b.pairings.remove(aId);
+    _pairingsOf(aId).remove(bId);
+    _pairingsOf(bId).remove(aId);
     _removePersistedPair(aId, bId);
     // Record that this pair was EXPLICITLY broken, so a device that was
     // offline at the time (and still reports the old pairing when it comes
@@ -1254,11 +1137,18 @@ class SignalingServer {
         type: InternetAddressType.IPv4,
         includeLoopback: false,
       );
-      // Prefer a private-range address peers can actually reach: skip APIPA
-      // link-local (169.254.x — never routable) and CGNAT (100.64.0.0/10 —
-      // used by Tailscale/VPN adapters, which a phone on the same Wi-Fi can't
-      // reach). This keeps the advertised ws:// URL pointing at the real LAN
-      // interface even when virtual adapters are present.
+      // Pass 1: Prefer real physical private-range addresses (skip virtual adapters,
+      // APIPA link-local 169.254.x, and CGNAT 100.64.0.0/10).
+      for (final iface in ifaces) {
+        if (_isVirtualIfaceName(iface.name)) continue;
+        for (final addr in iface.addresses) {
+          final a = addr.address;
+          if (a.isEmpty || a == '0.0.0.0') continue;
+          if (_isLinkLocal(a) || _isCgnat(a)) continue;
+          if (_isPrivateIpv4(a)) return a;
+        }
+      }
+      // Pass 2: Any private IPv4 if no non-virtual interface matched.
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
           final a = addr.address;
@@ -1267,7 +1157,7 @@ class SignalingServer {
           if (_isPrivateIpv4(a)) return a;
         }
       }
-      // Fallback: first non-loopback, non-link-local address.
+      // Pass 3: Fallback to first non-loopback, non-link-local, non-CGNAT address.
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
           final a = addr.address;
@@ -1278,6 +1168,25 @@ class SignalingServer {
       }
     } catch (_) {}
     return null;
+  }
+
+  static bool _isVirtualIfaceName(String name) {
+    final lower = name.toLowerCase();
+    return lower.contains('vethernet') ||
+        lower.contains('virtual') ||
+        lower.contains('vbox') ||
+        lower.contains('vmware') ||
+        lower.contains('vmnet') ||
+        lower.contains('wsl') ||
+        lower.contains('hyper-v') ||
+        lower.contains('docker') ||
+        lower.contains('tailscale') ||
+        lower.contains('zerotier') ||
+        lower.contains('tap') ||
+        lower.contains('tun') ||
+        lower.contains('bridge') ||
+        lower.contains('dummy') ||
+        lower.contains('loopback');
   }
 
   static bool _isLinkLocal(String s) => s.startsWith('169.254.');

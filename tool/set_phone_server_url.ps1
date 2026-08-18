@@ -1,7 +1,7 @@
 # Sets the phone's signaling server URL to the PC's embedded server
 # (ws://10.84.188.119:8080), preserving the existing device id/secret.
 $ErrorActionPreference = 'Stop'
-$adb = 'C:\Users\muhdb\AppData\Local\Android\Sdk\platform-tools\adb.exe'
+$adb = if ($env:LOCALAPPDATA) { "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" } else { "adb" }
 
 $xml = @'
 <?xml version='1.0' encoding='utf-8' standalone='yes' ?>

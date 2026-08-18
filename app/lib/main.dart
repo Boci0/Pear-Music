@@ -73,10 +73,11 @@ Future<void> main() async {
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());
 
-  late final SignalingServer server;
-  late final AppController controller;
-
-  server = SignalingServer(
+  // Embedded signaling server. It is NOT started here — the controller starts
+  // it only when this device is the host (the "last online" device), so at any
+  // moment exactly one device on the network runs the server. State (pairings/
+  // names/secrets) persists in the app support directory.
+  final server = SignalingServer(
     port: 8080,
     stateFile: File(
       '${(await getApplicationSupportDirectory()).path}/peerm_server_state.json',
@@ -84,16 +85,9 @@ Future<void> main() async {
     onLog: (m) => debugPrint('[server] $m'),
     advertiseName: identity.deviceName,
     advertiseDeviceId: identity.deviceId,
-    manifestProvider: () => sync.buildLocalManifestMessage(),
-    songFileProvider: (id) {
-      final s = library.findById(id);
-      return s != null ? library.songFile(s) : null;
-    },
-    onPeerPaired: (id, name) => controller.handleDirectPeerPaired(id, name),
-    onPeerUnpaired: (id) => controller.handleDirectPeerUnpaired(id),
   );
 
-  controller = AppController(
+  final controller = AppController(
     identity: identity,
     library: library,
     signaling: signaling,
@@ -103,14 +97,6 @@ Future<void> main() async {
     server: server,
   );
   await controller.init();
-
-  // Always keep the lightweight local HTTP/WebSocket server running on port 8080.
-  // This enables instant direct HTTP pairing, local QR code generation, and /discover endpoints.
-  try {
-    await server.start();
-  } catch (e) {
-    debugPrint('[main] could not bind local server: $e');
-  }
 
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);

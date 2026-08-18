@@ -17,13 +17,6 @@ class DiscoveredServer {
   final String url;
   final String? deviceId;
 
-  String get httpUrl {
-    if (url.startsWith('ws://')) return 'http://${url.substring(5)}';
-    if (url.startsWith('wss://')) return 'https://${url.substring(6)}';
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return 'http://$url';
-  }
-
   @override
   String toString() => '$name ($url)';
 }
@@ -42,23 +35,26 @@ class ServerDiscovery {
   static const int port = 8080;
   static const String multicastGroup = '224.0.0.173'; // in 224.0.0.0/24 (Android-friendly)
 
-  static const Duration _httpTimeout = Duration(milliseconds: 400);
+  static const Duration _httpTimeout = Duration(milliseconds: 800);
   static const Duration _multicastWait = Duration(seconds: 2);
   static const int _scanConcurrency = 50;
 
   /// Discovers nearby servers, deduplicated by URL. Never throws.
   ///
-  /// Multicast is always tried. The subnet scan (up to 254 concurrent HTTP
-  /// connection attempts) is strictly opt-in ([allowSubnetScan]) and reserved
-  /// for active manual user pairing. Background discovery and host election
-  /// loops NEVER run subnet scans, preventing network saturation.
+  /// Multicast is always tried. When [allowSubnetScan] is true (during active
+  /// pairing), multicast and HTTP subnet scanning run in parallel so self-
+  /// multicast responses do not prevent discovering real hosts on the LAN.
   static Future<List<DiscoveredServer>> discover({
     bool allowSubnetScan = false,
   }) async {
     final results = <String, DiscoveredServer>{};
-    await _discoverViaMulticast(results);
-    if (results.isEmpty && allowSubnetScan) {
-      await _discoverViaSubnetScan(results);
+    if (allowSubnetScan) {
+      await Future.wait([
+        _discoverViaMulticast(results),
+        _discoverViaSubnetScan(results),
+      ]);
+    } else {
+      await _discoverViaMulticast(results);
     }
     return results.values.toList();
   }
@@ -80,7 +76,7 @@ class ServerDiscovery {
         if (event != RawSocketEvent.read) return;
         final dg = bound.receive();
         if (dg == null) return;
-        final server = _parseHello(dg.data);
+        final server = _parseHello(dg.data, fallbackHost: dg.address.address);
         if (server != null) out[server.url] = server;
       });
       final deadline = DateTime.now().add(_multicastWait);
@@ -136,16 +132,6 @@ class ServerDiscovery {
     }
   }
 
-  /// Directly probes a specific candidate host (e.g. remembered host IP)
-  /// without doing any subnet scanning.
-  static Future<void> probeCandidate(
-    HttpClient client,
-    String host,
-    Map<String, DiscoveredServer> out,
-  ) async {
-    await _probeHttp(client, host, out);
-  }
-
   static Future<void> _probeHttp(
     HttpClient client,
     String host,
@@ -156,7 +142,7 @@ class ServerDiscovery {
       final res = await req.close();
       if (res.statusCode != HttpStatus.ok) return;
       final body = await res.transform(utf8.decoder).join();
-      final server = _parseHello(utf8.encode(body));
+      final server = _parseHello(utf8.encode(body), fallbackHost: host);
       if (server != null) out[server.url] = server;
     } catch (_) {
       // host not reachable / not a Pear Music device
@@ -164,12 +150,23 @@ class ServerDiscovery {
   }
 
   /// Parses a `peerm_hello` JSON payload into a [DiscoveredServer], or null.
-  static DiscoveredServer? _parseHello(List<int> bytes) {
+  static DiscoveredServer? _parseHello(
+    List<int> bytes, {
+    String? fallbackHost,
+  }) {
     try {
       final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
       if (decoded is! Map<String, dynamic>) return null;
       if (decoded['type'] != 'peerm_hello') return null;
-      final url = decoded['url'] as String?;
+      var url = decoded['url'] as String?;
+      if (fallbackHost != null && fallbackHost.isNotEmpty) {
+        if (url == null ||
+            url.isEmpty ||
+            url.contains('localhost') ||
+            url.contains('127.0.0.1')) {
+          url = 'ws://$fallbackHost:$port';
+        }
+      }
       if (url == null || url.isEmpty) return null;
       return DiscoveredServer(
         name: (decoded['name'] as String?)?.trim().isNotEmpty == true

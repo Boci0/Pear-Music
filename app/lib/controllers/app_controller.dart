@@ -88,7 +88,6 @@ class AppController extends ChangeNotifier {
         list.sort((a, b) => b.size.compareTo(a.size));
         break;
       case SortOption.dateAdded:
-      default:
         list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
         break;
     }
@@ -232,35 +231,9 @@ class AppController extends ChangeNotifier {
     if (identity.isHost) {
       // I believe I'm the host. Before hosting, check whether another device
       // already took over as host while I was offline — if so, defer to it.
-      var others = _filterReachable(await discoverNearby());
-      if (others.isEmpty) {
-        // Router may block UDP multicast. Probe remembered serverUrl, gateway IP,
-        // and do a fast subnet scan to ensure we don't start a duplicate server.
-        final candidates = <String>{
-          if (identity.serverUrl.isNotEmpty &&
-              !identity.serverUrl.contains('localhost') &&
-              !identity.serverUrl.contains('127.0.0.1'))
-            identity.serverUrl,
-        };
-        for (final candidate in candidates) {
-          final uri = Uri.tryParse(candidate);
-          if (uri != null) {
-            final host = uri.host;
-            final probed = <String, DiscoveredServer>{};
-            final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 600);
-            await ServerDiscovery.probeCandidate(client, host, probed);
-            client.close(force: true);
-            if (probed.isNotEmpty) {
-              others = _filterReachable(probed.values.toList());
-              break;
-            }
-          }
-        }
-        if (others.isEmpty) {
-          // If candidate probe missed, run a single subnet sweep to find any active host.
-          others = _filterReachable(await discoverNearby(allowSubnetScan: true));
-        }
-      }
+      // Skip hosts we recently failed to reach so we don't defer to a stale
+      // URL, fail, take over, re-discover the same URL and loop forever.
+      final others = _filterReachable(await discoverNearby());
       if (others.isNotEmpty) {
         debugPrint('[host] another host found (${others.first.url}); deferring');
         await identity.setIsHost(false);
@@ -731,77 +704,18 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  // ---------- pairing ----------
+
   Future<void> generatePairingCode() async {
-    if (server.boundPort > 0) {
-      final code = server.createPairingCode();
-      pendingPairingCode = code;
-      notifyListeners();
+    if (connectionStatus != 'connected') {
+      _postMessage(
+        'Not connected to the server. Set the server URL in Settings and tap Connect.',
+      );
       return;
     }
-    if (signaling.isConnected || connectionStatus == 'connected') {
-      signaling.createPairing();
-    }
-  }
-
-  void handleDirectPeerPaired(String peerId, String peerName) {
-    identity.addPairedDevice(peerId, name: peerName);
-    _upsertPeer(PeerDevice(deviceId: peerId, deviceName: peerName, online: true));
+    pendingPairingCode = null;
     notifyListeners();
-  }
-
-  void handleDirectPeerUnpaired(String peerId) {
-    identity.removePairedDevice(peerId);
-    library.removeAllFromSource(peerId);
-    notifyListeners();
-  }
-
-  /// Direct HTTP mutual pairing with a specific host/port (e.g. from QR scan).
-  /// Takes < 200ms and avoids all WebSocket connection timeouts.
-  Future<String?> pairDirect({
-    required String code,
-    required String host,
-    int port = 8080,
-  }) async {
-    final c = code.trim().toUpperCase();
-    if (c.length != 6) return 'Enter the 6-character code';
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 2500);
-      final uri = Uri.parse('http://$host:$port/api/pair');
-      final req = await client.postUrl(uri);
-      req.headers.contentType = ContentType.json;
-      req.write(jsonEncode({
-        'code': c,
-        'deviceId': identity.deviceId,
-        'deviceName': identity.deviceName,
-      }));
-      final resp = await req.close();
-      if (resp.statusCode == HttpStatus.ok) {
-        final body = await utf8.decodeStream(resp);
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        if (data['ok'] == true) {
-          final peerId = (data['deviceId'] as String?) ?? '';
-          final peerName = (data['deviceName'] as String?) ?? 'Pear Music device';
-          if (peerId.isNotEmpty) {
-            await identity.addPairedDevice(peerId, name: peerName);
-            _upsertPeer(PeerDevice(deviceId: peerId, deviceName: peerName, online: true));
-            _postMessage('Paired with $peerName');
-            notifyListeners();
-            unawaited(sync.syncWithPeerHttp('http://$host:$port', peerId));
-          }
-          client.close();
-          return null;
-        } else {
-          client.close();
-          return data['message'] as String? ?? 'Pairing rejected';
-        }
-      } else {
-        client.close();
-        return 'Pairing rejected by device (status ${resp.statusCode})';
-      }
-    } catch (e) {
-      return 'Could not reach device at $host:$port ($e)';
-    }
+    signaling.createPairing();
   }
 
   Future<void> joinWithCode(String code) async {
@@ -1082,7 +996,7 @@ class AppController extends ChangeNotifier {
   }
 
   /// Smart Connect: switch to [url] (if different) and wait until this device
-  /// is connected + registered with that server (up to ~20s). Returns true on
+  /// is connected + registered with that server (up to ~6s). Returns true on
   /// success. Used by the QR flow so scanning a host's QR joins the right
   /// server automatically instead of requiring a manual URL edit.
   Future<bool> connectToServer(String url) async {
@@ -1104,14 +1018,18 @@ class AppController extends ChangeNotifier {
     }
     if (identity.serverUrl != target) {
       await updateServerUrl(target);
+    } else if (connectionStatus != 'connected') {
+      await signaling.restart();
     }
-    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    final deadline = DateTime.now().add(const Duration(seconds: 6));
     while (DateTime.now().isBefore(deadline)) {
-      if (connectionStatus == 'connected') return true;
-      await Future.delayed(const Duration(milliseconds: 250));
+      if (connectionStatus == 'connected' && signaling.isRegistered) return true;
+      await Future.delayed(const Duration(milliseconds: 100));
     }
-    if (connectionStatus != 'connected') _markUnreachable(target);
-    return connectionStatus == 'connected';
+    if (connectionStatus != 'connected' || !signaling.isRegistered) {
+      _markUnreachable(target);
+    }
+    return connectionStatus == 'connected' && signaling.isRegistered;
   }
 
   /// Hosts we can currently try to connect to — drops URLs we recently failed
@@ -1157,53 +1075,20 @@ class AppController extends ChangeNotifier {
 
     _pairSmartActive = true;
     try {
-      // 1) Fast path: if already connected to a signaling server, try it immediately.
-      if (signaling.isConnected || connectionStatus == 'connected') {
-        signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 3))) return null;
+      // 1) Try on the current server first (fast path when already aligned).
+      if (connectionStatus == 'connected') {
+        await signaling.pairWithCode(c);
+        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
-      // 2) Direct HTTP pairing attempt on candidate LAN nodes (instant & symmetric)
+      // 2) Discover nearby hosts (actively probing subnet fallback in parallel).
       final hosts = await discoverNearby(allowSubnetScan: true);
       for (final host in hosts) {
-        try {
-          final client = HttpClient()
-            ..connectionTimeout = const Duration(milliseconds: 1500);
-          final req = await client.postUrl(Uri.parse('${host.httpUrl}/api/pair'));
-          req.headers.contentType = ContentType.json;
-          req.write(jsonEncode({
-            'code': c,
-            'deviceId': identity.deviceId,
-            'deviceName': identity.deviceName,
-          }));
-          final resp = await req.close();
-          if (resp.statusCode == HttpStatus.ok) {
-            final body = await utf8.decodeStream(resp);
-            final data = jsonDecode(body) as Map<String, dynamic>;
-            if (data['ok'] == true) {
-              final peerId = (data['deviceId'] as String?) ?? host.deviceId ?? '';
-              final peerName = (data['deviceName'] as String?) ?? host.name;
-              if (peerId.isNotEmpty) {
-                await identity.addPairedDevice(peerId, name: peerName);
-                _upsertPeer(PeerDevice(deviceId: peerId, deviceName: peerName, online: true));
-                _postMessage('Paired with $peerName');
-                notifyListeners();
-                unawaited(sync.syncWithPeerHttp(host.httpUrl, peerId));
-              }
-              client.close();
-              return null;
-            }
-          }
-          client.close();
-        } catch (_) {}
-      }
-
-      // 3) Try WebSocket connection to nearby hosts fallback
-      for (final host in hosts) {
-        if (host.url == identity.serverUrl) continue;
-        if (!await connectToServer(host.url)) continue;
-        signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 3))) return null;
+        if (host.url != identity.serverUrl || connectionStatus != 'connected') {
+          if (!await connectToServer(host.url)) continue;
+        }
+        await signaling.pairWithCode(c);
+        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
       return 'No device found with that code. Make sure the other device has '
@@ -1225,6 +1110,8 @@ class AppController extends ChangeNotifier {
       if (msg['type'] == 'paired') {
         if (!completer.isCompleted) completer.complete(true);
       } else if (msg['type'] == 'error') {
+        if (!completer.isCompleted) completer.complete(false);
+      } else if (msg['type'] == '_local' && msg['event'] == 'disconnected') {
         if (!completer.isCompleted) completer.complete(false);
       }
     });

@@ -22,7 +22,6 @@ class LibraryService extends ChangeNotifier {
   final Map<String, Song> _songsById = {};
   final Set<String> _checksums = {};
   List<Song> get songs => List.unmodifiable(_songs);
-  bool hasSong(String id) => _songsById.containsKey(id);
 
   void _rebuildIndexMaps() {
     _songsById.clear();
@@ -230,22 +229,7 @@ class LibraryService extends ChangeNotifier {
     final tmp = incomingFile(id);
     final ext = p.extension(fileName);
     final finalName = '$id$ext';
-    final targetPath = p.join(_libraryDir!.path, finalName);
-    final targetFile = File(targetPath);
-    if (await targetFile.exists()) {
-      try {
-        await targetFile.delete();
-      } catch (_) {}
-    }
-    try {
-      await tmp.rename(targetPath);
-    } catch (_) {
-      // Fallback if renaming across different mount points / locked handles
-      await tmp.copy(targetPath);
-      try {
-        await tmp.delete();
-      } catch (_) {}
-    }
+    await tmp.rename(p.join(_libraryDir!.path, finalName));
 
     final song = Song(
       id: id,

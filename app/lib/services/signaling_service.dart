@@ -41,7 +41,7 @@ class SignalingService {
   /// clean close (restart, crashed, half-open link) is detected and reconnected
   /// instead of leaving the app in a fake "connected" state that does nothing.
   static const _pingInterval = Duration(seconds: 15);
-  static const Duration _deadAfter = Duration(seconds: 90);
+  static const _deadAfter = Duration(seconds: 45);
   Timer? _pingTimer;
   DateTime _lastServerActivity = DateTime.now();
 
@@ -58,7 +58,9 @@ class SignalingService {
   /// True once the server has accepted registration and acknowledged deviceId.
   bool get isRegistered => _isRegistered;
 
-  Future<bool> waitForRegistered({Duration timeout = const Duration(seconds: 4)}) async {
+  Future<bool> waitForRegistered({
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
     if (_isRegistered) return true;
     final c = Completer<bool>();
     _registeredCompleters.add(c);
@@ -342,6 +344,7 @@ class SignalingService {
             }
             _registeredCompleters.clear();
             if (decoded['secret'] is String) {
+              // Persist the device-auth secret the server issued (first contact).
               identity.setDeviceSecret(decoded['secret'] as String);
             }
           }
@@ -398,6 +401,10 @@ class SignalingService {
   void _handleDisconnect() {
     _connected = false;
     _isRegistered = false;
+    for (final c in List<Completer<bool>>.from(_registeredCompleters)) {
+      if (!c.isCompleted) c.complete(false);
+    }
+    _registeredCompleters.clear();
     _channel = null;
     _pingTimer?.cancel();
     _pingTimer = null;
