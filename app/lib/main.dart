@@ -104,6 +104,14 @@ Future<void> main() async {
   );
   await controller.init();
 
+  // Always keep the lightweight local HTTP/WebSocket server running on port 8080.
+  // This enables instant direct HTTP pairing, local QR code generation, and /discover endpoints.
+  try {
+    await server.start();
+  } catch (e) {
+    debugPrint('[main] could not bind local server: $e');
+  }
+
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);
   runApp(PearMusicApp(controller: controller, playerTheme: playerTheme));
