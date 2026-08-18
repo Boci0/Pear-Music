@@ -295,7 +295,14 @@ class SignalingServer {
           if (advertiseDeviceId != null && advertiseDeviceId!.isNotEmpty) {
             _addPair(advertiseDeviceId!, peerId);
             _persistedNames[peerId] = peerName;
+            _clearTombstone(advertiseDeviceId!, peerId);
             _saveState();
+            _notifyPresence(advertiseDeviceId!);
+            _notifyPresence(peerId);
+            final me = _peerInfo(advertiseDeviceId!);
+            final peer = _peerInfo(peerId);
+            _devices[peerId]?.send({'type': 'paired', 'peer': me});
+            _devices[advertiseDeviceId!]?.send({'type': 'paired', 'peer': peer});
           }
           onPeerPaired?.call(peerId, peerName);
           req.response.headers.contentType = ContentType.json;

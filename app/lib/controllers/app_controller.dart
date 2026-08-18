@@ -738,7 +738,7 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (connectionStatus == 'connected') {
+    if (signaling.isConnected || connectionStatus == 'connected') {
       signaling.createPairing();
     }
   }
@@ -1157,7 +1157,13 @@ class AppController extends ChangeNotifier {
 
     _pairSmartActive = true;
     try {
-      // 1) Direct HTTP pairing attempt on candidate LAN nodes (instant & symmetric)
+      // 1) Fast path: if already connected to a signaling server, try it immediately.
+      if (signaling.isConnected || connectionStatus == 'connected') {
+        signaling.pairWithCode(c);
+        if (await _waitForPairingOutcome(const Duration(seconds: 3))) return null;
+      }
+
+      // 2) Direct HTTP pairing attempt on candidate LAN nodes (instant & symmetric)
       final hosts = await discoverNearby(allowSubnetScan: true);
       for (final host in hosts) {
         try {
@@ -1192,18 +1198,12 @@ class AppController extends ChangeNotifier {
         } catch (_) {}
       }
 
-      // 2) Try on the current server (fast path when already connected).
-      if (connectionStatus == 'connected') {
-        signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
-      }
-
       // 3) Try WebSocket connection to nearby hosts fallback
       for (final host in hosts) {
         if (host.url == identity.serverUrl) continue;
         if (!await connectToServer(host.url)) continue;
         signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
+        if (await _waitForPairingOutcome(const Duration(seconds: 3))) return null;
       }
 
       return 'No device found with that code. Make sure the other device has '
