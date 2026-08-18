@@ -33,18 +33,3 @@ Thumbs.db
 .idea/
 .vscode/
 tool/Output/
-
-# -----------------------------------------------
-# Ignored Documentation, Agents, and Plans
-# -----------------------------------------------
-.agents/
-docs/
-*_FIX_PLAN.md
-*plan*.md
-*Fix Plan*.md
-part 2Ghost Pairing.md
-implementation_plan.md
-walkthrough.md
-*WORKFLOW*.md
-*workflow*.md
-
