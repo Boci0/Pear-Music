@@ -37,4 +37,10 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""Pear Music (TCP-In)"" dir=in action=allow program=""{app}\{#MyAppExeName}"" protocol=TCP enable=yes profile=any"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""Pear Music (UDP-In)"" dir=in action=allow program=""{app}\{#MyAppExeName}"" protocol=UDP enable=yes profile=any"; Flags: runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""Pear Music (TCP-In)"" program=""{app}\{#MyAppExeName}"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""Pear Music (UDP-In)"" program=""{app}\{#MyAppExeName}"""; Flags: runhidden
