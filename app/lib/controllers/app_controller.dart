@@ -214,8 +214,20 @@ class AppController extends ChangeNotifier {
 
   /// Reset connection and re-trigger file transfer checks and manifest exchange with all devices.
   Future<int> forceSync() async {
-    await signaling.restart();
-    await _ensureConnection();
+    final others = _filterReachable(await discoverNearby(allowSubnetScan: true));
+    if (others.isNotEmpty) {
+      final host = others.first;
+      if (host.deviceId != null && host.deviceId != identity.deviceId) {
+        if (identity.isHost) {
+          await identity.setIsHost(false);
+          await server.stop();
+        }
+        await updateServerUrl(host.url);
+      }
+    } else {
+      await signaling.restart();
+      await _ensureConnection(allowSubnetScan: true);
+    }
     await Future.delayed(const Duration(milliseconds: 1200));
     final count = sync.resyncNow();
     notifyListeners();
@@ -227,13 +239,14 @@ class AppController extends ChangeNotifier {
   /// first make sure no other device already took over while I was offline
   /// (then I defer to it), otherwise I host. If I'm a client and the host is
   /// unreachable, I take over as host automatically.
-  Future<void> _ensureConnection() async {
+  Future<void> _ensureConnection({bool allowSubnetScan = true}) async {
     if (identity.isHost) {
       // I believe I'm the host. Before hosting, check whether another device
       // already took over as host while I was offline — if so, defer to it.
       // Skip hosts we recently failed to reach so we don't defer to a stale
       // URL, fail, take over, re-discover the same URL and loop forever.
-      final others = _filterReachable(await discoverNearby());
+      final others =
+          _filterReachable(await discoverNearby(allowSubnetScan: allowSubnetScan));
       if (others.isNotEmpty) {
         debugPrint('[host] another host found (${others.first.url}); deferring');
         await identity.setIsHost(false);
@@ -309,7 +322,7 @@ class AppController extends ChangeNotifier {
   /// ran back-to-back every 30s, doubling the connection storm on the router.
   Future<void> _reconcileHostAndGhost() async {
     if (_closing || !identity.isHost) return;
-    final others = _filterReachable(await discoverNearby());
+    final others = _filterReachable(await discoverNearby(allowSubnetScan: true));
     await _reconcileHost(others);
     await _reconcileGhostPairings(others);
   }

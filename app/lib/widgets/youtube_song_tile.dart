@@ -43,7 +43,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
+                        errorBuilder: (_, _, _) => Container(
                           width: 48,
                           height: 48,
                           color: theme.colorScheme.surfaceContainerHighest,
@@ -111,12 +111,14 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
   }) async {
     if (_isDownloading) return;
 
+    final messenger = ScaffoldMessenger.of(context);
+
     setState(() {
       _isDownloading = true;
       _downloadProgress = null;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       SnackBar(
         content: Text('Downloading "${widget.result.title}" to library...'),
         duration: const Duration(seconds: 3),
@@ -141,23 +143,21 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
       });
 
       if (res.error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text(res.error!), backgroundColor: Colors.redAccent),
         );
       } else if (res.song != null) {
         if (autoPlay) {
           await controller.playSong(res.song!);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Playing "${res.song!.title}"'),
-                backgroundColor: Colors.teal,
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('Playing "${res.song!.title}"'),
+              backgroundColor: Colors.teal,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(
               content: Text('Downloaded "${res.song!.title}" to library.'),
               backgroundColor: Colors.teal,
@@ -186,7 +186,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                     width: 48,
                     height: 48,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       width: 48,
                       height: 48,
                       color: theme.colorScheme.surfaceContainerHighest,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -6,6 +7,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+
+import '../models/song.dart';
 
 /// Generates (once) a default album-art placeholder PNG and returns its
 /// [Uri] for use as [MediaItem.artUri].
@@ -24,6 +27,26 @@ class ArtworkService {
   static const int _size = 600;
 
   static Future<Uri>? _pending;
+
+  /// Returns a file [Uri] for the song's album art (decoded from base64 and cached),
+  /// or falls back to [defaultArtworkUri] if no artwork is attached.
+  static Future<Uri> artworkUriForSong(Song song) async {
+    if (song.artwork == null || song.artwork!.trim().isEmpty) {
+      return defaultArtworkUri();
+    }
+    try {
+      final dir = await getApplicationCacheDirectory();
+      final file = File('${dir.path}/artwork/${song.id}.jpg');
+      if (await file.exists()) return Uri.file(file.path);
+      final bytes = base64Decode(song.artwork!);
+      await file.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      return Uri.file(file.path);
+    } catch (e) {
+      debugPrint('[artwork] failed to decode song artwork: $e');
+      return defaultArtworkUri();
+    }
+  }
 
   /// Returns a file [Uri] to the default artwork. The first caller renders it;
   /// everyone else gets the shared (already-resolved or in-flight) future.

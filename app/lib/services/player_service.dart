@@ -145,10 +145,8 @@ class PlayerService extends ChangeNotifier {
     }
     currentSong = song;
 
-    // The library's files have no embedded cover art, so use the generated
-    // default artwork. Without artUri the media notification renders the app
-    // launcher icon as a big placeholder instead of a proper album thumbnail.
-    final artUri = await ArtworkService.defaultArtworkUri();
+    // Use decoded song artwork if present, otherwise default pear artwork.
+    final artUri = await ArtworkService.artworkUriForSong(song);
 
     try {
       // Load a SINGLE source (not the whole playlist) so advancing works on

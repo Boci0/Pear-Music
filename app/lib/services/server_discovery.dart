@@ -103,6 +103,10 @@ class ServerDiscovery {
       );
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
+          if (addr.address.startsWith('169.254.') ||
+              addr.address.startsWith('127.')) {
+            continue;
+          }
           localIps.add(addr.address);
         }
       }
