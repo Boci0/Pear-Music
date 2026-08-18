@@ -234,8 +234,8 @@ class AppController extends ChangeNotifier {
       // already took over as host while I was offline — if so, defer to it.
       var others = _filterReachable(await discoverNearby());
       if (others.isEmpty) {
-        // Router may block UDP multicast. Check if the previously remembered
-        // serverUrl or any known paired device is hosting on HTTP :8080.
+        // Router may block UDP multicast. Probe remembered serverUrl, gateway IP,
+        // and do a fast subnet scan to ensure we don't start a duplicate server.
         final candidates = <String>{
           if (identity.serverUrl.isNotEmpty &&
               !identity.serverUrl.contains('localhost') &&
@@ -255,6 +255,10 @@ class AppController extends ChangeNotifier {
               break;
             }
           }
+        }
+        if (others.isEmpty) {
+          // If candidate probe missed, run a single subnet sweep to find any active host.
+          others = _filterReachable(await discoverNearby(allowSubnetScan: true));
         }
       }
       if (others.isNotEmpty) {
