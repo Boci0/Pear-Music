@@ -296,19 +296,29 @@ class AppController extends ChangeNotifier {
   /// election to converge, since for the "losing" side it may never converge.
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
-    Timer(const Duration(seconds: 3), () {
-      unawaited(_reconcileHost());
-      unawaited(_reconcileGhostPairings());
-    });
-    _hostReconcileTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      unawaited(_reconcileHost());
-      unawaited(_reconcileGhostPairings());
+    // Fire once after a short grace (let the connection settle), then
+    // periodically. 3 minutes is sufficient for host election — topology
+    // changes are rare and each reconcile triggers a LAN scan.
+    Timer(const Duration(seconds: 3), () => unawaited(_reconcileHostAndGhost()));
+    _hostReconcileTimer = Timer.periodic(const Duration(minutes: 3), (_) {
+      unawaited(_reconcileHostAndGhost());
     });
   }
 
-  Future<void> _reconcileHost() async {
+  /// Single entry point for both host and ghost-pairing reconciliation.
+  ///
+  /// Both jobs need the same LAN scan result, so [discoverNearby] is called
+  /// once and the result is passed to each — previously two independent scans
+  /// ran back-to-back every 30s, doubling the connection storm on the router.
+  Future<void> _reconcileHostAndGhost() async {
     if (_closing || !identity.isHost) return;
     final others = _filterReachable(await discoverNearby());
+    await _reconcileHost(others);
+    await _reconcileGhostPairings(others);
+  }
+
+  Future<void> _reconcileHost(List<DiscoveredServer> others) async {
+    if (_closing || !identity.isHost) return;
     for (final host in others) {
       final otherId = host.deviceId;
       if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
@@ -332,11 +342,10 @@ class AppController extends ChangeNotifier {
   /// and in ordinary operation (single real host, everyone else a plain
   /// client) no paired peer ever shows up here, since only the current host
   /// runs a server at all.
-  Future<void> _reconcileGhostPairings() async {
+  Future<void> _reconcileGhostPairings(List<DiscoveredServer> others) async {
     if (_closing || !identity.isHost) return;
     final paired = identity.pairedDeviceIds;
     if (paired.isEmpty) return;
-    final others = _filterReachable(await discoverNearby());
     for (final host in others) {
       if (host.deviceId == null || !paired.contains(host.deviceId)) continue;
       final pairings = <Map<String, String>>[

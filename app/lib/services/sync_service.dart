@@ -114,7 +114,11 @@ class SyncService extends ChangeNotifier {
 
   SyncBatchState? get batchState {
     final inTotal = _inboundPending.length + _inboundCompleted.length;
-    if (inTotal > 0 && (_inboundPending.isNotEmpty || _batchIsDone)) {
+    // Only enter the inbound branch when songs are actively pending. Removing
+    // `|| _batchIsDone` prevents this branch from matching during the 2.2s
+    // cleanup window when _batchIsDone=true but no inbound work remains —
+    // that caused the bar to flip between download and upload states.
+    if (inTotal > 0 && _inboundPending.isNotEmpty) {
       final active = _transfers.values.where((t) => t.isDownload).firstOrNull ??
           _completed.values.where((t) => t.isDownload).lastOrNull;
       final totalB = _transfers.values
@@ -137,7 +141,7 @@ class SyncService extends ChangeNotifier {
     }
 
     final outTotal = _outboundPending.length + _outboundCompleted.length;
-    if (outTotal > 0 && (_outboundPending.isNotEmpty || _batchIsDone)) {
+    if (outTotal > 0 && _outboundPending.isNotEmpty) {
       final active = _transfers.values.where((t) => !t.isDownload).firstOrNull ??
           _completed.values.where((t) => !t.isDownload).lastOrNull;
       final totalB = _transfers.values
@@ -269,8 +273,13 @@ class SyncService extends ChangeNotifier {
       };
 
   int resyncNow() {
-    _sending.clear();
-    _sendQueues.clear();
+    // Do NOT clear _sending or _sendQueues: those hold in-flight transfers.
+    // Clearing _sending allowed a second concurrent sender for the same song
+    // to start (_sendFile's guard check no longer sees the in-progress entry),
+    // interleaving chunks from two senders and corrupting the file on the
+    // receiver. Let active transfers finish naturally; only clear finalize-retry
+    // state so a previously failed finalize can be retried by the fresh manifest
+    // exchange below.
     _finalizeRetries.clear();
     if (_channels.isEmpty) return 0;
     final count = _channels.length;
@@ -824,9 +833,13 @@ class SyncService extends ChangeNotifier {
     found.completedBytes = found.totalBytes;
     _completed[found.key] = found;
     _flushNotify();
-    _completedTimer?.cancel();
-    _completedTimer = Timer(const Duration(milliseconds: 1600), () {
+    // Use ??= so the cleanup timer is started only once per batch, not reset
+    // on every completed song. Resetting caused the 1600ms window to keep
+    // extending, then clear all completed entries at once — making batchState
+    // briefly return null and the progress card flicker off and back on.
+    _completedTimer ??= Timer(const Duration(milliseconds: 1600), () {
       _completed.clear();
+      _completedTimer = null;
       _flushNotify();
     });
   }

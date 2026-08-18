@@ -40,10 +40,16 @@ class ServerDiscovery {
   static const int _scanConcurrency = 50;
 
   /// Discovers nearby servers, deduplicated by URL. Never throws.
+  ///
+  /// Multicast is tried first. The subnet scan (up to 254 concurrent HTTP
+  /// connection attempts) only runs as a fallback when multicast finds nothing
+  /// — on a typical home LAN multicast works, so the scan is skipped entirely.
   static Future<List<DiscoveredServer>> discover() async {
     final results = <String, DiscoveredServer>{};
     await _discoverViaMulticast(results);
-    await _discoverViaSubnetScan(results);
+    if (results.isEmpty) {
+      await _discoverViaSubnetScan(results);
+    }
     return results.values.toList();
   }
 
