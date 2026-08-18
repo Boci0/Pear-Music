@@ -22,6 +22,7 @@ class LibraryService extends ChangeNotifier {
   final Map<String, Song> _songsById = {};
   final Set<String> _checksums = {};
   List<Song> get songs => List.unmodifiable(_songs);
+  bool hasSong(String id) => _songsById.containsKey(id);
 
   void _rebuildIndexMaps() {
     _songsById.clear();

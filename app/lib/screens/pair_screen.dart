@@ -125,9 +125,9 @@ class _PairScreenState extends State<PairScreen> {
               QrImageView(
                 data: PairingLink.encode(
                   code,
-                  server: controller.isHostingServer
-                      ? 'ws://${controller.serverLanIp ?? "127.0.0.1"}:${controller.server.boundPort}'
-                      : controller.identity.serverUrl,
+                  host: controller.serverLanIp ?? '127.0.0.1',
+                  port: controller.server.boundPort,
+                  server: 'ws://${controller.serverLanIp ?? "127.0.0.1"}:${controller.server.boundPort}',
                 ),
                 version: QrVersions.auto,
                 size: 180,
@@ -238,8 +238,20 @@ class _PairScreenState extends State<PairScreen> {
       return;
     }
     _codeController.text = link.code;
-    if (link.server != null && link.server!.isNotEmpty) {
-      await controller.connectToServer(link.server!);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Pairing…')),
+    );
+    if (link.host != null && link.host!.isNotEmpty) {
+      final err = await controller.pairDirect(
+        code: link.code,
+        host: link.host!,
+        port: link.port ?? 8080,
+      );
+      if (!mounted) return;
+      if (err == null) {
+        Navigator.of(context).maybePop();
+        return;
+      }
     }
     await _join(controller);
   }
@@ -255,15 +267,16 @@ class _PairScreenState extends State<PairScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Pairing…')),
     );
-    // Smart pairing: tries the current server, then discovers nearby hosts
-    // and retries there (so typing the code works even when this device is
-    // on a different server than the host).
+    // Smart pairing: tries candidate LAN hosts over direct HTTP, then falls back
+    // to current signaling connection.
     final error = await controller.pairSmart(code);
     if (!mounted) return;
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error)),
       );
+    } else {
+      Navigator.of(context).maybePop();
     }
   }
 }

@@ -736,6 +736,7 @@ class AppController extends ChangeNotifier {
       final code = server.createPairingCode();
       pendingPairingCode = code;
       notifyListeners();
+      return;
     }
     if (connectionStatus == 'connected') {
       signaling.createPairing();
@@ -744,6 +745,7 @@ class AppController extends ChangeNotifier {
 
   void handleDirectPeerPaired(String peerId, String peerName) {
     identity.addPairedDevice(peerId, name: peerName);
+    _upsertPeer(PeerDevice(deviceId: peerId, deviceName: peerName, online: true));
     notifyListeners();
   }
 
@@ -751,6 +753,55 @@ class AppController extends ChangeNotifier {
     identity.removePairedDevice(peerId);
     library.removeAllFromSource(peerId);
     notifyListeners();
+  }
+
+  /// Direct HTTP mutual pairing with a specific host/port (e.g. from QR scan).
+  /// Takes < 200ms and avoids all WebSocket connection timeouts.
+  Future<String?> pairDirect({
+    required String code,
+    required String host,
+    int port = 8080,
+  }) async {
+    final c = code.trim().toUpperCase();
+    if (c.length != 6) return 'Enter the 6-character code';
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(milliseconds: 2500);
+      final uri = Uri.parse('http://$host:$port/api/pair');
+      final req = await client.postUrl(uri);
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode({
+        'code': c,
+        'deviceId': identity.deviceId,
+        'deviceName': identity.deviceName,
+      }));
+      final resp = await req.close();
+      if (resp.statusCode == HttpStatus.ok) {
+        final body = await utf8.decodeStream(resp);
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        if (data['ok'] == true) {
+          final peerId = (data['deviceId'] as String?) ?? '';
+          final peerName = (data['deviceName'] as String?) ?? 'Pear Music device';
+          if (peerId.isNotEmpty) {
+            await identity.addPairedDevice(peerId, name: peerName);
+            _upsertPeer(PeerDevice(deviceId: peerId, deviceName: peerName, online: true));
+            _postMessage('Paired with $peerName');
+            notifyListeners();
+            unawaited(sync.syncWithPeerHttp('http://$host:$port', peerId));
+          }
+          client.close();
+          return null;
+        } else {
+          client.close();
+          return data['message'] as String? ?? 'Pairing rejected';
+        }
+      } else {
+        client.close();
+        return 'Pairing rejected by device (status ${resp.statusCode})';
+      }
+    } catch (e) {
+      return 'Could not reach device at $host:$port ($e)';
+    }
   }
 
   Future<void> joinWithCode(String code) async {
@@ -1128,7 +1179,10 @@ class AppController extends ChangeNotifier {
               final peerName = (data['deviceName'] as String?) ?? host.name;
               if (peerId.isNotEmpty) {
                 await identity.addPairedDevice(peerId, name: peerName);
+                _upsertPeer(PeerDevice(deviceId: peerId, deviceName: peerName, online: true));
+                _postMessage('Paired with $peerName');
                 notifyListeners();
+                unawaited(sync.syncWithPeerHttp(host.httpUrl, peerId));
               }
               client.close();
               return null;

@@ -972,6 +972,56 @@ class SyncService extends ChangeNotifier {
     await library.mergeRemotePlaylists(const [], {id: at});
   }
 
+  /// Direct HTTP synchronization with a peer: pulls its manifest and streams missing songs directly.
+  Future<int> syncWithPeerHttp(String httpUrl, String peerId) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    var synced = 0;
+    try {
+      final manifestUri = Uri.parse('$httpUrl/api/sync/manifest');
+      final req = await client.getUrl(manifestUri);
+      final resp = await req.close();
+      if (resp.statusCode != HttpStatus.ok) {
+        client.close();
+        return 0;
+      }
+      final body = await utf8.decodeStream(resp);
+      final manifest = jsonDecode(body) as Map<String, dynamic>;
+      final songs = (manifest['songs'] as List? ?? [])
+          .whereType<Map>()
+          .map((m) => Song.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+
+      for (final song in songs) {
+        if (library.hasSong(song.id)) continue;
+        try {
+          final songReq = await client.getUrl(Uri.parse('$httpUrl/api/songs/${song.id}'));
+          final songResp = await songReq.close();
+          if (songResp.statusCode == HttpStatus.ok) {
+            final tmp = library.incomingFile(song.id);
+            final sink = tmp.openWrite();
+            await songResp.pipe(sink);
+            await sink.close();
+            final actualChecksum = await LibraryService.checksum(tmp);
+            await library.addReceivedSong(
+              id: song.id,
+              title: song.title,
+              fileName: song.fileName,
+              size: song.size,
+              checksum: actualChecksum,
+              sourceDeviceId: peerId,
+              artwork: song.artwork,
+            );
+            synced++;
+            onDownloaded?.call(song.title);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {} finally {
+      client.close();
+    }
+    return synced;
+  }
+
   @override
   void dispose() {
     _resyncTimer?.cancel();
