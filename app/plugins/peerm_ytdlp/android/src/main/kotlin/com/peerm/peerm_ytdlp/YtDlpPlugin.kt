@@ -1,8 +1,12 @@
 package com.peerm.peerm_ytdlp
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.FileProvider
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -97,7 +101,39 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 if (processId != null) cancelProcess(processId)
                 result.success(true)
             }
+            "installApk" -> {
+                val filePath = call.argument<String>("filePath")
+                if (filePath == null) {
+                    result.error("bad_args", "filePath required", null)
+                    return
+                }
+                installApk(ctx, filePath, result)
+            }
             else -> result.notImplemented()
+        }
+    }
+
+    private fun installApk(ctx: Context, filePath: String, result: MethodChannel.Result) {
+        try {
+            val file = File(filePath)
+            if (!file.exists()) {
+                result.error("file_not_found", "APK file does not exist at $filePath", null)
+                return
+            }
+            val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+            } else {
+                Uri.fromFile(file)
+            }
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("install_failed", e.message, null)
         }
     }
 

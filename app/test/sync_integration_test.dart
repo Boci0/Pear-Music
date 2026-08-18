@@ -341,22 +341,25 @@ void main() {
     expect(dirB.listSync().whereType<File>().length, 0);
   });
 
-  test('delete: removing a SHARED copy does not delete the original on the peer',
+  test('delete: removing a shared copy propagates and deletes the song on the peer',
       () async {
     await libA.addLocalFiles([makeAudio('mine.mp3', 90_000)]);
     connect();
     await waitFor(() => libB.songs.length == 1);
     expect(libB.songs.first.sourceDeviceId, 'device-A');
 
-    // B deletes its shared copy and broadcasts — A's original must survive
-    // (only shared copies are removed on the receiving side).
+    // B deletes its copy and broadcasts — A's copy must be removed as well
+    // so the deletion syncs across all paired devices.
     final shared = libB.songs.first;
     await libB.removeSong(shared.id);
     syncB.broadcastSongDeleted(shared);
 
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    expect(libA.songs.length, 1);
-    expect(libA.songs.first.sourceDeviceId, isNull);
+    final dirA = Directory('${tempDirA.path}/library');
+    await waitFor(() {
+      return libA.songs.isEmpty &&
+          dirA.listSync().whereType<File>().isEmpty;
+    });
+    expect(libA.songs, isEmpty);
     expect(libB.songs, isEmpty);
   });
 

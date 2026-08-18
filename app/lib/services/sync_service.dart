@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -248,14 +247,20 @@ class SyncService extends ChangeNotifier {
       'deviceName': identity.deviceName,
       'e2ePub': e2ePub,
     });
-    _send(peerId, {
-      'type': 'manifest',
-      'songs': library.songs.map((s) => s.toJson()).toList(),
-    });
+    _send(peerId, _songManifestMessage());
     _send(peerId, _playlistManifestMessage());
     _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
   }
+
+  Map<String, dynamic> _songManifestMessage() => {
+        'type': 'manifest',
+        'songs': library.songs.map((s) => s.toJson()).toList(),
+        'deleted': {
+          for (final e in library.deletedSongsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
+      };
 
   Map<String, dynamic> _playlistManifestMessage() => {
         'type': 'playlist_manifest',
@@ -278,10 +283,7 @@ class SyncService extends ChangeNotifier {
     if (_channels.isEmpty) return 0;
     final count = _channels.length;
     for (final peerId in _channels.keys.toList()) {
-      _send(peerId, {
-        'type': 'manifest',
-        'songs': library.songs.map((s) => s.toJson()).toList(),
-      });
+      _send(peerId, _songManifestMessage());
       _send(peerId, _playlistManifestMessage());
       _send(peerId, {'type': 'request_manifest'});
     }
@@ -337,15 +339,12 @@ class SyncService extends ChangeNotifier {
             unawaited(ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub)));
           } catch (_) {}
         }
-        _send(peerId, {
-          'type': 'manifest',
-          'songs': library.songs.map((s) => s.toJson()).toList(),
-        });
+        _send(peerId, _songManifestMessage());
         _send(peerId, _playlistManifestMessage());
         break;
       case 'manifest':
         debugPrint('[sync][diag] <- $peerId: manifest (${(msg['songs'] as List?)?.length ?? 0} songs)');
-        _onManifest(peerId, msg['songs'] as List? ?? []);
+        _onManifest(peerId, msg['songs'] as List? ?? [], msg['deleted'] as Map?);
         break;
       case 'request_songs':
         debugPrint('[sync][diag] <- $peerId: request_songs (${(msg['ids'] as List?)?.length ?? 0})');
@@ -374,20 +373,38 @@ class SyncService extends ChangeNotifier {
         _track(_onPlaylistDelete(peerId, msg));
         break;
       case 'request_manifest':
-        _send(peerId, {
-          'type': 'manifest',
-          'songs': library.songs.map((s) => s.toJson()).toList(),
-        });
+        _send(peerId, _songManifestMessage());
         _send(peerId, _playlistManifestMessage());
         break;
     }
   }
 
-  void _onManifest(String peerId, List<dynamic> rawSongs) {
+  void _onManifest(String peerId, List<dynamic> rawSongs, [Map? rawDeleted]) {
+    if (rawDeleted != null) {
+      rawDeleted.forEach((key, value) {
+        final id = key.toString();
+        final at = DateTime.tryParse(value.toString());
+        library.recordSongDeleted(id, at);
+        final local = library.findById(id);
+        if (local != null) {
+          library.removeSong(id);
+        }
+      });
+    }
+
     final missing = <String>[];
     for (final raw in rawSongs) {
       if (raw is! Map) continue;
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
+      if (library.isSongDeleted(song.id)) {
+        _send(peerId, {
+          'type': 'song_deleted',
+          'id': song.id,
+          'checksum': song.checksum,
+          'title': song.title,
+        });
+        continue;
+      }
       if (song.sourceDeviceId == identity.deviceId) {
         if (library.findById(song.id) == null) {
           _send(peerId, {
@@ -868,7 +885,8 @@ class SyncService extends ChangeNotifier {
     final id = msg['id'] as String?;
     if (id == null) return;
     final song = library.findById(id);
-    if (song == null || song.sourceDeviceId == null) return;
+    library.recordSongDeleted(id);
+    if (song == null) return;
     await library.removeSong(id);
     await onRemoteDeleted?.call(id, song.title);
   }

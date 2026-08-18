@@ -13,6 +13,8 @@
     <!-- QR pairing: scan the code shown on the other device. -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera.any" android:required="false"/>
+    <!-- In-app APK updates: prompt package installer directly on downloaded APK -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <application
         android:label="Pear Music"
@@ -46,6 +48,16 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- FileProvider for installing in-app downloaded APK updates -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- just_audio_background: media playback service + media button receiver. -->
         <service
             android:name="com.ryanheise.audioservice.AudioService"

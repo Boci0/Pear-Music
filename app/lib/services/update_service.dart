@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:peerm_ytdlp/peerm_ytdlp.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateInfo {
@@ -30,7 +31,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.3.4';
+  static const String currentVersion = '1.3.5';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -211,6 +212,62 @@ del "${zipFile.path}"
       );
     }
   }
+
+  static Future<void> downloadAndApplyAndroidApk(
+    BuildContext context,
+    String apkUrl,
+  ) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Text('Downloading APK update...'),
+        duration: Duration(seconds: 10),
+      ),
+    );
+
+    try {
+      final cacheDir = await getTemporaryDirectory();
+      final apkFile = File(p.join(cacheDir.path, 'peerm_update.apk'));
+      if (await apkFile.exists()) await apkFile.delete();
+
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse(apkUrl));
+      final response = await request.close();
+
+      if (response.statusCode == 200) {
+        final sink = apkFile.openWrite();
+        await response.pipe(sink);
+        await sink.close();
+
+        scaffoldMessenger.hideCurrentSnackBar();
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Download complete. Launching installer...'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+
+        final installed = await installApk(apkFile.path);
+        if (!installed) {
+          final uri = Uri.parse(apkUrl);
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Download failed (HTTP ${response.statusCode})')),
+        );
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Native APK update failed: $e');
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('Automatic update failed: $e')),
+      );
+      try {
+        final uri = Uri.parse(apkUrl);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+  }
 }
 
 class _UpdateDialog extends StatelessWidget {
@@ -221,6 +278,12 @@ class _UpdateDialog extends StatelessWidget {
     if (defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null) {
       Navigator.pop(context);
       await UpdateService.downloadAndApplyWindowsZip(context, info.zipUrl!);
+      return;
+    }
+
+    if (defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null) {
+      Navigator.pop(context);
+      await UpdateService.downloadAndApplyAndroidApk(context, info.apkUrl!);
       return;
     }
 
@@ -256,10 +319,8 @@ class _UpdateDialog extends StatelessWidget {
     final isWindowsWithZip = defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null;
 
     String buttonLabel = 'Get Update';
-    if (isAndroidWithApk) {
-      buttonLabel = 'Download APK';
-    } else if (isWindowsWithZip) {
-      buttonLabel = 'Update Automatically';
+    if (isAndroidWithApk || isWindowsWithZip) {
+      buttonLabel = 'Update In-App';
     }
 
     return AlertDialog(
@@ -293,7 +354,9 @@ class _UpdateDialog extends StatelessWidget {
         ),
         FilledButton.icon(
           onPressed: () => _handleUpdate(context),
-          icon: Icon(isWindowsWithZip ? Icons.system_update : Icons.file_download),
+          icon: Icon(isWindowsWithZip || isAndroidWithApk
+              ? Icons.system_update
+              : Icons.file_download),
           label: Text(buttonLabel),
         ),
       ],

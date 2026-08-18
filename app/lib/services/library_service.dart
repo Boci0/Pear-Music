@@ -23,15 +23,6 @@ class LibraryService extends ChangeNotifier {
   final Set<String> _checksums = {};
   List<Song> get songs => List.unmodifiable(_songs);
 
-  void _rebuildIndexMaps() {
-    _songsById.clear();
-    _checksums.clear();
-    for (final s in _songs) {
-      _songsById[s.id] = s;
-      _checksums.add(s.checksum);
-    }
-  }
-
   void _indexSong(Song s) {
     _songsById[s.id] = s;
     _checksums.add(s.checksum);
@@ -44,6 +35,24 @@ class LibraryService extends ChangeNotifier {
 
   final List<Playlist> _playlists = [];
   List<Playlist> get playlists => List.unmodifiable(_playlists);
+
+  /// Songs deleted on this device (id → deletion time). Used to propagate
+  /// deletions to peers and prevent re-downloading deleted songs upon reconnect.
+  final Map<String, DateTime> _deletedSongsAt = {};
+  Map<String, DateTime> get deletedSongsAt =>
+      Map.unmodifiable(_deletedSongsAt);
+
+  bool isSongDeleted(String id) => _deletedSongsAt.containsKey(id);
+
+  void recordSongDeleted(String id, [DateTime? at]) {
+    _deletedSongsAt[id] = at ?? DateTime.now();
+    _pruneDeletedSongs();
+  }
+
+  void _pruneDeletedSongs() {
+    final cutoff = DateTime.now().subtract(const Duration(days: 30));
+    _deletedSongsAt.removeWhere((_, at) => at.isBefore(cutoff));
+  }
 
   /// Playlists deleted on this device (id → deletion time). Used to propagate
   /// deletions to peers that were offline when the delete happened, without
@@ -92,6 +101,7 @@ class LibraryService extends ChangeNotifier {
     _songs.clear();
     _songsById.clear();
     _checksums.clear();
+    _deletedSongsAt.clear();
     if (_indexFile == null || !await _indexFile!.exists()) return;
     try {
       final decoded = jsonDecode(await _indexFile!.readAsString());
@@ -115,6 +125,29 @@ class LibraryService extends ChangeNotifier {
         if (hadDuplicates) {
           await _saveIndex();
         }
+      } else if (decoded is Map<String, dynamic>) {
+        final seenIds = <String>{};
+        final seenChecksums = <String>{};
+        for (final item in decoded['songs'] as List? ?? []) {
+          if (item is Map<String, dynamic>) {
+            final s = Song.fromJson(item);
+            if (seenIds.contains(s.id) || seenChecksums.contains(s.checksum)) {
+              continue;
+            }
+            seenIds.add(s.id);
+            seenChecksums.add(s.checksum);
+            _songs.add(s);
+            _indexSong(s);
+          }
+        }
+        final deleted = decoded['deleted'];
+        if (deleted is Map) {
+          deleted.forEach((key, value) {
+            final at = DateTime.tryParse(value.toString());
+            if (at != null) _deletedSongsAt[key.toString()] = at;
+          });
+        }
+        _pruneDeletedSongs();
       }
     } catch (_) {
       // Corrupt index - start fresh but keep any orphaned files.
@@ -155,7 +188,13 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> _saveIndex() async {
     await _indexFile!.writeAsString(
-      jsonEncode(_songs.map((s) => s.toJson()).toList()),
+      jsonEncode({
+        'songs': _songs.map((s) => s.toJson()).toList(),
+        'deleted': {
+          for (final e in _deletedSongsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
+      }),
     );
   }
 
@@ -206,6 +245,7 @@ class LibraryService extends ChangeNotifier {
       );
       _songs.add(song);
       _indexSong(song);
+      _deletedSongsAt.remove(id);
       added.add(song);
     }
     if (added.isNotEmpty) {
@@ -251,6 +291,7 @@ class LibraryService extends ChangeNotifier {
       _songs.add(song);
     }
     _indexSong(song);
+    _deletedSongsAt.remove(id);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -289,6 +330,7 @@ class LibraryService extends ChangeNotifier {
     );
     _songs.add(song);
     _indexSong(song);
+    _deletedSongsAt.remove(id);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -296,7 +338,11 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> removeSong(String id) async {
     final song = findById(id);
-    if (song == null) return;
+    recordSongDeleted(id);
+    if (song == null) {
+      await _saveIndex();
+      return;
+    }
     _songs.remove(song);
     _unindexSong(song);
     final f = songFile(song);
@@ -315,6 +361,7 @@ class LibraryService extends ChangeNotifier {
     for (final song in toRemove) {
       _songs.remove(song);
       _unindexSong(song);
+      recordSongDeleted(song.id);
       final f = songFile(song);
       if (await f.exists()) await f.delete();
       _stripSongFromPlaylists(song.id);
