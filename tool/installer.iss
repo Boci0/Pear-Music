@@ -1,6 +1,6 @@
 ; Inno Setup Script for Pear Music Windows Installer
 #define MyAppName "Pear Music"
-#define MyAppVersion "1.3.12"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "Boci0"
 #define MyAppURL "https://github.com/Boci0/Pear-Music"
 #define MyAppExeName "peerm_app.exe"
@@ -37,8 +37,8 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*peerm*' -or $_.DisplayName -like '*Pear Music*' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Pear Music (TCP-In)' -Direction Inbound -Program '{app}\{#MyAppExeName}' -Protocol TCP -Action Allow -Profile Any -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Pear Music (UDP-In)' -Direction Inbound -Program '{app}\{#MyAppExeName}' -Protocol UDP -Action Allow -Profile Any -ErrorAction SilentlyContinue"""; Flags: runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-NetFirewallRule | Where-Object {{ $_.DisplayName -like '*peerm*' -or $_.DisplayName -like '*Pear Music*' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Pear Music (TCP-In)' -Direction Inbound -Program '{app}\{#MyAppExeName}' -Protocol TCP -Action Allow -Profile Any -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Pear Music (UDP-In)' -Direction Inbound -Program '{app}\{#MyAppExeName}' -Protocol UDP -Action Allow -Profile Any -ErrorAction SilentlyContinue"""; Flags: runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*peerm*' -or $_.DisplayName -like '*Pear Music*' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue"""; Flags: runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-NetFirewallRule | Where-Object {{ $_.DisplayName -like '*peerm*' -or $_.DisplayName -like '*Pear Music*' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue"""; Flags: runhidden

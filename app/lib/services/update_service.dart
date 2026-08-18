@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -31,7 +32,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.3.12';
+  static const String currentVersion = '1.4.0';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -53,13 +54,20 @@ class UpdateService {
         String? apkUrl;
         String? setupUrl;
         String? zipUrl;
+        final currentAbi = kIsWeb ? null : (Platform.isAndroid ? Abi.current() : null);
         final assets = json['assets'] as List<dynamic>? ?? [];
         for (final asset in assets) {
           if (asset is Map<String, dynamic>) {
             final downloadUrl = asset['browser_download_url'] as String? ?? '';
             if (downloadUrl.endsWith('.apk')) {
-              if (downloadUrl.contains('arm64')) {
+              if (currentAbi == Abi.androidArm64 && downloadUrl.contains('arm64-v8a')) {
                 apkUrl = downloadUrl;
+              } else if (currentAbi == Abi.androidArm && downloadUrl.contains('armeabi-v7a')) {
+                apkUrl = downloadUrl;
+              } else if (currentAbi == Abi.androidX64 && downloadUrl.contains('x86_64')) {
+                apkUrl = downloadUrl;
+              } else if (downloadUrl.contains('universal')) {
+                apkUrl ??= downloadUrl;
               } else {
                 apkUrl ??= downloadUrl;
               }
