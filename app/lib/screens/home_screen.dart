@@ -420,7 +420,6 @@ class _HomeScreenState extends State<HomeScreen> {
       content = CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          const SliverToBoxAdapter(child: TransferList()),
           if (_showOnlyFavorites)
             SliverToBoxAdapter(
               child: Container(
