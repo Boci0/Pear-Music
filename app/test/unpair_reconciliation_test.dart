@@ -154,7 +154,7 @@ void main() {
     expect(library.songs.length, 1,
         reason: 'local song must not be removed on unpair');
     expect(library.songs.single.sourceDeviceId, isNull);
-    expect(library.isSongDeleted(localSong.id, localSong.checksum), isFalse,
+    expect(library.isSongDeleted(localSong.id), isFalse,
         reason: 'unpairing must not record deletion tombstones');
   });
 }
