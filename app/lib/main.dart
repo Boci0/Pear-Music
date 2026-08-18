@@ -73,11 +73,10 @@ Future<void> main() async {
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());
 
-  // Embedded signaling server. It is NOT started here — the controller starts
-  // it only when this device is the host (the "last online" device), so at any
-  // moment exactly one device on the network runs the server. State (pairings/
-  // names/secrets) persists in the app support directory.
-  final server = SignalingServer(
+  late final SignalingServer server;
+  late final AppController controller;
+
+  server = SignalingServer(
     port: 8080,
     stateFile: File(
       '${(await getApplicationSupportDirectory()).path}/peerm_server_state.json',
@@ -85,9 +84,16 @@ Future<void> main() async {
     onLog: (m) => debugPrint('[server] $m'),
     advertiseName: identity.deviceName,
     advertiseDeviceId: identity.deviceId,
+    manifestProvider: () => sync.buildLocalManifestMessage(),
+    songFileProvider: (id) {
+      final s = library.findById(id);
+      return s != null ? library.songFile(s) : null;
+    },
+    onPeerPaired: (id, name) => controller.handleDirectPeerPaired(id, name),
+    onPeerUnpaired: (id) => controller.handleDirectPeerUnpaired(id),
   );
 
-  final controller = AppController(
+  controller = AppController(
     identity: identity,
     library: library,
     signaling: signaling,

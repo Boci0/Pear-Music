@@ -229,7 +229,22 @@ class LibraryService extends ChangeNotifier {
     final tmp = incomingFile(id);
     final ext = p.extension(fileName);
     final finalName = '$id$ext';
-    await tmp.rename(p.join(_libraryDir!.path, finalName));
+    final targetPath = p.join(_libraryDir!.path, finalName);
+    final targetFile = File(targetPath);
+    if (await targetFile.exists()) {
+      try {
+        await targetFile.delete();
+      } catch (_) {}
+    }
+    try {
+      await tmp.rename(targetPath);
+    } catch (_) {
+      // Fallback if renaming across different mount points / locked handles
+      await tmp.copy(targetPath);
+      try {
+        await tmp.delete();
+      } catch (_) {}
+    }
 
     final song = Song(
       id: id,

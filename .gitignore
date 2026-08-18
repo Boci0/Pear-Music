@@ -1,4 +1,4 @@
-﻿# -----------------------------------------------
+# -----------------------------------------------
 # Compiled release artifacts - upload to GitHub
 # Releases instead of committing to source control
 # -----------------------------------------------
@@ -15,6 +15,7 @@ app/.flutter-plugins-dependencies
 app/.packages
 app/build/
 app/pubspec.lock
+app/windows/flutter/generated_*
 
 # -----------------------------------------------
 # Node.js (signaling server)
@@ -29,3 +30,14 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+tool/Output/
+
+# -----------------------------------------------
+# Ignored Documentation & Plans
+# -----------------------------------------------
+*_FIX_PLAN.md
+*plan*.md
+*Fix Plan*.md
+part 2Ghost Pairing.md
+implementation_plan.md
+walkthrough.md

@@ -731,18 +731,26 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  // ---------- pairing ----------
-
   Future<void> generatePairingCode() async {
-    if (connectionStatus != 'connected') {
-      _postMessage(
-        'Not connected to the server. Set the server URL in Settings and tap Connect.',
-      );
-      return;
+    if (server.boundPort > 0) {
+      final code = server.createPairingCode();
+      pendingPairingCode = code;
+      notifyListeners();
     }
-    pendingPairingCode = null;
+    if (connectionStatus == 'connected') {
+      signaling.createPairing();
+    }
+  }
+
+  void handleDirectPeerPaired(String peerId, String peerName) {
+    identity.addPairedDevice(peerId, name: peerName);
     notifyListeners();
-    signaling.createPairing();
+  }
+
+  void handleDirectPeerUnpaired(String peerId) {
+    identity.removePairedDevice(peerId);
+    library.removeAllFromSource(peerId);
+    notifyListeners();
   }
 
   Future<void> joinWithCode(String code) async {
@@ -1098,14 +1106,45 @@ class AppController extends ChangeNotifier {
 
     _pairSmartActive = true;
     try {
-      // 1) Try on the current server first (fast path when already aligned).
+      // 1) Direct HTTP pairing attempt on candidate LAN nodes (instant & symmetric)
+      final hosts = await discoverNearby(allowSubnetScan: true);
+      for (final host in hosts) {
+        try {
+          final client = HttpClient()
+            ..connectionTimeout = const Duration(milliseconds: 1500);
+          final req = await client.postUrl(Uri.parse('${host.httpUrl}/api/pair'));
+          req.headers.contentType = ContentType.json;
+          req.write(jsonEncode({
+            'code': c,
+            'deviceId': identity.deviceId,
+            'deviceName': identity.deviceName,
+          }));
+          final resp = await req.close();
+          if (resp.statusCode == HttpStatus.ok) {
+            final body = await utf8.decodeStream(resp);
+            final data = jsonDecode(body) as Map<String, dynamic>;
+            if (data['ok'] == true) {
+              final peerId = (data['deviceId'] as String?) ?? host.deviceId ?? '';
+              final peerName = (data['deviceName'] as String?) ?? host.name;
+              if (peerId.isNotEmpty) {
+                await identity.addPairedDevice(peerId, name: peerName);
+                notifyListeners();
+              }
+              client.close();
+              return null;
+            }
+          }
+          client.close();
+        } catch (_) {}
+      }
+
+      // 2) Try on the current server (fast path when already connected).
       if (connectionStatus == 'connected') {
         signaling.pairWithCode(c);
         if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
-      // 2) Discover nearby hosts (actively probing subnet fallback if multicast misses).
-      final hosts = await discoverNearby(allowSubnetScan: true);
+      // 3) Try WebSocket connection to nearby hosts fallback
       for (final host in hosts) {
         if (host.url == identity.serverUrl) continue;
         if (!await connectToServer(host.url)) continue;

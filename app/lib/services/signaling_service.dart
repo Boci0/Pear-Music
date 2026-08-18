@@ -49,8 +49,25 @@ class SignalingService {
   /// never resurrect a connection that was intentionally stopped.
   int _generation = 0;
 
+  bool _isRegistered = false;
+  final List<Completer<bool>> _registeredCompleters = [];
+
   /// True only once the WebSocket is actually open (not merely created).
   bool get isConnected => _connected;
+
+  /// True once the server has accepted registration and acknowledged deviceId.
+  bool get isRegistered => _isRegistered;
+
+  Future<bool> waitForRegistered({Duration timeout = const Duration(seconds: 4)}) async {
+    if (_isRegistered) return true;
+    final c = Completer<bool>();
+    _registeredCompleters.add(c);
+    try {
+      return await c.future.timeout(timeout, onTimeout: () => _isRegistered);
+    } finally {
+      _registeredCompleters.remove(c);
+    }
+  }
 
   // ---- Relay binary flow control ----
   //
@@ -318,9 +335,15 @@ class SignalingService {
             // Liveness reply — keeps the connection marked alive; not app-facing.
             return;
           }
-          if (decoded['type'] == 'registered' && decoded['secret'] is String) {
-            // Persist the device-auth secret the server issued (first contact).
-            identity.setDeviceSecret(decoded['secret'] as String);
+          if (decoded['type'] == 'registered') {
+            _isRegistered = true;
+            for (final c in List<Completer<bool>>.from(_registeredCompleters)) {
+              if (!c.isCompleted) c.complete(true);
+            }
+            _registeredCompleters.clear();
+            if (decoded['secret'] is String) {
+              identity.setDeviceSecret(decoded['secret'] as String);
+            }
           }
           if (decoded['type'] == 'error' && decoded['message'] == 'unauthorized') {
             // The server rejected our deviceId+secret. In the host-election
@@ -374,6 +397,7 @@ class SignalingService {
 
   void _handleDisconnect() {
     _connected = false;
+    _isRegistered = false;
     _channel = null;
     _pingTimer?.cancel();
     _pingTimer = null;
@@ -397,10 +421,19 @@ class SignalingService {
     } catch (_) {}
   }
 
-  void createPairing() => send({'type': 'create_pairing'});
+  Future<void> createPairing() async {
+    if (!_isRegistered) {
+      await waitForRegistered();
+    }
+    send({'type': 'create_pairing'});
+  }
 
-  void pairWithCode(String code) =>
-      send({'type': 'pair_with_code', 'code': code});
+  Future<void> pairWithCode(String code) async {
+    if (!_isRegistered) {
+      await waitForRegistered();
+    }
+    send({'type': 'pair_with_code', 'code': code});
+  }
 
   void signalTo(String peerId, Map<String, dynamic> data) =>
       send({'type': 'signal', 'to': peerId, 'data': data});

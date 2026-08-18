@@ -520,5 +520,116 @@ void main() {
         await dir.delete(recursive: true);
       }
     });
+
+    test('direct HTTP pairing and unpairing', () async {
+      String? pairedId;
+      String? pairedName;
+      String? unpairedId;
+
+      final s = SignalingServer(
+        port: 0,
+        host: '127.0.0.1',
+        advertiseDeviceId: 'HOST-DEVICE',
+        advertiseName: 'Host Machine',
+        onPeerPaired: (id, name) {
+          pairedId = id;
+          pairedName = name;
+        },
+        onPeerUnpaired: (id) {
+          unpairedId = id;
+        },
+      );
+      await s.start();
+      try {
+        final code = s.createPairingCode();
+        final client = HttpClient();
+
+        // 1. Invalid code -> 400
+        var req = await client.postUrl(Uri.parse('http://127.0.0.1:${s.boundPort}/api/pair'));
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode({'code': 'WRONGG', 'deviceId': 'PEER-1', 'deviceName': 'Peer Phone'}));
+        var resp = await req.close();
+        expect(resp.statusCode, HttpStatus.badRequest);
+        await resp.drain();
+
+        // 2. Valid code -> 200 OK + mutual pair
+        req = await client.postUrl(Uri.parse('http://127.0.0.1:${s.boundPort}/api/pair'));
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode({'code': code, 'deviceId': 'PEER-1', 'deviceName': 'Peer Phone'}));
+        resp = await req.close();
+        expect(resp.statusCode, HttpStatus.ok);
+        final body = await utf8.decodeStream(resp);
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        expect(data['ok'], isTrue);
+        expect(data['deviceId'], 'HOST-DEVICE');
+        expect(data['deviceName'], 'Host Machine');
+        expect(pairedId, 'PEER-1');
+        expect(pairedName, 'Peer Phone');
+
+        // 3. Direct unpair
+        req = await client.postUrl(Uri.parse('http://127.0.0.1:${s.boundPort}/api/unpair'));
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode({'deviceId': 'PEER-1'}));
+        resp = await req.close();
+        expect(resp.statusCode, HttpStatus.ok);
+        expect(unpairedId, 'PEER-1');
+
+        client.close();
+      } finally {
+        await s.stop();
+      }
+    });
+
+    test('direct HTTP manifest and audio file streaming', () async {
+      final tmpDir = await Directory.systemTemp.createTemp('pear_test_stream_');
+      final dummyAudio = File('${tmpDir.path}/song1.mp3');
+      final sampleBytes = List<int>.generate(256 * 1024, (i) => i % 256);
+      await dummyAudio.writeAsBytes(sampleBytes);
+
+      final s = SignalingServer(
+        port: 0,
+        host: '127.0.0.1',
+        manifestProvider: () => {
+          'songs': [
+            {'id': 'song1', 'title': 'Test Song', 'size': sampleBytes.length}
+          ],
+          'playlists': [],
+        },
+        songFileProvider: (id) => id == 'song1' ? dummyAudio : null,
+      );
+      await s.start();
+      try {
+        final client = HttpClient();
+
+        // 1. GET /api/sync/manifest
+        var req = await client.getUrl(Uri.parse('http://127.0.0.1:${s.boundPort}/api/sync/manifest'));
+        var resp = await req.close();
+        expect(resp.statusCode, HttpStatus.ok);
+        final manifest = jsonDecode(await utf8.decodeStream(resp)) as Map<String, dynamic>;
+        expect(manifest['songs'], hasLength(1));
+        expect(manifest['songs'][0]['id'], 'song1');
+
+        // 2. GET /api/songs/song1 (Full stream)
+        req = await client.getUrl(Uri.parse('http://127.0.0.1:${s.boundPort}/api/songs/song1'));
+        resp = await req.close();
+        expect(resp.statusCode, HttpStatus.ok);
+        expect(resp.contentLength, sampleBytes.length);
+        final downloadedBytes = await resp.expand((chunk) => chunk).toList();
+        expect(downloadedBytes, equals(sampleBytes));
+
+        // 3. GET /api/songs/song1 with Range header
+        req = await client.getUrl(Uri.parse('http://127.0.0.1:${s.boundPort}/api/songs/song1'));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=1000-1999');
+        resp = await req.close();
+        expect(resp.statusCode, HttpStatus.partialContent);
+        final partialBytes = await resp.expand((chunk) => chunk).toList();
+        expect(partialBytes, equals(sampleBytes.sublist(1000)));
+
+        client.close();
+      } finally {
+        await s.stop();
+        await tmpDir.delete(recursive: true);
+      }
+    });
   });
 }

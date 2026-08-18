@@ -17,6 +17,13 @@ class DiscoveredServer {
   final String url;
   final String? deviceId;
 
+  String get httpUrl {
+    if (url.startsWith('ws://')) return 'http://${url.substring(5)}';
+    if (url.startsWith('wss://')) return 'https://${url.substring(6)}';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return 'http://$url';
+  }
+
   @override
   String toString() => '$name ($url)';
 }

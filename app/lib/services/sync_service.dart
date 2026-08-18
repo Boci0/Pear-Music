@@ -253,9 +253,18 @@ class SyncService extends ChangeNotifier {
       'songs': library.songs.map((s) => s.toJson()).toList(),
     });
     _send(peerId, _playlistManifestMessage());
-    _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
   }
+
+  Map<String, dynamic> buildLocalManifestMessage() => {
+        'type': 'manifest',
+        'songs': library.songs.map((s) => s.toJson()).toList(),
+        'playlists': library.playlists.map((pl) => pl.toJson()).toList(),
+        'deleted': {
+          for (final e in library.deletedPlaylistsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
+      };
 
   Map<String, dynamic> _playlistManifestMessage() => {
         'type': 'playlist_manifest',
@@ -406,7 +415,9 @@ class SyncService extends ChangeNotifier {
       );
 
       if (!hasMatchingSong) {
-        missing.add(song.id);
+        if (!_incoming.containsKey(song.id) && !_inboundPending.contains(song.id)) {
+          missing.add(song.id);
+        }
       }
     }
     if (missing.isNotEmpty) {
@@ -428,14 +439,24 @@ class SyncService extends ChangeNotifier {
   }
 
   final Map<String, Future<void>> _sendQueues = {};
+  final Map<String, Set<String>> _enqueuedSendIds = {};
 
   void _enqueueSend(String peerId, Song song) {
+    final set = _enqueuedSendIds.putIfAbsent(peerId, () => <String>{});
+    if (set.contains(song.id)) return;
+    set.add(song.id);
+
     final prev = _sendQueues[peerId] ?? Future<void>.value();
     final next = prev.then((_) async {
-      if (_channels.containsKey(peerId)) {
-        await _sendFile(peerId, song);
+      try {
+        if (_channels.containsKey(peerId)) {
+          await _sendFile(peerId, song);
+        }
+      } finally {
+        set.remove(song.id);
       }
     }).catchError((Object e) {
+      set.remove(song.id);
       debugPrint('[sync] send error for ${song.title}: $e');
     });
     _sendQueues[peerId] = next;
@@ -566,8 +587,19 @@ class SyncService extends ChangeNotifier {
       return;
     }
 
-    final existing = _incoming.remove(song.id);
+    final existing = _incoming[song.id];
+    if (existing != null && existing.peerId == peerId) {
+      existing.timeoutTimer?.cancel();
+      existing.timeoutTimer = Timer(incomingTimeout, () {
+        existing.timeoutTimer = null;
+        debugPrint('[sync] incoming ${song.id} timed out; aborting');
+        _track(_abortIncoming(peerId, song.id));
+      });
+      return;
+    }
+
     if (existing != null) {
+      _incoming.remove(song.id);
       existing.timeoutTimer?.cancel();
       try {
         existing.raf.closeSync();
@@ -632,6 +664,7 @@ class SyncService extends ChangeNotifier {
     }
 
     try {
+      inc.raf.setPositionSync(index * chunkSize);
       inc.raf.writeFromSync(payload);
       inc.bytesReceived += payload.length;
     } catch (e) {

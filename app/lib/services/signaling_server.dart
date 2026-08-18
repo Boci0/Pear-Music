@@ -36,12 +36,20 @@ class SignalingServer {
     this.advertiseName = 'Pear Music device',
     this.advertiseDeviceId,
     this.trustProxyHeaders = false,
+    this.manifestProvider,
+    this.songFileProvider,
+    this.onPeerPaired,
+    this.onPeerUnpaired,
   });
 
   final int port;
   final String host;
   final File? stateFile;
   final void Function(String message)? onLog;
+  final Map<String, dynamic> Function()? manifestProvider;
+  final File? Function(String songId)? songFileProvider;
+  final void Function(String deviceId, String deviceName)? onPeerPaired;
+  final void Function(String deviceId)? onPeerUnpaired;
 
   /// Whether to trust a client-supplied `X-Forwarded-For` header as the
   /// connecting IP. Only meaningful if this server is actually deployed
@@ -240,6 +248,14 @@ class SignalingServer {
   // HTTP + WebSocket entry points
   // ----------------------------------------------------------------------
 
+  String createPairingCode() {
+    final code = _generateCode();
+    final id = advertiseDeviceId ?? 'local';
+    _pairingCodes.removeWhere((_, p) => p.hostDeviceId == id);
+    _pairingCodes[code] = _Pairing(id, DateTime.now());
+    return code;
+  }
+
   Future<void> _handleHttp(HttpRequest req) async {
     if (WebSocketTransformer.isUpgradeRequest(req)) {
       try {
@@ -255,16 +271,105 @@ class SignalingServer {
       req.response.headers.contentType = ContentType.json;
       req.response.write(jsonEncode({
         'ok': true,
-        'service': 'pear-music-signaling',
+        'service': 'pear-music-node',
+        'deviceId': advertiseDeviceId,
+        'deviceName': advertiseName,
         'devices': _devices.length,
         'time': DateTime.now().toIso8601String(),
       }));
       await req.response.close();
     } else if (path == '/discover') {
-      // LAN discovery endpoint (subnet-scan fallback + QR-less joiner finds
-      // this host). Mirrors the UDP multicast hello so both paths agree.
       req.response.headers.contentType = ContentType.json;
       req.response.write(jsonEncode(_helloJson()));
+      await req.response.close();
+    } else if (path == '/api/pair' && req.method == 'POST') {
+      try {
+        final body = await utf8.decodeStream(req);
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        final code = (data['code'] as String? ?? '').trim().toUpperCase();
+        final peerId = data['deviceId'] as String?;
+        final peerName = data['deviceName'] as String? ?? 'Unnamed device';
+
+        if (peerId != null && code.isNotEmpty && _pairingCodes.containsKey(code)) {
+          _pairingCodes.remove(code);
+          if (advertiseDeviceId != null && advertiseDeviceId!.isNotEmpty) {
+            _addPair(advertiseDeviceId!, peerId);
+            _persistedNames[peerId] = peerName;
+            _saveState();
+          }
+          onPeerPaired?.call(peerId, peerName);
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(jsonEncode({
+            'ok': true,
+            'deviceId': advertiseDeviceId,
+            'deviceName': advertiseName,
+          }));
+        } else {
+          req.response.statusCode = HttpStatus.badRequest;
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(jsonEncode({
+            'ok': false,
+            'message': 'Invalid or expired pairing code',
+          }));
+        }
+      } catch (e) {
+        req.response.statusCode = HttpStatus.badRequest;
+        req.response.write('Invalid request: $e');
+      }
+      await req.response.close();
+    } else if (path == '/api/unpair' && req.method == 'POST') {
+      try {
+        final body = await utf8.decodeStream(req);
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        final peerId = data['deviceId'] as String?;
+        if (peerId != null && advertiseDeviceId != null && advertiseDeviceId!.isNotEmpty) {
+          _removePair(advertiseDeviceId!, peerId);
+          onPeerUnpaired?.call(peerId);
+        }
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonEncode({'ok': true}));
+      } catch (e) {
+        req.response.statusCode = HttpStatus.badRequest;
+        req.response.write('Invalid request: $e');
+      }
+      await req.response.close();
+    } else if (path == '/api/sync/manifest') {
+      req.response.headers.contentType = ContentType.json;
+      final manifest = manifestProvider?.call() ?? <String, dynamic>{'songs': [], 'playlists': []};
+      req.response.write(jsonEncode(manifest));
+      await req.response.close();
+    } else if (path.startsWith('/api/songs/')) {
+      final segments = req.uri.pathSegments;
+      if (segments.length >= 3) {
+        final songId = segments[2];
+        final file = songFileProvider?.call(songId);
+        if (file != null && await file.exists()) {
+          final length = await file.length();
+          req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          req.response.headers.contentType = ContentType('audio', 'mpeg');
+
+          final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
+          if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+            final rangeSpec = rangeHeader.substring(6).split('-')[0];
+            final start = int.tryParse(rangeSpec) ?? 0;
+            if (start < length) {
+              req.response.statusCode = HttpStatus.partialContent;
+              req.response.headers.set(
+                HttpHeaders.contentRangeHeader,
+                'bytes $start-${length - 1}/$length',
+              );
+              req.response.contentLength = length - start;
+              await file.openRead(start).pipe(req.response);
+              return;
+            }
+          }
+          req.response.contentLength = length;
+          await file.openRead().pipe(req.response);
+          return;
+        }
+      }
+      req.response.statusCode = HttpStatus.notFound;
+      req.response.write('Song not found');
       await req.response.close();
     } else {
       req.response.statusCode = HttpStatus.notFound;
@@ -866,8 +971,10 @@ class SignalingServer {
   }
 
   void _addPair(String aId, String bId) {
-    _pairingsOf(aId).add(bId);
-    _pairingsOf(bId).add(aId);
+    final a = _devices[aId];
+    if (a != null) a.pairings.add(bId);
+    final b = _devices[bId];
+    if (b != null) b.pairings.add(aId);
     _addPersistedPair(aId, bId);
     // A fresh, deliberate re-pair always wins over a stale tombstone from a
     // previous unpair — otherwise two devices could never re-pair after
@@ -877,8 +984,10 @@ class SignalingServer {
   }
 
   void _removePair(String aId, String bId) {
-    _pairingsOf(aId).remove(bId);
-    _pairingsOf(bId).remove(aId);
+    final a = _devices[aId];
+    if (a != null) a.pairings.remove(bId);
+    final b = _devices[bId];
+    if (b != null) b.pairings.remove(aId);
     _removePersistedPair(aId, bId);
     // Record that this pair was EXPLICITLY broken, so a device that was
     // offline at the time (and still reports the old pairing when it comes
