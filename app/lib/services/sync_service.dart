@@ -720,7 +720,7 @@ class SyncService extends ChangeNotifier {
   void _throttledNotify() {
     if (_notifyQueued) return;
     _notifyQueued = true;
-    _notifyTimer ??= Timer(const Duration(milliseconds: 50), () {
+    _notifyTimer ??= Timer(const Duration(milliseconds: 200), () {
       _notifyQueued = false;
       _notifyTimer = null;
       notifyListeners();

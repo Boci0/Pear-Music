@@ -200,7 +200,6 @@ class SignalingService {
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
     await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
-    debugPrint('[diag] decryptTextFor hasKey=${key != null}');
     if (key == null) return null;
     try {
       final raw = base64Decode(b64);

@@ -321,7 +321,33 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// priority deviceId) — the other keeps hosting indefinitely and may never
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
-    _hostReconcileTimer = null;
+    _hostReconcileTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (_closing || !identity.isHost) {
+        _hostReconcileTimer?.cancel();
+        _hostReconcileTimer = null;
+        return;
+      }
+      unawaited(_reconcileHost());
+    });
+    Timer(const Duration(seconds: 2), () => unawaited(_reconcileHost()));
+  }
+
+  Future<void> _reconcileHost() async {
+    if (_closing || !identity.isHost) return;
+    final others =
+        _filterReachable(await discoverNearby(allowSubnetScan: true));
+    for (final host in others) {
+      final otherId = host.deviceId;
+      if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
+        debugPrint('[host] higher-priority host found (${host.url}); deferring');
+        _hostReconcileTimer?.cancel();
+        _hostReconcileTimer = null;
+        await identity.setIsHost(false);
+        await server.stop();
+        await updateServerUrl(host.url);
+        return;
+      }
+    }
   }
 
   @override
