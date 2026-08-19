@@ -443,8 +443,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     _offlineSince = null;
     _failoverTimer?.cancel();
     _failoverTimer = null;
-    // Ensure the pairing list is fresh after (re)connect.
-    signaling.getState();
+    // The server sends `state` inline right after `registered` (see
+    // signaling_server.dart _onRegister → _sendState), so there is no need to
+    // request it here. Sending an extra getState() created a race: a stale
+    // state response (processed before the in-flight pair_with_code) would
+    // overwrite identity._paired with an empty list, wiping a pairing that
+    // was JUST established by the `paired` handler.
   }
 
   Future<void> disposeAll() async {
@@ -504,20 +508,26 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         break;
 
       case 'registered':
-        signaling.getState();
+        // The server sends `state` inline right after `registered` (see
+        // signaling_server.dart _onRegister → _sendState), so there is no
+        // need to request it again. The redundant getState() created stale
+        // state responses that raced with `paired` events and wiped freshly-
+        // established pairings.
         break;
 
       case 'state':
         unawaited(_applyPairings(msg['pairings'] as List? ?? []));
-        // Persist the paired-device list (with names) so a new host (after a
-        // failover) can be told about the pairing on register.
-        unawaited(identity.setPairedDevices(
-          (msg['pairings'] as List? ?? []).whereType<Map>().map((m) =>
-              MapEntry(
-                m['deviceId'] as String? ?? '',
-                m['deviceName'] as String? ?? '',
-              )),
-        ));
+        // Merge (not replace) the server's pairing list into local persistence
+        // so a stale `state` response can never wipe a pairing that was just
+        // established by a `paired` event. Unpairing is only done by explicit
+        // `unpaired` events, never by omission from a `state` message.
+        for (final item in (msg['pairings'] as List? ?? []).whereType<Map>()) {
+          final id = item['deviceId'] as String? ?? '';
+          final name = item['deviceName'] as String? ?? '';
+          if (id.isNotEmpty) {
+            unawaited(identity.addPairedDevice(id, name: name));
+          }
+        }
         break;
 
       case 'pairing_created':
@@ -1030,7 +1040,19 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> updateServerUrl(String url) async {
     await identity.setServerUrl(url);
     sync.detachChannelAll();
+    // Reseed from persisted pairings instead of clearing: a server switch
+    // should not forget who we're paired with. The server's `state` response
+    // will update online/offline status once the new connection is up.
     _pairedDevices.clear();
+    for (final entry in identity.pairedDeviceNames.entries) {
+      if (entry.key.isNotEmpty) {
+        _pairedDevices.add(PeerDevice(
+          deviceId: entry.key,
+          deviceName: entry.value.isNotEmpty ? entry.value : 'Paired device',
+          online: false,
+        ));
+      }
+    }
     pendingPairingCode = null;
     connectionStatus = 'connecting';
     notifyListeners();
