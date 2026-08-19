@@ -449,6 +449,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         _upsertPeer(peer);
         await identity.addPairedDevice(peer.deviceId, name: peer.deviceName);
         _postMessage('Paired with ${peer.deviceName}');
+        // Regenerate a fresh pairing code so the consumed code is not re-used.
+        pendingPairingCode = null;
+        if (connectionStatus == 'connected') {
+          unawaited(generatePairingCode());
+        }
         await _reconcileConnections();
         break;
 
@@ -947,6 +952,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> updateServerUrl(String url) async {
     await identity.setServerUrl(url);
     sync.detachChannelAll();
+    _relayChannels.clear();
+    _pendingRelayBinaryMarkers.clear();
     // Reseed from persisted pairings instead of clearing: a server switch
     // should not forget who we're paired with. The server's `state` response
     // will update online/offline status once the new connection is up.

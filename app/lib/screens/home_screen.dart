@@ -13,6 +13,7 @@ import '../services/identity_service.dart';
 import '../services/youtube_search_service.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/transfer_list.dart';
 import '../widgets/youtube_song_tile.dart';
 import 'playlists_screen.dart';
 
@@ -418,6 +419,9 @@ class _HomeScreenState extends State<HomeScreen> {
       content = CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
+          const SliverToBoxAdapter(
+            child: TransferList(),
+          ),
           if (_showOnlyFavorites)
             SliverToBoxAdapter(
               child: Container(

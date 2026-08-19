@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.4.2+4002
+version: 1.4.3+4003
 
 environment:
   sdk: ^3.12.2
@@ -62,6 +62,7 @@ dependencies:
   image: ^4.8.0
   cryptography: ^2.9.0
   youtube_explode_dart: ^3.1.0
+  flutter_local_notifications: ^22.3.0
 
 dev_dependencies:
   flutter_test:
@@ -82,6 +83,8 @@ dev_dependencies:
 dependency_overrides:
   just_audio_background:
     path: third_party/just_audio_background
+  flutter_local_notifications_windows:
+    path: third_party/flutter_local_notifications_windows
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

@@ -38,6 +38,9 @@ class _PairScreenState extends State<PairScreen> {
     _initialPairedCount = _controller.pairedDevices.length;
     // Auto-pop when a new device pairs successfully.
     _controller.addListener(_onChanged);
+    // Always request a fresh code on open.
+    _codeRequested = true;
+    _controller.generatePairingCode();
   }
 
   @override
