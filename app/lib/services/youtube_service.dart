@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
 import 'library_service.dart';
@@ -60,11 +61,18 @@ class DownloadCancelledException implements Exception {
 /// network and the public Piped fleet is dead, so yt-dlp is the reliable
 /// single path.
 class YoutubeService {
+  static Future<File> _getLocalYtDlpFile() async {
+    final supportDir = await getApplicationSupportDirectory();
+    final binDir = Directory(p.join(supportDir.path, 'bin'));
+    if (!await binDir.exists()) {
+      await binDir.create(recursive: true);
+    }
+    return File(p.join(binDir.path, Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp'));
+  }
+
   /// Locate a yt-dlp (or youtube-dl) executable. Checks PATH first, then the
-  /// well-known winget shim folder (`%LOCALAPPDATA%\Microsoft\WinGet\Links`) so
-  /// detection works even when the app was launched from a process with a
-  /// stale PATH. Returns the resolved path, or null if not installed. Only
-  /// meaningful on desktop; the phone uses the bundled copy instead.
+  /// well-known winget shim folder (`%LOCALAPPDATA%\Microsoft\WinGet\Links`),
+  /// and finally the app's local bin folder.
   @visibleForTesting
   static Future<String?> ytDlpPath() async {
     if (kIsWeb) return null;
@@ -89,11 +97,77 @@ class YoutubeService {
           if (out.isNotEmpty && File(out).existsSync()) return out;
         }
       }
+
+      // Check app-local fallback binary
+      final localBin = await _getLocalYtDlpFile();
+      if (await localBin.exists() && await localBin.length() > 0) {
+        return localBin.path;
+      }
     } catch (_) {}
     return null;
   }
 
   static bool _updateChecked = false;
+  static Completer<String?>? _downloadingYtDlp;
+
+  /// Ensures yt-dlp binary is available on desktop, automatically downloading
+  /// the official binary to app storage if not found anywhere on the system.
+  static Future<String?> ensureYtDlpAvailable({
+    YoutubeStatusCallback? onStatus,
+  }) async {
+    final existing = await ytDlpPath();
+    if (existing != null) return existing;
+
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+      return null;
+    }
+
+    if (_downloadingYtDlp != null) {
+      return await _downloadingYtDlp!.future;
+    }
+
+    _downloadingYtDlp = Completer<String?>();
+    try {
+      onStatus?.call('Downloading yt-dlp dependencies…');
+      final targetFile = await _getLocalYtDlpFile();
+      final tempFile = File('${targetFile.path}.tmp');
+      if (await tempFile.exists()) await tempFile.delete();
+
+      final downloadUrl = Platform.isWindows
+          ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+          : (Platform.isMacOS
+              ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos'
+              : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux');
+
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse(downloadUrl));
+      final response = await request.close();
+
+      if (response.statusCode == 200) {
+        final sink = tempFile.openWrite();
+        await response.pipe(sink);
+        await sink.close();
+
+        if (await tempFile.length() > 0) {
+          if (!Platform.isWindows) {
+            await Process.run('chmod', ['+x', tempFile.path]);
+          }
+          if (await targetFile.exists()) await targetFile.delete();
+          await tempFile.rename(targetFile.path);
+          _downloadingYtDlp!.complete(targetFile.path);
+          return targetFile.path;
+        }
+      }
+      _downloadingYtDlp!.complete(null);
+      return null;
+    } catch (e) {
+      debugPrint('[pearmusic] Failed to download yt-dlp automatically: $e');
+      _downloadingYtDlp!.complete(null);
+      return null;
+    } finally {
+      _downloadingYtDlp = null;
+    }
+  }
 
   /// Runs a background, non-blocking `yt-dlp -U` once per session on Windows
   /// so the desktop binary stays updated against YouTube cipher changes.
@@ -131,10 +205,16 @@ class YoutubeService {
     YoutubeProgressCallback? onProgress,
     DownloadCancellation? cancel,
   }) async {
-    final bin = await ytDlpPath();
+    var bin = await ytDlpPath();
     if (bin == null) {
-      throw Exception('yt-dlp is not installed on this device.');
+      bin = await ensureYtDlpAvailable(onStatus: onStatus);
     }
+    if (bin == null) {
+      throw Exception(
+        'yt-dlp could not be found or downloaded. Please check your internet connection.',
+      );
+    }
+    final finalBin = bin;
     Directory? tempDir;
     try {
       onStatus?.call('Starting yt-dlp…');
@@ -156,7 +236,7 @@ class YoutubeService {
           '-o', outTemplate,
           url,
         ];
-        final proc = await Process.start(bin, args);
+        final proc = await Process.start(finalBin, args);
         if (cancel != null) {
           unawaited(cancel.whenCancelled.then((_) {
             try {

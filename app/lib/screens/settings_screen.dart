@@ -173,7 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               child: Text(
                 'Links are downloaded with yt-dlp: bundled on the phone, '
-                'installed on the PC (winget install yt-dlp.yt-dlp). Works for '
+                'and automatically downloaded on the PC if missing. Works for '
                 'YouTube and Spotify links.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
