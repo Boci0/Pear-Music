@@ -259,6 +259,17 @@ class SyncService extends ChangeNotifier {
         }
       }));
     }
+    if (channel is RelayDataChannel) {
+      channel.onDecryptionFailure = () {
+        debugPrint('[sync] requesting re-handshake from $peerId due to decryption failure');
+        final pub = channel.signaling.e2ePubB64;
+        _send(peerId, {
+          'type': 'hello',
+          'deviceName': identity.deviceName,
+          'e2ePub': pub,
+        });
+      };
+    }
     _send(peerId, _songManifestMessage());
     _send(peerId, _playlistManifestMessage());
     _send(peerId, {'type': 'request_manifest'});

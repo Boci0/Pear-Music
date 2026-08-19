@@ -102,9 +102,24 @@ class SignalingService {
   /// the `hello` that started it is never dropped for lack of a key.
   final Map<String, Future<void>> _e2eDerivations = {};
 
-  /// Generate this device's ephemeral keypair (once) and cache its public key.
+  /// Generate or restore this device's persistent identity keypair and cache its public key.
   Future<void> ensureE2E() async {
-    if (_e2ePair == null) {
+    if (_e2ePair != null && _e2ePub != null) return;
+    try {
+      final savedB64 = identity.e2ePrivateKeyB64;
+      List<int> seedBytes;
+      if (savedB64 != null && savedB64.isNotEmpty) {
+        seedBytes = base64Decode(savedB64);
+      } else {
+        final rng = math.Random.secure();
+        seedBytes = List<int>.generate(32, (_) => rng.nextInt(256));
+        await identity.setE2EPrivateKeyB64(base64Encode(seedBytes));
+      }
+      _e2ePair = await _x25519.newKeyPairFromSeed(seedBytes);
+      _e2ePub =
+          Uint8List.fromList((await _e2ePair!.extractPublicKey()).bytes);
+    } catch (e) {
+      debugPrint('[e2e] failed to initialize persistent keypair: $e; generating ephemeral');
       _e2ePair = await _x25519.newKeyPair();
       _e2ePub =
           Uint8List.fromList((await _e2ePair!.extractPublicKey()).bytes);
@@ -115,6 +130,12 @@ class SignalingService {
   String? get e2ePubB64 {
     final pub = _e2ePub;
     return pub == null ? null : base64Encode(pub);
+  }
+
+  /// Invalidate cached shared key for [peerId] (e.g. on decryption failure)
+  void invalidatePeerKey(String peerId) {
+    _peerKeys.remove(peerId);
+    _e2eDerivations.remove(peerId);
   }
 
   /// Derive + cache the shared AES key for [peerId] from their public key.
@@ -132,26 +153,29 @@ class SignalingService {
 
   Future<void> _deriveKey(String peerId, Uint8List peerPubBytes) async {
     debugPrint('[e2e] deriving shared key for $peerId');
-    await ensureE2E();
-    final shared = await _x25519.sharedSecretKey(
-      keyPair: _e2ePair!,
-      remotePublicKey: SimplePublicKey(peerPubBytes, type: KeyPairType.x25519),
-    );
-    final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
-    _peerKeys[peerId] = await hkdf.deriveKey(
-      secretKey: shared,
-      nonce: utf8.encode('peerm-e2e-v1'),
-    );
+    try {
+      await ensureE2E();
+      final shared = await _x25519.sharedSecretKey(
+        keyPair: _e2ePair!,
+        remotePublicKey: SimplePublicKey(peerPubBytes, type: KeyPairType.x25519),
+      );
+      final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
+      _peerKeys[peerId] = await hkdf.deriveKey(
+        secretKey: shared,
+        nonce: utf8.encode('peerm-e2e-v1'),
+      );
+    } catch (e) {
+      debugPrint('[e2e] key derivation failed for $peerId: $e');
+    } finally {
+      _e2eDerivations.remove(peerId);
+    }
   }
 
   /// Wait for an in-flight E2E key derivation for [peerId] to finish (if any)
-  /// so the shared key is available before encrypting/decrypting. Failures are
-  /// swallowed: the caller falls back to plaintext (sender) or drops the frame
-  /// (receiver) exactly as it would with no key at all.
+  /// so the shared key is available before encrypting/decrypting.
   Future<void> _awaitE2E(String peerId) async {
     final pending = _e2eDerivations[peerId];
     if (pending == null) return;
-    _e2eDerivations.remove(peerId);
     try {
       await pending;
     } catch (_) {}

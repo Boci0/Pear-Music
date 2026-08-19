@@ -34,6 +34,7 @@ class IdentityService {
   static const _pairedIdsKey = 'peerm_paired_device_ids';
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
   static const _sortOptionKey = 'peerm_sort_option';
+  static const _e2ePrivKeyKey = 'peerm_e2e_priv_key';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -44,6 +45,12 @@ class IdentityService {
   late Map<String, String> _paired; // deviceId -> last known name
   late Set<String> _favoriteSongIds;
   late SortOption _sortOption;
+
+  String? get e2ePrivateKeyB64 => _prefs.getString(_e2ePrivKeyKey);
+
+  Future<void> setE2EPrivateKeyB64(String b64) async {
+    await _prefs.setString(_e2ePrivKeyKey, b64);
+  }
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();

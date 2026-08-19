@@ -76,6 +76,8 @@ class RelayDataChannel extends RTCDataChannel {
     });
   }
 
+  VoidCallback? onDecryptionFailure;
+
   @override
   Future<void> close() async {}
 
@@ -92,7 +94,9 @@ class RelayDataChannel extends RTCDataChannel {
     if (data['e'] == 1) {
       final clear = await signaling.decryptTextFor(peerId, text);
       if (clear == null) {
-        debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed)');
+        debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed); triggering re-handshake');
+        signaling.invalidatePeerKey(peerId);
+        onDecryptionFailure?.call();
         return;
       }
       text = utf8.decode(clear);
@@ -110,7 +114,12 @@ class RelayDataChannel extends RTCDataChannel {
     if (cb == null) return;
     if (encrypted) {
       final clear = await signaling.decryptBinaryFor(peerId, bytes);
-      if (clear == null) return;
+      if (clear == null) {
+        debugPrint('[diag] handleRelayBinary DROPPED encrypted chunk (decrypt failed); triggering re-handshake');
+        signaling.invalidatePeerKey(peerId);
+        onDecryptionFailure?.call();
+        return;
+      }
       bytes = clear;
     }
     cb(RTCDataChannelMessage.fromBinary(bytes));
