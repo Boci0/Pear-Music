@@ -317,111 +317,18 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// Runs [_reconcileGhostPairings] on the same cadence: host election alone
   /// only makes ONE of two rival hosts defer (whichever has the lower-
   /// priority deviceId) — the other keeps hosting indefinitely and may never
-  /// register with (and thus never reconcile against) a paired peer that's
-  /// also independently hosting. Ghost-pairing cleanup can't wait for host
-  /// election to converge, since for the "losing" side it may never converge.
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
     _hostReconcileTimer = null;
-    // Fire shortly after becoming host, then periodically every 25 seconds while hosting
-    // if any paired device is offline, so split-brain hosts automatically discover and merge.
-    _hostReconcileTimer = Timer.periodic(const Duration(seconds: 25), (_) {
-      if (_closing || !identity.isHost) {
-        _hostReconcileTimer?.cancel();
-        _hostReconcileTimer = null;
-        return;
-      }
-      final hasOfflinePaired =
-          _pairedDevices.isEmpty || _pairedDevices.any((d) => !d.online);
-      if (hasOfflinePaired) {
-        unawaited(_reconcileHostAndGhost());
-      }
-    });
-    Timer(const Duration(seconds: 3), () => unawaited(_reconcileHostAndGhost()));
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint('[lifecycle] App resumed; checking network connections');
-      final hasOfflinePaired =
-          _pairedDevices.isEmpty || _pairedDevices.any((d) => !d.online);
-      if (connectionStatus != 'connected' || hasOfflinePaired) {
+      if (connectionStatus != 'connected') {
         unawaited(_ensureConnection(allowSubnetScan: true));
-        unawaited(_reconcileHostAndGhost());
       }
-    }
-  }
-
-  /// Single entry point for both host and ghost-pairing reconciliation.
-  ///
-  /// Both jobs need the same LAN scan result, so [discoverNearby] is called
-  /// once and the result is passed to each — previously two independent scans
-  /// ran back-to-back every 30s, doubling the connection storm on the router.
-  Future<void> _reconcileHostAndGhost() async {
-    if (_closing || !identity.isHost) return;
-    final others = _filterReachable(await discoverNearby(allowSubnetScan: true));
-    await _reconcileHost(others);
-    await _reconcileGhostPairings(others);
-  }
-
-  Future<void> _reconcileHost(List<DiscoveredServer> others) async {
-    if (_closing || !identity.isHost) return;
-    for (final host in others) {
-      final otherId = host.deviceId;
-      if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
-        debugPrint('[host] higher-priority host ${host.url}; deferring');
-        _hostReconcileTimer?.cancel();
-        _hostReconcileTimer = null;
-        await identity.setIsHost(false);
-        await server.stop();
-        await updateServerUrl(host.url);
-        return;
-      }
-    }
-  }
-
-  /// Checks in with any PAIRED peer that is independently running its own
-  /// server right now (a "split brain": we believe we're paired with it, but
-  /// nothing has ever made either of us register with the other's server, so
-  /// neither side's register-time pairing reconciliation has ever run
-  /// against the other — see host reconcile's doc comment above). Best-
-  /// effort and silent on failure: this must never disrupt normal hosting,
-  /// and in ordinary operation (single real host, everyone else a plain
-  /// client) no paired peer ever shows up here, since only the current host
-  /// runs a server at all.
-  Future<void> _reconcileGhostPairings(List<DiscoveredServer> others) async {
-    if (_closing || !identity.isHost) return;
-    final paired = identity.pairedDeviceIds;
-    if (paired.isEmpty) return;
-    for (final host in others) {
-      if (host.deviceId == null || !paired.contains(host.deviceId)) continue;
-      final pairings = <Map<String, String>>[
-        for (final e in identity.pairedDeviceNames.entries)
-          {'deviceId': e.key, 'deviceName': e.value},
-      ];
-      Map<String, dynamic>? revoked;
-      try {
-        revoked = await SignalingService.checkInWithHost(
-          url: host.url,
-          deviceId: identity.deviceId,
-          deviceName: identity.deviceName,
-          pairings: pairings,
-        );
-      } catch (e) {
-        debugPrint('[host] ghost-pairing check-in with ${host.url} failed: $e');
-        continue;
-      }
-      if (revoked == null || _closing) continue;
-      final peer = PeerDevice.fromJson(Map<String, dynamic>.from(revoked));
-      debugPrint('[host] ${host.url} confirmed ${peer.deviceId} is unpaired '
-          '(ghost pairing) — dropping it locally');
-      await identity.removePairedDevice(peer.deviceId);
-      await _handlePeerGone(
-        peer.deviceId,
-        deviceName: peer.deviceName,
-        explicit: true,
-      );
     }
   }
 
@@ -1075,12 +982,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // failover re-hosts this device, so nothing is lost.
     final isRemote =
         !target.contains('localhost') && !target.contains('127.0.0.1');
-    if (isRemote && identity.isHost) {
-      _hostReconcileTimer?.cancel();
-      _hostReconcileTimer = null;
-      await identity.setIsHost(false);
-      await server.stop();
-    }
     if (identity.serverUrl != target) {
       await updateServerUrl(target);
     } else if (connectionStatus != 'connected') {
@@ -1088,7 +989,15 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
     final deadline = DateTime.now().add(const Duration(seconds: 6));
     while (DateTime.now().isBefore(deadline)) {
-      if (connectionStatus == 'connected' && signaling.isRegistered) return true;
+      if (connectionStatus == 'connected' && signaling.isRegistered) {
+        if (isRemote && identity.isHost) {
+          _hostReconcileTimer?.cancel();
+          _hostReconcileTimer = null;
+          await identity.setIsHost(false);
+          await server.stop();
+        }
+        return true;
+      }
       await Future.delayed(const Duration(milliseconds: 100));
     }
     if (connectionStatus != 'connected' || !signaling.isRegistered) {
