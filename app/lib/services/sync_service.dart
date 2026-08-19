@@ -666,10 +666,12 @@ class SyncService extends ChangeNotifier {
     }
 
     inc.timeoutTimer?.cancel();
-    inc.timeoutTimer = Timer(incomingTimeout, () {
+    // Reset watchdog: if no new chunk arrives within 15 seconds, abort and retry
+    inc.timeoutTimer = Timer(const Duration(seconds: 15), () {
       inc.timeoutTimer = null;
-      debugPrint('[sync] incoming $songId timed out; aborting');
+      debugPrint('[sync] incoming $songId transfer stalled mid-stream (15s inactivity); aborting and retrying');
       _track(_abortIncoming(peerId, songId));
+      _send(peerId, {'type': 'request_songs', 'ids': [songId]});
     });
 
     final progress = _transfers[TransferProgress(
