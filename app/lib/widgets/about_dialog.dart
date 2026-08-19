@@ -30,12 +30,6 @@ void showPearMusicAboutDialog(BuildContext context) {
         'merge, publish, distribute, sublicense, and/or sell copies of the Software.',
         style: TextStyle(fontSize: 11, color: Colors.grey),
       ),
-      const SizedBox(height: 16),
-      OutlinedButton.icon(
-        onPressed: () => UpdateService.checkForUpdates(context),
-        icon: const Icon(Icons.system_update_outlined),
-        label: const Text('Check for Updates'),
-      ),
       const SizedBox(height: 12),
       SelectableText(
         'GitHub: https://github.com/Boci0/Pear-Music',

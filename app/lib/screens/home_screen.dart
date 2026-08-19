@@ -12,7 +12,6 @@ import '../models/song.dart';
 import '../services/identity_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
-import '../widgets/about_dialog.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/transfer_list.dart';
 import '../widgets/youtube_song_tile.dart';
@@ -660,8 +659,6 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
               );
-            } else if (val == 'about') {
-              showPearMusicAboutDialog(context);
             }
           },
           itemBuilder: (_) => [
@@ -732,14 +729,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.queue_music),
                   title: Text('Playlists'),
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'about',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.info_outline),
-                  title: Text('About & License'),
                 ),
               ),
             ],
