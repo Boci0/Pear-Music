@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -30,7 +31,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.3.3';
+  static const String currentVersion = '1.3.4';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -211,6 +212,31 @@ del "${zipFile.path}"
       );
     }
   }
+
+  static Future<void> downloadAndInstallAndroidApk(
+    BuildContext context,
+    String apkUrl,
+  ) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Text('Downloading update in notifications...'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+    try {
+      const channel = MethodChannel('peerm/ytdlp');
+      await channel.invokeMethod('downloadApkWithNotification', {
+        'url': apkUrl,
+        'fileName': 'PearMusic-update.apk',
+      });
+    } catch (e) {
+      debugPrint('[UpdateService] Android in-app update failed: $e');
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('In-app update error: $e')),
+      );
+    }
+  }
 }
 
 class _UpdateDialog extends StatelessWidget {
@@ -224,10 +250,14 @@ class _UpdateDialog extends StatelessWidget {
       return;
     }
 
-    String targetUrl = info.htmlUrl;
     if (defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null) {
-      targetUrl = info.apkUrl!;
-    } else if (defaultTargetPlatform == TargetPlatform.windows) {
+      Navigator.pop(context);
+      await UpdateService.downloadAndInstallAndroidApk(context, info.apkUrl!);
+      return;
+    }
+
+    String targetUrl = info.htmlUrl;
+    if (defaultTargetPlatform == TargetPlatform.windows) {
       if (info.setupUrl != null) {
         targetUrl = info.setupUrl!;
       }

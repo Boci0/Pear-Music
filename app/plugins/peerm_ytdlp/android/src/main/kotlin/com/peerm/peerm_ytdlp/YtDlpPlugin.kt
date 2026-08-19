@@ -97,8 +97,141 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 if (processId != null) cancelProcess(processId)
                 result.success(true)
             }
+            "installApk" -> {
+                val path = call.argument<String>("path")
+                if (path == null) {
+                    result.error("bad_args", "path required", null)
+                    return
+                }
+                try {
+                    installApk(ctx, path)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("install_failed", e.message, null)
+                }
+            }
+            "downloadApkWithNotification" -> {
+                val url = call.argument<String>("url")
+                val fileName = call.argument<String>("fileName") ?: "update.apk"
+                if (url == null) {
+                    result.error("bad_args", "url required", null)
+                    return
+                }
+                startApkDownloadWithNotification(ctx, url, fileName, result)
+            }
             else -> result.notImplemented()
         }
+    }
+
+    private fun startApkDownloadWithNotification(
+        ctx: Context,
+        url: String,
+        fileName: String,
+        result: MethodChannel.Result
+    ) {
+        val notificationManager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channelId = "peerm_updates"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "App Updates",
+                android.app.NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows progress when updating Pear Music"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notificationId = 8801
+        val builder = androidx.core.app.NotificationCompat.Builder(ctx, channelId)
+            .setContentTitle("Downloading Pear Music update...")
+            .setContentText("0%")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setProgress(100, 0, false)
+
+        notificationManager.notify(notificationId, builder.build())
+
+        val executor = Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                val destFile = File(ctx.cacheDir, fileName)
+                if (destFile.exists()) destFile.delete()
+
+                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connect()
+
+                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                    throw Exception("Server returned HTTP ${connection.responseCode}")
+                }
+
+                val fileLength = connection.contentLength
+                val input = java.io.BufferedInputStream(connection.inputStream)
+                val output = java.io.FileOutputStream(destFile)
+
+                val data = ByteArray(8192)
+                var total: Long = 0
+                var count: Int
+                var lastProgress = 0
+
+                while (input.read(data).also { count = it } != -1) {
+                    total += count
+                    output.write(data, 0, count)
+                    if (fileLength > 0) {
+                        val progress = ((total * 100) / fileLength).toInt()
+                        if (progress - lastProgress >= 2 || progress == 100) {
+                            lastProgress = progress
+                            builder.setProgress(100, progress, false)
+                                .setContentText("$progress%")
+                            notificationManager.notify(notificationId, builder.build())
+                        }
+                    }
+                }
+                output.flush()
+                output.close()
+                input.close()
+
+                notificationManager.cancel(notificationId)
+                mainHandler.post {
+                    try {
+                        installApk(ctx, destFile.absolutePath)
+                        result.success(destFile.absolutePath)
+                    } catch (err: Exception) {
+                        result.error("install_error", err.message, null)
+                    }
+                }
+            } catch (e: Exception) {
+                builder.setContentTitle("Update download failed")
+                    .setContentText(e.message ?: "Unknown error")
+                    .setOngoing(false)
+                    .setProgress(0, 0, false)
+                    .setSmallIcon(android.R.drawable.stat_notify_error)
+                notificationManager.notify(notificationId, builder.build())
+                mainHandler.post {
+                    result.error("download_failed", e.message, null)
+                }
+            } finally {
+                executor.shutdown()
+            }
+        }
+    }
+
+    private fun installApk(ctx: Context, path: String) {
+        val file = File(path)
+        if (!file.exists()) throw Exception("APK file does not exist: $path")
+        val apkUri = androidx.core.content.FileProvider.getUriForFile(
+            ctx,
+            "${ctx.packageName}.fileprovider",
+            file
+        )
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        ctx.startActivity(intent)
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
