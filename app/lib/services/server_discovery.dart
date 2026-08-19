@@ -35,7 +35,7 @@ class ServerDiscovery {
   static const int port = 8080;
   static const String multicastGroup = '224.0.0.173'; // in 224.0.0.0/24 (Android-friendly)
 
-  static const Duration _httpTimeout = Duration(milliseconds: 800);
+  static const Duration _httpTimeout = Duration(milliseconds: 400);
   static const Duration _multicastWait = Duration(seconds: 2);
   static const int _scanConcurrency = 50;
 
@@ -55,6 +55,9 @@ class ServerDiscovery {
       ]);
     } else {
       await _discoverViaMulticast(results);
+      if (results.isEmpty) {
+        await _discoverViaSubnetScan(results);
+      }
     }
     return results.values.toList();
   }
@@ -76,7 +79,7 @@ class ServerDiscovery {
         if (event != RawSocketEvent.read) return;
         final dg = bound.receive();
         if (dg == null) return;
-        final server = _parseHello(dg.data, fallbackHost: dg.address.address);
+        final server = _parseHello(dg.data);
         if (server != null) out[server.url] = server;
       });
       final deadline = DateTime.now().add(_multicastWait);
@@ -103,10 +106,6 @@ class ServerDiscovery {
       );
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
-          if (addr.address.startsWith('169.254.') ||
-              addr.address.startsWith('127.')) {
-            continue;
-          }
           localIps.add(addr.address);
         }
       }
@@ -146,7 +145,7 @@ class ServerDiscovery {
       final res = await req.close();
       if (res.statusCode != HttpStatus.ok) return;
       final body = await res.transform(utf8.decoder).join();
-      final server = _parseHello(utf8.encode(body), fallbackHost: host);
+      final server = _parseHello(utf8.encode(body));
       if (server != null) out[server.url] = server;
     } catch (_) {
       // host not reachable / not a Pear Music device
@@ -154,23 +153,12 @@ class ServerDiscovery {
   }
 
   /// Parses a `peerm_hello` JSON payload into a [DiscoveredServer], or null.
-  static DiscoveredServer? _parseHello(
-    List<int> bytes, {
-    String? fallbackHost,
-  }) {
+  static DiscoveredServer? _parseHello(List<int> bytes) {
     try {
       final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
       if (decoded is! Map<String, dynamic>) return null;
       if (decoded['type'] != 'peerm_hello') return null;
-      var url = decoded['url'] as String?;
-      if (fallbackHost != null && fallbackHost.isNotEmpty) {
-        if (url == null ||
-            url.isEmpty ||
-            url.contains('localhost') ||
-            url.contains('127.0.0.1')) {
-          url = 'ws://$fallbackHost:$port';
-        }
-      }
+      final url = decoded['url'] as String?;
       if (url == null || url.isEmpty) return null;
       return DiscoveredServer(
         name: (decoded['name'] as String?)?.trim().isNotEmpty == true

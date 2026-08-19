@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -73,7 +74,7 @@ class SyncBatchState {
 
 /// Transfers music files over WebRTC data channels.
 class SyncService extends ChangeNotifier {
-  static const int chunkSize = 512 * 1024;
+  static const int chunkSize = 64 * 1024;
 
   final Duration incomingTimeout;
   static const int maxFinalizeRetries = 2;
@@ -247,70 +248,50 @@ class SyncService extends ChangeNotifier {
       'deviceName': identity.deviceName,
       'e2ePub': e2ePub,
     });
-    if (e2ePub == null && channel is RelayDataChannel) {
-      unawaited(channel.signaling.ensureE2E().then((_) {
-        final pub = channel.signaling.e2ePubB64;
-        if (pub != null && _channels.containsKey(peerId)) {
-          _send(peerId, {
-            'type': 'hello',
-            'deviceName': identity.deviceName,
-            'e2ePub': pub,
-          });
-        }
-      }));
-    }
-    if (channel is RelayDataChannel) {
-      channel.onDecryptionFailure = () {
-        debugPrint('[sync] requesting re-handshake from $peerId due to decryption failure');
-        final pub = channel.signaling.e2ePubB64;
-        _send(peerId, {
-          'type': 'hello',
-          'deviceName': identity.deviceName,
-          'e2ePub': pub,
-        });
-      };
-    }
-    _send(peerId, _songManifestMessage());
+    _send(peerId, {
+      'type': 'manifest',
+      'songs': library.songs.map((s) => s.toJson()).toList(),
+    });
     _send(peerId, _playlistManifestMessage());
     _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
+    _startResyncTimer();
   }
 
-  Map<String, dynamic> _songManifestMessage() => {
-        'type': 'manifest',
-        'songs': library.songs.map((s) => s.toJson()).toList(),
-        'deleted': {
-          for (final e in library.deletedSongsAt.entries)
-            if (e.key.isNotEmpty) e.key: e.value.toIso8601String(),
-        },
-      };
+  void _startResyncTimer() {
+    _resyncTimer?.cancel();
+    _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
+  }
 
   Map<String, dynamic> _playlistManifestMessage() => {
         'type': 'playlist_manifest',
         'playlists': library.playlists.map((pl) => pl.toJson()).toList(),
         'deleted': {
           for (final e in library.deletedPlaylistsAt.entries)
-            if (e.key.isNotEmpty) e.key: e.value.toIso8601String(),
+            e.key: e.value.toIso8601String(),
         },
       };
 
   int resyncNow() {
     // Do NOT clear _sending or _sendQueues: those hold in-flight transfers.
     // Clearing _sending allowed a second concurrent sender for the same song
-    // to spawn on a rapid disconnect/reconnect (the 24-byte chunk overlap bug).
-    // Send queues drain naturally over the surviving socket.
-    _inboundPending.clear();
-    _inboundCompleted.clear();
-    _batchCompletionTimer?.cancel();
-    _batchIsDone = false;
-    _transfers.clear();
-    notifyListeners();
-    for (final peerId in _channels.keys) {
-      _send(peerId, _songManifestMessage());
+    // to start (_sendFile's guard check no longer sees the in-progress entry),
+    // interleaving chunks from two senders and corrupting the file on the
+    // receiver. Let active transfers finish naturally; only clear finalize-retry
+    // state so a previously failed finalize can be retried by the fresh manifest
+    // exchange below.
+    _finalizeRetries.clear();
+    if (_channels.isEmpty) return 0;
+    final count = _channels.length;
+    for (final peerId in _channels.keys.toList()) {
+      _send(peerId, {
+        'type': 'manifest',
+        'songs': library.songs.map((s) => s.toJson()).toList(),
+      });
       _send(peerId, _playlistManifestMessage());
       _send(peerId, {'type': 'request_manifest'});
     }
-    return library.songs.length;
+    return count;
   }
 
   void detachChannel(String peerId) {
@@ -332,6 +313,11 @@ class SyncService extends ChangeNotifier {
       } catch (_) {}
       _removeProgress(peerId, inc.song.id);
     }
+    _inboundCompleted.clear();
+    _inboundPending.clear();
+    _outboundCompleted.clear();
+    _outboundPending.clear();
+    _sending.removeWhere((k, _) => k.startsWith('$peerId|'));
     notifyListeners();
   }
 
@@ -362,26 +348,15 @@ class SyncService extends ChangeNotifier {
             unawaited(ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub)));
           } catch (_) {}
         }
-        // Symmetrically reply with our hello so both sides exchange public keys
-        if (msg['isReply'] != true) {
-          final myPub = ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
-          _send(peerId, {
-            'type': 'hello',
-            'deviceName': identity.deviceName,
-            'e2ePub': myPub,
-            'isReply': true,
-          });
-        }
-        _send(peerId, _songManifestMessage());
+        _send(peerId, {
+          'type': 'manifest',
+          'songs': library.songs.map((s) => s.toJson()).toList(),
+        });
         _send(peerId, _playlistManifestMessage());
         break;
       case 'manifest':
         debugPrint('[sync][diag] <- $peerId: manifest (${(msg['songs'] as List?)?.length ?? 0} songs)');
-        _onManifest(
-          peerId,
-          msg['songs'] as List? ?? [],
-          msg['deleted'] as Map?,
-        );
+        _onManifest(peerId, msg['songs'] as List? ?? []);
         break;
       case 'request_songs':
         debugPrint('[sync][diag] <- $peerId: request_songs (${(msg['ids'] as List?)?.length ?? 0})');
@@ -410,48 +385,26 @@ class SyncService extends ChangeNotifier {
         _track(_onPlaylistDelete(peerId, msg));
         break;
       case 'request_manifest':
-        _send(peerId, _songManifestMessage());
+        _send(peerId, {
+          'type': 'manifest',
+          'songs': library.songs.map((s) => s.toJson()).toList(),
+        });
         _send(peerId, _playlistManifestMessage());
         break;
     }
   }
 
-  void _onManifest(
-    String peerId,
-    List<dynamic> rawSongs, [
-    Map? rawDeleted,
-  ]) {
-    if (rawDeleted != null) {
-      rawDeleted.forEach((key, value) {
-        final id = key.toString();
-        final at = DateTime.tryParse(value.toString());
-        if (id.isNotEmpty) {
-          library.recordSongDeleted(id, at: at);
-          final local = library.findById(id);
-          if (local != null) {
-            library.removeSong(id);
-          }
-        }
-      });
-    }
-
+  void _onManifest(String peerId, List<dynamic> rawSongs) {
     final missing = <String>[];
     for (final raw in rawSongs) {
       if (raw is! Map) continue;
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
-      if (library.isSongDeleted(song.id)) {
-        _send(peerId, {
-          'type': 'song_deleted',
-          'id': song.id,
-          'title': song.title,
-        });
-        continue;
-      }
       if (song.sourceDeviceId == identity.deviceId) {
         if (library.findById(song.id) == null) {
           _send(peerId, {
             'type': 'song_deleted',
             'id': song.id,
+            'checksum': song.checksum,
             'title': song.title,
           });
         }
@@ -562,6 +515,9 @@ class SyncService extends ChangeNotifier {
           index++;
           sentBytes += piece.length;
           _updateUploadProgress(peerId, song.id, sentBytes);
+          if (index % 4 == 0) {
+            await Future.delayed(const Duration(milliseconds: 1));
+          }
         }
       } finally {
         await raf.close();
@@ -595,13 +551,15 @@ class SyncService extends ChangeNotifier {
     final envelope = _buildEnvelope(songId, index, total, payload);
     await channel.send(RTCDataChannelMessage.fromBinary(envelope));
 
-    // Yield on every chunk so the UI event loop and animations stay completely smooth
-    await Future<void>.delayed(Duration.zero);
+    // Yield every 2 chunks so the event loop stays responsive
+    if (index % 2 == 0) {
+      await Future<void>.delayed(Duration.zero);
+    }
 
     final buffered = channel.bufferedAmount ?? 0;
-    if (buffered > 1024 * 1024) {
+    if (buffered > 512 * 1024) {
       final low = Completer<void>();
-      channel.bufferedAmountLowThreshold = 256 * 1024;
+      channel.bufferedAmountLowThreshold = 64 * 1024;
       channel.onBufferedAmountLow = (_) {
         if (!low.isCompleted) low.complete();
       };
@@ -720,7 +678,7 @@ class SyncService extends ChangeNotifier {
   void _throttledNotify() {
     if (_notifyQueued) return;
     _notifyQueued = true;
-    _notifyTimer ??= Timer(const Duration(milliseconds: 200), () {
+    _notifyTimer ??= Timer(const Duration(milliseconds: 50), () {
       _notifyQueued = false;
       _notifyTimer = null;
       notifyListeners();
@@ -907,27 +865,11 @@ class SyncService extends ChangeNotifier {
   }
 
   void broadcastSongDeleted(Song song) {
-    // 1. Abort any in-flight incoming transfer for this song
-    final inc = _incoming.remove(song.id);
-    if (inc != null) {
-      inc.timeoutTimer?.cancel();
-      try {
-        inc.raf.closeSync();
-      } catch (_) {}
-      try {
-        if (inc.file.existsSync()) inc.file.deleteSync();
-      } catch (_) {}
-    }
-    _inboundPending.remove(song.id);
-    _inboundCompleted.remove(song.id);
-    _transfers.removeWhere((k, v) => v.songId == song.id);
-    _flushNotify();
-
-    // 2. Broadcast to all active WebRTC data channels
     for (final peerId in _channels.keys.toList()) {
       _send(peerId, {
         'type': 'song_deleted',
         'id': song.id,
+        'checksum': song.checksum,
         'title': song.title,
       });
     }
@@ -938,35 +880,11 @@ class SyncService extends ChangeNotifier {
     Map<String, dynamic> msg,
   ) async {
     final id = msg['id'] as String?;
-    final title = (msg['title'] as String?) ?? '';
-    if (id == null || id.isEmpty) return;
-
-    // 1. Record tombstone for id
-    library.recordSongDeleted(id);
-
-    // 2. Abort any in-flight incoming transfers for this song
-    final inc = _incoming.remove(id);
-    if (inc != null) {
-      inc.timeoutTimer?.cancel();
-      try {
-        inc.raf.closeSync();
-      } catch (_) {}
-      try {
-        if (inc.file.existsSync()) inc.file.deleteSync();
-      } catch (_) {}
-    }
-    _inboundPending.remove(id);
-    _inboundCompleted.remove(id);
-    _transfers.removeWhere((k, v) => v.songId == id);
-    _flushNotify();
-
-    // 3. Find and remove local song by ID
+    if (id == null) return;
     final song = library.findById(id);
-    if (song == null) return;
-
-    await library.removeSong(song.id);
-    await onRemoteDeleted?.call(
-        song.id, song.title.isNotEmpty ? song.title : title);
+    if (song == null || song.sourceDeviceId == null) return;
+    await library.removeSong(id);
+    await onRemoteDeleted?.call(id, song.title);
   }
 
   // ---------- playlist sync ----------

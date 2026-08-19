@@ -38,9 +38,6 @@ class _PairScreenState extends State<PairScreen> {
     _initialPairedCount = _controller.pairedDevices.length;
     // Auto-pop when a new device pairs successfully.
     _controller.addListener(_onChanged);
-    // Always request a fresh code on open.
-    _codeRequested = true;
-    _controller.generatePairingCode();
   }
 
   @override
@@ -103,33 +100,15 @@ class _PairScreenState extends State<PairScreen> {
     );
   }
 
-  bool _codeRequested = false;
-
-  String _getQrServerUrl(AppController controller) {
-    final lanIp = controller.serverLanIp ?? controller.server.lanIp;
-    if (lanIp != null && lanIp.isNotEmpty && lanIp != '127.0.0.1') {
-      return 'ws://$lanIp:${controller.server.boundPort}';
-    }
-    final cur = controller.identity.serverUrl;
-    if (!cur.contains('localhost') && !cur.contains('127.0.0.1')) {
-      return cur;
-    }
-    return '';
-  }
-
   Widget _buildHost(AppController controller) {
-    if (controller.pendingPairingCode == null && !_codeRequested) {
-      if (controller.connectionStatus == 'connected') {
-        _codeRequested = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && controller.pendingPairingCode == null) {
-            controller.generatePairingCode();
-          }
-        });
-      }
+    if (controller.pendingPairingCode == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller.pendingPairingCode == null) {
+          controller.generatePairingCode();
+        }
+      });
     }
     final code = controller.pendingPairingCode ?? '';
-    final qrServer = _getQrServerUrl(controller);
     return Column(
       children: [
         Text('Show this code to the other device',
@@ -146,7 +125,9 @@ class _PairScreenState extends State<PairScreen> {
               QrImageView(
                 data: PairingLink.encode(
                   code,
-                  server: qrServer.isNotEmpty ? qrServer : null,
+                  server: controller.serverLanIp != null && controller.serverLanIp != '127.0.0.1'
+                      ? 'ws://${controller.serverLanIp}:${controller.server.boundPort}'
+                      : null,
                 ),
                 version: QrVersions.auto,
                 size: 180,
@@ -195,10 +176,7 @@ class _PairScreenState extends State<PairScreen> {
         ),
         const SizedBox(height: 16),
         TextButton.icon(
-          onPressed: () {
-            _codeRequested = true;
-            controller.generatePairingCode();
-          },
+          onPressed: controller.generatePairingCode,
           icon: const Icon(Icons.refresh),
           label: const Text('Generate a new code'),
         ),

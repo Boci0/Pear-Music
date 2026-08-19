@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../models/peer_device.dart';
 import '../widgets/about_dialog.dart';
-import '../widgets/transfer_list.dart';
 import 'pair_screen.dart';
 
 /// Devices tab: shows this device + all paired devices, with pair/unpair.
@@ -21,7 +20,6 @@ class DevicesScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const TransferList(),
           _ThisDeviceCard(controller: controller),
           const SizedBox(height: 24),
           Row(

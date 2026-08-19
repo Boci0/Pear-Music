@@ -49,27 +49,8 @@ class SignalingService {
   /// never resurrect a connection that was intentionally stopped.
   int _generation = 0;
 
-  bool _isRegistered = false;
-  final List<Completer<bool>> _registeredCompleters = [];
-
   /// True only once the WebSocket is actually open (not merely created).
   bool get isConnected => _connected;
-
-  /// True once the server has accepted registration and acknowledged deviceId.
-  bool get isRegistered => _isRegistered;
-
-  Future<bool> waitForRegistered({
-    Duration timeout = const Duration(seconds: 4),
-  }) async {
-    if (_isRegistered) return true;
-    final c = Completer<bool>();
-    _registeredCompleters.add(c);
-    try {
-      return await c.future.timeout(timeout, onTimeout: () => _isRegistered);
-    } finally {
-      _registeredCompleters.remove(c);
-    }
-  }
 
   // ---- Relay binary flow control ----
   //
@@ -102,24 +83,9 @@ class SignalingService {
   /// the `hello` that started it is never dropped for lack of a key.
   final Map<String, Future<void>> _e2eDerivations = {};
 
-  /// Generate or restore this device's persistent identity keypair and cache its public key.
+  /// Generate this device's ephemeral keypair (once) and cache its public key.
   Future<void> ensureE2E() async {
-    if (_e2ePair != null && _e2ePub != null) return;
-    try {
-      final savedB64 = identity.e2ePrivateKeyB64;
-      List<int> seedBytes;
-      if (savedB64 != null && savedB64.isNotEmpty) {
-        seedBytes = base64Decode(savedB64);
-      } else {
-        final rng = math.Random.secure();
-        seedBytes = List<int>.generate(32, (_) => rng.nextInt(256));
-        await identity.setE2EPrivateKeyB64(base64Encode(seedBytes));
-      }
-      _e2ePair = await _x25519.newKeyPairFromSeed(seedBytes);
-      _e2ePub =
-          Uint8List.fromList((await _e2ePair!.extractPublicKey()).bytes);
-    } catch (e) {
-      debugPrint('[e2e] failed to initialize persistent keypair: $e; generating ephemeral');
+    if (_e2ePair == null) {
       _e2ePair = await _x25519.newKeyPair();
       _e2ePub =
           Uint8List.fromList((await _e2ePair!.extractPublicKey()).bytes);
@@ -130,12 +96,6 @@ class SignalingService {
   String? get e2ePubB64 {
     final pub = _e2ePub;
     return pub == null ? null : base64Encode(pub);
-  }
-
-  /// Invalidate cached shared key for [peerId] (e.g. on decryption failure)
-  void invalidatePeerKey(String peerId) {
-    _peerKeys.remove(peerId);
-    _e2eDerivations.remove(peerId);
   }
 
   /// Derive + cache the shared AES key for [peerId] from their public key.
@@ -153,29 +113,26 @@ class SignalingService {
 
   Future<void> _deriveKey(String peerId, Uint8List peerPubBytes) async {
     debugPrint('[e2e] deriving shared key for $peerId');
-    try {
-      await ensureE2E();
-      final shared = await _x25519.sharedSecretKey(
-        keyPair: _e2ePair!,
-        remotePublicKey: SimplePublicKey(peerPubBytes, type: KeyPairType.x25519),
-      );
-      final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
-      _peerKeys[peerId] = await hkdf.deriveKey(
-        secretKey: shared,
-        nonce: utf8.encode('peerm-e2e-v1'),
-      );
-    } catch (e) {
-      debugPrint('[e2e] key derivation failed for $peerId: $e');
-    } finally {
-      _e2eDerivations.remove(peerId);
-    }
+    await ensureE2E();
+    final shared = await _x25519.sharedSecretKey(
+      keyPair: _e2ePair!,
+      remotePublicKey: SimplePublicKey(peerPubBytes, type: KeyPairType.x25519),
+    );
+    final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
+    _peerKeys[peerId] = await hkdf.deriveKey(
+      secretKey: shared,
+      nonce: utf8.encode('peerm-e2e-v1'),
+    );
   }
 
   /// Wait for an in-flight E2E key derivation for [peerId] to finish (if any)
-  /// so the shared key is available before encrypting/decrypting.
+  /// so the shared key is available before encrypting/decrypting. Failures are
+  /// swallowed: the caller falls back to plaintext (sender) or drops the frame
+  /// (receiver) exactly as it would with no key at all.
   Future<void> _awaitE2E(String peerId) async {
     final pending = _e2eDerivations[peerId];
     if (pending == null) return;
+    _e2eDerivations.remove(peerId);
     try {
       await pending;
     } catch (_) {}
@@ -200,6 +157,7 @@ class SignalingService {
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
     await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
+    debugPrint('[diag] decryptTextFor hasKey=${key != null}');
     if (key == null) return null;
     try {
       final raw = base64Decode(b64);
@@ -247,7 +205,6 @@ class SignalingService {
   }
 
   Future<void> start() async {
-    await ensureE2E();
     _manualStop = false;
     await _connect();
   }
@@ -361,16 +318,9 @@ class SignalingService {
             // Liveness reply — keeps the connection marked alive; not app-facing.
             return;
           }
-          if (decoded['type'] == 'registered') {
-            _isRegistered = true;
-            for (final c in List<Completer<bool>>.from(_registeredCompleters)) {
-              if (!c.isCompleted) c.complete(true);
-            }
-            _registeredCompleters.clear();
-            if (decoded['secret'] is String) {
-              // Persist the device-auth secret the server issued (first contact).
-              identity.setDeviceSecret(decoded['secret'] as String);
-            }
+          if (decoded['type'] == 'registered' && decoded['secret'] is String) {
+            // Persist the device-auth secret the server issued (first contact).
+            identity.setDeviceSecret(decoded['secret'] as String);
           }
           if (decoded['type'] == 'error' && decoded['message'] == 'unauthorized') {
             // The server rejected our deviceId+secret. In the host-election
@@ -424,11 +374,6 @@ class SignalingService {
 
   void _handleDisconnect() {
     _connected = false;
-    _isRegistered = false;
-    for (final c in List<Completer<bool>>.from(_registeredCompleters)) {
-      if (!c.isCompleted) c.complete(false);
-    }
-    _registeredCompleters.clear();
     _channel = null;
     _pingTimer?.cancel();
     _pingTimer = null;
@@ -452,19 +397,10 @@ class SignalingService {
     } catch (_) {}
   }
 
-  Future<void> createPairing() async {
-    if (!_isRegistered) {
-      await waitForRegistered();
-    }
-    send({'type': 'create_pairing'});
-  }
+  void createPairing() => send({'type': 'create_pairing'});
 
-  Future<void> pairWithCode(String code) async {
-    if (!_isRegistered) {
-      await waitForRegistered();
-    }
-    send({'type': 'pair_with_code', 'code': code});
-  }
+  void pairWithCode(String code) =>
+      send({'type': 'pair_with_code', 'code': code});
 
   void signalTo(String peerId, Map<String, dynamic> data) =>
       send({'type': 'signal', 'to': peerId, 'data': data});

@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:peerm_app/controllers/app_controller.dart';
-import 'package:peerm_app/models/peer_device.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
@@ -84,74 +83,44 @@ void main() {
     );
   }
 
-  test('shared songs are removed when their source is explicitly unpaired', () async {
+  test('shared songs are removed when their source is no longer paired', () async {
     await addSharedSong('song-1', 'peer-1');
     await library.addLocalFiles([
       File('${tempDir.path}/my-own.mp3')..writeAsBytesSync(List.filled(50, 2)),
     ]);
     expect(library.songs.length, 2);
 
-    // Explicit unpair removes the shared song, the local one stays.
-    await controller.unpair(PeerDevice(deviceId: 'peer-1', deviceName: 'Phone'));
+    // Server says no pairings → the shared song must go, the local one stays.
+    await controller.applyPairings([]);
 
     expect(library.songs.length, 1);
     expect(library.songs.single.sourceDeviceId, isNull);
   });
 
-  test('shared songs stay while the source is still paired (even offline or omitted in state)', () async {
+  test('shared songs stay while the source is still paired (even offline)', () async {
     await addSharedSong('song-1', 'peer-1');
     expect(library.songs.length, 1);
 
-    // peer-1 is paired but offline (or server sends empty state) → its songs must NOT be removed.
-    await controller.applyPairings([]);
+    // peer-1 is still paired but offline → its songs must NOT be removed.
+    await controller.applyPairings([
+      {'deviceId': 'peer-1', 'deviceName': 'Phone', 'online': false},
+    ]);
 
     expect(library.songs.length, 1);
     expect(library.songs.single.sourceDeviceId, 'peer-1');
   });
 
-  test('multiple unpaired sources are all cleaned up on explicit unpair', () async {
+  test('multiple unpaired sources are all cleaned up', () async {
     await addSharedSong('song-a', 'peer-1');
     await addSharedSong('song-b', 'peer-2');
     expect(library.songs.length, 2);
 
-    // Explicitly unpair peer-2; peer-1's song must stay.
-    await controller.unpair(PeerDevice(deviceId: 'peer-2', deviceName: 'Phone 2'));
+    // Only peer-1 is still paired; peer-2's song must be removed.
+    await controller.applyPairings([
+      {'deviceId': 'peer-1', 'deviceName': 'Phone', 'online': true},
+    ]);
 
     expect(library.songs.length, 1);
     expect(library.songs.single.sourceDeviceId, 'peer-1');
-  });
-
-  test('local songs are not converted to shared songs and survive unpairing', () async {
-    // Add local song
-    final localFile = File('${tempDir.path}/my-local.mp3')
-      ..writeAsBytesSync(List.filled(100, 7));
-    final added = await library.addLocalFiles([localFile]);
-    expect(added.length, 1);
-    final localSong = added.first;
-    expect(localSong.sourceDeviceId, isNull);
-
-    // Peer attempts to send same song
-    final incomingFile = library.incomingFile(localSong.id);
-    await incomingFile.parent.create(recursive: true);
-    await incomingFile.writeAsBytes(List.filled(100, 7));
-    final res = await library.addReceivedSong(
-      id: localSong.id,
-      title: localSong.title,
-      fileName: localSong.fileName,
-      size: localSong.size,
-      checksum: localSong.checksum,
-      sourceDeviceId: 'peer-1',
-    );
-    expect(res, isNotNull);
-    expect(library.songs.single.sourceDeviceId, isNull,
-        reason: 'local ownership must be preserved');
-
-    // Unpair device
-    await controller.unpair(PeerDevice(deviceId: 'peer-1', deviceName: 'Phone'));
-    expect(library.songs.length, 1,
-        reason: 'local song must not be removed on unpair');
-    expect(library.songs.single.sourceDeviceId, isNull);
-    expect(library.isSongDeleted(localSong.id), isFalse,
-        reason: 'unpairing must not record deletion tombstones');
   });
 }

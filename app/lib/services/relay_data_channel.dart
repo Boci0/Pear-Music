@@ -76,8 +76,6 @@ class RelayDataChannel extends RTCDataChannel {
     });
   }
 
-  VoidCallback? onDecryptionFailure;
-
   @override
   Future<void> close() async {}
 
@@ -86,6 +84,7 @@ class RelayDataChannel extends RTCDataChannel {
   /// E2E key first; un-decryptable/tampered messages are dropped, never
   /// surfaced.
   Future<void> handleRelay(Map<String, dynamic> data) async {
+    debugPrint('[diag] handleRelay t=${data['t']} e=${data['e']} cbNull=${onMessage == null} dIsString=${data['d'] is String}');
     if (data['t'] != 'text') return;
     final cb = onMessage;
     if (cb == null) return;
@@ -93,13 +92,12 @@ class RelayDataChannel extends RTCDataChannel {
     if (data['e'] == 1) {
       final clear = await signaling.decryptTextFor(peerId, text);
       if (clear == null) {
-        debugPrint('[relay] dropped undecryptable text from $peerId; triggering re-handshake');
-        signaling.invalidatePeerKey(peerId);
-        onDecryptionFailure?.call();
+        debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed)');
         return;
       }
       text = utf8.decode(clear);
     }
+    debugPrint('[diag] handleRelay delivering ${text.substring(0, text.length > 80 ? 80 : text.length)}');
     cb(RTCDataChannelMessage(text));
   }
 
@@ -112,12 +110,7 @@ class RelayDataChannel extends RTCDataChannel {
     if (cb == null) return;
     if (encrypted) {
       final clear = await signaling.decryptBinaryFor(peerId, bytes);
-      if (clear == null) {
-        debugPrint('[diag] handleRelayBinary DROPPED encrypted chunk (decrypt failed); triggering re-handshake');
-        signaling.invalidatePeerKey(peerId);
-        onDecryptionFailure?.call();
-        return;
-      }
+      if (clear == null) return;
       bytes = clear;
     }
     cb(RTCDataChannelMessage.fromBinary(bytes));

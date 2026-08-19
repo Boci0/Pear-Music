@@ -16,15 +16,11 @@ import 'services/player_service.dart';
 import 'services/player_theme.dart';
 import 'services/signaling_server.dart';
 import 'services/signaling_service.dart';
-import 'services/sync_notification_service.dart';
 import 'services/sync_service.dart';
 import 'services/youtube_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize notifications for sync progress bar.
-  await SyncNotificationService.init();
 
   // Enables the media_kit backend for Windows audio playback.
   JustAudioMediaKit.ensureInitialized();
@@ -73,7 +69,6 @@ Future<void> main() async {
   final library = LibraryService();
   final signaling = SignalingService(identity);
   final sync = SyncService(identity: identity, library: library);
-  SyncNotificationService.bind(sync);
   final player = PlayerService(library);
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());

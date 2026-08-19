@@ -19,8 +19,6 @@ import '../services/sync_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
-import 'package:flutter/widgets.dart';
-
 /// Central state + orchestration for the whole app.
 ///
 /// Owns the services and translates signaling / sync / player events into a
@@ -29,7 +27,7 @@ import 'package:flutter/widgets.dart';
 ///   - the music library
 ///   - in-flight transfer progress
 ///   - playback state
-class AppController extends ChangeNotifier with WidgetsBindingObserver {
+class AppController extends ChangeNotifier {
   final IdentityService identity;
   final LibraryService library;
   final SignalingService signaling;
@@ -90,6 +88,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         list.sort((a, b) => b.size.compareTo(a.size));
         break;
       case SortOption.dateAdded:
+      default:
         list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
         break;
     }
@@ -201,20 +200,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // screen during pairing). The WebRTC layer was removed entirely; the relay
     // is stable on every network.
 
-    _pairedDevices.clear();
-    for (final entry in identity.pairedDeviceNames.entries) {
-      if (entry.key.isNotEmpty) {
-        _pairedDevices.add(PeerDevice(
-          deviceId: entry.key,
-          deviceName: entry.value.isNotEmpty ? entry.value : 'Paired device',
-          online: false,
-        ));
-      }
-    }
-
     // Listen to the server.
     _subs.add(signaling.stream.listen(_onServerMessage));
-    await signaling.ensureE2E();
 
     // IMPORTANT: do NOT block the first frame on the server connection.
     // A WebSocket connect has no timeout, so if the server is unreachable
@@ -222,29 +209,15 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // tens of seconds, the long black screen on launch that only cleared once
     // the connect finally failed. Start it in the background: the UI renders
     // immediately and flips to "offline" until the connection succeeds.
-    WidgetsBinding.instance.addObserver(this);
     unawaited(_ensureConnection());
     notifyListeners();
   }
 
   /// Reset connection and re-trigger file transfer checks and manifest exchange with all devices.
   Future<int> forceSync() async {
-    final others = _filterReachable(await discoverNearby(allowSubnetScan: true));
-    if (others.isNotEmpty) {
-      final host = others.first;
-      if (host.deviceId != null && host.deviceId != identity.deviceId) {
-        if (identity.isHost) {
-          await identity.setIsHost(false);
-          await server.stop();
-        }
-        await updateServerUrl(host.url);
-      }
-    } else {
-      await signaling.restart();
-      await _ensureConnection(allowSubnetScan: true);
-    }
+    await signaling.restart();
+    await _ensureConnection();
     await Future.delayed(const Duration(milliseconds: 1200));
-    await _reconcileConnections();
     final count = sync.resyncNow();
     notifyListeners();
     return count;
@@ -255,14 +228,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// first make sure no other device already took over while I was offline
   /// (then I defer to it), otherwise I host. If I'm a client and the host is
   /// unreachable, I take over as host automatically.
-  Future<void> _ensureConnection({bool allowSubnetScan = true}) async {
+  Future<void> _ensureConnection() async {
     if (identity.isHost) {
       // I believe I'm the host. Before hosting, check whether another device
       // already took over as host while I was offline — if so, defer to it.
       // Skip hosts we recently failed to reach so we don't defer to a stale
       // URL, fail, take over, re-discover the same URL and loop forever.
-      final others =
-          _filterReachable(await discoverNearby(allowSubnetScan: allowSubnetScan));
+      final others = _filterReachable(await discoverNearby());
       if (others.isNotEmpty) {
         debugPrint('[host] another host found (${others.first.url}); deferring');
         await identity.setIsHost(false);
@@ -319,27 +291,38 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// Runs [_reconcileGhostPairings] on the same cadence: host election alone
   /// only makes ONE of two rival hosts defer (whichever has the lower-
   /// priority deviceId) — the other keeps hosting indefinitely and may never
+  /// register with (and thus never reconcile against) a paired peer that's
+  /// also independently hosting. Ghost-pairing cleanup can't wait for host
+  /// election to converge, since for the "losing" side it may never converge.
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
-    _hostReconcileTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (_closing || !identity.isHost) {
-        _hostReconcileTimer?.cancel();
-        _hostReconcileTimer = null;
-        return;
-      }
-      unawaited(_reconcileHost());
+    // Fire once after a short grace (let the connection settle), then
+    // periodically. 3 minutes is sufficient for host election — topology
+    // changes are rare and each reconcile triggers a LAN scan.
+    Timer(const Duration(seconds: 3), () => unawaited(_reconcileHostAndGhost()));
+    _hostReconcileTimer = Timer.periodic(const Duration(minutes: 3), (_) {
+      unawaited(_reconcileHostAndGhost());
     });
-    Timer(const Duration(seconds: 2), () => unawaited(_reconcileHost()));
   }
 
-  Future<void> _reconcileHost() async {
+  /// Single entry point for both host and ghost-pairing reconciliation.
+  ///
+  /// Both jobs need the same LAN scan result, so [discoverNearby] is called
+  /// once and the result is passed to each — previously two independent scans
+  /// ran back-to-back every 30s, doubling the connection storm on the router.
+  Future<void> _reconcileHostAndGhost() async {
     if (_closing || !identity.isHost) return;
-    final others =
-        _filterReachable(await discoverNearby(allowSubnetScan: true));
+    final others = _filterReachable(await discoverNearby(allowSubnetScan: true));
+    await _reconcileHost(others);
+    await _reconcileGhostPairings(others);
+  }
+
+  Future<void> _reconcileHost(List<DiscoveredServer> others) async {
+    if (_closing || !identity.isHost) return;
     for (final host in others) {
       final otherId = host.deviceId;
       if (otherId != null && otherId.compareTo(identity.deviceId) < 0) {
-        debugPrint('[host] higher-priority host found (${host.url}); deferring');
+        debugPrint('[host] higher-priority host ${host.url}; deferring');
         _hostReconcileTimer?.cancel();
         _hostReconcileTimer = null;
         await identity.setIsHost(false);
@@ -350,13 +333,47 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      debugPrint('[lifecycle] App resumed; checking network connections');
-      if (connectionStatus != 'connected') {
-        unawaited(_ensureConnection(allowSubnetScan: true));
+  /// Checks in with any PAIRED peer that is independently running its own
+  /// server right now (a "split brain": we believe we're paired with it, but
+  /// nothing has ever made either of us register with the other's server, so
+  /// neither side's register-time pairing reconciliation has ever run
+  /// against the other — see host reconcile's doc comment above). Best-
+  /// effort and silent on failure: this must never disrupt normal hosting,
+  /// and in ordinary operation (single real host, everyone else a plain
+  /// client) no paired peer ever shows up here, since only the current host
+  /// runs a server at all.
+  Future<void> _reconcileGhostPairings(List<DiscoveredServer> others) async {
+    if (_closing || !identity.isHost) return;
+    final paired = identity.pairedDeviceIds;
+    if (paired.isEmpty) return;
+    for (final host in others) {
+      if (host.deviceId == null || !paired.contains(host.deviceId)) continue;
+      final pairings = <Map<String, String>>[
+        for (final e in identity.pairedDeviceNames.entries)
+          {'deviceId': e.key, 'deviceName': e.value},
+      ];
+      Map<String, dynamic>? revoked;
+      try {
+        revoked = await SignalingService.checkInWithHost(
+          url: host.url,
+          deviceId: identity.deviceId,
+          deviceName: identity.deviceName,
+          pairings: pairings,
+        );
+      } catch (e) {
+        debugPrint('[host] ghost-pairing check-in with ${host.url} failed: $e');
+        continue;
       }
+      if (revoked == null || _closing) continue;
+      final peer = PeerDevice.fromJson(Map<String, dynamic>.from(revoked));
+      debugPrint('[host] ${host.url} confirmed ${peer.deviceId} is unpaired '
+          '(ghost pairing) — dropping it locally');
+      await identity.removePairedDevice(peer.deviceId);
+      await _handlePeerGone(
+        peer.deviceId,
+        deviceName: peer.deviceName,
+        explicit: true,
+      );
     }
   }
 
@@ -378,17 +395,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     _offlineSince = null;
     _failoverTimer?.cancel();
     _failoverTimer = null;
-    // The server sends `state` inline right after `registered` (see
-    // signaling_server.dart _onRegister → _sendState), so there is no need to
-    // request it here. Sending an extra getState() created a race: a stale
-    // state response (processed before the in-flight pair_with_code) would
-    // overwrite identity._paired with an empty list, wiping a pairing that
-    // was JUST established by the `paired` handler.
+    // Ensure the pairing list is fresh after (re)connect.
+    signaling.getState();
   }
 
   Future<void> disposeAll() async {
     _closing = true;
-    WidgetsBinding.instance.removeObserver(this);
     _failoverTimer?.cancel();
     _failoverTimer = null;
     _hostReconcileTimer?.cancel();
@@ -443,26 +455,20 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         break;
 
       case 'registered':
-        // The server sends `state` inline right after `registered` (see
-        // signaling_server.dart _onRegister → _sendState), so there is no
-        // need to request it again. The redundant getState() created stale
-        // state responses that raced with `paired` events and wiped freshly-
-        // established pairings.
+        signaling.getState();
         break;
 
       case 'state':
         unawaited(_applyPairings(msg['pairings'] as List? ?? []));
-        // Merge (not replace) the server's pairing list into local persistence
-        // so a stale `state` response can never wipe a pairing that was just
-        // established by a `paired` event. Unpairing is only done by explicit
-        // `unpaired` events, never by omission from a `state` message.
-        for (final item in (msg['pairings'] as List? ?? []).whereType<Map>()) {
-          final id = item['deviceId'] as String? ?? '';
-          final name = item['deviceName'] as String? ?? '';
-          if (id.isNotEmpty) {
-            unawaited(identity.addPairedDevice(id, name: name));
-          }
-        }
+        // Persist the paired-device list (with names) so a new host (after a
+        // failover) can be told about the pairing on register.
+        unawaited(identity.setPairedDevices(
+          (msg['pairings'] as List? ?? []).whereType<Map>().map((m) =>
+              MapEntry(
+                m['deviceId'] as String? ?? '',
+                m['deviceName'] as String? ?? '',
+              )),
+        ));
         break;
 
       case 'pairing_created':
@@ -477,11 +483,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         _upsertPeer(peer);
         await identity.addPairedDevice(peer.deviceId, name: peer.deviceName);
         _postMessage('Paired with ${peer.deviceName}');
-        // Regenerate a fresh pairing code so the consumed code is not re-used.
-        pendingPairingCode = null;
-        if (connectionStatus == 'connected') {
-          unawaited(generatePairingCode());
-        }
         await _reconcileConnections();
         break;
 
@@ -553,6 +554,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           notifyListeners();
         }
         await _reconcileConnections();
+        if (online) {
+          sync.resyncNow();
+        }
         break;
 
       case 'error':
@@ -572,29 +576,38 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       final peer = PeerDevice.fromJson(Map<String, dynamic>.from(item));
       incoming[peer.deviceId] = peer;
     }
+    final pairedIds = incoming.keys.toSet();
 
-    // Update existing paired devices: if the server reports an online/offline status,
-    // apply it. If a peer is currently not reported by the server, keep it as offline.
-    // NEVER wipe or unpair devices just because a server state omitted them.
-    // Unpairing only happens via explicit unpair actions.
-    for (var i = 0; i < _pairedDevices.length; i++) {
-      final existing = _pairedDevices[i];
-      final reported = incoming[existing.deviceId];
-      if (reported != null) {
-        _pairedDevices[i] = reported;
-      } else {
-        _pairedDevices[i] = existing.copyWith(online: false);
-      }
+    // 1) Peers we were paired with but that the server no longer lists were
+    //    unpaired (explicitly, or the server lost the pairing on restart).
+    //    Drop them from the list and clean up their channels + songs.
+    final gone = _pairedDevices
+        .where((d) => !pairedIds.contains(d.deviceId))
+        .toList();
+    _pairedDevices.removeWhere((d) => !pairedIds.contains(d.deviceId));
+    for (final peer in gone) {
+      await _handlePeerGone(peer.deviceId, deviceName: peer.deviceName);
     }
 
-    // Add any newly discovered peers reported by the server
+    // 2) Also remove shared songs whose source is no longer paired but that
+    //    have no _pairedDevices entry left to trigger cleanup (e.g. stale from
+    //    a previous session — the app was offline when the pairing ended, or
+    //    the app launched after a server restart). A peer that is merely
+    //    offline is still in the list, so its songs stay. Locally-added songs
+    //    (sourceDeviceId == null) are never affected.
+    final goneIds = gone.map((d) => d.deviceId).toSet();
+    final staleSources = library.songs
+        .map((s) => s.sourceDeviceId)
+        .whereType<String>()
+        .where((id) => !pairedIds.contains(id) && !goneIds.contains(id))
+        .toSet();
+    for (final sourceId in staleSources) {
+      await _handlePeerGone(sourceId);
+    }
+
     for (final entry in incoming.entries) {
-      if (!_pairedDevices.any((d) => d.deviceId == entry.key)) {
-        _pairedDevices.add(entry.value);
-      }
-      await identity.addPairedDevice(entry.key, name: entry.value.deviceName);
+      _upsertPeer(entry.value);
     }
-
     notifyListeners();
     unawaited(_reconcileConnections());
   }
@@ -980,21 +993,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> updateServerUrl(String url) async {
     await identity.setServerUrl(url);
     sync.detachChannelAll();
-    _relayChannels.clear();
-    _pendingRelayBinaryMarkers.clear();
-    // Reseed from persisted pairings instead of clearing: a server switch
-    // should not forget who we're paired with. The server's `state` response
-    // will update online/offline status once the new connection is up.
     _pairedDevices.clear();
-    for (final entry in identity.pairedDeviceNames.entries) {
-      if (entry.key.isNotEmpty) {
-        _pairedDevices.add(PeerDevice(
-          deviceId: entry.key,
-          deviceName: entry.value.isNotEmpty ? entry.value : 'Paired device',
-          online: false,
-        ));
-      }
-    }
     pendingPairingCode = null;
     connectionStatus = 'connecting';
     notifyListeners();
@@ -1003,7 +1002,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Smart Connect: switch to [url] (if different) and wait until this device
-  /// is connected + registered with that server (up to ~6s). Returns true on
+  /// is connected + registered with that server (up to ~20s). Returns true on
   /// success. Used by the QR flow so scanning a host's QR joins the right
   /// server automatically instead of requiring a manual URL edit.
   Future<bool> connectToServer(String url) async {
@@ -1017,28 +1016,22 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // failover re-hosts this device, so nothing is lost.
     final isRemote =
         !target.contains('localhost') && !target.contains('127.0.0.1');
+    if (isRemote && identity.isHost) {
+      _hostReconcileTimer?.cancel();
+      _hostReconcileTimer = null;
+      await identity.setIsHost(false);
+      await server.stop();
+    }
     if (identity.serverUrl != target) {
       await updateServerUrl(target);
-    } else if (connectionStatus != 'connected') {
-      await signaling.restart();
     }
-    final deadline = DateTime.now().add(const Duration(seconds: 6));
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
     while (DateTime.now().isBefore(deadline)) {
-      if (connectionStatus == 'connected' && signaling.isRegistered) {
-        if (isRemote && identity.isHost) {
-          _hostReconcileTimer?.cancel();
-          _hostReconcileTimer = null;
-          await identity.setIsHost(false);
-          await server.stop();
-        }
-        return true;
-      }
-      await Future.delayed(const Duration(milliseconds: 100));
+      if (connectionStatus == 'connected') return true;
+      await Future.delayed(const Duration(milliseconds: 250));
     }
-    if (connectionStatus != 'connected' || !signaling.isRegistered) {
-      _markUnreachable(target);
-    }
-    return connectionStatus == 'connected' && signaling.isRegistered;
+    if (connectionStatus != 'connected') _markUnreachable(target);
+    return connectionStatus == 'connected';
   }
 
   /// Hosts we can currently try to connect to — drops URLs we recently failed
@@ -1057,8 +1050,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// LocalSend-style LAN discovery: finds nearby Pear Music servers on the
-  /// same network. Excludes this device itself. Background callers use passive
-  /// multicast only ([allowSubnetScan] = false).
+  /// same network (multicast + subnet scan). Excludes this device itself.
   Future<List<DiscoveredServer>> discoverNearby({
     bool allowSubnetScan = false,
   }) async {
@@ -1086,22 +1078,21 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       // 1) Try on the current server first (fast path when already aligned).
       if (connectionStatus == 'connected') {
-        await signaling.pairWithCode(c);
+        signaling.pairWithCode(c);
         if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
       // 2) Discover nearby hosts (actively probing subnet fallback in parallel).
       final hosts = await discoverNearby(allowSubnetScan: true);
       for (final host in hosts) {
-        if (host.url != identity.serverUrl || connectionStatus != 'connected') {
-          if (!await connectToServer(host.url)) continue;
-        }
-        await signaling.pairWithCode(c);
+        if (host.url == identity.serverUrl) continue;
+        if (!await connectToServer(host.url)) continue;
+        signaling.pairWithCode(c);
         if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
-      return 'No device found with that code. Make sure the other device has '
-          'the Pair screen open, or scan its QR code.';
+      return 'No device found with that code. Make sure the other device is '
+          'open on the Pair screen, or scan its QR.';
     } finally {
       _pairSmartActive = false;
     }
@@ -1119,8 +1110,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (msg['type'] == 'paired') {
         if (!completer.isCompleted) completer.complete(true);
       } else if (msg['type'] == 'error') {
-        if (!completer.isCompleted) completer.complete(false);
-      } else if (msg['type'] == '_local' && msg['event'] == 'disconnected') {
         if (!completer.isCompleted) completer.complete(false);
       }
     });

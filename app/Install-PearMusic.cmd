@@ -16,7 +16,7 @@ powershell -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('%APPDATA
 powershell -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('%USERPROFILE%\Desktop\Pear Music.lnk'); $s.TargetPath='%TARGET_DIR%\peerm_app.exe'; $s.IconLocation='%TARGET_DIR%\peerm_app.exe,0'; $s.Save()"
 
 echo Configuring Windows Defender Firewall...
-powershell -NoProfile -Command "Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*peerm*' -or $_.DisplayName -like '*Pear Music*' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Pear Music (TCP-In)' -Direction Inbound -Program '%TARGET_DIR%\peerm_app.exe' -Protocol TCP -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null; New-NetFirewallRule -DisplayName 'Pear Music (UDP-In)' -Direction Inbound -Program '%TARGET_DIR%\peerm_app.exe' -Protocol UDP -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null" > NUL 2>&1
+powershell -NoProfile -Command "Get-NetFirewallRule -DisplayName 'Pear Music*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName 'Pear Music (TCP-In)' -Direction Inbound -Program '%TARGET_DIR%\peerm_app.exe' -Protocol TCP -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null; New-NetFirewallRule -DisplayName 'Pear Music (UDP-In)' -Direction Inbound -Program '%TARGET_DIR%\peerm_app.exe' -Protocol UDP -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null" > NUL 2>&1
 
 echo.
 echo Launching Pear Music...

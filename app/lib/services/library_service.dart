@@ -23,6 +23,15 @@ class LibraryService extends ChangeNotifier {
   final Set<String> _checksums = {};
   List<Song> get songs => List.unmodifiable(_songs);
 
+  void _rebuildIndexMaps() {
+    _songsById.clear();
+    _checksums.clear();
+    for (final s in _songs) {
+      _songsById[s.id] = s;
+      _checksums.add(s.checksum);
+    }
+  }
+
   void _indexSong(Song s) {
     _songsById[s.id] = s;
     _checksums.add(s.checksum);
@@ -35,25 +44,6 @@ class LibraryService extends ChangeNotifier {
 
   final List<Playlist> _playlists = [];
   List<Playlist> get playlists => List.unmodifiable(_playlists);
-
-  /// Songs deleted on this device (id → deletion time). Used to propagate
-  /// deletions to peers and prevent re-downloading deleted songs upon reconnect.
-  final Map<String, DateTime> _deletedSongsAt = {};
-  Map<String, DateTime> get deletedSongsAt =>
-      Map.unmodifiable(_deletedSongsAt);
-
-  bool isSongDeleted(String id) => _deletedSongsAt.containsKey(id);
-
-  void recordSongDeleted(String id, {DateTime? at}) {
-    if (id.isEmpty) return;
-    _deletedSongsAt[id] = at ?? DateTime.now();
-    _pruneDeletedSongs();
-  }
-
-  void _pruneDeletedSongs() {
-    final cutoff = DateTime.now().subtract(const Duration(days: 30));
-    _deletedSongsAt.removeWhere((_, at) => at.isBefore(cutoff));
-  }
 
   /// Playlists deleted on this device (id → deletion time). Used to propagate
   /// deletions to peers that were offline when the delete happened, without
@@ -78,7 +68,6 @@ class LibraryService extends ChangeNotifier {
     _indexFile = File(p.join(support.path, 'index.json'));
     _playlistsFile = File(p.join(support.path, 'playlists.json'));
     await _loadIndex();
-    await _recoverOrphanedFiles();
     await _loadPlaylists();
     notifyListeners();
   }
@@ -103,7 +92,6 @@ class LibraryService extends ChangeNotifier {
     _songs.clear();
     _songsById.clear();
     _checksums.clear();
-    _deletedSongsAt.clear();
     if (_indexFile == null || !await _indexFile!.exists()) return;
     try {
       final decoded = jsonDecode(await _indexFile!.readAsString());
@@ -127,76 +115,9 @@ class LibraryService extends ChangeNotifier {
         if (hadDuplicates) {
           await _saveIndex();
         }
-      } else if (decoded is Map<String, dynamic>) {
-        final seenIds = <String>{};
-        final seenChecksums = <String>{};
-        for (final item in decoded['songs'] as List? ?? []) {
-          if (item is Map<String, dynamic>) {
-            final s = Song.fromJson(item);
-            if (seenIds.contains(s.id) || seenChecksums.contains(s.checksum)) {
-              continue;
-            }
-            seenIds.add(s.id);
-            seenChecksums.add(s.checksum);
-            _songs.add(s);
-            _indexSong(s);
-          }
-        }
-        final deleted = decoded['deleted'];
-        if (deleted is Map) {
-          deleted.forEach((key, value) {
-            final k = key.toString();
-            if (k.isNotEmpty) {
-              final at = DateTime.tryParse(value.toString());
-              if (at != null) _deletedSongsAt[k] = at;
-            }
-          });
-        }
-        _pruneDeletedSongs();
       }
     } catch (_) {
       // Corrupt index - start fresh but keep any orphaned files.
-    }
-  }
-
-  /// Automatically discovers and restores any valid audio files present on disk
-  /// in the library folder that were missing from index.json.
-  Future<void> _recoverOrphanedFiles() async {
-    if (_libraryDir == null || !await _libraryDir!.exists()) return;
-    final entities = await _libraryDir!.list().toList();
-    var recovered = false;
-    for (final entity in entities) {
-      if (entity is! File) continue;
-      final ext = p.extension(entity.path).toLowerCase();
-      if (!['.mp3', '.m4a', '.mp4', '.flac', '.wav', '.aac', '.opus', '.ogg']
-          .contains(ext)) {
-        continue;
-      }
-      final fileName = p.basename(entity.path);
-      final id = p.basenameWithoutExtension(entity.path);
-      if (_songsById.containsKey(id) ||
-          _songs.any((s) => s.fileName == fileName)) {
-        continue;
-      }
-      final sum = await checksum(entity);
-      if (hasChecksum(sum)) continue;
-
-      final song = Song(
-        id: id,
-        title: _titleFromName(id),
-        fileName: fileName,
-        size: await entity.length(),
-        checksum: sum,
-        sourceDeviceId: null,
-        addedAt: DateTime.now(),
-      );
-      _songs.add(song);
-      _indexSong(song);
-      _deletedSongsAt.remove(id);
-      recovered = true;
-    }
-    if (recovered) {
-      await _saveIndex();
     }
   }
 
@@ -234,13 +155,7 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> _saveIndex() async {
     await _indexFile!.writeAsString(
-      jsonEncode({
-        'songs': _songs.map((s) => s.toJson()).toList(),
-        'deleted': {
-          for (final e in _deletedSongsAt.entries)
-            if (e.key.isNotEmpty) e.key: e.value.toIso8601String(),
-        },
-      }),
+      jsonEncode(_songs.map((s) => s.toJson()).toList()),
     );
   }
 
@@ -291,7 +206,6 @@ class LibraryService extends ChangeNotifier {
       );
       _songs.add(song);
       _indexSong(song);
-      _deletedSongsAt.remove(id);
       added.add(song);
     }
     if (added.isNotEmpty) {
@@ -303,8 +217,7 @@ class LibraryService extends ChangeNotifier {
 
   /// Called when a file arrives from a peer. Moves the fully-downloaded temp
   /// file into the library and records it with the peer as [sourceDeviceId].
-  /// Returns null if the song was marked deleted while transfer was in-flight.
-  Future<Song?> addReceivedSong({
+  Future<Song> addReceivedSong({
     required String id,
     required String title,
     required String fileName,
@@ -314,17 +227,6 @@ class LibraryService extends ChangeNotifier {
     String? artwork,
   }) async {
     final tmp = incomingFile(id);
-    if (isSongDeleted(id)) {
-      debugPrint(
-          '[library] Discarding incoming song $id: already marked deleted');
-      if (await tmp.exists()) {
-        try {
-          await tmp.delete();
-        } catch (_) {}
-      }
-      return null;
-    }
-
     final ext = p.extension(fileName);
     final finalName = '$id$ext';
     await tmp.rename(p.join(_libraryDir!.path, finalName));
@@ -343,16 +245,6 @@ class LibraryService extends ChangeNotifier {
         _songs.indexWhere((s) => s.id == id || s.checksum == checksum);
     if (existingIdx >= 0) {
       final existing = _songs[existingIdx];
-      if (existing.sourceDeviceId == null) {
-        // This song was downloaded or added locally on this device.
-        // Preserve local ownership (sourceDeviceId == null) and discard duplicate.
-        if (await tmp.exists()) {
-          try {
-            await tmp.delete();
-          } catch (_) {}
-        }
-        return existing;
-      }
       _unindexSong(existing);
       _songs[existingIdx] = song;
     } else {
@@ -397,7 +289,6 @@ class LibraryService extends ChangeNotifier {
     );
     _songs.add(song);
     _indexSong(song);
-    _deletedSongsAt.remove(id);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -405,14 +296,12 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> removeSong(String id) async {
     final song = findById(id);
-    recordSongDeleted(id);
-    if (song != null) {
-      _songs.remove(song);
-      _unindexSong(song);
-      final f = songFile(song);
-      if (await f.exists()) await f.delete();
-      _stripSongFromPlaylists(id);
-    }
+    if (song == null) return;
+    _songs.remove(song);
+    _unindexSong(song);
+    final f = songFile(song);
+    if (await f.exists()) await f.delete();
+    _stripSongFromPlaylists(id);
     await _saveIndex();
     await _savePlaylists();
     notifyListeners();

@@ -1,12 +1,10 @@
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:peerm_ytdlp/peerm_ytdlp.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateInfo {
@@ -32,7 +30,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.4.6';
+  static const String currentVersion = '1.3.3';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -54,20 +52,13 @@ class UpdateService {
         String? apkUrl;
         String? setupUrl;
         String? zipUrl;
-        final currentAbi = kIsWeb ? null : (Platform.isAndroid ? Abi.current() : null);
         final assets = json['assets'] as List<dynamic>? ?? [];
         for (final asset in assets) {
           if (asset is Map<String, dynamic>) {
             final downloadUrl = asset['browser_download_url'] as String? ?? '';
             if (downloadUrl.endsWith('.apk')) {
-              if (currentAbi == Abi.androidArm64 && downloadUrl.contains('arm64-v8a')) {
+              if (downloadUrl.contains('arm64')) {
                 apkUrl = downloadUrl;
-              } else if (currentAbi == Abi.androidArm && downloadUrl.contains('armeabi-v7a')) {
-                apkUrl = downloadUrl;
-              } else if (currentAbi == Abi.androidX64 && downloadUrl.contains('x86_64')) {
-                apkUrl = downloadUrl;
-              } else if (downloadUrl.contains('universal')) {
-                apkUrl ??= downloadUrl;
               } else {
                 apkUrl ??= downloadUrl;
               }
@@ -220,64 +211,6 @@ del "${zipFile.path}"
       );
     }
   }
-
-  static Future<void> downloadAndApplyAndroidApk(
-    BuildContext context,
-    String apkUrl,
-  ) async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    scaffoldMessenger.showSnackBar(
-      const SnackBar(
-        content: Text('Downloading APK update...'),
-        duration: Duration(seconds: 10),
-      ),
-    );
-
-    try {
-      final cacheDir = await getTemporaryDirectory();
-      final apkFile = File(p.join(cacheDir.path, 'peerm_update.apk'));
-      if (await apkFile.exists()) await apkFile.delete();
-
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(apkUrl));
-      final response = await request.close();
-
-      if (response.statusCode == 200) {
-        final sink = apkFile.openWrite();
-        await response.pipe(sink);
-        await sink.close();
-
-        scaffoldMessenger.hideCurrentSnackBar();
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Download complete. Launching installer... If prompted, allow "Install unknown apps" for Pear Music in Settings.',
-            ),
-            duration: Duration(seconds: 5),
-          ),
-        );
-
-        final installed = await installApk(apkFile.path);
-        if (!installed) {
-          final uri = Uri.parse(apkUrl);
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      } else {
-        scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text('Download failed (HTTP ${response.statusCode})')),
-        );
-      }
-    } catch (e) {
-      debugPrint('[UpdateService] Native APK update failed: $e');
-      scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Automatic update failed: $e')),
-      );
-      try {
-        final uri = Uri.parse(apkUrl);
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } catch (_) {}
-    }
-  }
 }
 
 class _UpdateDialog extends StatelessWidget {
@@ -288,12 +221,6 @@ class _UpdateDialog extends StatelessWidget {
     if (defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null) {
       Navigator.pop(context);
       await UpdateService.downloadAndApplyWindowsZip(context, info.zipUrl!);
-      return;
-    }
-
-    if (defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null) {
-      Navigator.pop(context);
-      await UpdateService.downloadAndApplyAndroidApk(context, info.apkUrl!);
       return;
     }
 
@@ -329,8 +256,10 @@ class _UpdateDialog extends StatelessWidget {
     final isWindowsWithZip = defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null;
 
     String buttonLabel = 'Get Update';
-    if (isAndroidWithApk || isWindowsWithZip) {
-      buttonLabel = 'Update In-App';
+    if (isAndroidWithApk) {
+      buttonLabel = 'Download APK';
+    } else if (isWindowsWithZip) {
+      buttonLabel = 'Update Automatically';
     }
 
     return AlertDialog(
@@ -355,38 +284,6 @@ class _UpdateDialog extends StatelessWidget {
               ),
             ),
           ),
-          if (isAndroidWithApk) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 18,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'If prompted during install, allow "Install unknown apps" for Pear Music in your Android Settings.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
       actions: [
@@ -396,9 +293,7 @@ class _UpdateDialog extends StatelessWidget {
         ),
         FilledButton.icon(
           onPressed: () => _handleUpdate(context),
-          icon: Icon(isWindowsWithZip || isAndroidWithApk
-              ? Icons.system_update
-              : Icons.file_download),
+          icon: Icon(isWindowsWithZip ? Icons.system_update : Icons.file_download),
           label: Text(buttonLabel),
         ),
       ],

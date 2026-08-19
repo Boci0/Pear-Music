@@ -323,7 +323,7 @@ class SignalingServer {
         _log('[discover] multicast unavailable: $e');
       });
     } catch (_) {}
-    _announceTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    _announceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _sendAnnouncement();
     });
     _sendAnnouncement();
@@ -467,6 +467,14 @@ class SignalingServer {
 
     // Text message: rate-limit control traffic (binary frames are excluded —
     // they are already paced by relay_ack).
+    if (!conn.controlLimiter.allow()) {
+      _log('[rate] ${conn.name} — control message flood');
+      try {
+        conn.ws.close(4003, 'rate limited');
+      } catch (_) {}
+      return;
+    }
+
     Map<String, dynamic>? msg;
     try {
       final decoded = jsonDecode(data);
@@ -475,18 +483,6 @@ class SignalingServer {
       return; // not JSON — ignore
     }
     if (msg == null) return;
-
-    // Binary relay markers (t === 'bin') are stream markers for raw frames, not control messages.
-    final dataField = msg['data'];
-    final isRelayBin = msg['type'] == 'relay' &&
-        (dataField is Map<String, dynamic> && dataField['t'] == 'bin');
-    if (!isRelayBin && !conn.controlLimiter.allow()) {
-      _log('[rate] ${conn.name} — control message flood');
-      try {
-        conn.ws.close(4003, 'rate limited');
-      } catch (_) {}
-      return;
-    }
 
     switch (msg['type']) {
       // ---- Register / re-register ----
@@ -505,7 +501,6 @@ class SignalingServer {
           });
           return;
         }
-        // Invalidate any previous pending code for this device.
         final code = _generateCode();
         _pairingCodes[code] = _Pairing(id, DateTime.now());
         conn.send({
@@ -1141,18 +1136,11 @@ class SignalingServer {
         type: InternetAddressType.IPv4,
         includeLoopback: false,
       );
-      // Pass 1: Prefer real physical private-range addresses (skip virtual adapters,
-      // APIPA link-local 169.254.x, and CGNAT 100.64.0.0/10).
-      for (final iface in ifaces) {
-        if (_isVirtualIfaceName(iface.name)) continue;
-        for (final addr in iface.addresses) {
-          final a = addr.address;
-          if (a.isEmpty || a == '0.0.0.0') continue;
-          if (_isLinkLocal(a) || _isCgnat(a)) continue;
-          if (_isPrivateIpv4(a)) return a;
-        }
-      }
-      // Pass 2: Any private IPv4 if no non-virtual interface matched.
+      // Prefer a private-range address peers can actually reach: skip APIPA
+      // link-local (169.254.x — never routable) and CGNAT (100.64.0.0/10 —
+      // used by Tailscale/VPN adapters, which a phone on the same Wi-Fi can't
+      // reach). This keeps the advertised ws:// URL pointing at the real LAN
+      // interface even when virtual adapters are present.
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
           final a = addr.address;
@@ -1161,7 +1149,7 @@ class SignalingServer {
           if (_isPrivateIpv4(a)) return a;
         }
       }
-      // Pass 3: Fallback to first non-loopback, non-link-local, non-CGNAT address.
+      // Fallback: first non-loopback, non-link-local address.
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
           final a = addr.address;
@@ -1172,25 +1160,6 @@ class SignalingServer {
       }
     } catch (_) {}
     return null;
-  }
-
-  static bool _isVirtualIfaceName(String name) {
-    final lower = name.toLowerCase();
-    return lower.contains('vethernet') ||
-        lower.contains('virtual') ||
-        lower.contains('vbox') ||
-        lower.contains('vmware') ||
-        lower.contains('vmnet') ||
-        lower.contains('wsl') ||
-        lower.contains('hyper-v') ||
-        lower.contains('docker') ||
-        lower.contains('tailscale') ||
-        lower.contains('zerotier') ||
-        lower.contains('tap') ||
-        lower.contains('tun') ||
-        lower.contains('bridge') ||
-        lower.contains('dummy') ||
-        lower.contains('loopback');
   }
 
   static bool _isLinkLocal(String s) => s.startsWith('169.254.');

@@ -341,25 +341,22 @@ void main() {
     expect(dirB.listSync().whereType<File>().length, 0);
   });
 
-  test('delete: removing a shared copy propagates and deletes the song on the peer',
+  test('delete: removing a SHARED copy does not delete the original on the peer',
       () async {
     await libA.addLocalFiles([makeAudio('mine.mp3', 90_000)]);
     connect();
     await waitFor(() => libB.songs.length == 1);
     expect(libB.songs.first.sourceDeviceId, 'device-A');
 
-    // B deletes its copy and broadcasts — A's copy must be removed as well
-    // so the deletion syncs across all paired devices.
+    // B deletes its shared copy and broadcasts — A's original must survive
+    // (only shared copies are removed on the receiving side).
     final shared = libB.songs.first;
     await libB.removeSong(shared.id);
     syncB.broadcastSongDeleted(shared);
 
-    final dirA = Directory('${tempDirA.path}/library');
-    await waitFor(() {
-      return libA.songs.isEmpty &&
-          dirA.listSync().whereType<File>().isEmpty;
-    });
-    expect(libA.songs, isEmpty);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(libA.songs.length, 1);
+    expect(libA.songs.first.sourceDeviceId, isNull);
     expect(libB.songs, isEmpty);
   });
 
@@ -420,10 +417,10 @@ void main() {
 
   test('a dropped chunk self-heals: failed finalize re-requests the song',
       () async {
-    // A song big enough to span several chunks (1.2 MB -> 3 chunks). The first
+    // A song big enough to span several chunks (200 KB -> 4 chunks). The first
     // chunk is dropped, so B's first finalize fails on a size mismatch and it
     // re-requests the song — which then arrives intact.
-    await libA.addLocalFiles([makeAudio('retry.mp3', 1_200_000)]);
+    await libA.addLocalFiles([makeAudio('retry.mp3', 200_000)]);
 
     final chA = _DropOnceChannel();
     final chB = _FakeChannel();
@@ -454,7 +451,7 @@ void main() {
     // size-only check would have silently accepted it. The checksum check
     // must catch the mismatch, causing the same self-heal (re-request) path
     // as a dropped chunk uses.
-    await libA.addLocalFiles([makeAudio('corrupt.mp3', 1_200_000)]);
+    await libA.addLocalFiles([makeAudio('corrupt.mp3', 200_000)]);
 
     final chA = _CorruptOnceChannel();
     final chB = _FakeChannel();
