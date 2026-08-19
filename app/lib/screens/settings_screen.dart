@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/update_service.dart';
+import '../widgets/about_dialog.dart';
 
 /// Settings: device name and signaling server URL.
 class SettingsScreen extends StatefulWidget {
@@ -180,7 +182,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          _sectionTitle(context, 'About Pear Music'),
+          _sectionTitle(context, 'About & Updates'),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.system_update_outlined),
+                  title: const Text('Check for updates'),
+                  subtitle: const Text('Version ${UpdateService.currentVersion}'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => UpdateService.checkForUpdates(context, quiet: false),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('About Pear Music'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showPearMusicAboutDialog(context),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),

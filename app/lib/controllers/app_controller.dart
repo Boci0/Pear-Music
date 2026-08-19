@@ -480,10 +480,12 @@ class AppController extends ChangeNotifier {
         final peer = PeerDevice.fromJson(
           Map<String, dynamic>.from(msg['peer'] as Map),
         );
+        peer.online = true;
         _upsertPeer(peer);
         await identity.addPairedDevice(peer.deviceId, name: peer.deviceName);
         _postMessage('Paired with ${peer.deviceName}');
         await _reconcileConnections();
+        sync.resyncNow();
         break;
 
       case 'unpaired':
