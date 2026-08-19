@@ -19,6 +19,8 @@ class DesktopPlayerBar extends StatefulWidget {
 class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
   Timer? _positionTimer;
   double? _dragPositionSeconds;
+  double? _dragVolume;
+  double _preMuteVolume = 1.0;
 
   @override
   void initState() {
@@ -145,116 +147,151 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
               // ---------------- Center: Transport & Scrubber ----------------
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Transport Buttons
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          tooltip: 'Shuffle (${player.shuffle ? "on" : "off"})',
-                          icon: Icon(
-                            Icons.shuffle,
-                            size: 18,
-                            color: player.shuffle
-                                ? control
-                                : scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    SizedBox(
+                      height: 38,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            tooltip:
+                                'Shuffle (${player.shuffle ? "on" : "off"})',
+                            icon: Icon(
+                              Icons.shuffle,
+                              size: 18,
+                              color: player.shuffle
+                                  ? control
+                                  : scheme.onSurfaceVariant
+                                      .withValues(alpha: 0.6),
+                            ),
+                            onPressed: () => controller.toggleShuffle(),
                           ),
-                          onPressed: () => controller.toggleShuffle(),
-                        ),
-                        IconButton(
-                          tooltip: 'Previous',
-                          icon: Icon(Icons.skip_previous, size: 22, color: control),
-                          onPressed: () => controller.previousTrack(),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          tooltip: player.playing ? 'Pause' : 'Play',
-                          icon: Icon(
-                            player.playing
-                                ? Icons.pause_circle_filled
-                                : Icons.play_circle_filled,
-                            size: 38,
-                            color: control,
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            tooltip: 'Previous',
+                            icon: Icon(Icons.skip_previous,
+                                size: 22, color: control),
+                            onPressed: () => controller.previousTrack(),
                           ),
-                          onPressed: () => controller.togglePlayback(),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          tooltip: 'Next',
-                          icon: Icon(Icons.skip_next, size: 22, color: control),
-                          onPressed: () => controller.nextTrack(),
-                        ),
-                        IconButton(
-                          tooltip: _loopTooltip(player.loopMode),
-                          icon: Icon(
-                            _loopIcon(player.loopMode),
-                            size: 18,
-                            color: player.loopMode != LoopSetting.off
-                                ? control
-                                : scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            tooltip: player.playing ? 'Pause' : 'Play',
+                            icon: Icon(
+                              player.playing
+                                  ? Icons.pause_circle_filled
+                                  : Icons.play_circle_filled,
+                              size: 36,
+                              color: control,
+                            ),
+                            onPressed: () => controller.togglePlayback(),
                           ),
-                          onPressed: () => controller.toggleLoop(),
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            tooltip: 'Next',
+                            icon:
+                                Icon(Icons.skip_next, size: 22, color: control),
+                            onPressed: () => controller.nextTrack(),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            tooltip: _loopTooltip(player.loopMode),
+                            icon: Icon(
+                              _loopIcon(player.loopMode),
+                              size: 18,
+                              color: player.loopMode != LoopSetting.off
+                                  ? control
+                                  : scheme.onSurfaceVariant
+                                      .withValues(alpha: 0.6),
+                            ),
+                            onPressed: () => controller.toggleLoop(),
+                          ),
+                        ],
+                      ),
                     ),
 
-                    // Progress Scrubber
-                    Row(
-                      children: [
-                        Text(
-                          _formatDuration(
-                            _dragPositionSeconds != null
-                                ? Duration(
-                                    milliseconds:
-                                        (_dragPositionSeconds! * 1000).toInt(),
-                                  )
-                                : position,
-                          ),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 11,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                        Expanded(
-                          child: SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              trackHeight: 3.5,
-                              thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 5.5,
+                    const SizedBox(height: 2),
+
+                    // Progress Scrubber (Raised & Compacted)
+                    SizedBox(
+                      height: 24,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 38,
+                            child: Text(
+                              _formatDuration(
+                                _dragPositionSeconds != null
+                                    ? Duration(
+                                        milliseconds:
+                                            (_dragPositionSeconds! * 1000)
+                                                .toInt(),
+                                      )
+                                    : position,
                               ),
-                              overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 12,
+                              textAlign: TextAlign.right,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontSize: 11,
+                                color: scheme.onSurfaceVariant,
                               ),
-                              activeTrackColor: control,
-                              inactiveTrackColor:
-                                  scheme.outlineVariant.withValues(alpha: 0.35),
-                              thumbColor: control,
-                            ),
-                            child: Slider(
-                              value: curSec.clamp(0.0, maxSec),
-                              min: 0.0,
-                              max: maxSec > 0 ? maxSec : 1.0,
-                              onChanged: (v) {
-                                setState(() => _dragPositionSeconds = v);
-                              },
-                              onChangeEnd: (v) {
-                                setState(() => _dragPositionSeconds = null);
-                                player.seek(
-                                  Duration(milliseconds: (v * 1000).toInt()),
-                                );
-                              },
                             ),
                           ),
-                        ),
-                        Text(
-                          _formatDuration(duration),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 11,
-                            color: scheme.onSurfaceVariant,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 3.5,
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 5.5,
+                                ),
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 10,
+                                ),
+                                activeTrackColor: control,
+                                inactiveTrackColor: scheme.outlineVariant
+                                    .withValues(alpha: 0.35),
+                                thumbColor: control,
+                              ),
+                              child: Slider(
+                                value: curSec.clamp(0.0, maxSec),
+                                min: 0.0,
+                                max: maxSec > 0 ? maxSec : 1.0,
+                                onChanged: (v) {
+                                  setState(() => _dragPositionSeconds = v);
+                                },
+                                onChangeEnd: (v) {
+                                  setState(() => _dragPositionSeconds = null);
+                                  player.seek(
+                                    Duration(milliseconds: (v * 1000).toInt()),
+                                  );
+                                },
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 38,
+                            child: Text(
+                              _formatDuration(duration),
+                              textAlign: TextAlign.left,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontSize: 11,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -274,22 +311,34 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                       onPressed: () => _openPlayerScreen(context),
                     ),
                     const SizedBox(width: 4),
-                    Icon(
-                      player.volume == 0
-                          ? Icons.volume_off
-                          : (player.volume < 0.5
-                              ? Icons.volume_down
-                              : Icons.volume_up),
-                      size: 20,
-                      color: scheme.onSurfaceVariant,
+                    IconButton(
+                      tooltip: player.volume == 0 ? 'Unmute' : 'Mute',
+                      icon: Icon(
+                        player.volume == 0
+                            ? Icons.volume_off
+                            : (player.volume < 0.5
+                                ? Icons.volume_down
+                                : Icons.volume_up),
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      onPressed: () {
+                        if (player.volume > 0) {
+                          _preMuteVolume = player.volume;
+                          player.setVolume(0.0);
+                        } else {
+                          player.setVolume(
+                              _preMuteVolume > 0 ? _preMuteVolume : 1.0);
+                        }
+                      },
                     ),
                     SizedBox(
-                      width: 100,
+                      width: 110,
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 3.5,
                           thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 5,
+                            enabledThumbRadius: 5.5,
                           ),
                           overlayShape: const RoundSliderOverlayShape(
                             overlayRadius: 10,
@@ -300,10 +349,16 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                           thumbColor: control,
                         ),
                         child: Slider(
-                          value: player.volume.clamp(0.0, 1.0),
+                          value: (_dragVolume ?? player.volume).clamp(0.0, 1.0),
                           min: 0.0,
                           max: 1.0,
-                          onChanged: (val) => player.setVolume(val),
+                          onChanged: (val) {
+                            setState(() => _dragVolume = val);
+                            player.setVolume(val);
+                          },
+                          onChangeEnd: (_) {
+                            setState(() => _dragVolume = null);
+                          },
                         ),
                       ),
                     ),

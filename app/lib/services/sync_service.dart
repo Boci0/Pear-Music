@@ -603,10 +603,23 @@ class SyncService extends ChangeNotifier {
       raf: raf,
     );
 
-    inc.timeoutTimer = Timer(incomingTimeout, () {
-      inc.timeoutTimer = null;
-      debugPrint('[sync] incoming ${song.id} timed out; aborting');
-      _track(_abortIncoming(peerId, song.id));
+    inc.timeoutTimer = Timer(const Duration(seconds: 8), () {
+      if (inc.bytesReceived == 0) {
+        debugPrint('[sync] incoming ${song.id} stalled at 0% (8s watchdog); retrying request');
+        _send(peerId, {'type': 'request_songs', 'ids': [song.id]});
+        // Restart a second watchdog for final abort if still stalled
+        inc.timeoutTimer = Timer(incomingTimeout, () {
+          inc.timeoutTimer = null;
+          debugPrint('[sync] incoming ${song.id} timed out; aborting');
+          _track(_abortIncoming(peerId, song.id));
+        });
+      } else {
+        inc.timeoutTimer = Timer(incomingTimeout, () {
+          inc.timeoutTimer = null;
+          debugPrint('[sync] incoming ${song.id} timed out; aborting');
+          _track(_abortIncoming(peerId, song.id));
+        });
+      }
     });
     _incoming[song.id] = inc;
     _setProgress(TransferProgress(

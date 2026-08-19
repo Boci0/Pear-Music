@@ -24,11 +24,12 @@ class _TransferListState extends State<TransferList> {
       curve: Curves.easeInOut,
       child: batch == null
           ? const SizedBox.shrink()
-          : _buildCard(context, batch),
+          : _buildCard(context, sync, batch),
     );
   }
 
-  Widget _buildCard(BuildContext context, SyncBatchState batch) {
+  Widget _buildCard(
+      BuildContext context, SyncService sync, SyncBatchState batch) {
     final totalSongs = batch.totalSongs;
     final completedSongs = batch.completedSongs;
     final activeFraction = batch.progressFraction;
@@ -85,6 +86,18 @@ class _TransferListState extends State<TransferList> {
                           ),
                     ),
                   ),
+                  if (!batch.isDone) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: 'Retry sync',
+                      icon: const Icon(Icons.refresh, size: 16),
+                      onPressed: () => sync.resyncNow(),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   Text(
                     '${(overallFraction * 100).toInt()}%',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
