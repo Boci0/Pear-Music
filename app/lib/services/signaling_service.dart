@@ -224,6 +224,7 @@ class SignalingService {
   }
 
   Future<void> start() async {
+    await ensureE2E();
     _manualStop = false;
     await _connect();
   }

@@ -247,6 +247,18 @@ class SyncService extends ChangeNotifier {
       'deviceName': identity.deviceName,
       'e2ePub': e2ePub,
     });
+    if (e2ePub == null && channel is RelayDataChannel) {
+      unawaited(channel.signaling.ensureE2E().then((_) {
+        final pub = channel.signaling.e2ePubB64;
+        if (pub != null && _channels.containsKey(peerId)) {
+          _send(peerId, {
+            'type': 'hello',
+            'deviceName': identity.deviceName,
+            'e2ePub': pub,
+          });
+        }
+      }));
+    }
     _send(peerId, _songManifestMessage());
     _send(peerId, _playlistManifestMessage());
     _send(peerId, {'type': 'request_manifest'});
@@ -338,6 +350,16 @@ class SyncService extends ChangeNotifier {
           try {
             unawaited(ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub)));
           } catch (_) {}
+        }
+        // Symmetrically reply with our hello so both sides exchange public keys
+        if (msg['isReply'] != true) {
+          final myPub = ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
+          _send(peerId, {
+            'type': 'hello',
+            'deviceName': identity.deviceName,
+            'e2ePub': myPub,
+            'isReply': true,
+          });
         }
         _send(peerId, _songManifestMessage());
         _send(peerId, _playlistManifestMessage());

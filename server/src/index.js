@@ -340,11 +340,6 @@ wss.on('connection', (ws, req) => {
   }, REGISTER_TIMEOUT_MS);
 
   ws.on('message', (raw, isBinary) => {
-    if (!isBinary && !allowControl()) {
-      console.warn(`[rate] ${devices.get(deviceId)?.name || ip} — control message flood`);
-      ws.close(4003, 'rate limited');
-      return;
-    }
     // Raw binary frame: the body of a relayed chunk. Its route was announced by
     // the preceding {t:'bin'} relay marker from this device, so forward it
     // unchanged to that peer (no base64 round-trip → ~33% less bandwidth).
@@ -373,6 +368,14 @@ wss.on('connection', (ws, req) => {
     try {
       msg = JSON.parse(raw.toString());
     } catch {
+      return;
+    }
+
+    // Binary relay markers (t === 'bin') are stream markers for raw frames, not control messages.
+    const isRelayBin = msg.type === 'relay' && msg.data?.t === 'bin';
+    if (!isRelayBin && !allowControl()) {
+      console.warn(`[rate] ${devices.get(deviceId)?.name || ip} — control message flood`);
+      ws.close(4003, 'rate limited');
       return;
     }
 

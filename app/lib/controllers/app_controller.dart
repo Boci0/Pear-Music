@@ -214,6 +214,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
     // Listen to the server.
     _subs.add(signaling.stream.listen(_onServerMessage));
+    await signaling.ensureE2E();
 
     // IMPORTANT: do NOT block the first frame on the server connection.
     // A WebSocket connect has no timeout, so if the server is unreachable
@@ -243,6 +244,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       await _ensureConnection(allowSubnetScan: true);
     }
     await Future.delayed(const Duration(milliseconds: 1200));
+    await _reconcileConnections();
     final count = sync.resyncNow();
     notifyListeners();
     return count;

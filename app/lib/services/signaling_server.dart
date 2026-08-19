@@ -467,14 +467,6 @@ class SignalingServer {
 
     // Text message: rate-limit control traffic (binary frames are excluded —
     // they are already paced by relay_ack).
-    if (!conn.controlLimiter.allow()) {
-      _log('[rate] ${conn.name} — control message flood');
-      try {
-        conn.ws.close(4003, 'rate limited');
-      } catch (_) {}
-      return;
-    }
-
     Map<String, dynamic>? msg;
     try {
       final decoded = jsonDecode(data);
@@ -483,6 +475,18 @@ class SignalingServer {
       return; // not JSON — ignore
     }
     if (msg == null) return;
+
+    // Binary relay markers (t === 'bin') are stream markers for raw frames, not control messages.
+    final dataField = msg['data'];
+    final isRelayBin = msg['type'] == 'relay' &&
+        (dataField is Map<String, dynamic> && dataField['t'] == 'bin');
+    if (!isRelayBin && !conn.controlLimiter.allow()) {
+      _log('[rate] ${conn.name} — control message flood');
+      try {
+        conn.ws.close(4003, 'rate limited');
+      } catch (_) {}
+      return;
+    }
 
     switch (msg['type']) {
       // ---- Register / re-register ----
