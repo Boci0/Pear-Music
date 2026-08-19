@@ -221,6 +221,19 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     private fun installApk(ctx: Context, path: String) {
         val file = File(path)
         if (!file.exists()) throw Exception("APK file does not exist: $path")
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (!ctx.packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    android.net.Uri.parse("package:${ctx.packageName}")
+                ).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(settingsIntent)
+            }
+        }
+
         val apkUri = androidx.core.content.FileProvider.getUriForFile(
             ctx,
             "${ctx.packageName}.fileprovider",

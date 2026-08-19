@@ -1091,8 +1091,7 @@ class AppController extends ChangeNotifier {
         if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
       }
 
-      return 'No device found with that code. Make sure the other device is '
-          'open on the Pair screen, or scan its QR.';
+      return 'No device found with that code. Make sure both devices are on the same Wi-Fi/Hotspot (without router AP isolation) and on the Pair screen, or scan the QR code directly.';
     } finally {
       _pairSmartActive = false;
     }
