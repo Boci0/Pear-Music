@@ -35,9 +35,9 @@ class ServerDiscovery {
   static const int port = 8080;
   static const String multicastGroup = '224.0.0.173'; // in 224.0.0.0/24 (Android-friendly)
 
-  static const Duration _httpTimeout = Duration(milliseconds: 400);
+  static const Duration _httpTimeout = Duration(milliseconds: 500);
   static const Duration _multicastWait = Duration(seconds: 2);
-  static const int _scanConcurrency = 50;
+  static const int _scanConcurrency = 128;
 
   /// Discovers nearby servers, deduplicated by URL. Never throws.
   ///
@@ -98,7 +98,7 @@ class ServerDiscovery {
   static Future<void> _discoverViaSubnetScan(
     Map<String, DiscoveredServer> out,
   ) async {
-    final localIps = <String>{};
+    final localIps = <String>[];
     try {
       final ifaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
@@ -106,11 +106,24 @@ class ServerDiscovery {
       );
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
-          localIps.add(addr.address);
+          final ip = addr.address;
+          if (ip.startsWith('169.254.') || ip.startsWith('127.')) continue;
+          localIps.add(ip);
         }
       }
     } catch (_) {}
     if (localIps.isEmpty) return;
+
+    // Prioritize standard home/hotspot LAN IP ranges first
+    localIps.sort((a, b) {
+      int score(String ip) {
+        if (ip.startsWith('192.168.')) return 0;
+        if (ip.startsWith('10.')) return 1;
+        if (ip.startsWith('172.')) return 2;
+        return 3;
+      }
+      return score(a).compareTo(score(b));
+    });
 
     final client = HttpClient()
       ..connectionTimeout = _httpTimeout
