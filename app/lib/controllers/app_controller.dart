@@ -523,13 +523,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         sync.detachChannel(peer.deviceId);
         _relayChannels.remove(peer.deviceId);
         await _reconcileConnections();
-        sync.resyncNow();
-        // Staged second sync to guarantee delivery after server commits pairing
-        Timer(const Duration(milliseconds: 900), () {
-          if (!_closing && sync.hasChannel(peer.deviceId)) {
-            sync.resyncNow();
-          }
-        });
         break;
 
       case 'unpaired':

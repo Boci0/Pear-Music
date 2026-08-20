@@ -98,6 +98,16 @@ class SignalingService {
     return pub == null ? null : base64Encode(pub);
   }
 
+  final Map<String, Uint8List> _peerPubs = {};
+
+  static bool _bytesEqual(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   /// Derive + cache the shared AES key for [peerId] from their public key.
   ///
   /// Records the derivation as in-flight so a frame that arrives before it
@@ -106,6 +116,12 @@ class SignalingService {
   /// dropped. The `hello` handler calls this fire-and-forget; [setPeerE2E]
   /// still returns the future for callers that want to await it.
   Future<void> setPeerE2E(String peerId, Uint8List peerPubBytes) {
+    if (_peerKeys.containsKey(peerId) &&
+        _peerPubs[peerId] != null &&
+        _bytesEqual(_peerPubs[peerId]!, peerPubBytes)) {
+      return Future.value();
+    }
+    _peerPubs[peerId] = peerPubBytes;
     final future = _deriveKey(peerId, peerPubBytes);
     _e2eDerivations[peerId] = future;
     return future;
@@ -143,6 +159,7 @@ class SignalingService {
 
   void removePeerKey(String peerId) {
     _peerKeys.remove(peerId);
+    _peerPubs.remove(peerId);
     _e2eDerivations.remove(peerId);
   }
 

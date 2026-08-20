@@ -343,6 +343,7 @@ class SyncService extends ChangeNotifier {
     _transfers.removeWhere((k, t) => t.peerId == peerId);
     _completed.removeWhere((k, t) => t.peerId == peerId);
     _sending.removeWhere((k, _) => k.startsWith('$peerId|'));
+    _enqueuedSends.removeWhere((k) => k.startsWith('$peerId|'));
 
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
@@ -529,8 +530,10 @@ class SyncService extends ChangeNotifier {
   }
 
   final Map<String, Future<void>> _sendQueues = {};
+  final Set<String> _enqueuedSends = {};
 
   void _enqueueSend(String peerId, Song song) {
+    final sendKey = _sendKey(peerId, song.id);
     final prev = _sendQueues[peerId] ?? Future<void>.value();
     final next = prev.then((_) async {
       if (_channels.containsKey(peerId)) {
@@ -546,6 +549,8 @@ class SyncService extends ChangeNotifier {
       _outboundPending.remove(song.id);
       _removeProgress(peerId, song.id);
       _checkBatchCompletion();
+    }).whenComplete(() {
+      _enqueuedSends.remove(sendKey);
     });
     _sendQueues[peerId] = next;
     _track(next);
@@ -565,13 +570,14 @@ class SyncService extends ChangeNotifier {
       final song = library.findById(id as String);
       if (song != null) {
         final sendKey = _sendKey(peerId, song.id);
-        if (_sending.containsKey(sendKey)) {
-          // Already actively in-flight to this peer; do not duplicate
+        if (_sending.containsKey(sendKey) || _enqueuedSends.contains(sendKey)) {
+          // Already actively in-flight or enqueued to this peer; do not duplicate
           continue;
         }
         if (!_outboundCompleted.contains(song.id)) {
           _outboundPending.add(song.id);
         }
+        _enqueuedSends.add(sendKey);
         _enqueueSend(peerId, song);
       }
     }
@@ -693,7 +699,13 @@ class SyncService extends ChangeNotifier {
       return;
     }
 
-    final existing = _incoming.remove(song.id);
+    final existing = _incoming[song.id];
+    if (existing != null && existing.peerId == peerId && existing.bytesReceived > 0) {
+      debugPrint(
+          '[sync] incoming ${song.id} already active from $peerId (${existing.bytesReceived} bytes); ignoring duplicate file_meta');
+      return;
+    }
+    _incoming.remove(song.id);
     if (existing != null) {
       existing.timeoutTimer?.cancel();
       try {
