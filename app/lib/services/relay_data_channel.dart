@@ -136,7 +136,8 @@ class RelayDataChannel extends RTCDataChannel {
         if (data['e'] == 1) {
           final clear = await signaling.decryptTextFor(peerId, text);
           if (clear == null) {
-            debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed)');
+            debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed); resetting peer key');
+            signaling.removePeerKey(peerId);
             return;
           }
           text = utf8.decode(clear);

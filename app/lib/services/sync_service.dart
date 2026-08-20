@@ -412,6 +412,16 @@ class SyncService extends ChangeNotifier {
         totalBytes: totalBytes,
         isDownload: true,
       );
+      // Safety watchdog: if the sender never sends file_meta within 12s, retry resync
+      _inboundBatch!.dismissTimer = Timer(const Duration(seconds: 12), () {
+        if (_inboundBatch != null &&
+            _inboundBatch!.isDownload &&
+            _inboundBatch!.activeBytes == 0 &&
+            _inboundBatch!.completedSongs == 0) {
+          debugPrint('[sync] inbound batch stalled with no file_meta; retrying manifest exchange');
+          resyncNow();
+        }
+      });
       _send(peerId, {
         'type': 'request_songs',
         'ids': missingSongs.map((s) => s.id).toList(),
@@ -444,9 +454,16 @@ class SyncService extends ChangeNotifier {
   void _onRequestSongs(String peerId, List<dynamic> ids) {
     final requestedSongs = <Song>[];
     for (final id in ids) {
-      final song = library.findById(id as String);
+      final songId = id as String;
+      final song = library.findById(songId);
       if (song != null) {
         requestedSongs.add(song);
+      } else {
+        _send(peerId, {
+          'type': 'file_error',
+          'id': songId,
+          'message': 'Song not found in library index',
+        });
       }
     }
     if (requestedSongs.isNotEmpty) {
@@ -557,6 +574,21 @@ class SyncService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[sync] send failed $song: $e');
       _send(peerId, {'type': 'file_error', 'id': song.id, 'message': '$e'});
+      if (_outboundBatch != null && !_outboundBatch!.isDownload) {
+        _outboundBatch!.completedSongs++;
+        _outboundBatch!.activeSongTitle = '';
+        _outboundBatch!.activeBytes = 0;
+        _outboundBatch!.activeTotalBytes = 0;
+        if (_outboundBatch!.completedSongs >= _outboundBatch!.totalSongs) {
+          _outboundBatch!.isDone = true;
+          _outboundBatch!.dismissTimer?.cancel();
+          _outboundBatch!.dismissTimer =
+              Timer(const Duration(milliseconds: 2500), () {
+            _outboundBatch = null;
+            _flushNotify();
+          });
+        }
+      }
       _removeProgress(peerId, song.id);
     } finally {
       _sending.remove(sendKey);
@@ -812,21 +844,32 @@ class SyncService extends ChangeNotifier {
 
   Future<void> _abortIncoming(String peerId, String songId) async {
     final inc = _incoming.remove(songId);
-    if (inc == null) return;
-    inc.timeoutTimer?.cancel();
-    inc.timeoutTimer = null;
-    try {
-      inc.raf.closeSync();
-    } catch (_) {}
-    try {
-      if (inc.file.existsSync()) {
-        inc.file.deleteSync();
-      }
-    } catch (_) {}
+    if (inc != null) {
+      inc.timeoutTimer?.cancel();
+      inc.timeoutTimer = null;
+      try {
+        inc.raf.closeSync();
+      } catch (_) {}
+      try {
+        if (inc.file.existsSync()) {
+          inc.file.deleteSync();
+        }
+      } catch (_) {}
+    }
     if (_inboundBatch != null && _inboundBatch!.isDownload) {
       _inboundBatch!.activeSongTitle = '';
       _inboundBatch!.activeBytes = 0;
       _inboundBatch!.activeTotalBytes = 0;
+      _inboundBatch!.completedSongs++;
+      if (_inboundBatch!.completedSongs >= _inboundBatch!.totalSongs) {
+        _inboundBatch!.isDone = true;
+        _inboundBatch!.dismissTimer?.cancel();
+        _inboundBatch!.dismissTimer =
+            Timer(const Duration(milliseconds: 2500), () {
+          _inboundBatch = null;
+          _flushNotify();
+        });
+      }
     }
     _removeProgress(peerId, songId);
     _flushNotify();
