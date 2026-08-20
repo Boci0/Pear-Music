@@ -505,8 +505,12 @@ class SignalingService {
         // Safety timeout: if the ack is lost (e.g. server restarted mid-sync),
         // don't stall the channel forever — the resync heals it.
         _relayAckTimeout?.cancel();
-        _relayAckTimeout = Timer(const Duration(seconds: 5), () {
-          if (!ack.isCompleted) ack.complete();
+        _relayAckTimeout = Timer(const Duration(seconds: 20), () {
+          if (!ack.isCompleted) {
+            debugPrint('[signaling] relay_ack timed out after 20s for chunk to $peerId; reconnecting to heal stream');
+            _handleDisconnect();
+            ack.complete();
+          }
         });
         try {
           await ack.future;

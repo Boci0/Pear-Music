@@ -63,9 +63,10 @@ class SyncBatchState {
   });
 
   double get progressFraction {
-    if (isDone) {
-      if (totalSongs <= 0) return 1.0;
-      return (completedSongs / totalSongs).clamp(0.0, 1.0);
+    if (isDone) return 1.0;
+    if (totalBytes > 0) {
+      final current = (completedBytes + activeBytes).clamp(0, totalBytes);
+      return (current / totalBytes).clamp(0.0, 1.0);
     }
     if (totalSongs <= 0) return 0.0;
     final activeFraction = activeTotalBytes > 0
@@ -73,6 +74,43 @@ class SyncBatchState {
         : 0.0;
     return ((completedSongs + activeFraction) / totalSongs).clamp(0.0, 1.0);
   }
+}
+
+class _SyncBatch {
+  final int totalSongs;
+  int completedSongs;
+  final int totalBytes;
+  int completedBytes;
+  String activeSongTitle;
+  int activeBytes;
+  int activeTotalBytes;
+  final bool isDownload;
+  bool isDone;
+  Timer? dismissTimer;
+
+  _SyncBatch({
+    required this.totalSongs,
+    this.completedSongs = 0,
+    required this.totalBytes,
+    this.completedBytes = 0,
+    this.activeSongTitle = '',
+    this.activeBytes = 0,
+    this.activeTotalBytes = 0,
+    required this.isDownload,
+    this.isDone = false,
+  });
+
+  SyncBatchState toState() => SyncBatchState(
+        totalSongs: totalSongs,
+        completedSongs: completedSongs,
+        activeSongTitle: activeSongTitle,
+        activeBytes: activeBytes,
+        activeTotalBytes: activeTotalBytes,
+        totalBytes: totalBytes,
+        completedBytes: completedBytes,
+        isDownload: isDownload,
+        isDone: isDone,
+      );
 }
 
 /// Transfers music files over WebRTC data channels.
@@ -101,61 +139,19 @@ class SyncService extends ChangeNotifier {
   final Map<String, TransferProgress> _completed = {};
   Timer? _completedTimer;
 
+  _SyncBatch? _inboundBatch;
+  _SyncBatch? _outboundBatch;
+
   Timer? _notifyTimer;
   bool _notifyQueued = false;
 
   SyncBatchState? get batchState {
-    final activeDownloads =
-        _transfers.values.where((t) => t.isDownload).toList();
-    final activeUploads =
-        _transfers.values.where((t) => !t.isDownload).toList();
-    final completedDownloads =
-        _completed.values.where((t) => t.isDownload).toList();
-    final completedUploads =
-        _completed.values.where((t) => !t.isDownload).toList();
-
-    if (activeDownloads.isNotEmpty || completedDownloads.isNotEmpty) {
-      final totalSongs = activeDownloads.length + completedDownloads.length;
-      final active =
-          activeDownloads.firstOrNull ?? completedDownloads.lastOrNull;
-      final totalB = [...activeDownloads, ...completedDownloads]
-          .fold<int>(0, (sum, t) => sum + t.totalBytes);
-      final compB = [...activeDownloads, ...completedDownloads]
-          .fold<int>(0, (sum, t) => sum + t.completedBytes);
-      return SyncBatchState(
-        totalSongs: totalSongs,
-        completedSongs: completedDownloads.length,
-        activeSongTitle: active?.fileName ?? '',
-        activeBytes: active?.completedBytes ?? 0,
-        activeTotalBytes: active?.totalBytes ?? 0,
-        totalBytes: totalB,
-        completedBytes: compB,
-        isDownload: true,
-        isDone: activeDownloads.isEmpty,
-      );
+    if (_inboundBatch != null) {
+      return _inboundBatch!.toState();
     }
-
-    if (activeUploads.isNotEmpty || completedUploads.isNotEmpty) {
-      final totalSongs = activeUploads.length + completedUploads.length;
-      final active =
-          activeUploads.firstOrNull ?? completedUploads.lastOrNull;
-      final totalB = [...activeUploads, ...completedUploads]
-          .fold<int>(0, (sum, t) => sum + t.totalBytes);
-      final compB = [...activeUploads, ...completedUploads]
-          .fold<int>(0, (sum, t) => sum + t.completedBytes);
-      return SyncBatchState(
-        totalSongs: totalSongs,
-        completedSongs: completedUploads.length,
-        activeSongTitle: active?.fileName ?? '',
-        activeBytes: active?.completedBytes ?? 0,
-        activeTotalBytes: active?.totalBytes ?? 0,
-        totalBytes: totalB,
-        completedBytes: compB,
-        isDownload: false,
-        isDone: activeUploads.isEmpty,
-      );
+    if (_outboundBatch != null) {
+      return _outboundBatch!.toState();
     }
-
     return null;
   }
 
@@ -279,6 +275,10 @@ class SyncService extends ChangeNotifier {
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
       _resyncTimer = null;
+      _inboundBatch?.dismissTimer?.cancel();
+      _inboundBatch = null;
+      _outboundBatch?.dismissTimer?.cancel();
+      _outboundBatch = null;
     }
     _flushNotify();
   }
@@ -374,7 +374,7 @@ class SyncService extends ChangeNotifier {
   }
 
   void _onManifest(String peerId, List<dynamic> rawSongs) {
-    final missing = <String>[];
+    final missingSongs = <Song>[];
     for (final raw in rawSongs) {
       if (raw is! Map) continue;
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
@@ -398,13 +398,24 @@ class SyncService extends ChangeNotifier {
       final isActivelyDownloading = _incoming.containsKey(song.id);
 
       if (!hasMatchingSong && !isActivelyDownloading) {
-        missing.add(song.id);
+        missingSongs.add(song);
       }
     }
-    if (missing.isNotEmpty) {
+    if (missingSongs.isNotEmpty) {
       debugPrint(
-          '[sync][diag] requesting ${missing.length} missing songs from $peerId');
-      _send(peerId, {'type': 'request_songs', 'ids': missing});
+          '[sync][diag] requesting ${missingSongs.length} missing songs from $peerId');
+      _inboundBatch?.dismissTimer?.cancel();
+      final totalBytes = missingSongs.fold<int>(0, (sum, s) => sum + s.size);
+      _inboundBatch = _SyncBatch(
+        totalSongs: missingSongs.length,
+        totalBytes: totalBytes,
+        isDownload: true,
+      );
+      _send(peerId, {
+        'type': 'request_songs',
+        'ids': missingSongs.map((s) => s.id).toList(),
+      });
+      _flushNotify();
     } else {
       debugPrint(
           '[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised)');
@@ -430,9 +441,22 @@ class SyncService extends ChangeNotifier {
   }
 
   void _onRequestSongs(String peerId, List<dynamic> ids) {
+    final requestedSongs = <Song>[];
     for (final id in ids) {
       final song = library.findById(id as String);
       if (song != null) {
+        requestedSongs.add(song);
+      }
+    }
+    if (requestedSongs.isNotEmpty) {
+      _outboundBatch?.dismissTimer?.cancel();
+      final totalBytes = requestedSongs.fold<int>(0, (sum, s) => sum + s.size);
+      _outboundBatch = _SyncBatch(
+        totalSongs: requestedSongs.length,
+        totalBytes: totalBytes,
+        isDownload: false,
+      );
+      for (final song in requestedSongs) {
         final sendKey = _sendKey(peerId, song.id);
         if (_sending.containsKey(sendKey)) {
           // Already actively in-flight to this peer; do not duplicate
@@ -440,6 +464,7 @@ class SyncService extends ChangeNotifier {
         }
         _enqueueSend(peerId, song);
       }
+      _flushNotify();
     }
   }
 
@@ -458,6 +483,11 @@ class SyncService extends ChangeNotifier {
     if (channel == null) return;
 
     _sending[sendKey] = true;
+    if (_outboundBatch != null && !_outboundBatch!.isDownload) {
+      _outboundBatch!.activeSongTitle = song.title;
+      _outboundBatch!.activeTotalBytes = song.size;
+      _outboundBatch!.activeBytes = 0;
+    }
     _setProgress(
       TransferProgress(
         peerId: peerId,
@@ -474,6 +504,9 @@ class SyncService extends ChangeNotifier {
       final file = library.songFile(song);
       if (!await file.exists()) throw Exception('local file missing');
       final fileSize = await file.length();
+      if (fileSize != song.size && song.size > 0) {
+        throw Exception('local file size mismatch ($fileSize vs ${song.size})');
+      }
       final total = fileSize == 0 ? 1 : (fileSize / chunkSize).ceil();
       var index = 0;
       var sentBytes = 0;
@@ -489,6 +522,9 @@ class SyncService extends ChangeNotifier {
           await _sendChunk(channel, song.id, index, total, piece);
           index++;
           sentBytes += piece.length;
+          if (_outboundBatch != null && !_outboundBatch!.isDownload) {
+            _outboundBatch!.activeBytes = sentBytes;
+          }
           _updateUploadProgress(peerId, song.id, sentBytes);
           if (index % 4 == 0) {
             await Future.delayed(const Duration(milliseconds: 1));
@@ -500,6 +536,23 @@ class SyncService extends ChangeNotifier {
 
       _send(peerId, {'type': 'file_done', 'id': song.id});
       _markComplete(peerId, song.id);
+      if (_outboundBatch != null && !_outboundBatch!.isDownload) {
+        _outboundBatch!.completedSongs++;
+        _outboundBatch!.completedBytes += song.size;
+        _outboundBatch!.activeSongTitle = '';
+        _outboundBatch!.activeBytes = 0;
+        _outboundBatch!.activeTotalBytes = 0;
+        if (_outboundBatch!.completedSongs >= _outboundBatch!.totalSongs) {
+          _outboundBatch!.isDone = true;
+          _outboundBatch!.dismissTimer?.cancel();
+          _outboundBatch!.dismissTimer =
+              Timer(const Duration(milliseconds: 2500), () {
+            _outboundBatch = null;
+            _flushNotify();
+          });
+        }
+      }
+      _flushNotify();
     } catch (e) {
       debugPrint('[sync] send failed $song: $e');
       _send(peerId, {'type': 'file_error', 'id': song.id, 'message': '$e'});
@@ -599,6 +652,11 @@ class SyncService extends ChangeNotifier {
       }
     });
     _incoming[song.id] = inc;
+    if (_inboundBatch != null && _inboundBatch!.isDownload) {
+      _inboundBatch!.activeSongTitle = song.title;
+      _inboundBatch!.activeTotalBytes = song.size;
+      _inboundBatch!.activeBytes = 0;
+    }
     _setProgress(TransferProgress(
       peerId: peerId,
       songId: song.id,
@@ -663,6 +721,9 @@ class SyncService extends ChangeNotifier {
     if (progress != null) {
       progress.completedBytes = inc.bytesReceived;
     }
+    if (_inboundBatch != null && _inboundBatch!.isDownload) {
+      _inboundBatch!.activeBytes = inc.bytesReceived;
+    }
     if (index == total - 1) {
       inc.completeChunks = true;
     }
@@ -693,6 +754,7 @@ class SyncService extends ChangeNotifier {
     inc.timeoutTimer = null;
     try {
       try {
+        inc.raf.flushSync();
         inc.raf.closeSync();
       } catch (_) {}
       final length = await inc.file.length();
@@ -715,6 +777,23 @@ class SyncService extends ChangeNotifier {
       );
       _markComplete(peerId, songId);
       onDownloaded?.call(inc.song.title);
+      if (_inboundBatch != null && _inboundBatch!.isDownload) {
+        _inboundBatch!.completedSongs++;
+        _inboundBatch!.completedBytes += inc.song.size;
+        _inboundBatch!.activeSongTitle = '';
+        _inboundBatch!.activeBytes = 0;
+        _inboundBatch!.activeTotalBytes = 0;
+        if (_inboundBatch!.completedSongs >= _inboundBatch!.totalSongs) {
+          _inboundBatch!.isDone = true;
+          _inboundBatch!.dismissTimer?.cancel();
+          _inboundBatch!.dismissTimer =
+              Timer(const Duration(milliseconds: 2500), () {
+            _inboundBatch = null;
+            _flushNotify();
+          });
+        }
+      }
+      _flushNotify();
     } catch (e) {
       debugPrint('[sync] finalize failed $songId: $e');
       try {
@@ -743,7 +822,13 @@ class SyncService extends ChangeNotifier {
         inc.file.deleteSync();
       }
     } catch (_) {}
+    if (_inboundBatch != null && _inboundBatch!.isDownload) {
+      _inboundBatch!.activeSongTitle = '';
+      _inboundBatch!.activeBytes = 0;
+      _inboundBatch!.activeTotalBytes = 0;
+    }
     _removeProgress(peerId, songId);
+    _flushNotify();
   }
 
   // ---------- helpers ----------
@@ -936,6 +1021,10 @@ class SyncService extends ChangeNotifier {
     _notifyTimer = null;
     _completedTimer?.cancel();
     _completedTimer = null;
+    _inboundBatch?.dismissTimer?.cancel();
+    _inboundBatch = null;
+    _outboundBatch?.dismissTimer?.cancel();
+    _outboundBatch = null;
     for (final inc in _incoming.values) {
       inc.timeoutTimer?.cancel();
       try {

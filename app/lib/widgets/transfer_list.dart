@@ -3,24 +3,13 @@ import 'package:provider/provider.dart';
 
 import '../services/sync_service.dart';
 
-/// Shows in-flight uploads/downloads in a single unified sync card.
-class TransferList extends StatefulWidget {
+class TransferList extends StatelessWidget {
   const TransferList({super.key});
-
-  @override
-  State<TransferList> createState() => _TransferListState();
-}
-
-class _TransferListState extends State<TransferList> {
-  double _lastMaxFraction = 0.0;
 
   @override
   Widget build(BuildContext context) {
     final sync = context.watch<SyncService>();
     final batch = sync.batchState;
-    if (batch == null) {
-      _lastMaxFraction = 0.0;
-    }
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 250),
@@ -35,18 +24,7 @@ class _TransferListState extends State<TransferList> {
       BuildContext context, SyncService sync, SyncBatchState batch) {
     final totalSongs = batch.totalSongs;
     final completedSongs = batch.completedSongs;
-    final activeFraction = batch.progressFraction;
-
-    if (completedSongs == 0 && activeFraction == 0.0) {
-      _lastMaxFraction = activeFraction;
-    } else if (activeFraction > _lastMaxFraction) {
-      _lastMaxFraction = activeFraction;
-    }
-    final overallFraction = batch.isDone
-        ? (totalSongs > 0
-            ? (completedSongs / totalSongs).clamp(0.0, 1.0)
-            : 0.0)
-        : _lastMaxFraction.clamp(0.0, 1.0);
+    final overallFraction = batch.progressFraction;
 
     final isSingle = totalSongs <= 1;
     final headerTitle = batch.isDone

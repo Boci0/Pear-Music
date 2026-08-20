@@ -550,6 +550,37 @@ void main() {
     expect(libB.hasSongFile(libB.songs.first), isTrue);
     expect(await libB.songFile(libB.songs.first).length(), 150_000);
   });
+
+  test('multi-song batch maintains stable totalSongs and clean completion lifecycle',
+      () async {
+    // A has 2 songs.
+    await libA.addLocalFiles([
+      makeAudio('batch-1.mp3', 70_000),
+      makeAudio('batch-2.mp3', 80_000),
+    ]);
+    expect(libA.songs.length, 2);
+
+    connect();
+
+    // B discovers missing songs and creates inbound batch of 2.
+    await waitFor(() => syncB.batchState != null);
+    final batch = syncB.batchState!;
+    expect(batch.totalSongs, 2);
+    expect(batch.isDownload, isTrue);
+
+    // Wait until both songs are completely downloaded.
+    await waitFor(() => libB.songs.length == 2 && syncB.batchState?.isDone == true);
+    final doneBatch = syncB.batchState!;
+    expect(doneBatch.totalSongs, 2);
+    expect(doneBatch.completedSongs, 2);
+    expect(doneBatch.isDone, isTrue);
+    expect(doneBatch.progressFraction, 1.0);
+
+    // Wait for the completion dismiss timer to clear the batch cleanly.
+    await waitFor(() => syncB.batchState == null,
+        timeout: const Duration(seconds: 5));
+    expect(syncB.batchState, isNull);
+  });
 }
 
 /// Fire-and-forget wrapper so tests read cleanly.
