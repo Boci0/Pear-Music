@@ -42,11 +42,19 @@ class _TransferListState extends State<TransferList> {
     } else if (activeFraction > _lastMaxFraction) {
       _lastMaxFraction = activeFraction;
     }
-    final overallFraction = batch.isDone ? 1.0 : _lastMaxFraction.clamp(0.0, 1.0);
+    final overallFraction = batch.isDone
+        ? (completedSongs == 0 && totalSongs > 0
+            ? 0.0
+            : (totalSongs > 0
+                ? (completedSongs / totalSongs).clamp(0.0, 1.0)
+                : 1.0))
+        : _lastMaxFraction.clamp(0.0, 1.0);
 
     final isSingle = totalSongs <= 1;
     final headerTitle = batch.isDone
-        ? 'Sync Complete'
+        ? (completedSongs == 0 && totalSongs > 0
+            ? 'Sync Incomplete (0 of $totalSongs songs)'
+            : 'Sync Complete')
         : (isSingle
             ? (batch.isDownload ? 'Downloading Song' : 'Uploading Song')
             : 'Syncing Library ($completedSongs of $totalSongs songs)');

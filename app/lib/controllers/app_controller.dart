@@ -463,17 +463,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     switch (msg['type']) {
       case '_local':
         if (msg['event'] == 'binary') {
-          // Raw relayed chunk body; pair it with the oldest unmatched {t:'bin'}
-          // marker (FIFO) so concurrent senders can't mis-route each other's
-          // frames. Drop markers that have sat unmatched too long first — a
-          // marker whose frame never arrived (sender died / server restarted)
-          // must not steal the next peer's frame.
           final bytes = msg['bytes'];
           if (bytes is Uint8List) {
             _pruneStaleBinaryMarkers();
             if (_pendingRelayBinaryMarkers.isNotEmpty) {
               final marker = _pendingRelayBinaryMarkers.removeAt(0);
-              _relayChannels[marker.from]?.handleRelayBinary(
+              _getOrCreateRelayChannel(marker.from).handleRelayBinary(
                 bytes,
                 encrypted: marker.enc,
               );
@@ -551,32 +546,24 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
       case 'signal':
         // WebRTC signaling is disabled: sync runs over the server relay, so we
-        // never answer offers or build a native data channel. Creating one
-        // caused the flutter_webrtc crash ("Cannot add new events after calling
-        // close") → black screen the moment the P2P channel dropped.
+        // never answer offers or build a native data channel.
         break;
 
       case 'relay':
         final from = msg['from'] as String?;
         final data = msg['data'];
         if (from == null || data is! Map) break;
-        debugPrint('[diag] relay from=$from t=${data['t']} hasChan=${_relayChannels.containsKey(from)} hasSyncChan=${sync.hasChannel(from)}');
+        final channel = _getOrCreateRelayChannel(from);
         if (data['t'] == 'bin') {
           final legacy = data['d'];
           if (legacy is String) {
             // Legacy sender: a base64 chunk inline in the envelope.
             try {
               final bytes = base64Decode(legacy);
-              _relayChannels[from]?.handleRelayBinary(
-                Uint8List.fromList(bytes),
-              );
+              channel.handleRelayBinary(Uint8List.fromList(bytes));
             } catch (_) {}
           } else {
             // New protocol: the next raw binary frame belongs to this peer.
-            // Queue the marker; the frame handler pairs it with the oldest
-            // unmatched marker (a FIFO) so concurrent senders can't mis-route
-            // each other's frames. Timestamp it so a marker whose frame never
-            // arrives can be pruned instead of stealing the next frame.
             _pendingRelayBinaryMarkers.add((
               from: from,
               enc: data['e'] == 1,
@@ -584,9 +571,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
             ));
           }
         } else {
-          _relayChannels[from]?.handleRelay(
-            Map<String, dynamic>.from(data),
-          );
+          channel.handleRelay(Map<String, dynamic>.from(data));
         }
         break;
 
@@ -755,12 +740,21 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         continue;
       }
       if (sync.hasChannel(peer.deviceId)) continue;
-      debugPrint('[sync] attaching relay channel to ${peer.deviceName} (${peer.deviceId})');
-      final relay =
-          RelayDataChannel(peerId: peer.deviceId, signaling: signaling);
-      _relayChannels[peer.deviceId] = relay;
-      sync.attachChannel(peer.deviceId, relay);
+      final relay = _getOrCreateRelayChannel(peer.deviceId);
+      if (!sync.hasChannel(peer.deviceId)) {
+        sync.attachChannel(peer.deviceId, relay);
+      }
     }
+  }
+
+  RelayDataChannel _getOrCreateRelayChannel(String peerId) {
+    var relay = _relayChannels[peerId];
+    if (relay == null) {
+      relay = RelayDataChannel(peerId: peerId, signaling: signaling);
+      _relayChannels[peerId] = relay;
+      sync.attachChannel(peerId, relay);
+    }
+    return relay;
   }
 
   // ---------- pairing ----------

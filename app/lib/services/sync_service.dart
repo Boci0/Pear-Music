@@ -63,7 +63,10 @@ class SyncBatchState {
   });
 
   double get progressFraction {
-    if (isDone) return 1.0;
+    if (isDone) {
+      if (totalSongs <= 0) return 1.0;
+      return (completedSongs / totalSongs).clamp(0.0, 1.0);
+    }
     if (totalSongs <= 0) return 0.0;
     final activeFraction = activeTotalBytes > 0
         ? (activeBytes / activeTotalBytes).clamp(0.0, 1.0)
