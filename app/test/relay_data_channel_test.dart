@@ -209,4 +209,39 @@ void main() {
     final dec = await sigB.decryptBinaryFor('device-A', enc!);
     expect(dec, payload);
   });
+
+  test('re-pairing after key removal awaits derivation and decrypts correctly',
+      () async {
+    SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-A'});
+    final idA = IdentityService(await SharedPreferences.getInstance());
+    SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-B'});
+    final idB = IdentityService(await SharedPreferences.getInstance());
+    final sigA = SignalingService(idA);
+    final sigB = SignalingService(idB);
+    await sigA.ensureE2E();
+    await sigB.ensureE2E();
+    final pubA = base64Decode(sigA.e2ePubB64!);
+    final pubB = base64Decode(sigB.e2ePubB64!);
+
+    // Initial pairing
+    await sigA.setPeerE2E('device-B', pubB);
+    await sigB.setPeerE2E('device-A', pubA);
+
+    // Unpair (keys removed)
+    sigA.removePeerKey('device-B');
+    sigB.removePeerKey('device-A');
+
+    // Re-pair: derivations initiated unawaited (fire-and-forget)
+    unawaited(sigA.setPeerE2E('device-B', pubB));
+    unawaited(sigB.setPeerE2E('device-A', pubA));
+
+    final payload = Uint8List.fromList([42, 43, 44, 45]);
+    // Immediate encryption while derivation is still in-flight
+    final enc = await sigA.encryptBinaryFor('device-B', payload);
+    expect(enc, isNotNull);
+
+    // Immediate decryption on other side
+    final dec = await sigB.decryptBinaryFor('device-A', enc!);
+    expect(dec, payload);
+  });
 }

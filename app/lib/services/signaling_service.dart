@@ -112,17 +112,21 @@ class SignalingService {
   }
 
   Future<void> _deriveKey(String peerId, Uint8List peerPubBytes) async {
-    debugPrint('[e2e] deriving shared key for $peerId');
-    await ensureE2E();
-    final shared = await _x25519.sharedSecretKey(
-      keyPair: _e2ePair!,
-      remotePublicKey: SimplePublicKey(peerPubBytes, type: KeyPairType.x25519),
-    );
-    final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
-    _peerKeys[peerId] = await hkdf.deriveKey(
-      secretKey: shared,
-      nonce: utf8.encode('peerm-e2e-v1'),
-    );
+    try {
+      debugPrint('[e2e] deriving shared key for $peerId');
+      await ensureE2E();
+      final shared = await _x25519.sharedSecretKey(
+        keyPair: _e2ePair!,
+        remotePublicKey: SimplePublicKey(peerPubBytes, type: KeyPairType.x25519),
+      );
+      final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
+      _peerKeys[peerId] = await hkdf.deriveKey(
+        secretKey: shared,
+        nonce: utf8.encode('peerm-e2e-v1'),
+      );
+    } finally {
+      _e2eDerivations.remove(peerId);
+    }
   }
 
   /// Wait for an in-flight E2E key derivation for [peerId] to finish (if any)
@@ -132,7 +136,6 @@ class SignalingService {
   Future<void> _awaitE2E(String peerId) async {
     final pending = _e2eDerivations[peerId];
     if (pending == null) return;
-    _e2eDerivations.remove(peerId);
     try {
       await pending;
     } catch (_) {}
@@ -427,6 +430,7 @@ class SignalingService {
   /// E2E key exists, the payload is AES-GCM encrypted (base64 nonce||ct||tag)
   /// so the relay server can't read it; otherwise it's sent as-is (old peers).
   Future<void> sendRelay(String peerId, Map<String, dynamic> data) async {
+    await _awaitE2E(peerId);
     if (data['t'] == 'text' &&
         data['d'] is String &&
         _peerKeys.containsKey(peerId)) {
@@ -467,6 +471,7 @@ class SignalingService {
         // E2E: encrypt the whole chunk envelope (nonce||ct||tag) and mark the
         // marker with e:1 when a shared key exists; no key → plaintext so old
         // peers keep working.
+        await _awaitE2E(peerId);
         final encrypted = _peerKeys.containsKey(peerId);
         final payload = encrypted
             ? (await encryptBinaryFor(peerId, bytes)) ?? bytes
