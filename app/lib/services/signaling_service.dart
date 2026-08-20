@@ -138,6 +138,11 @@ class SignalingService {
     } catch (_) {}
   }
 
+  void removePeerKey(String peerId) {
+    _peerKeys.remove(peerId);
+    _e2eDerivations.remove(peerId);
+  }
+
   bool hasPeerKey(String peerId) => _peerKeys.containsKey(peerId);
 
   /// AES-GCM encrypt [plaintext] for [peerId] → base64(nonce||ct||tag),

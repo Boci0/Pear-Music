@@ -241,9 +241,20 @@ class SyncService extends ChangeNotifier {
   void attachChannel(String peerId, RTCDataChannel channel) {
     _channels[peerId] = channel;
     channel.onMessage = (msg) => _onMessage(peerId, msg);
+    _sendHelloAndManifest(peerId, channel);
+    notifyListeners();
+    _startResyncTimer();
+  }
+
+  Future<void> _sendHelloAndManifest(
+      String peerId, RTCDataChannel channel) async {
+    if (channel is RelayDataChannel) {
+      await channel.signaling.ensureE2E();
+    }
     final e2ePub =
         channel is RelayDataChannel ? channel.signaling.e2ePubB64 : null;
-    debugPrint('[sync] attachChannel $peerId (e2ePub present: ${e2ePub != null})');
+    debugPrint(
+        '[sync] attachChannel $peerId (e2ePub present: ${e2ePub != null})');
     _send(peerId, {
       'type': 'hello',
       'deviceName': identity.deviceName,
@@ -254,8 +265,6 @@ class SyncService extends ChangeNotifier {
       'songs': library.songs.map((s) => s.toJson()).toList(),
     });
     _send(peerId, _playlistManifestMessage());
-    notifyListeners();
-    _startResyncTimer();
   }
 
   void _startResyncTimer() {
@@ -341,19 +350,7 @@ class SyncService extends ChangeNotifier {
     }
     switch (msg['type']) {
       case 'hello':
-        debugPrint('[sync] <- $peerId: hello (e2ePub: ${msg['e2ePub'] != null})');
-        final e2ePub = msg['e2ePub'];
-        final ch = _channels[peerId];
-        if (e2ePub is String && ch is RelayDataChannel) {
-          try {
-            unawaited(ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub)));
-          } catch (_) {}
-        }
-        _send(peerId, {
-          'type': 'manifest',
-          'songs': library.songs.map((s) => s.toJson()).toList(),
-        });
-        _send(peerId, _playlistManifestMessage());
+        _track(_onHello(peerId, msg));
         break;
       case 'manifest':
         debugPrint('[sync][diag] <- $peerId: manifest (${(msg['songs'] as List?)?.length ?? 0} songs)');
@@ -393,6 +390,24 @@ class SyncService extends ChangeNotifier {
         _send(peerId, _playlistManifestMessage());
         break;
     }
+  }
+
+  Future<void> _onHello(String peerId, Map<String, dynamic> msg) async {
+    debugPrint('[sync] <- $peerId: hello (e2ePub: ${msg['e2ePub'] != null})');
+    final e2ePub = msg['e2ePub'];
+    final ch = _channels[peerId];
+    if (e2ePub is String && ch is RelayDataChannel) {
+      try {
+        await ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub));
+      } catch (e) {
+        debugPrint('[sync] error deriving E2E key for $peerId: $e');
+      }
+    }
+    _send(peerId, {
+      'type': 'manifest',
+      'songs': library.songs.map((s) => s.toJson()).toList(),
+    });
+    _send(peerId, _playlistManifestMessage());
   }
 
   void _onManifest(String peerId, List<dynamic> rawSongs) {

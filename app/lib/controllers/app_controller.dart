@@ -519,6 +519,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         _upsertPeer(peer);
         await identity.addPairedDevice(peer.deviceId, name: peer.deviceName);
         _postMessage('Paired with ${peer.deviceName}');
+        // Wipe any stale cryptographic key from prior pairing
+        signaling.removePeerKey(peer.deviceId);
         // Detach any previous stale channel and re-attach fresh relay channel
         sync.detachChannel(peer.deviceId);
         _relayChannels.remove(peer.deviceId);
@@ -700,6 +702,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }) async {
     _pairedDevices.removeWhere((d) => d.deviceId == deviceId);
     _relayChannels.remove(deviceId);
+    signaling.removePeerKey(deviceId);
     // Drop any relayed-binary markers still waiting for a frame from this peer
     // so they can't mis-route a future frame from another device.
     _pendingRelayBinaryMarkers.removeWhere((m) => m.from == deviceId);
