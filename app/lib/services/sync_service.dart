@@ -467,6 +467,14 @@ class SyncService extends ChangeNotifier {
         if (stillPending.isNotEmpty && _channels.containsKey(peerId)) {
           debugPrint(
               '[sync] still waiting for ${stillPending.length} pending songs from $peerId; retrying request');
+          final ch = _channels[peerId];
+          final e2ePub =
+              ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
+          _send(peerId, {
+            'type': 'hello',
+            'deviceName': identity.deviceName,
+            'e2ePub': e2ePub,
+          });
           _send(peerId, {'type': 'request_songs', 'ids': stillPending});
         }
       });

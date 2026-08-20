@@ -145,6 +145,21 @@ class SignalingService {
 
   bool hasPeerKey(String peerId) => _peerKeys.containsKey(peerId);
 
+  Future<SecretKey?> _getKeyWithRetry(String peerId) async {
+    await _awaitE2E(peerId);
+    var key = _peerKeys[peerId];
+    if (key != null) return key;
+
+    // Grace buffer: if encrypted packet arrives just before hello finishes derivation
+    final stop = DateTime.now().add(const Duration(milliseconds: 1500));
+    while (key == null && DateTime.now().isBefore(stop)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _awaitE2E(peerId);
+      key = _peerKeys[peerId];
+    }
+    return key;
+  }
+
   /// AES-GCM encrypt [plaintext] for [peerId] → base64(nonce||ct||tag),
   /// or null if there's no shared key (caller should send plaintext).
   Future<String?> encryptTextFor(String peerId, String plaintext) async {
@@ -160,8 +175,7 @@ class SignalingService {
 
   /// Decrypt base64(nonce||ct||tag) from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
-    await _awaitE2E(peerId);
-    final key = _peerKeys[peerId];
+    final key = await _getKeyWithRetry(peerId);
     debugPrint('[diag] decryptTextFor hasKey=${key != null}');
     if (key == null) return null;
     try {
@@ -186,8 +200,7 @@ class SignalingService {
 
   /// Decrypt nonce||ct||tag from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptBinaryFor(String peerId, Uint8List frame) async {
-    await _awaitE2E(peerId);
-    final key = _peerKeys[peerId];
+    final key = await _getKeyWithRetry(peerId);
     if (key == null) return null;
     try {
       if (frame.length < 28) return null;

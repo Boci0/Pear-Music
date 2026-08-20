@@ -208,6 +208,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       WidgetsBinding.instance.addObserver(this);
     } catch (_) {}
 
+    // Pre-initialize E2E keypair so public key is ready for immediate handshakes
+    unawaited(signaling.ensureE2E());
+
     // IMPORTANT: do NOT block the first frame on the server connection.
     // A WebSocket connect has no timeout, so if the server is unreachable
     // (hotspot/server down) `await signaling.start()` could hold up runApp for
