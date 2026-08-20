@@ -254,7 +254,6 @@ class SyncService extends ChangeNotifier {
       'songs': library.songs.map((s) => s.toJson()).toList(),
     });
     _send(peerId, _playlistManifestMessage());
-    _send(peerId, {'type': 'request_manifest'});
     notifyListeners();
     _startResyncTimer();
   }
@@ -418,7 +417,10 @@ class SyncService extends ChangeNotifier {
             library.hasSongFile(s),
       );
 
-      if (!hasMatchingSong) {
+      final isAlreadyInFlight = _inboundPending.contains(song.id) ||
+          _incoming.containsKey(song.id);
+
+      if (!hasMatchingSong && !isAlreadyInFlight) {
         missing.add(song.id);
       }
     }
@@ -470,6 +472,11 @@ class SyncService extends ChangeNotifier {
     for (final id in ids) {
       final song = library.findById(id as String);
       if (song != null) {
+        final sendKey = _sendKey(peerId, song.id);
+        if (_sending.containsKey(sendKey)) {
+          // Already actively in-flight to this peer; do not duplicate
+          continue;
+        }
         if (!_outboundCompleted.contains(song.id)) {
           _outboundPending.add(song.id);
         }
