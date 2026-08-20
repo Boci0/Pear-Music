@@ -1118,8 +1118,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       // 1) Try on the current server first (fast path when already aligned).
       if (connectionStatus == 'connected') {
-        signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
+        if (await _pairAndAwait(c, timeout: const Duration(seconds: 4))) {
+          return null;
+        }
       }
 
       // 2) Discover nearby hosts (actively probing subnet fallback in parallel).
@@ -1127,8 +1128,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       for (final host in hosts) {
         if (host.url == identity.serverUrl) continue;
         if (!await connectToServer(host.url)) continue;
-        signaling.pairWithCode(c);
-        if (await _waitForPairingOutcome(const Duration(seconds: 4))) return null;
+        if (await _pairAndAwait(c, timeout: const Duration(seconds: 4))) {
+          return null;
+        }
       }
 
       return 'No device found with that code. Make sure both devices are on the same Wi-Fi/Hotspot (without router AP isolation) and on the Pair screen, or scan the QR code directly.';
@@ -1137,9 +1139,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Waits up to [timeout] for the server to confirm (paired) or reject
-  /// (error) the current pairing attempt. True = paired.
-  Future<bool> _waitForPairingOutcome(Duration timeout) async {
+  /// Registers stream subscription BEFORE sending pair_with_code to avoid race
+  /// condition where broadcast stream drops the incoming message.
+  Future<bool> _pairAndAwait(
+    String code, {
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
     final completer = Completer<bool>();
     late final StreamSubscription<Map<String, dynamic>> sub;
     final timer = Timer(timeout, () {
@@ -1152,6 +1157,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         if (!completer.isCompleted) completer.complete(false);
       }
     });
+
+    signaling.pairWithCode(code);
+
     final result = await completer.future;
     timer.cancel();
     await sub.cancel();
