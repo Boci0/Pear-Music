@@ -378,12 +378,26 @@ class SignalingService {
         }
       } catch (_) {}
     } else if (raw is List<int>) {
-      // Raw binary frame (a relayed chunk body). The consumer pairs it with
-      // the most recent {t:'bin'} relay marker to know which peer sent it.
+      final bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
+      if (bytes.isNotEmpty && bytes[0] == 0x52 && bytes.length >= 3) {
+        final fromLen = (bytes[1] << 8) | bytes[2];
+        if (bytes.length >= 3 + fromLen) {
+          final from = utf8.decode(bytes.sublist(3, 3 + fromLen), allowMalformed: true);
+          final payload = bytes.sublist(3 + fromLen);
+          _incoming.add({
+            'type': '_local',
+            'event': 'binary_relay',
+            'from': from,
+            'bytes': payload,
+          });
+          return;
+        }
+      }
+      // Legacy fallback
       _incoming.add({
         'type': '_local',
         'event': 'binary',
-        'bytes': raw is Uint8List ? raw : Uint8List.fromList(raw),
+        'bytes': bytes,
       });
     }
   }
@@ -493,12 +507,17 @@ class SignalingService {
         final payload = encrypted
             ? (await encryptBinaryFor(peerId, bytes)) ?? bytes
             : bytes;
-        ch.sink.add(jsonEncode({
-          'type': 'relay',
-          'to': peerId,
-          'data': {'t': 'bin', if (encrypted) 'e': 1},
-        }));
-        ch.sink.add(payload);
+        final toBytes = utf8.encode(peerId);
+        final packet = Uint8List(1 + 2 + toBytes.length + payload.length);
+        var off = 0;
+        packet[off++] = 0x52;
+        packet[off++] = (toBytes.length >> 8) & 0xff;
+        packet[off++] = toBytes.length & 0xff;
+        packet.setRange(off, off + toBytes.length, toBytes);
+        off += toBytes.length;
+        packet.setRange(off, off + payload.length, payload);
+
+        ch.sink.add(packet);
 
         final ack = Completer<void>();
         _pendingRelayAck = ack;

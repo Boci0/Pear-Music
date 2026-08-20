@@ -440,6 +440,32 @@ class SignalingServer {
           } catch (_) {}
           return;
         }
+        // Self-contained binary relay (magic 0x52 'R'):
+        if (bytes.isNotEmpty && bytes[0] == 0x52 && bytes.length >= 3) {
+          final toLen = (bytes[1] << 8) | bytes[2];
+          if (bytes.length >= 3 + toLen) {
+            final to = utf8.decode(bytes.sublist(3, 3 + toLen), allowMalformed: true);
+            final payload = bytes.sublist(3 + toLen);
+            if (conn.pairings.contains(to)) {
+              final target = _devices[to];
+              if (target != null) {
+                final fromBytes = utf8.encode(id);
+                final out = Uint8List(1 + 2 + fromBytes.length + payload.length);
+                var off = 0;
+                out[off++] = 0x52;
+                out[off++] = (fromBytes.length >> 8) & 0xff;
+                out[off++] = fromBytes.length & 0xff;
+                out.setRange(off, off + fromBytes.length, fromBytes);
+                off += fromBytes.length;
+                out.setRange(off, off + payload.length, payload);
+                target.send(out);
+                conn.send({'type': 'relay_ack'});
+              }
+            }
+            return;
+          }
+        }
+        // Legacy fallback routing
         final to = _pendingBin[id];
         if (to != null) {
           _pendingBin.remove(id);

@@ -163,7 +163,12 @@ class RelayDataChannel extends RTCDataChannel {
         if (cb == null) return;
         if (encrypted) {
           final clear = await signaling.decryptBinaryFor(peerId, bytes);
-          if (clear == null) return;
+          if (clear == null) {
+            if (bytes.isNotEmpty && bytes[0] == 0x50) {
+              cb(RTCDataChannelMessage.fromBinary(bytes));
+            }
+            return;
+          }
           bytes = clear;
         }
         cb(RTCDataChannelMessage.fromBinary(bytes));

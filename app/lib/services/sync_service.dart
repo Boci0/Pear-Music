@@ -380,14 +380,15 @@ class SyncService extends ChangeNotifier {
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
       if (song.sourceDeviceId == identity.deviceId) {
         if (library.findById(song.id) == null) {
+          // Source device deleted the song while offline — tell peer to drop the copy
           _send(peerId, {
             'type': 'song_deleted',
             'id': song.id,
             'checksum': song.checksum,
             'title': song.title,
           });
+          continue;
         }
-        continue;
       }
       final hasMatchingSong = library.songs.any(
         (s) =>

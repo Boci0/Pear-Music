@@ -223,9 +223,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Reset connection and re-trigger file transfer checks and manifest exchange with all devices.
   Future<int> forceSync() async {
-    await signaling.restart();
-    await _ensureConnection();
-    await Future.delayed(const Duration(milliseconds: 1200));
+    if (connectionStatus != 'connected') {
+      await signaling.restart();
+      await _ensureConnection();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    await _reconcileConnections();
+    signaling.getState();
     final count = sync.resyncNow();
     notifyListeners();
     return count;
@@ -462,6 +466,17 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _onServerMessage(Map<String, dynamic> msg) async {
     switch (msg['type']) {
       case '_local':
+        if (msg['event'] == 'binary_relay') {
+          final from = msg['from'] as String?;
+          final bytes = msg['bytes'];
+          if (from != null && bytes is Uint8List) {
+            _getOrCreateRelayChannel(from).handleRelayBinary(
+              bytes,
+              encrypted: true,
+            );
+          }
+          break;
+        }
         if (msg['event'] == 'binary') {
           final bytes = msg['bytes'];
           if (bytes is Uint8List) {
