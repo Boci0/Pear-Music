@@ -157,21 +157,47 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         executor.execute {
             try {
                 val destFile = File(ctx.cacheDir, fileName)
-                if (destFile.exists()) destFile.delete()
+                var currentUrl = url
+                var connection: java.net.HttpURLConnection? = null
+                var redirects = 0
+                val maxRedirects = 6
 
-                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                connection.instanceFollowRedirects = true
-                connection.connect()
+                while (redirects < maxRedirects) {
+                    val u = java.net.URL(currentUrl)
+                    connection = (u.openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "PearMusic-Updater (Android)")
+                    }
+                    val code = connection.responseCode
+                    if (code == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
+                        code == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
+                        code == java.net.HttpURLConnection.HTTP_SEE_OTHER ||
+                        code == 307 || code == 308) {
+                        val location = connection.getHeaderField("Location")
+                        connection.disconnect()
+                        if (location != null && location.isNotEmpty()) {
+                            currentUrl = if (location.startsWith("http")) location else java.net.URL(u, location).toString()
+                            redirects++
+                            continue
+                        }
+                    }
+                    if (code != java.net.HttpURLConnection.HTTP_OK) {
+                        throw Exception("Server returned HTTP $code")
+                    }
+                    break
+                }
 
-                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                    throw Exception("Server returned HTTP ${connection.responseCode}")
+                if (connection == null || connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                    throw Exception("Failed to open connection to update package")
                 }
 
                 val fileLength = connection.contentLength
                 val input = java.io.BufferedInputStream(connection.inputStream)
                 val output = java.io.FileOutputStream(destFile)
 
-                val data = ByteArray(8192)
+                val data = ByteArray(16384)
                 var total: Long = 0
                 var count: Int
                 var lastProgress = 0
@@ -180,18 +206,25 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     total += count
                     output.write(data, 0, count)
                     if (fileLength > 0) {
-                        val progress = ((total * 100) / fileLength).toInt()
+                        val progress = ((total * 100) / fileLength).toInt().coerceIn(0, 100)
                         if (progress - lastProgress >= 2 || progress == 100) {
                             lastProgress = progress
                             builder.setProgress(100, progress, false)
                                 .setContentText("$progress%")
                             notificationManager.notify(notificationId, builder.build())
                         }
+                    } else {
+                        // Unknown total length: show indeterminate ticker
+                        val mb = String.format("%.1f MB", total / (1024.0 * 1024.0))
+                        builder.setProgress(0, 0, true)
+                            .setContentText(mb)
+                        notificationManager.notify(notificationId, builder.build())
                     }
                 }
                 output.flush()
                 output.close()
                 input.close()
+                connection.disconnect()
 
                 notificationManager.cancel(notificationId)
                 mainHandler.post {

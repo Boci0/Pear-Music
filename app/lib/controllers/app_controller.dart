@@ -519,8 +519,17 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         _upsertPeer(peer);
         await identity.addPairedDevice(peer.deviceId, name: peer.deviceName);
         _postMessage('Paired with ${peer.deviceName}');
+        // Detach any previous stale channel and re-attach fresh relay channel
+        sync.detachChannel(peer.deviceId);
+        _relayChannels.remove(peer.deviceId);
         await _reconcileConnections();
         sync.resyncNow();
+        // Staged second sync to guarantee delivery after server commits pairing
+        Timer(const Duration(milliseconds: 900), () {
+          if (!_closing && sync.hasChannel(peer.deviceId)) {
+            sync.resyncNow();
+          }
+        });
         break;
 
       case 'unpaired':
@@ -646,7 +655,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       _upsertPeer(entry.value);
     }
     notifyListeners();
-    unawaited(_reconcileConnections());
+    await _reconcileConnections();
+    sync.resyncNow();
   }
 
   /// Reconcile the paired-device list (and prune shared songs) against the
