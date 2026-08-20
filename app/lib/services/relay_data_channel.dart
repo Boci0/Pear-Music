@@ -112,7 +112,13 @@ class RelayDataChannel extends RTCDataChannel {
   }
 
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    _queue.clear();
+    _inboundQueue.clear();
+    _draining = false;
+    _drainingInbound = false;
+    onMessage = null;
+  }
 
   /// Route an inbound relay text message (from the signaling stream) to
   /// [onMessage]. If the peer encrypted it (`e:1`), decrypt it with our shared

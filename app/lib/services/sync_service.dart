@@ -98,124 +98,65 @@ class SyncService extends ChangeNotifier {
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, bool> _sending = {};
   final Map<String, TransferProgress> _transfers = {};
-
-  final Map<String, int> _finalizeRetries = {};
   final Map<String, TransferProgress> _completed = {};
-  final Map<String, Timer> _inboundWatchdogs = {};
   Timer? _completedTimer;
 
   Timer? _notifyTimer;
   bool _notifyQueued = false;
 
-  // ---- Set-based Deduplicated Batch Tracking ----
-  final Set<String> _inboundPending = {};
-  final Set<String> _inboundCompleted = {};
-  final Set<String> _outboundPending = {};
-  final Set<String> _outboundCompleted = {};
-
-  Timer? _batchCompletionTimer;
-  bool _batchIsDone = false;
-  String _lastActiveTitle = '';
-
   SyncBatchState? get batchState {
-    final inTotal = _inboundPending.length + _inboundCompleted.length;
-    if (inTotal > 0 && (_inboundPending.isNotEmpty || _batchIsDone)) {
-      final active = _transfers.values.where((t) => t.isDownload).firstOrNull ??
-          _completed.values.where((t) => t.isDownload).lastOrNull;
-      if (active != null && active.fileName.isNotEmpty) {
-        _lastActiveTitle = active.fileName;
-      }
-      final totalB = _transfers.values
-          .where((t) => t.isDownload)
+    final activeDownloads =
+        _transfers.values.where((t) => t.isDownload).toList();
+    final activeUploads =
+        _transfers.values.where((t) => !t.isDownload).toList();
+    final completedDownloads =
+        _completed.values.where((t) => t.isDownload).toList();
+    final completedUploads =
+        _completed.values.where((t) => !t.isDownload).toList();
+
+    if (activeDownloads.isNotEmpty || completedDownloads.isNotEmpty) {
+      final totalSongs = activeDownloads.length + completedDownloads.length;
+      final active =
+          activeDownloads.firstOrNull ?? completedDownloads.lastOrNull;
+      final totalB = [...activeDownloads, ...completedDownloads]
           .fold<int>(0, (sum, t) => sum + t.totalBytes);
-      final compB = _transfers.values
-          .where((t) => t.isDownload)
+      final compB = [...activeDownloads, ...completedDownloads]
           .fold<int>(0, (sum, t) => sum + t.completedBytes);
       return SyncBatchState(
-        totalSongs: inTotal,
-        completedSongs: _inboundCompleted.length,
-        activeSongTitle: active?.fileName.isNotEmpty == true
-            ? active!.fileName
-            : _lastActiveTitle,
+        totalSongs: totalSongs,
+        completedSongs: completedDownloads.length,
+        activeSongTitle: active?.fileName ?? '',
         activeBytes: active?.completedBytes ?? 0,
         activeTotalBytes: active?.totalBytes ?? 0,
         totalBytes: totalB,
         completedBytes: compB,
         isDownload: true,
-        isDone: _batchIsDone || _inboundPending.isEmpty,
+        isDone: activeDownloads.isEmpty,
       );
     }
 
-    final outTotal = _outboundPending.length + _outboundCompleted.length;
-    if (outTotal > 0 && (_outboundPending.isNotEmpty || _batchIsDone)) {
-      final active = _transfers.values.where((t) => !t.isDownload).firstOrNull ??
-          _completed.values.where((t) => !t.isDownload).lastOrNull;
-      if (active != null && active.fileName.isNotEmpty) {
-        _lastActiveTitle = active.fileName;
-      }
-      final totalB = _transfers.values
-          .where((t) => !t.isDownload)
+    if (activeUploads.isNotEmpty || completedUploads.isNotEmpty) {
+      final totalSongs = activeUploads.length + completedUploads.length;
+      final active =
+          activeUploads.firstOrNull ?? completedUploads.lastOrNull;
+      final totalB = [...activeUploads, ...completedUploads]
           .fold<int>(0, (sum, t) => sum + t.totalBytes);
-      final compB = _transfers.values
-          .where((t) => !t.isDownload)
+      final compB = [...activeUploads, ...completedUploads]
           .fold<int>(0, (sum, t) => sum + t.completedBytes);
       return SyncBatchState(
-        totalSongs: outTotal,
-        completedSongs: _outboundCompleted.length,
-        activeSongTitle: active?.fileName.isNotEmpty == true
-            ? active!.fileName
-            : _lastActiveTitle,
+        totalSongs: totalSongs,
+        completedSongs: completedUploads.length,
+        activeSongTitle: active?.fileName ?? '',
         activeBytes: active?.completedBytes ?? 0,
         activeTotalBytes: active?.totalBytes ?? 0,
         totalBytes: totalB,
         completedBytes: compB,
         isDownload: false,
-        isDone: _batchIsDone || _outboundPending.isEmpty,
+        isDone: activeUploads.isEmpty,
       );
     }
 
-    if (_transfers.isNotEmpty) {
-      final active = _transfers.values.first;
-      return SyncBatchState(
-        totalSongs: _transfers.length,
-        completedSongs: 0,
-        activeSongTitle: active.fileName,
-        activeBytes: active.completedBytes,
-        activeTotalBytes: active.totalBytes,
-        totalBytes: active.totalBytes,
-        completedBytes: active.completedBytes,
-        isDownload: active.isDownload,
-        isDone: false,
-      );
-    }
     return null;
-  }
-
-  void _checkBatchCompletion() {
-    final inTotal = _inboundPending.length + _inboundCompleted.length;
-    final outTotal = _outboundPending.length + _outboundCompleted.length;
-
-    final inboundFinished = inTotal > 0 && _inboundPending.isEmpty;
-    final outboundFinished = outTotal > 0 && _outboundPending.isEmpty;
-
-    if (inboundFinished || outboundFinished) {
-      _batchIsDone = true;
-      _flushNotify();
-      _batchCompletionTimer?.cancel();
-      _batchCompletionTimer = Timer(const Duration(milliseconds: 2200), () {
-        _inboundPending.clear();
-        _inboundCompleted.clear();
-        _outboundPending.clear();
-        _outboundCompleted.clear();
-        _transfers.clear();
-        _completed.clear();
-        _completedTimer?.cancel();
-        _completedTimer = null;
-        _batchIsDone = false;
-        _lastActiveTitle = '';
-        _flushNotify();
-      });
-    }
   }
 
   Future<void> _syncTail = Future<void>.value();
@@ -294,14 +235,6 @@ class SyncService extends ChangeNotifier {
       };
 
   int resyncNow() {
-    // Do NOT clear _sending or _sendQueues: those hold in-flight transfers.
-    // Clearing _sending allowed a second concurrent sender for the same song
-    // to start (_sendFile's guard check no longer sees the in-progress entry),
-    // interleaving chunks from two senders and corrupting the file on the
-    // receiver. Let active transfers finish naturally; only clear finalize-retry
-    // state so a previously failed finalize can be retried by the fresh manifest
-    // exchange below.
-    _finalizeRetries.clear();
     if (_channels.isEmpty) return 0;
     final count = _channels.length;
     for (final peerId in _channels.keys.toList()) {
@@ -327,41 +260,27 @@ class SyncService extends ChangeNotifier {
   void detachChannel(String peerId) {
     _channels.remove(peerId);
     _sendQueues.remove(peerId);
-    _inboundWatchdogs.remove(peerId)?.cancel();
     final incomplete =
         _incoming.values.where((inc) => inc.peerId == peerId).toList();
     for (final inc in incomplete) {
       inc.timeoutTimer?.cancel();
       _incoming.remove(inc.song.id);
-      _finalizeRetries.remove(inc.song.id);
       try {
         inc.raf.closeSync();
-        library.incomingFile(inc.song.id).deleteSync();
+        final partFile = library.incomingFile(inc.song.id);
+        if (partFile.existsSync()) partFile.deleteSync();
       } catch (_) {}
       _removeProgress(peerId, inc.song.id);
     }
     _transfers.removeWhere((k, t) => t.peerId == peerId);
     _completed.removeWhere((k, t) => t.peerId == peerId);
     _sending.removeWhere((k, _) => k.startsWith('$peerId|'));
-    _enqueuedSends.removeWhere((k) => k.startsWith('$peerId|'));
 
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
       _resyncTimer = null;
-      _inboundCompleted.clear();
-      _inboundPending.clear();
-      _outboundCompleted.clear();
-      _outboundPending.clear();
-      _batchIsDone = false;
-      _batchCompletionTimer?.cancel();
-      _batchCompletionTimer = null;
-    } else {
-      for (final inc in incomplete) {
-        _inboundPending.remove(inc.song.id);
-      }
-      _checkBatchCompletion();
     }
-    notifyListeners();
+    _flushNotify();
   }
 
   // ---------- message handling ----------
@@ -476,53 +395,16 @@ class SyncService extends ChangeNotifier {
             library.hasSongFile(s),
       );
 
-      final isAlreadyInFlight = _inboundPending.contains(song.id) ||
-          _incoming.containsKey(song.id);
+      final isActivelyDownloading = _incoming.containsKey(song.id);
 
-      if (!hasMatchingSong && !isAlreadyInFlight) {
+      if (!hasMatchingSong && !isActivelyDownloading) {
         missing.add(song.id);
       }
     }
     if (missing.isNotEmpty) {
       debugPrint(
           '[sync][diag] requesting ${missing.length} missing songs from $peerId');
-      _batchCompletionTimer?.cancel();
-      _batchIsDone = false;
-      for (final id in missing) {
-        if (!_inboundCompleted.contains(id)) {
-          _inboundPending.add(id);
-        }
-      }
-      final ch = _channels[peerId];
-      final e2ePub =
-          ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
-      _send(peerId, {
-        'type': 'hello',
-        'deviceName': identity.deviceName,
-        'e2ePub': e2ePub,
-        'ack': true,
-      });
       _send(peerId, {'type': 'request_songs', 'ids': missing});
-      _inboundWatchdogs[peerId]?.cancel();
-      _inboundWatchdogs[peerId] = Timer(const Duration(seconds: 8), () {
-        _inboundWatchdogs.remove(peerId);
-        final stillPending =
-            _inboundPending.where((id) => !_incoming.containsKey(id)).toList();
-        if (stillPending.isNotEmpty && _channels.containsKey(peerId)) {
-          debugPrint(
-              '[sync] still waiting for ${stillPending.length} pending songs from $peerId; retrying request');
-          final ch = _channels[peerId];
-          final e2ePub =
-              ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
-          _send(peerId, {
-            'type': 'hello',
-            'deviceName': identity.deviceName,
-            'e2ePub': e2ePub,
-          });
-          _send(peerId, {'type': 'request_songs', 'ids': stillPending});
-        }
-      });
-      _flushNotify();
     } else {
       debugPrint(
           '[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised)');
@@ -530,60 +412,35 @@ class SyncService extends ChangeNotifier {
   }
 
   final Map<String, Future<void>> _sendQueues = {};
-  final Set<String> _enqueuedSends = {};
 
   void _enqueueSend(String peerId, Song song) {
-    final sendKey = _sendKey(peerId, song.id);
     final prev = _sendQueues[peerId] ?? Future<void>.value();
     final next = prev.then((_) async {
       if (_channels.containsKey(peerId)) {
         await _sendFile(peerId, song);
       } else {
-        // Peer disconnected while waiting in queue: clean up pending state
-        _outboundPending.remove(song.id);
         _removeProgress(peerId, song.id);
-        _checkBatchCompletion();
       }
     }).catchError((Object e) {
       debugPrint('[sync] send error for ${song.title}: $e');
-      _outboundPending.remove(song.id);
       _removeProgress(peerId, song.id);
-      _checkBatchCompletion();
-    }).whenComplete(() {
-      _enqueuedSends.remove(sendKey);
     });
     _sendQueues[peerId] = next;
     _track(next);
   }
 
   void _onRequestSongs(String peerId, List<dynamic> ids) {
-    final ch = _channels[peerId];
-    if (ch is RelayDataChannel && ch.signaling.e2ePubB64 != null) {
-      _send(peerId, {
-        'type': 'hello',
-        'deviceName': identity.deviceName,
-        'e2ePub': ch.signaling.e2ePubB64,
-        'ack': true,
-      });
-    }
     for (final id in ids) {
       final song = library.findById(id as String);
       if (song != null) {
         final sendKey = _sendKey(peerId, song.id);
-        if (_sending.containsKey(sendKey) || _enqueuedSends.contains(sendKey)) {
-          // Already actively in-flight or enqueued to this peer; do not duplicate
+        if (_sending.containsKey(sendKey)) {
+          // Already actively in-flight to this peer; do not duplicate
           continue;
         }
-        if (!_outboundCompleted.contains(song.id)) {
-          _outboundPending.add(song.id);
-        }
-        _enqueuedSends.add(sendKey);
         _enqueueSend(peerId, song);
       }
     }
-    _batchCompletionTimer?.cancel();
-    _batchIsDone = false;
-    _flushNotify();
   }
 
   // ---------- sending ----------
@@ -642,16 +499,11 @@ class SyncService extends ChangeNotifier {
       }
 
       _send(peerId, {'type': 'file_done', 'id': song.id});
-      _outboundPending.remove(song.id);
-      _outboundCompleted.add(song.id);
       _markComplete(peerId, song.id);
-      _checkBatchCompletion();
     } catch (e) {
       debugPrint('[sync] send failed $song: $e');
       _send(peerId, {'type': 'file_error', 'id': song.id, 'message': '$e'});
-      _outboundPending.remove(song.id);
       _removeProgress(peerId, song.id);
-      _checkBatchCompletion();
     } finally {
       _sending.remove(sendKey);
     }
@@ -690,7 +542,6 @@ class SyncService extends ChangeNotifier {
   // ---------- receiving ----------
 
   void _startIncoming(String peerId, Map<String, dynamic> songJson) {
-    _inboundWatchdogs.remove(peerId)?.cancel();
     final song = Song.fromJson(songJson);
     final hasMatchingFile = library.songs.any(
       (s) =>
@@ -737,14 +588,8 @@ class SyncService extends ChangeNotifier {
         : const Duration(seconds: 8);
     inc.timeoutTimer = Timer(watchdogTimeout, () {
       if (inc.bytesReceived == 0) {
-        debugPrint('[sync] incoming ${song.id} stalled at 0% ($watchdogTimeout watchdog); retrying request');
-        _send(peerId, {'type': 'request_songs', 'ids': [song.id]});
-        // Restart a second watchdog for final abort if still stalled
-        inc.timeoutTimer = Timer(incomingTimeout, () {
-          inc.timeoutTimer = null;
-          debugPrint('[sync] incoming ${song.id} timed out; aborting');
-          _track(_abortIncoming(peerId, song.id));
-        });
+        debugPrint('[sync] incoming ${song.id} stalled at 0% ($watchdogTimeout watchdog); aborting');
+        _track(_abortIncoming(peerId, song.id));
       } else {
         inc.timeoutTimer = Timer(incomingTimeout, () {
           inc.timeoutTimer = null;
@@ -799,12 +644,13 @@ class SyncService extends ChangeNotifier {
     }
 
     inc.timeoutTimer?.cancel();
-    // Reset watchdog: if no new chunk arrives within 15 seconds, abort and retry
-    inc.timeoutTimer = Timer(const Duration(seconds: 15), () {
+    final chunkWatchdog = incomingTimeout < const Duration(seconds: 15)
+        ? incomingTimeout
+        : const Duration(seconds: 15);
+    inc.timeoutTimer = Timer(chunkWatchdog, () {
       inc.timeoutTimer = null;
-      debugPrint('[sync] incoming $songId transfer stalled mid-stream (15s inactivity); aborting and retrying');
+      debugPrint('[sync] incoming $songId transfer stalled mid-stream ($chunkWatchdog inactivity); aborting');
       _track(_abortIncoming(peerId, songId));
-      _send(peerId, {'type': 'request_songs', 'ids': [songId]});
     });
 
     final progress = _transfers[TransferProgress(
@@ -867,12 +713,8 @@ class SyncService extends ChangeNotifier {
         sourceDeviceId: peerId,
         artwork: inc.song.artwork,
       );
-      _inboundPending.remove(songId);
-      _inboundCompleted.add(songId);
-      _finalizeRetries.remove(songId);
       _markComplete(peerId, songId);
       onDownloaded?.call(inc.song.title);
-      _checkBatchCompletion();
     } catch (e) {
       debugPrint('[sync] finalize failed $songId: $e');
       try {
@@ -884,19 +726,7 @@ class SyncService extends ChangeNotifier {
         }
       } catch (_) {}
       _removeProgress(peerId, songId);
-      final retries = (_finalizeRetries[songId] ?? 0) + 1;
-      if (retries <= maxFinalizeRetries) {
-        _finalizeRetries[songId] = retries;
-        debugPrint(
-            '[sync] re-requesting $songId from $peerId (attempt $retries/$maxFinalizeRetries)');
-        _send(peerId, {'type': 'request_songs', 'ids': [songId]});
-      } else {
-        _finalizeRetries.remove(songId);
-        _inboundPending.remove(songId);
-        _checkBatchCompletion();
-        debugPrint(
-            '[sync] giving up on $songId after $maxFinalizeRetries failed attempts');
-      }
+      _send(peerId, {'type': 'request_songs', 'ids': [songId]});
     }
   }
 
@@ -905,8 +735,6 @@ class SyncService extends ChangeNotifier {
     if (inc == null) return;
     inc.timeoutTimer?.cancel();
     inc.timeoutTimer = null;
-    _finalizeRetries.remove(songId);
-    _inboundPending.remove(songId);
     try {
       inc.raf.closeSync();
     } catch (_) {}
@@ -916,7 +744,6 @@ class SyncService extends ChangeNotifier {
       }
     } catch (_) {}
     _removeProgress(peerId, songId);
-    _checkBatchCompletion();
   }
 
   // ---------- helpers ----------
@@ -1109,8 +936,6 @@ class SyncService extends ChangeNotifier {
     _notifyTimer = null;
     _completedTimer?.cancel();
     _completedTimer = null;
-    _batchCompletionTimer?.cancel();
-    _batchCompletionTimer = null;
     for (final inc in _incoming.values) {
       inc.timeoutTimer?.cancel();
       try {

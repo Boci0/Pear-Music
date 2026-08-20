@@ -520,8 +520,10 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         // Wipe any stale cryptographic key from prior pairing
         signaling.removePeerKey(peer.deviceId);
         // Detach any previous stale channel and re-attach fresh relay channel
+        final oldCh = _relayChannels.remove(peer.deviceId);
+        await oldCh?.close();
+        _pendingRelayBinaryMarkers.removeWhere((m) => m.from == peer.deviceId);
         sync.detachChannel(peer.deviceId);
-        _relayChannels.remove(peer.deviceId);
         await _reconcileConnections();
         break;
 
@@ -682,7 +684,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     bool explicit = false,
   }) async {
     _pairedDevices.removeWhere((d) => d.deviceId == deviceId);
-    _relayChannels.remove(deviceId);
+    final ch = _relayChannels.remove(deviceId);
+    await ch?.close();
     signaling.removePeerKey(deviceId);
     // Drop any relayed-binary markers still waiting for a frame from this peer
     // so they can't mis-route a future frame from another device.
