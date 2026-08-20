@@ -60,7 +60,7 @@ class SignalingService {
   // wait for the server's `relay_ack`. The server only acks once it has
   // relayed the frame, and it delays the ack if the receiving peer is slow —
   // so a large file sync can never blow up memory on either side.
-  Completer<void>? _relayGate;
+  Future<void> _relayLock = Future<void>.value();
   Completer<void>? _pendingRelayAck;
   Timer? _relayAckTimeout;
 
@@ -434,51 +434,53 @@ class SignalingService {
   /// receiving peer, keeping transfers memory-bounded. Returns once the chunk
   /// is acked or after a short safety timeout (a lost ack is healed by the
   /// reconnect + manifest re-sync, never by stalling forever).
-  Future<void> sendRelayBinary(String peerId, Uint8List bytes) async {
+  Future<void> sendRelayBinary(String peerId, Uint8List bytes) {
     // Serialize all binary sequences globally: exactly one marker+frame pair
     // is in flight at a time, so the server always pairs each frame with the
     // right marker and the next ack always belongs to our frame.
-    while (_relayGate != null) {
-      await _relayGate!.future;
-    }
-    final gate = Completer<void>();
-    _relayGate = gate;
-    try {
-      final ch = _channel;
-      if (ch == null) return;
-      // E2E: encrypt the whole chunk envelope (nonce||ct||tag) and mark the
-      // marker with e:1 when a shared key exists; no key → plaintext so old
-      // peers keep working.
-      final encrypted = _peerKeys.containsKey(peerId);
-      final payload = encrypted
-          ? (await encryptBinaryFor(peerId, bytes)) ?? bytes
-          : bytes;
-      ch.sink.add(jsonEncode({
-        'type': 'relay',
-        'to': peerId,
-        'data': {'t': 'bin', if (encrypted) 'e': 1},
-      }));
-      ch.sink.add(payload);
+    final completer = Completer<void>();
+    final previous = _relayLock;
+    _relayLock = completer.future;
 
-      final ack = Completer<void>();
-      _pendingRelayAck = ack;
-      // Safety timeout: if the ack is lost (e.g. server restarted mid-sync),
-      // don't stall the channel forever — the resync heals it.
-      _relayAckTimeout?.cancel();
-      _relayAckTimeout = Timer(const Duration(seconds: 5), () {
-        if (!ack.isCompleted) ack.complete();
-      });
+    return previous.then((_) async {
       try {
-        await ack.future;
-      } finally {
+        final ch = _channel;
+        if (ch == null) return;
+        // E2E: encrypt the whole chunk envelope (nonce||ct||tag) and mark the
+        // marker with e:1 when a shared key exists; no key → plaintext so old
+        // peers keep working.
+        final encrypted = _peerKeys.containsKey(peerId);
+        final payload = encrypted
+            ? (await encryptBinaryFor(peerId, bytes)) ?? bytes
+            : bytes;
+        ch.sink.add(jsonEncode({
+          'type': 'relay',
+          'to': peerId,
+          'data': {'t': 'bin', if (encrypted) 'e': 1},
+        }));
+        ch.sink.add(payload);
+
+        final ack = Completer<void>();
+        _pendingRelayAck = ack;
+        // Safety timeout: if the ack is lost (e.g. server restarted mid-sync),
+        // don't stall the channel forever — the resync heals it.
         _relayAckTimeout?.cancel();
-        _relayAckTimeout = null;
-        if (identical(_pendingRelayAck, ack)) _pendingRelayAck = null;
+        _relayAckTimeout = Timer(const Duration(seconds: 5), () {
+          if (!ack.isCompleted) ack.complete();
+        });
+        try {
+          await ack.future;
+        } finally {
+          _relayAckTimeout?.cancel();
+          _relayAckTimeout = null;
+          if (identical(_pendingRelayAck, ack)) _pendingRelayAck = null;
+        }
+      } finally {
+        if (!completer.isCompleted) completer.complete();
       }
-    } finally {
-      _relayGate = null;
-      if (!gate.isCompleted) gate.complete();
-    }
+    }).catchError((Object e) {
+      debugPrint('[signaling] sendRelayBinary error: $e');
+    });
   }
 
   void _onRelayAck() {
@@ -511,9 +513,7 @@ class SignalingService {
     final ack = _pendingRelayAck;
     if (ack != null && !ack.isCompleted) ack.complete();
     _pendingRelayAck = null;
-    final gate = _relayGate;
-    if (gate != null && !gate.isCompleted) gate.complete();
-    _relayGate = null;
+    _relayLock = Future<void>.value();
   }
 
   void unpair(String peerId) => send({'type': 'unpair', 'peerId': peerId});

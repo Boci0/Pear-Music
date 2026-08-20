@@ -460,9 +460,17 @@ class SyncService extends ChangeNotifier {
     final next = prev.then((_) async {
       if (_channels.containsKey(peerId)) {
         await _sendFile(peerId, song);
+      } else {
+        // Peer disconnected while waiting in queue: clean up pending state
+        _outboundPending.remove(song.id);
+        _removeProgress(peerId, song.id);
+        _checkBatchCompletion();
       }
     }).catchError((Object e) {
       debugPrint('[sync] send error for ${song.title}: $e');
+      _outboundPending.remove(song.id);
+      _removeProgress(peerId, song.id);
+      _checkBatchCompletion();
     });
     _sendQueues[peerId] = next;
     _track(next);
