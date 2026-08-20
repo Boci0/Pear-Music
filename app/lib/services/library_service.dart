@@ -231,17 +231,19 @@ class LibraryService extends ChangeNotifier {
     final finalName = '$id$ext';
     final targetPath = p.join(_libraryDir!.path, finalName);
     final targetFile = File(targetPath);
-    try {
-      if (await targetFile.exists()) {
-        await targetFile.delete();
-      }
-      await tmp.rename(targetPath);
-    } catch (_) {
-      // Fallback for cross-device/partition moves (EXDEV) or Windows locks
-      await tmp.copy(targetPath);
+    if (await tmp.exists()) {
       try {
-        if (await tmp.exists()) await tmp.delete();
-      } catch (_) {}
+        if (await targetFile.exists()) {
+          await targetFile.delete();
+        }
+        await tmp.rename(targetPath);
+      } catch (_) {
+        // Fallback for cross-device/partition moves (EXDEV) or Windows locks
+        try {
+          await tmp.copy(targetPath);
+          if (await tmp.exists()) await tmp.delete();
+        } catch (_) {}
+      }
     }
 
     final song = Song(

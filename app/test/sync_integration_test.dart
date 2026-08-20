@@ -216,11 +216,12 @@ void main() {
 
   test('broadcast: newly added song reaches all connected peers', () async {
     connect();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await syncA.idle;
+    await syncB.idle;
 
     await libA.addLocalFiles([makeAudio('fresh-track.mp3', 700_000)]);
     final song = libA.songs.first;
-    unawaitedSync(syncA.broadcastSong(song));
+    await syncA.broadcastSong(song);
 
     await waitFor(() => libB.songs.length == 1);
     final received = libB.songs.first;
@@ -237,7 +238,8 @@ void main() {
 
     // Re-broadcasting a song the peer already has must not add a duplicate.
     await syncA.broadcastSong(libA.songs.first);
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await syncA.idle;
+    await syncB.idle;
     expect(libB.songs.length, 1);
   });
 
@@ -263,11 +265,12 @@ void main() {
 
   test('bidirectional: B can share back to A', () async {
     connect();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await syncA.idle;
+    await syncB.idle;
     await libB.addLocalFiles([File('${tempDirB.path}/from-b.mp3')
       ..writeAsBytesSync(List.filled(250_000, 3))]);
     final song = libB.songs.first;
-    unawaitedSync(syncB.broadcastSong(song));
+    await syncB.broadcastSong(song);
 
     await waitFor(() => libA.songs.length == 1);
     expect(libA.songs.first.sourceDeviceId, 'device-B');
@@ -519,6 +522,33 @@ void main() {
 
     await sync.idle;
     await tempDir.delete(recursive: true);
+  });
+
+  test(
+      're-syncs and receives missing song file when index metadata already existed',
+      () async {
+    // A has the file locally.
+    final audioFile = makeAudio('song-recovery.mp3', 150_000);
+    await libA.addLocalFiles([audioFile]);
+    final songA = libA.songs.first;
+
+    // Simulate B having the metadata in index but the physical file is missing from disk.
+    await libB.addReceivedSong(
+      id: songA.id,
+      title: songA.title,
+      fileName: songA.fileName,
+      size: songA.size,
+      checksum: songA.checksum,
+      sourceDeviceId: 'device-A',
+    );
+    expect(libB.songs.length, 1);
+    expect(libB.hasSongFile(libB.songs.first), isFalse);
+
+    // Connect and trigger sync. B should notice the missing file on disk and re-download it.
+    connect();
+    await waitFor(() => libB.hasSongFile(libB.songs.first));
+    expect(libB.hasSongFile(libB.songs.first), isTrue);
+    expect(await libB.songFile(libB.songs.first).length(), 150_000);
   });
 }
 

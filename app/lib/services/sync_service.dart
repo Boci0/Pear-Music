@@ -692,8 +692,12 @@ class SyncService extends ChangeNotifier {
   void _startIncoming(String peerId, Map<String, dynamic> songJson) {
     _inboundWatchdogs.remove(peerId)?.cancel();
     final song = Song.fromJson(songJson);
-    if (library.findById(song.id) != null ||
-        library.hasChecksum(song.checksum)) {
+    final hasMatchingFile = library.songs.any(
+      (s) =>
+          (s.id == song.id || s.checksum == song.checksum) &&
+          library.hasSongFile(s),
+    );
+    if (hasMatchingFile) {
       debugPrint('[sync][diag] file_meta for ${song.title} already have; skipping');
       _send(peerId, {'type': 'file_done', 'id': song.id});
       return;
@@ -728,9 +732,12 @@ class SyncService extends ChangeNotifier {
       raf: raf,
     );
 
-    inc.timeoutTimer = Timer(const Duration(seconds: 8), () {
+    final watchdogTimeout = incomingTimeout < const Duration(seconds: 8)
+        ? incomingTimeout
+        : const Duration(seconds: 8);
+    inc.timeoutTimer = Timer(watchdogTimeout, () {
       if (inc.bytesReceived == 0) {
-        debugPrint('[sync] incoming ${song.id} stalled at 0% (8s watchdog); retrying request');
+        debugPrint('[sync] incoming ${song.id} stalled at 0% ($watchdogTimeout watchdog); retrying request');
         _send(peerId, {'type': 'request_songs', 'ids': [song.id]});
         // Restart a second watchdog for final abort if still stalled
         inc.timeoutTimer = Timer(incomingTimeout, () {

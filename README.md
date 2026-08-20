@@ -40,6 +40,7 @@ to install or configure.
 | **Windows (x64)** | `peerm_app-windows-x64.zip` | [Download ZIP](https://github.com/Boci0/Pear-Music/releases/latest/download/peerm_app-windows-x64.zip) |
 | **Android (ARM64)** | `app-arm64-v8a-release.apk` | [Download APK](https://github.com/Boci0/Pear-Music/releases/latest/download/app-arm64-v8a-release.apk) |
 | **Android (ARMv7 32-bit)** | `app-armeabi-v7a-release.apk` | [Download APK](https://github.com/Boci0/Pear-Music/releases/latest/download/app-armeabi-v7a-release.apk) |
+| **Android (x86_64)** | `app-x86_64-release.apk` | [Download APK](https://github.com/Boci0/Pear-Music/releases/latest/download/app-x86_64-release.apk) |
 
 ---
 

@@ -24,9 +24,15 @@ class RelayDataChannel extends RTCDataChannel {
   final String peerId;
   final SignalingService signaling;
 
-  // FIFO of send tasks: preserves ordering (hello → chunks → file_done).
+  // FIFO of send tasks: preserves ordering (hello -> chunks -> file_done).
   final List<Future<void> Function()> _queue = [];
   bool _draining = false;
+
+  // Inbound FIFO queue: serializes all received text and binary frames per channel
+  // so chunks and control messages (e.g. file_done) are delivered to onMessage
+  // in exact arrival order, even across asynchronous decryptions.
+  final List<Future<void> Function()> _inboundQueue = [];
+  bool _drainingInbound = false;
 
   @override
   RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
@@ -64,16 +70,45 @@ class RelayDataChannel extends RTCDataChannel {
   void _drain() {
     if (_draining) return;
     _draining = true;
-    Future<void>(() async {
+    () async {
       try {
         while (_queue.isNotEmpty) {
           final task = _queue.removeAt(0);
-          await task();
+          try {
+            await task();
+          } catch (e) {
+            debugPrint('[relay] send task error: $e');
+          }
         }
       } finally {
         _draining = false;
+        if (_queue.isNotEmpty) {
+          _drain();
+        }
       }
-    });
+    }();
+  }
+
+  void _drainInbound() {
+    if (_drainingInbound) return;
+    _drainingInbound = true;
+    () async {
+      try {
+        while (_inboundQueue.isNotEmpty) {
+          final task = _inboundQueue.removeAt(0);
+          try {
+            await task();
+          } catch (e) {
+            debugPrint('[relay] inbound task error: $e');
+          }
+        }
+      } finally {
+        _drainingInbound = false;
+        if (_inboundQueue.isNotEmpty) {
+          _drainInbound();
+        }
+      }
+    }();
   }
 
   @override
@@ -86,19 +121,28 @@ class RelayDataChannel extends RTCDataChannel {
   Future<void> handleRelay(Map<String, dynamic> data) async {
     debugPrint('[diag] handleRelay t=${data['t']} e=${data['e']} cbNull=${onMessage == null} dIsString=${data['d'] is String}');
     if (data['t'] != 'text') return;
-    final cb = onMessage;
-    if (cb == null) return;
-    var text = data['d'] as String;
-    if (data['e'] == 1) {
-      final clear = await signaling.decryptTextFor(peerId, text);
-      if (clear == null) {
-        debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed)');
-        return;
+    final completer = Completer<void>();
+    _inboundQueue.add(() async {
+      try {
+        final cb = onMessage;
+        if (cb == null) return;
+        var text = data['d'] as String;
+        if (data['e'] == 1) {
+          final clear = await signaling.decryptTextFor(peerId, text);
+          if (clear == null) {
+            debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed)');
+            return;
+          }
+          text = utf8.decode(clear);
+        }
+        debugPrint('[diag] handleRelay delivering ${text.substring(0, text.length > 80 ? 80 : text.length)}');
+        cb(RTCDataChannelMessage(text));
+      } finally {
+        if (!completer.isCompleted) completer.complete();
       }
-      text = utf8.decode(clear);
-    }
-    debugPrint('[diag] handleRelay delivering ${text.substring(0, text.length > 80 ? 80 : text.length)}');
-    cb(RTCDataChannelMessage(text));
+    });
+    _drainInbound();
+    return completer.future;
   }
 
   /// Route an inbound raw binary frame (a relayed chunk body) to [onMessage].
@@ -106,13 +150,22 @@ class RelayDataChannel extends RTCDataChannel {
   /// decrypted with our shared E2E key first; failures are dropped.
   Future<void> handleRelayBinary(Uint8List bytes,
       {bool encrypted = false}) async {
-    final cb = onMessage;
-    if (cb == null) return;
-    if (encrypted) {
-      final clear = await signaling.decryptBinaryFor(peerId, bytes);
-      if (clear == null) return;
-      bytes = clear;
-    }
-    cb(RTCDataChannelMessage.fromBinary(bytes));
+    final completer = Completer<void>();
+    _inboundQueue.add(() async {
+      try {
+        final cb = onMessage;
+        if (cb == null) return;
+        if (encrypted) {
+          final clear = await signaling.decryptBinaryFor(peerId, bytes);
+          if (clear == null) return;
+          bytes = clear;
+        }
+        cb(RTCDataChannelMessage.fromBinary(bytes));
+      } finally {
+        if (!completer.isCompleted) completer.complete();
+      }
+    });
+    _drainInbound();
+    return completer.future;
   }
 }
