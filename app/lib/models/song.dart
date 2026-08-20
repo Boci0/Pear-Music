@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 /// A music file in the local library.
 ///
@@ -20,7 +21,21 @@ class Song {
   final String? artwork;
   final DateTime addedAt;
 
-  const Song({
+  Uint8List? _artworkBytes;
+  Uint8List? get artworkBytes {
+    if (artwork == null || artwork!.isEmpty) return null;
+    return _artworkBytes ??= _decodeArtwork();
+  }
+
+  Uint8List? _decodeArtwork() {
+    try {
+      return base64Decode(artwork!);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Song({
     required this.id,
     required this.title,
     required this.fileName,

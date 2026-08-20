@@ -101,51 +101,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
       // The app-wide theme already follows the song's artwork colour, so the
       // player only adds a soft background wash that fades when the track
-      // changes. The body is a stable `child`, so animation frames only
-      // repaint the wash - not the whole player.
-      body: FutureBuilder<Color>(
-        future: ArtworkPalette.dominant(song),
-        builder: (context, snapshot) {
-          final accent = snapshot.data ?? ArtworkPalette.fallback;
-          return TweenAnimationBuilder<Color?>(
-            tween: ColorTween(begin: ArtworkPalette.fallback, end: accent),
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-            builder: (context, animColor, _) {
-              final activeAccent = animColor ?? ArtworkPalette.fallback;
-              return SafeArea(
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  child: isWide
-                      ? _WideBody(
+      // changes.
+      body: TweenAnimationBuilder<Color?>(
+        tween: ColorTween(
+          begin: ArtworkPalette.fallback,
+          end: ArtworkPalette.dominantSync(song),
+        ),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        builder: (context, animColor, _) {
+          final activeAccent = animColor ?? ArtworkPalette.fallback;
+          return SafeArea(
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: isWide
+                  ? _WideBody(
+                      controller: controller,
+                      player: player,
+                      song: song,
+                      duration: duration,
+                      accent: activeAccent,
+                      activePlaylistId: _activePlaylistId,
+                      onActivePlaylistChanged: (id) =>
+                          setState(() => _activePlaylistId = id),
+                    )
+                  : landscape
+                      ? _LandscapeBody(
                           controller: controller,
                           player: player,
                           song: song,
                           duration: duration,
                           accent: activeAccent,
-                          activePlaylistId: _activePlaylistId,
-                          onActivePlaylistChanged: (id) =>
-                              setState(() => _activePlaylistId = id),
                         )
-                      : landscape
-                          ? _LandscapeBody(
-                              controller: controller,
-                              player: player,
-                              song: song,
-                              duration: duration,
-                              accent: activeAccent,
-                            )
-                          : _PortraitBody(
-                              controller: controller,
-                              player: player,
-                              song: song,
-                              duration: duration,
-                              accent: activeAccent,
-                            ),
-                ),
-              );
-            },
+                      : _PortraitBody(
+                          controller: controller,
+                          player: player,
+                          song: song,
+                          duration: duration,
+                          accent: activeAccent,
+                        ),
+            ),
           );
         },
       ),

@@ -40,19 +40,14 @@ class ArtworkPalette {
     final art = song.artwork;
     if (art == null || art.isEmpty) return fallback;
     final id = song.id;
-    final cached = _resolvedColors.remove(id);
-    if (cached != null) {
-      _resolvedColors[id] = cached;
-      return cached;
-    }
-    try {
-      final color = computeDominant(art);
+    final cached = _resolvedColors[id];
+    if (cached != null) return cached;
+    // Asynchronously resolve in background isolate without blocking UI thread
+    dominant(song).then((color) {
       _resolvedColors[id] = color;
       _trim(_resolvedColors, _maxColorEntries);
-      return color;
-    } catch (_) {
-      return fallback;
-    }
+    });
+    return fallback;
   }
 
   /// Returns the dominant colour for [song] (or [fallback] when the song has
@@ -61,33 +56,26 @@ class ArtworkPalette {
     final art = song.artwork;
     if (art == null || art.isEmpty) return Future.value(fallback);
     final id = song.id;
+    final cachedColor = _resolvedColors[id];
+    if (cachedColor != null) return Future.value(cachedColor);
     final cached = _cache.remove(id);
     if (cached != null) {
       _cache[id] = cached; // re-insert -> move to most-recently-used end.
       return cached;
     }
-    final future = _extract(art);
+    final future = _extract(art).then((color) {
+      _resolvedColors[id] = color;
+      _trim(_resolvedColors, _maxColorEntries);
+      return color;
+    });
     _cache[id] = future;
     _trim(_cache, _maxColorEntries);
     return future;
   }
 
-  /// Decoded (base64 -> bytes) artwork for [song], cached by song id (bounded).
+  /// Decoded (base64 -> bytes) artwork for [song].
   /// Returns null when the song has no artwork.
-  static Uint8List? bytes(Song song) {
-    final art = song.artwork;
-    if (art == null || art.isEmpty) return null;
-    final id = song.id;
-    final cached = _bytesCache.remove(id);
-    if (cached != null) {
-      _bytesCache[id] = cached;
-      return cached;
-    }
-    final decoded = base64Decode(art);
-    _bytesCache[id] = decoded;
-    _trim(_bytesCache, _maxBytesEntries);
-    return decoded;
-  }
+  static Uint8List? bytes(Song song) => song.artworkBytes;
 
   static void _trim<K, V>(LinkedHashMap<K, V> map, int max) {
     while (map.length > max) {
@@ -97,7 +85,7 @@ class ArtworkPalette {
 
   static Future<Color> _extract(String base64Art) async {
     try {
-      return computeDominant(base64Art);
+      return await compute(computeDominant, base64Art);
     } catch (_) {
       return fallback;
     }

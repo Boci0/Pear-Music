@@ -144,6 +144,7 @@ class SyncService extends ChangeNotifier {
 
   Timer? _notifyTimer;
   bool _notifyQueued = false;
+  bool _disposed = false;
 
   SyncBatchState? get batchState {
     if (_inboundBatch != null) {
@@ -764,16 +765,19 @@ class SyncService extends ChangeNotifier {
   }
 
   void _throttledNotify() {
-    if (_notifyQueued) return;
+    if (_disposed || _notifyQueued) return;
     _notifyQueued = true;
-    _notifyTimer ??= Timer(const Duration(milliseconds: 50), () {
+    _notifyTimer ??= Timer(const Duration(milliseconds: 150), () {
       _notifyQueued = false;
       _notifyTimer = null;
-      notifyListeners();
+      if (!_disposed) {
+        notifyListeners();
+      }
     });
   }
 
   void _flushNotify() {
+    if (_disposed) return;
     _notifyTimer?.cancel();
     _notifyTimer = null;
     _notifyQueued = false;
@@ -1059,6 +1063,7 @@ class SyncService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _resyncTimer?.cancel();
     _resyncTimer = null;
     _notifyTimer?.cancel();

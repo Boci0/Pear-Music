@@ -22,82 +22,76 @@ class PlayerBar extends StatelessWidget {
     final theme = Theme.of(context);
 
     // Carry the current song's artwork colour into the mini player too, so
-    // the colour follows the music outside the full player. Subtle: a slight
-    // tint on the bar + the transport buttons take the softened accent.
-    return FutureBuilder<Color>(
-      future: ArtworkPalette.dominant(song),
-      builder: (context, snapshot) {
-        final accent = snapshot.data ?? ArtworkPalette.fallback;
-        final control = ArtworkPalette.controlAccent(accent);
-        final barColor = Color.lerp(
-              theme.colorScheme.surfaceContainerHigh,
-              ArtworkPalette.wash(accent, lightness: 0.14),
-              0.45,
-            ) ??
-            theme.colorScheme.surfaceContainerHigh;
-        return Material(
-          color: barColor,
-          child: InkWell(
-            onTap: () => Navigator.of(context).push(
-              PageRouteBuilder(
-                transitionDuration: const Duration(milliseconds: 150),
-                reverseTransitionDuration: const Duration(milliseconds: 150),
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    const PlayerScreen(),
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) =>
-                        FadeTransition(opacity: animation, child: child),
-              ),
-            ),
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Row(
-                children: [
-                  _Thumb(song: song),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        Text(
-                          'Playing on this device',
-                          style: theme.textTheme.labelSmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.skip_previous, color: control),
-                    onPressed: () => controller.previousTrack(),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      player.playing
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_filled,
-                      size: 36,
-                      color: control,
-                    ),
-                    onPressed: () => controller.togglePlayback(),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.skip_next, color: control),
-                    onPressed: () => controller.nextTrack(),
-                  ),
-                ],
-              ),
-            ),
+    // the colour follows the music outside the full player.
+    final accent = ArtworkPalette.dominantSync(song);
+    final control = ArtworkPalette.controlAccent(accent);
+    final barColor = Color.lerp(
+          theme.colorScheme.surfaceContainerHigh,
+          ArtworkPalette.wash(accent, lightness: 0.14),
+          0.45,
+        ) ??
+        theme.colorScheme.surfaceContainerHigh;
+
+    return Material(
+      color: barColor,
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 150),
+            reverseTransitionDuration: const Duration(milliseconds: 150),
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const PlayerScreen(),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) =>
+                    FadeTransition(opacity: animation, child: child),
           ),
-        );
-      },
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              _Thumb(song: song),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    Text(
+                      'Playing on this device',
+                      style: theme.textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.skip_previous, color: control),
+                onPressed: () => controller.previousTrack(),
+              ),
+              IconButton(
+                icon: Icon(
+                  player.playing
+                      ? Icons.pause_circle_filled
+                      : Icons.play_circle_filled,
+                  size: 36,
+                  color: control,
+                ),
+                onPressed: () => controller.togglePlayback(),
+              ),
+              IconButton(
+                icon: Icon(Icons.skip_next, color: control),
+                onPressed: () => controller.nextTrack(),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

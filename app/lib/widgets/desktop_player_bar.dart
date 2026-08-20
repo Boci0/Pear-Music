@@ -17,24 +17,9 @@ class DesktopPlayerBar extends StatefulWidget {
 }
 
 class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
-  Timer? _positionTimer;
   double? _dragPositionSeconds;
   double? _dragVolume;
   double _preMuteVolume = 1.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _positionTimer?.cancel();
-    super.dispose();
-  }
 
   String _formatDuration(Duration? d) {
     if (d == null || d.inSeconds <= 0) return '0:00';
@@ -62,20 +47,17 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
     final curSec = _dragPositionSeconds ??
         (position.inMilliseconds / 1000.0).clamp(0.0, maxSec);
 
-    return FutureBuilder<Color>(
-      future: ArtworkPalette.dominant(song),
-      builder: (context, snapshot) {
-        final accent = snapshot.data ?? ArtworkPalette.fallback;
-        final control = ArtworkPalette.controlAccent(accent);
-        final barColor = Color.lerp(
-              scheme.surfaceContainerHigh,
-              ArtworkPalette.wash(accent, lightness: 0.12),
-              0.40,
-            ) ??
-            scheme.surfaceContainerHigh;
+    final accent = ArtworkPalette.dominantSync(song);
+    final control = ArtworkPalette.controlAccent(accent);
+    final barColor = Color.lerp(
+          scheme.surfaceContainerHigh,
+          ArtworkPalette.wash(accent, lightness: 0.12),
+          0.40,
+        ) ??
+        scheme.surfaceContainerHigh;
 
-        return Container(
-          height: 84,
+    return Container(
+      height: 84,
           decoration: BoxDecoration(
             color: barColor,
             border: Border(
@@ -222,76 +204,85 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
 
                     const SizedBox(height: 2),
 
-                    // Progress Scrubber (Raised & Compacted)
-                    SizedBox(
-                      height: 24,
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 38,
-                            child: Text(
-                              _formatDuration(
-                                _dragPositionSeconds != null
-                                    ? Duration(
-                                        milliseconds:
-                                            (_dragPositionSeconds! * 1000)
-                                                .toInt(),
-                                      )
-                                    : position,
-                              ),
-                              textAlign: TextAlign.right,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontSize: 11,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 3.5,
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 5.5,
+                    // Progress Scrubber (StreamBuilder for zero CPU overhead)
+                    StreamBuilder<Duration>(
+                      stream: player.positionStream,
+                      initialData: player.position ?? Duration.zero,
+                      builder: (context, posSnap) {
+                        final position = posSnap.data ?? Duration.zero;
+                        final curSec = _dragPositionSeconds ??
+                            (position.inMilliseconds / 1000.0).clamp(0.0, maxSec);
+                        return SizedBox(
+                          height: 24,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 38,
+                                child: Text(
+                                  _formatDuration(
+                                    _dragPositionSeconds != null
+                                        ? Duration(
+                                            milliseconds:
+                                                (_dragPositionSeconds! * 1000)
+                                                    .toInt(),
+                                          )
+                                        : position,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 11,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
                                 ),
-                                overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 10,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    trackHeight: 3.5,
+                                    thumbShape: const RoundSliderThumbShape(
+                                      enabledThumbRadius: 5.5,
+                                    ),
+                                    overlayShape: const RoundSliderOverlayShape(
+                                      overlayRadius: 10,
+                                    ),
+                                    activeTrackColor: control,
+                                    inactiveTrackColor: scheme.outlineVariant
+                                        .withValues(alpha: 0.35),
+                                    thumbColor: control,
+                                  ),
+                                  child: Slider(
+                                    value: curSec.clamp(0.0, maxSec),
+                                    min: 0.0,
+                                    max: maxSec > 0 ? maxSec : 1.0,
+                                    onChanged: (v) {
+                                      setState(() => _dragPositionSeconds = v);
+                                    },
+                                    onChangeEnd: (v) {
+                                      setState(() => _dragPositionSeconds = null);
+                                      player.seek(
+                                        Duration(milliseconds: (v * 1000).toInt()),
+                                      );
+                                    },
+                                  ),
                                 ),
-                                activeTrackColor: control,
-                                inactiveTrackColor: scheme.outlineVariant
-                                    .withValues(alpha: 0.35),
-                                thumbColor: control,
                               ),
-                              child: Slider(
-                                value: curSec.clamp(0.0, maxSec),
-                                min: 0.0,
-                                max: maxSec > 0 ? maxSec : 1.0,
-                                onChanged: (v) {
-                                  setState(() => _dragPositionSeconds = v);
-                                },
-                                onChangeEnd: (v) {
-                                  setState(() => _dragPositionSeconds = null);
-                                  player.seek(
-                                    Duration(milliseconds: (v * 1000).toInt()),
-                                  );
-                                },
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: 38,
+                                child: Text(
+                                  _formatDuration(duration),
+                                  textAlign: TextAlign.left,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 11,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 38,
-                            child: Text(
-                              _formatDuration(duration),
-                              textAlign: TextAlign.left,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontSize: 11,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -368,8 +359,6 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
             ],
           ),
         );
-      },
-    );
   }
 
   void _openPlayerScreen(BuildContext context) {

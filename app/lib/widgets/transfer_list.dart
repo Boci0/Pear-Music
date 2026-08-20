@@ -35,7 +35,8 @@ class TransferList extends StatelessWidget {
             ? (batch.isDownload ? 'Downloading Song' : 'Uploading Song')
             : 'Syncing Library ($completedSongs of $totalSongs songs)');
 
-    final completedMb = (batch.completedBytes / (1024 * 1024)).toStringAsFixed(1);
+    final currentBytes = batch.completedBytes + batch.activeBytes;
+    final completedMb = (currentBytes / (1024 * 1024)).toStringAsFixed(1);
     final totalMb = (batch.totalBytes / (1024 * 1024)).toStringAsFixed(1);
     final displayedMb = batch.totalBytes > 0
         ? '$completedMb MB / $totalMb MB'
