@@ -305,6 +305,15 @@ class SyncService extends ChangeNotifier {
     if (_channels.isEmpty) return 0;
     final count = _channels.length;
     for (final peerId in _channels.keys.toList()) {
+      final ch = _channels[peerId];
+      final e2ePub =
+          ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
+      _send(peerId, {
+        'type': 'hello',
+        'deviceName': identity.deviceName,
+        'e2ePub': e2ePub,
+        'ack': true,
+      });
       _send(peerId, {
         'type': 'manifest',
         'songs': library.songs.map((s) => s.toJson()).toList(),
@@ -419,11 +428,22 @@ class SyncService extends ChangeNotifier {
     debugPrint('[sync] <- $peerId: hello (e2ePub: ${msg['e2ePub'] != null})');
     final e2ePub = msg['e2ePub'];
     final ch = _channels[peerId];
-    if (e2ePub is String && ch is RelayDataChannel) {
-      try {
-        await ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub));
-      } catch (e) {
-        debugPrint('[sync] error deriving E2E key for $peerId: $e');
+    if (ch is RelayDataChannel) {
+      await ch.signaling.ensureE2E();
+      if (e2ePub is String) {
+        try {
+          await ch.signaling.setPeerE2E(peerId, base64Decode(e2ePub));
+        } catch (e) {
+          debugPrint('[sync] error deriving E2E key for $peerId: $e');
+        }
+      }
+      if (msg['ack'] != true) {
+        _send(peerId, {
+          'type': 'hello',
+          'deviceName': identity.deviceName,
+          'e2ePub': ch.signaling.e2ePubB64,
+          'ack': true,
+        });
       }
     }
     _send(peerId, {
@@ -472,6 +492,15 @@ class SyncService extends ChangeNotifier {
           _inboundPending.add(id);
         }
       }
+      final ch = _channels[peerId];
+      final e2ePub =
+          ch is RelayDataChannel ? ch.signaling.e2ePubB64 : null;
+      _send(peerId, {
+        'type': 'hello',
+        'deviceName': identity.deviceName,
+        'e2ePub': e2ePub,
+        'ack': true,
+      });
       _send(peerId, {'type': 'request_songs', 'ids': missing});
       _inboundWatchdogs[peerId]?.cancel();
       _inboundWatchdogs[peerId] = Timer(const Duration(seconds: 8), () {
@@ -523,6 +552,15 @@ class SyncService extends ChangeNotifier {
   }
 
   void _onRequestSongs(String peerId, List<dynamic> ids) {
+    final ch = _channels[peerId];
+    if (ch is RelayDataChannel && ch.signaling.e2ePubB64 != null) {
+      _send(peerId, {
+        'type': 'hello',
+        'deviceName': identity.deviceName,
+        'e2ePub': ch.signaling.e2ePubB64,
+        'ack': true,
+      });
+    }
     for (final id in ids) {
       final song = library.findById(id as String);
       if (song != null) {
