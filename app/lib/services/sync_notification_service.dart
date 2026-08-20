@@ -96,6 +96,8 @@ class SyncNotificationService {
     }
   }
 
+  static int _lastMaxPercent = 0;
+
   static Future<void> _updateProgress(SyncBatchState batch) async {
     _lastUpdate = DateTime.now();
     _autoCancelTimer?.cancel();
@@ -106,6 +108,13 @@ class SyncNotificationService {
     final completedSongs = batch.completedSongs;
     final activeFraction = batch.progressFraction;
     final percent = (activeFraction * 100).clamp(0, 100).toInt();
+
+    if (completedSongs == 0 && percent == 0) {
+      _lastMaxPercent = percent;
+    } else if (percent > _lastMaxPercent) {
+      _lastMaxPercent = percent;
+    }
+    final effectivePercent = _lastMaxPercent.clamp(0, 100);
 
     final isSingle = totalSongs <= 1;
     final title = isSingle
@@ -121,7 +130,7 @@ class SyncNotificationService {
     final totalMb = (batch.totalBytes / (1024 * 1024)).toStringAsFixed(1);
     final body = batch.totalBytes > 0
         ? '$songName ($completedMb / $totalMb MB)'
-        : '$songName ($percent%)';
+        : '$songName ($effectivePercent%)';
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -131,7 +140,7 @@ class SyncNotificationService {
       priority: Priority.low,
       showProgress: true,
       maxProgress: 100,
-      progress: percent,
+      progress: effectivePercent,
       ongoing: true,
       onlyAlertOnce: true,
       autoCancel: false,
@@ -200,8 +209,9 @@ class SyncNotificationService {
     _autoCancelTimer?.cancel();
     _autoCancelTimer = null;
     _isShowing = false;
+    _lastMaxPercent = 0;
     try {
-      await _plugin.cancel(id: _notificationId);
+      await _plugin.cancel(_notificationId);
     } catch (_) {}
   }
 }

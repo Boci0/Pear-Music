@@ -18,6 +18,9 @@ class _TransferListState extends State<TransferList> {
   Widget build(BuildContext context) {
     final sync = context.watch<SyncService>();
     final batch = sync.batchState;
+    if (batch == null) {
+      _lastMaxFraction = 0.0;
+    }
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 250),

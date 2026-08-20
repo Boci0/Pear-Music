@@ -112,16 +112,16 @@ class SyncService extends ChangeNotifier {
 
   Timer? _batchCompletionTimer;
   bool _batchIsDone = false;
+  String _lastActiveTitle = '';
 
   SyncBatchState? get batchState {
     final inTotal = _inboundPending.length + _inboundCompleted.length;
-    // Only enter the inbound branch when songs are actively pending. Removing
-    // `|| _batchIsDone` prevents this branch from matching during the 2.2s
-    // cleanup window when _batchIsDone=true but no inbound work remains —
-    // that caused the bar to flip between download and upload states.
-    if (inTotal > 0 && _inboundPending.isNotEmpty) {
+    if (inTotal > 0 && (_inboundPending.isNotEmpty || _batchIsDone)) {
       final active = _transfers.values.where((t) => t.isDownload).firstOrNull ??
           _completed.values.where((t) => t.isDownload).lastOrNull;
+      if (active != null && active.fileName.isNotEmpty) {
+        _lastActiveTitle = active.fileName;
+      }
       final totalB = _transfers.values
           .where((t) => t.isDownload)
           .fold<int>(0, (sum, t) => sum + t.totalBytes);
@@ -131,7 +131,9 @@ class SyncService extends ChangeNotifier {
       return SyncBatchState(
         totalSongs: inTotal,
         completedSongs: _inboundCompleted.length,
-        activeSongTitle: active?.fileName ?? '',
+        activeSongTitle: active?.fileName.isNotEmpty == true
+            ? active!.fileName
+            : _lastActiveTitle,
         activeBytes: active?.completedBytes ?? 0,
         activeTotalBytes: active?.totalBytes ?? 0,
         totalBytes: totalB,
@@ -142,9 +144,12 @@ class SyncService extends ChangeNotifier {
     }
 
     final outTotal = _outboundPending.length + _outboundCompleted.length;
-    if (outTotal > 0 && _outboundPending.isNotEmpty) {
+    if (outTotal > 0 && (_outboundPending.isNotEmpty || _batchIsDone)) {
       final active = _transfers.values.where((t) => !t.isDownload).firstOrNull ??
           _completed.values.where((t) => !t.isDownload).lastOrNull;
+      if (active != null && active.fileName.isNotEmpty) {
+        _lastActiveTitle = active.fileName;
+      }
       final totalB = _transfers.values
           .where((t) => !t.isDownload)
           .fold<int>(0, (sum, t) => sum + t.totalBytes);
@@ -154,7 +159,9 @@ class SyncService extends ChangeNotifier {
       return SyncBatchState(
         totalSongs: outTotal,
         completedSongs: _outboundCompleted.length,
-        activeSongTitle: active?.fileName ?? '',
+        activeSongTitle: active?.fileName.isNotEmpty == true
+            ? active!.fileName
+            : _lastActiveTitle,
         activeBytes: active?.completedBytes ?? 0,
         activeTotalBytes: active?.totalBytes ?? 0,
         totalBytes: totalB,
@@ -164,21 +171,18 @@ class SyncService extends ChangeNotifier {
       );
     }
 
-    if (transfers.isNotEmpty) {
-      final active = transfers.firstWhere((t) => !t.isDone, orElse: () => transfers.last);
-      final totalB = transfers.fold<int>(0, (sum, t) => sum + t.totalBytes);
-      final compB = transfers.fold<int>(0, (sum, t) => sum + t.completedBytes);
-      final doneCount = transfers.where((t) => t.isDone).length;
+    if (_transfers.isNotEmpty) {
+      final active = _transfers.values.first;
       return SyncBatchState(
-        totalSongs: transfers.length,
-        completedSongs: doneCount,
+        totalSongs: _transfers.length,
+        completedSongs: 0,
         activeSongTitle: active.fileName,
         activeBytes: active.completedBytes,
         activeTotalBytes: active.totalBytes,
-        totalBytes: totalB,
-        completedBytes: compB,
+        totalBytes: active.totalBytes,
+        completedBytes: active.completedBytes,
         isDownload: active.isDownload,
-        isDone: doneCount >= transfers.length,
+        isDone: false,
       );
     }
     return null;
@@ -200,7 +204,12 @@ class SyncService extends ChangeNotifier {
         _inboundCompleted.clear();
         _outboundPending.clear();
         _outboundCompleted.clear();
+        _transfers.clear();
+        _completed.clear();
+        _completedTimer?.cancel();
+        _completedTimer = null;
         _batchIsDone = false;
+        _lastActiveTitle = '';
         _flushNotify();
       });
     }
