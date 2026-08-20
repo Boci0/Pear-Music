@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../models/peer_device.dart';
 import '../models/playlist.dart';
@@ -27,7 +28,7 @@ import '../services/youtube_service.dart';
 ///   - the music library
 ///   - in-flight transfer progress
 ///   - playback state
-class AppController extends ChangeNotifier {
+class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final IdentityService identity;
   final LibraryService library;
   final SignalingService signaling;
@@ -203,6 +204,10 @@ class AppController extends ChangeNotifier {
     // Listen to the server.
     _subs.add(signaling.stream.listen(_onServerMessage));
 
+    try {
+      WidgetsBinding.instance.addObserver(this);
+    } catch (_) {}
+
     // IMPORTANT: do NOT block the first frame on the server connection.
     // A WebSocket connect has no timeout, so if the server is unreachable
     // (hotspot/server down) `await signaling.start()` could hold up runApp for
@@ -294,14 +299,25 @@ class AppController extends ChangeNotifier {
   /// register with (and thus never reconcile against) a paired peer that's
   /// also independently hosting. Ghost-pairing cleanup can't wait for host
   /// election to converge, since for the "losing" side it may never converge.
+  int _reconcileIntervalSec = 5;
+
   void _scheduleHostReconcile() {
     _hostReconcileTimer?.cancel();
-    // Fire once after a short grace (let the connection settle), then
-    // periodically. 3 minutes is sufficient for host election — topology
-    // changes are rare and each reconcile triggers a LAN scan.
-    Timer(const Duration(seconds: 3), () => unawaited(_reconcileHostAndGhost()));
-    _hostReconcileTimer = Timer.periodic(const Duration(minutes: 3), (_) {
-      unawaited(_reconcileHostAndGhost());
+    _reconcileIntervalSec = 5;
+    _scheduleNextHostReconcile();
+  }
+
+  void _scheduleNextHostReconcile() {
+    _hostReconcileTimer?.cancel();
+    _hostReconcileTimer = Timer(Duration(seconds: _reconcileIntervalSec), () async {
+      if (_closing || !identity.isHost) return;
+      await _reconcileHostAndGhost();
+      if (_closing || !identity.isHost) return;
+      // Exponential backoff: 5s -> 13s -> 33s -> 82s -> 120s max
+      if (_reconcileIntervalSec < 120) {
+        _reconcileIntervalSec = (_reconcileIntervalSec * 2.5).round().clamp(5, 120);
+      }
+      _scheduleNextHostReconcile();
     });
   }
 
@@ -399,8 +415,27 @@ class AppController extends ChangeNotifier {
     signaling.getState();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[app] app resumed — refreshing connectivity and sync');
+      if (connectionStatus != 'connected') {
+        unawaited(_ensureConnection());
+      } else {
+        signaling.send({'type': 'ping'});
+        sync.resyncNow();
+      }
+      if (identity.isHost) {
+        _scheduleHostReconcile();
+      }
+    }
+  }
+
   Future<void> disposeAll() async {
     _closing = true;
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (_) {}
     _failoverTimer?.cancel();
     _failoverTimer = null;
     _hostReconcileTimer?.cancel();

@@ -98,6 +98,7 @@ class SyncService extends ChangeNotifier {
 
   final Map<String, int> _finalizeRetries = {};
   final Map<String, TransferProgress> _completed = {};
+  final Map<String, Timer> _inboundWatchdogs = {};
   Timer? _completedTimer;
 
   Timer? _notifyTimer;
@@ -297,6 +298,7 @@ class SyncService extends ChangeNotifier {
   void detachChannel(String peerId) {
     _channels.remove(peerId);
     _sendQueues.remove(peerId);
+    _inboundWatchdogs.remove(peerId)?.cancel();
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
       _resyncTimer = null;
@@ -431,6 +433,17 @@ class SyncService extends ChangeNotifier {
         }
       }
       _send(peerId, {'type': 'request_songs', 'ids': missing});
+      _inboundWatchdogs[peerId]?.cancel();
+      _inboundWatchdogs[peerId] = Timer(const Duration(seconds: 8), () {
+        _inboundWatchdogs.remove(peerId);
+        final stillPending =
+            _inboundPending.where((id) => !_incoming.containsKey(id)).toList();
+        if (stillPending.isNotEmpty && _channels.containsKey(peerId)) {
+          debugPrint(
+              '[sync] still waiting for ${stillPending.length} pending songs from $peerId; retrying request');
+          _send(peerId, {'type': 'request_songs', 'ids': stillPending});
+        }
+      });
       _flushNotify();
     } else {
       debugPrint(
@@ -572,6 +585,7 @@ class SyncService extends ChangeNotifier {
   // ---------- receiving ----------
 
   void _startIncoming(String peerId, Map<String, dynamic> songJson) {
+    _inboundWatchdogs.remove(peerId)?.cancel();
     final song = Song.fromJson(songJson);
     if (library.findById(song.id) != null ||
         library.hasChecksum(song.checksum)) {
