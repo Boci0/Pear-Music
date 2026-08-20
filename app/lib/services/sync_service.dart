@@ -319,10 +319,6 @@ class SyncService extends ChangeNotifier {
     _channels.remove(peerId);
     _sendQueues.remove(peerId);
     _inboundWatchdogs.remove(peerId)?.cancel();
-    if (_channels.isEmpty) {
-      _resyncTimer?.cancel();
-      _resyncTimer = null;
-    }
     final incomplete =
         _incoming.values.where((inc) => inc.peerId == peerId).toList();
     for (final inc in incomplete) {
@@ -335,11 +331,26 @@ class SyncService extends ChangeNotifier {
       } catch (_) {}
       _removeProgress(peerId, inc.song.id);
     }
-    _inboundCompleted.clear();
-    _inboundPending.clear();
-    _outboundCompleted.clear();
-    _outboundPending.clear();
+    _transfers.removeWhere((k, t) => t.peerId == peerId);
+    _completed.removeWhere((k, t) => t.peerId == peerId);
     _sending.removeWhere((k, _) => k.startsWith('$peerId|'));
+
+    if (_channels.isEmpty) {
+      _resyncTimer?.cancel();
+      _resyncTimer = null;
+      _inboundCompleted.clear();
+      _inboundPending.clear();
+      _outboundCompleted.clear();
+      _outboundPending.clear();
+      _batchIsDone = false;
+      _batchCompletionTimer?.cancel();
+      _batchCompletionTimer = null;
+    } else {
+      for (final inc in incomplete) {
+        _inboundPending.remove(inc.song.id);
+      }
+      _checkBatchCompletion();
+    }
     notifyListeners();
   }
 
@@ -659,7 +670,7 @@ class SyncService extends ChangeNotifier {
         file.deleteSync();
       } catch (_) {}
     }
-    final raf = file.openSync(mode: FileMode.append);
+    final raf = file.openSync(mode: FileMode.write);
     final inc = _IncomingFile(
       peerId: peerId,
       song: song,
@@ -723,6 +734,7 @@ class SyncService extends ChangeNotifier {
     }
 
     try {
+      inc.raf.setPositionSync(index * chunkSize);
       inc.raf.writeFromSync(payload);
       inc.bytesReceived += payload.length;
     } catch (e) {
