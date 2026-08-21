@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -153,10 +154,46 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
+  Timer? _saveIndexDebounce;
+  Timer? _notifyDebounce;
+
   Future<void> _saveIndex() async {
-    await _indexFile!.writeAsString(
-      jsonEncode(_songs.map((s) => s.toJson()).toList()),
-    );
+    _saveIndexDebounce?.cancel();
+    _saveIndexDebounce = null;
+    if (_indexFile == null) return;
+    try {
+      final jsonStr = jsonEncode(_songs.map((s) => s.toJson()).toList());
+      await _indexFile!.writeAsString(jsonStr);
+    } catch (e) {
+      debugPrint('[library] error saving index: $e');
+    }
+  }
+
+  void _scheduleSaveIndex() {
+    _saveIndexDebounce?.cancel();
+    _saveIndexDebounce = Timer(const Duration(milliseconds: 1500), () {
+      _saveIndex();
+    });
+  }
+
+  Future<void> flushSaveIndex() async {
+    if (_saveIndexDebounce != null) {
+      await _saveIndex();
+    }
+  }
+
+  void _scheduleNotify() {
+    if (_notifyDebounce?.isActive ?? false) return;
+    _notifyDebounce = Timer(const Duration(milliseconds: 250), () {
+      _notifyDebounce = null;
+      notifyListeners();
+    });
+  }
+
+  void flushNotify() {
+    _notifyDebounce?.cancel();
+    _notifyDebounce = null;
+    notifyListeners();
   }
 
   Future<void> _savePlaylists() async {
@@ -169,12 +206,30 @@ class LibraryService extends ChangeNotifier {
     }));
   }
 
-  static Future<String> checksum(File file) async {
+  /// Synchronously computes MD5 hash from disk in a background isolate.
+  static String checksumPath(String filePath) {
+    final file = File(filePath);
+    if (!file.existsSync()) return '';
     final sink = _DigestCapture();
     final checksum = crypto.md5.startChunkedConversion(sink);
-    await file.openRead().forEach(checksum.add);
+    final raf = file.openSync(mode: FileMode.read);
+    try {
+      while (true) {
+        final chunk = raf.readSync(64 * 1024);
+        if (chunk.isEmpty) break;
+        checksum.add(chunk);
+      }
+    } finally {
+      raf.closeSync();
+    }
     checksum.close();
-    return sink.value!.toString();
+    return sink.value?.toString() ?? '';
+  }
+
+  /// Offloaded to a background isolate ([compute]) to ensure 0ms UI blockage
+  /// even for large multi-megabyte audio files.
+  static Future<String> checksum(File file) async {
+    return await compute(checksumPath, file.path);
   }
 
   Song? findById(String id) => _songsById[id];
@@ -266,8 +321,8 @@ class LibraryService extends ChangeNotifier {
       _songs.add(song);
     }
     _indexSong(song);
-    await _saveIndex();
-    notifyListeners();
+    _scheduleSaveIndex();
+    _scheduleNotify();
     return song;
   }
 
@@ -500,6 +555,13 @@ class LibraryService extends ChangeNotifier {
     // "Song - Artist" -> keep as is; otherwise title-case the filename.
     final cleaned = base.replaceAll(RegExp(r'[_]+'), ' ').trim();
     return cleaned.isEmpty ? 'Unknown Track' : cleaned;
+  }
+
+  @override
+  void dispose() {
+    _saveIndexDebounce?.cancel();
+    _notifyDebounce?.cancel();
+    super.dispose();
   }
 }
 

@@ -822,6 +822,8 @@ class SyncService extends ChangeNotifier {
         _inboundBatch!.activeTotalBytes = 0;
         if (_inboundBatch!.completedSongs >= _inboundBatch!.totalSongs) {
           _inboundBatch!.isDone = true;
+          await library.flushSaveIndex();
+          library.flushNotify();
           _inboundBatch!.dismissTimer?.cancel();
           _inboundBatch!.dismissTimer =
               Timer(const Duration(milliseconds: 2500), () {
