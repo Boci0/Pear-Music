@@ -25,7 +25,7 @@ class ArtworkPalette {
   // artwork bitmap is ~256KB, so keeping every song in memory would balloon
   // RAM. Entries are re-inserted on access so the most-recently-used survive
   // eviction.
-  static const int _maxBytesEntries = 96;
+  static const int _maxBytesEntries = 48;
   static const int _maxColorEntries = 256;
   static final LinkedHashMap<String, Future<Color>> _cache =
       LinkedHashMap<String, Future<Color>>();
@@ -73,9 +73,39 @@ class ArtworkPalette {
     return future;
   }
 
-  /// Decoded (base64 -> bytes) artwork for [song].
+  /// Decoded (base64 -> bytes) artwork for [song], cached in a bounded LRU.
   /// Returns null when the song has no artwork.
-  static Uint8List? bytes(Song song) => song.artworkBytes;
+  static Uint8List? bytes(Song song) {
+    final art = song.artwork;
+    if (art == null || art.isEmpty) return null;
+    final id = song.id;
+    final cached = _bytesCache.remove(id);
+    if (cached != null) {
+      _bytesCache[id] = cached; // re-insert -> move to most-recently-used end.
+      return cached;
+    }
+    final decoded = _decodeArtwork(art);
+    if (decoded == null) return null;
+    _bytesCache[id] = decoded;
+    _trim(_bytesCache, _maxBytesEntries);
+    return decoded;
+  }
+
+  static Uint8List? _decodeArtwork(String base64Art) {
+    try {
+      return base64Decode(base64Art);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Frees all in-memory caches (bytes, colour futures, resolved colours).
+  /// Called when the app is backgrounded to reclaim RAM.
+  static void clearMemoryCaches() {
+    _bytesCache.clear();
+    _cache.clear();
+    _resolvedColors.clear();
+  }
 
   static void _trim<K, V>(LinkedHashMap<K, V> map, int max) {
     while (map.length > max) {

@@ -145,6 +145,7 @@ class SyncService extends ChangeNotifier {
   Timer? _notifyTimer;
   bool _notifyQueued = false;
   bool _disposed = false;
+  Timer? _watchdogTimer;
 
   SyncBatchState? get batchState {
     if (_inboundBatch != null) {
@@ -220,6 +221,21 @@ class SyncService extends ChangeNotifier {
   void _startResyncTimer() {
     _resyncTimer?.cancel();
     _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
+    _startWatchdog();
+  }
+
+  void _startWatchdog() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final inc in _incoming.values.toList()) {
+        if (now - inc.lastChunkTime > incomingTimeout.inMilliseconds) {
+          debugPrint(
+              '[sync] incoming ${inc.song.id} stalled (${now - inc.lastChunkTime}ms > ${incomingTimeout.inMilliseconds}ms); aborting');
+          _track(_abortIncoming(inc.peerId, inc.song.id));
+        }
+      }
+    });
   }
 
   Map<String, dynamic> _playlistManifestMessage() => {
@@ -276,6 +292,8 @@ class SyncService extends ChangeNotifier {
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
       _resyncTimer = null;
+      _watchdogTimer?.cancel();
+      _watchdogTimer = null;
       _inboundBatch?.dismissTimer?.cancel();
       _inboundBatch = null;
       _outboundBatch?.dismissTimer?.cancel();
@@ -731,27 +749,12 @@ class SyncService extends ChangeNotifier {
       inc.raf.setPositionSync(index * chunkSize);
       inc.raf.writeFromSync(payload);
       inc.bytesReceived += payload.length;
+      inc.lastChunkTime = DateTime.now().millisecondsSinceEpoch;
     } catch (e) {
       debugPrint('[sync] error writing chunk for $songId: $e');
     }
 
-    inc.timeoutTimer?.cancel();
-    final chunkWatchdog = incomingTimeout < const Duration(seconds: 15)
-        ? incomingTimeout
-        : const Duration(seconds: 15);
-    inc.timeoutTimer = Timer(chunkWatchdog, () {
-      inc.timeoutTimer = null;
-      debugPrint('[sync] incoming $songId transfer stalled mid-stream ($chunkWatchdog inactivity); aborting');
-      _track(_abortIncoming(peerId, songId));
-    });
-
-    final progress = _transfers[TransferProgress(
-      peerId: peerId,
-      songId: songId,
-      fileName: '',
-      isDownload: true,
-      totalBytes: 0,
-    ).key];
+    final progress = _transfers['$peerId|$songId'];
     if (progress != null) {
       progress.completedBytes = inc.bytesReceived;
     }
@@ -767,7 +770,7 @@ class SyncService extends ChangeNotifier {
   void _throttledNotify() {
     if (_disposed || _notifyQueued) return;
     _notifyQueued = true;
-    _notifyTimer ??= Timer(const Duration(milliseconds: 150), () {
+    _notifyTimer ??= Timer(const Duration(milliseconds: 200), () {
       _notifyQueued = false;
       _notifyTimer = null;
       if (!_disposed) {
@@ -1068,6 +1071,8 @@ class SyncService extends ChangeNotifier {
     _disposed = true;
     _resyncTimer?.cancel();
     _resyncTimer = null;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
     _notifyTimer?.cancel();
     _notifyTimer = null;
     _completedTimer?.cancel();
@@ -1095,6 +1100,7 @@ class _IncomingFile {
   int bytesReceived = 0;
   bool completeChunks = false;
   Timer? timeoutTimer;
+  int lastChunkTime = DateTime.now().millisecondsSinceEpoch;
 
   _IncomingFile({
     required this.peerId,

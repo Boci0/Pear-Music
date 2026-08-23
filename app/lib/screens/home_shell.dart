@@ -1,8 +1,11 @@
+import 'dart:ui' show AppLifecycleListener, AppLifecycleState;
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/artwork_palette.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/desktop_player_bar.dart';
 import '../widgets/player_bar.dart';
@@ -22,6 +25,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  AppLifecycleListener? _lifecycleListener;
 
   static const _screens = [
     HomeScreen(),
@@ -32,7 +36,28 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    // Cap the in-memory image cache so a large library doesn't balloon RAM.
+    PaintingBinding.instance.imageCache.maximumSize = 60;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 20 * 1024 * 1024;
+    _lifecycleListener = AppLifecycleListener(
+      onStateChange: (state) {
+        if (state == AppLifecycleState.paused ||
+            state == AppLifecycleState.hidden) {
+          // Free decoded artwork / palette memory when the app is backgrounded.
+          PaintingBinding.instance.imageCache.clear();
+          PaintingBinding.instance.imageCache.clearLiveImages();
+          ArtworkPalette.clearMemoryCaches();
+        }
+      },
+    );
     _requestPermissions();
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener?.dispose();
+    _lifecycleListener = null;
+    super.dispose();
   }
 
   Future<void> _requestPermissions() async {

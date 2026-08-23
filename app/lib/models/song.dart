@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 /// A music file in the local library.
 ///
@@ -11,6 +10,10 @@ import 'dart:typed_data';
 /// [artwork] is an optional base64-encoded JPEG thumbnail (e.g. scraped from
 /// YouTube). It travels inside [toJson], so it syncs to peers automatically
 /// with no extra file-transfer protocol.
+///
+/// The Song model deliberately does NOT retain decoded artwork bytes in memory.
+/// Decoding is handled by [ArtworkPalette.bytes] with a bounded LRU cache, so
+/// a large library doesn't balloon RAM with per-song decoded bitmaps.
 class Song {
   final String id;
   final String title;
@@ -20,20 +23,6 @@ class Song {
   final String? sourceDeviceId;
   final String? artwork;
   final DateTime addedAt;
-
-  Uint8List? _artworkBytes;
-  Uint8List? get artworkBytes {
-    if (artwork == null || artwork!.isEmpty) return null;
-    return _artworkBytes ??= _decodeArtwork();
-  }
-
-  Uint8List? _decodeArtwork() {
-    try {
-      return base64Decode(artwork!);
-    } catch (_) {
-      return null;
-    }
-  }
 
   Song({
     required this.id,
