@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,11 @@ class UpdateInfo {
   final String? setupUrl;
   final String? zipUrl;
 
+  /// Expected SHA-256 digests keyed by asset filename, resolved from the
+  /// release's `SHA256SUMS`/`checksums.txt` asset or the release body. Used to
+  /// verify downloads before installing them.
+  final Map<String, String> sha256ByName;
+
   const UpdateInfo({
     required this.hasUpdate,
     required this.currentVersion,
@@ -27,11 +33,12 @@ class UpdateInfo {
     this.apkUrl,
     this.setupUrl,
     this.zipUrl,
+    this.sha256ByName = const {},
   });
 }
 
 class UpdateService {
-  static const String currentVersion = '1.6.3';
+  static const String currentVersion = '1.6.4';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -53,10 +60,14 @@ class UpdateService {
         String? apkUrl;
         String? setupUrl;
         String? zipUrl;
+        String? sumsUrl;
         final assets = json['assets'] as List<dynamic>? ?? [];
         for (final asset in assets) {
           if (asset is Map<String, dynamic>) {
             final downloadUrl = asset['browser_download_url'] as String? ?? '';
+            final name =
+                (asset['name'] as String? ?? p.basename(downloadUrl))
+                    .toLowerCase();
             if (downloadUrl.endsWith('.apk')) {
               if (downloadUrl.contains('arm64')) {
                 apkUrl = downloadUrl;
@@ -67,8 +78,18 @@ class UpdateService {
               setupUrl = downloadUrl;
             } else if (downloadUrl.endsWith('.zip')) {
               zipUrl = downloadUrl;
+            } else if (name == 'sha256sums' || name == 'checksums.txt') {
+              sumsUrl = downloadUrl;
             }
           }
+        }
+
+        // Resolve expected SHA-256 digests so downloads can be verified
+        // before install. Prefer the checksums asset; fall back to lines in
+        // the release body like `<64-hex> PearMusic-1.6.4.apk`.
+        var sha256ByName = await _fetchChecksumAsset(sumsUrl);
+        if (sha256ByName.isEmpty) {
+          sha256ByName = _parseBodyChecksums(bodyText);
         }
 
         final cleanLatest = _cleanVersion(tagName);
@@ -83,12 +104,66 @@ class UpdateService {
           apkUrl: apkUrl,
           setupUrl: setupUrl,
           zipUrl: zipUrl,
+          sha256ByName: sha256ByName,
         );
       }
     } catch (e) {
       debugPrint('[UpdateService] Check failed: $e');
     }
     return null;
+  }
+
+  /// Downloads and parses a `SHA256SUMS` / `checksums.txt` release asset into
+  /// a filename -> digest map. Returns an empty map on any failure.
+  static Future<Map<String, String>> _fetchChecksumAsset(String? sumsUrl) async {
+    final result = <String, String>{};
+    if (sumsUrl == null || !sumsUrl.startsWith('https://')) return result;
+    try {
+      final client = HttpClient();
+      client.userAgent = 'PearMusicApp/$currentVersion';
+      final request = await client.getUrl(Uri.parse(sumsUrl));
+      final response =
+          await request.close().timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final text = await response.transform(utf8.decoder).join();
+        for (final line in const LineSplitter().convert(text)) {
+          final m = RegExp(r'^([0-9a-fA-F]{64})\s+\*?(.+)$')
+              .firstMatch(line.trim());
+          if (m != null) {
+            result[p.basename(m.group(2)!.trim())] =
+                m.group(1)!.toLowerCase();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Failed to fetch checksums asset: $e');
+    }
+    return result;
+  }
+
+  /// Scans release-notes text for `<64-char hex digest>` paired with an
+  /// `.apk`/`.zip`/`.exe` filename on the same line.
+  @visibleForTesting
+  static Map<String, String> parseBodyChecksumsForTest(String body) =>
+      _parseBodyChecksums(body);
+
+  static Map<String, String> _parseBodyChecksums(String body) {
+    final result = <String, String>{};
+    for (final line in const LineSplitter().convert(body)) {
+      final m = RegExp(
+        r'([0-9a-fA-F]{64})[\s`*_\-:]*(?:\[)?([\w.\-]+\.(?:apk|zip|exe))',
+      ).firstMatch(line);
+      if (m != null) {
+        result[m.group(2)!] = m.group(1)!.toLowerCase();
+      }
+    }
+    return result;
+  }
+
+  /// Streams [file] through SHA-256 and returns the lowercase hex digest.
+  static Future<String> computeFileSha256(File file) async {
+    final digest = await sha256.bind(file.openRead()).first;
+    return digest.toString();
   }
 
   static String _cleanVersion(String tag) {
@@ -154,10 +229,48 @@ class UpdateService {
     }
   }
 
+  /// Shows the "verification data missing" dialog with an option to open the
+  /// GitHub release page (never installs/extracts in this state).
+  static Future<void> _showMissingHashDialog(
+    BuildContext context,
+    UpdateInfo info,
+  ) async {
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cannot verify update'),
+        content: const Text(
+          'This release does not include SHA-256 verification data '
+          '(SHA256SUMS / checksums.txt). For your safety, the update will not '
+          'be installed automatically.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              launchUrl(
+                Uri.parse(info.htmlUrl),
+                mode: LaunchMode.externalApplication,
+              );
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open release page'),
+          ),
+        ],
+      ),
+    );
+  }
+
   static Future<void> downloadAndApplyWindowsZip(
     BuildContext context,
-    String zipUrl,
+    UpdateInfo info,
   ) async {
+    final zipUrl = info.zipUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     scaffoldMessenger.showSnackBar(
       const SnackBar(
@@ -179,6 +292,32 @@ class UpdateService {
         final sink = zipFile.openWrite();
         await response.pipe(sink);
         await sink.close();
+
+        // Integrity gate: never extract/relaunch without a matching SHA-256.
+        final expected = info.sha256ByName[p.basename(zipUrl)]?.toLowerCase();
+        if (expected == null || expected.isEmpty) {
+          debugPrint('[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}');
+          await zipFile.delete();
+          await _showMissingHashDialog(context, info);
+          return;
+        }
+        final actual = await computeFileSha256(zipFile);
+        if (actual != expected) {
+          debugPrint('[UpdateService] Checksum mismatch: $actual != $expected');
+          try {
+            await zipFile.delete();
+          } catch (_) {}
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Checksum mismatch — the downloaded update failed verification '
+                'and was deleted.',
+              ),
+              duration: Duration(seconds: 6),
+            ),
+          );
+          return;
+        }
 
         final exePath = Platform.resolvedExecutable;
         final appDir = p.dirname(exePath);
@@ -215,9 +354,20 @@ del "${zipFile.path}"
 
   static Future<void> downloadAndInstallAndroidApk(
     BuildContext context,
-    String apkUrl,
+    UpdateInfo info,
   ) async {
+    final apkUrl = info.apkUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    // Integrity gate: refuse to download/install without expected SHA-256.
+    final expected =
+        info.sha256ByName[p.basename(apkUrl)]?.toLowerCase();
+    if (expected == null || expected.isEmpty) {
+      debugPrint('[UpdateService] No SHA-256 data for ${p.basename(apkUrl)}');
+      await _showMissingHashDialog(context, info);
+      return;
+    }
+
     scaffoldMessenger.showSnackBar(
       const SnackBar(
         content: Text('Downloading update in notifications...'),
@@ -229,7 +379,27 @@ del "${zipFile.path}"
       await channel.invokeMethod('downloadApkWithNotification', {
         'url': apkUrl,
         'fileName': 'PearMusic-update.apk',
+        'expectedSha256': expected,
       });
+    } on PlatformException catch (e) {
+      debugPrint('[UpdateService] Android in-app update failed: $e');
+      if (e.code == 'hash_missing') {
+        await _showMissingHashDialog(context, info);
+      } else if (e.code == 'hash_mismatch') {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Checksum mismatch — the downloaded APK failed verification '
+              'and was deleted.',
+            ),
+            duration: Duration(seconds: 6),
+          ),
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('In-app update error: $e')),
+        );
+      }
     } catch (e) {
       debugPrint('[UpdateService] Android in-app update failed: $e');
       scaffoldMessenger.showSnackBar(
@@ -246,13 +416,13 @@ class _UpdateDialog extends StatelessWidget {
   Future<void> _handleUpdate(BuildContext context) async {
     if (defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null) {
       Navigator.pop(context);
-      await UpdateService.downloadAndApplyWindowsZip(context, info.zipUrl!);
+      await UpdateService.downloadAndApplyWindowsZip(context, info);
       return;
     }
 
     if (defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null) {
       Navigator.pop(context);
-      await UpdateService.downloadAndInstallAndroidApk(context, info.apkUrl!);
+      await UpdateService.downloadAndInstallAndroidApk(context, info);
       return;
     }
 

@@ -113,11 +113,12 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
             "downloadApkWithNotification" -> {
                 val url = call.argument<String>("url")
                 val fileName = call.argument<String>("fileName") ?: "update.apk"
+                val expectedSha256 = call.argument<String>("expectedSha256")
                 if (url == null) {
                     result.error("bad_args", "url required", null)
                     return
                 }
-                startApkDownloadWithNotification(ctx, url, fileName, result)
+                startApkDownloadWithNotification(ctx, url, fileName, expectedSha256, result)
             }
             else -> result.notImplemented()
         }
@@ -127,6 +128,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         ctx: Context,
         url: String,
         fileName: String,
+        expectedSha256: String?,
         result: MethodChannel.Result
     ) {
         val notificationManager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
@@ -193,6 +195,17 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     throw Exception("Failed to open connection to update package")
                 }
 
+                // Integrity gate: refuse to install without an expected hash.
+                if (expectedSha256.isNullOrBlank()) {
+                    destFile.delete()
+                    notificationManager.cancel(notificationId)
+                    mainHandler.post {
+                        result.error("hash_missing", "Release has no SHA-256 verification data; update aborted.", null)
+                    }
+                    return@execute
+                }
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+
                 val fileLength = connection.contentLength
                 val input = java.io.BufferedInputStream(connection.inputStream)
                 val output = java.io.FileOutputStream(destFile)
@@ -204,6 +217,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
 
                 while (input.read(data).also { count = it } != -1) {
                     total += count
+                    digest.update(data, 0, count)
                     output.write(data, 0, count)
                     if (fileLength > 0) {
                         val progress = ((total * 100) / fileLength).toInt().coerceIn(0, 100)
@@ -225,6 +239,24 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 output.close()
                 input.close()
                 connection.disconnect()
+
+                // Verify the streamed SHA-256 before handing off to the
+                // package installer. Delete the file immediately on mismatch.
+                val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!actualHash.equals(expectedSha256.trim().lowercase(), ignoreCase = false)) {
+                    android.util.Log.e(TAG, "APK checksum mismatch: $actualHash != $expectedSha256")
+                    destFile.delete()
+                    builder.setContentTitle("Update verification failed")
+                        .setContentText("Checksum mismatch — download deleted.")
+                        .setOngoing(false)
+                        .setProgress(0, 0, false)
+                        .setSmallIcon(android.R.drawable.stat_notify_error)
+                    notificationManager.notify(notificationId, builder.build())
+                    mainHandler.post {
+                        result.error("hash_mismatch", "SHA-256 checksum mismatch; update aborted.", null)
+                    }
+                    return@execute
+                }
 
                 notificationManager.cancel(notificationId)
                 mainHandler.post {
