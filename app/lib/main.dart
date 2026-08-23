@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cryptography_flutter/cryptography_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -21,6 +22,12 @@ import 'services/youtube_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Route AES-GCM (E2E relay encryption) through the platform's native crypto
+  // engine on Android/iOS. Without this every transfer chunk is encrypted in
+  // pure Dart on the UI isolate — the main cause of lag and battery drain
+  // during syncs. Unsupported platforms transparently keep the Dart fallback.
+  FlutterCryptography.registerWith();
 
   // Enables the media_kit backend for Windows audio playback.
   JustAudioMediaKit.ensureInitialized();

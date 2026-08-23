@@ -140,6 +140,10 @@ class SyncService extends ChangeNotifier {
   final Map<String, bool> _sending = {};
   final Map<String, TransferProgress> _transfers = {};
   final Map<String, TransferProgress> _completed = {};
+  /// Failed-verification attempts per song id. Without a cap, a song whose
+  /// checksum never matches is re-requested forever — two devices ping-pong
+  /// the same file nonstop (constant CPU/network/battery) until restart.
+  final Map<String, int> _finalizeAttempts = {};
   Timer? _completedTimer;
 
   _SyncBatch? _inboundBatch;
@@ -307,6 +311,7 @@ class SyncService extends ChangeNotifier {
     _transfers.removeWhere((k, t) => t.peerId == peerId);
     _completed.removeWhere((k, t) => t.peerId == peerId);
     _sending.removeWhere((k, _) => k.startsWith('$peerId|'));
+    _finalizeAttempts.removeWhere((k, _) => k.startsWith('$peerId|'));
 
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
@@ -579,6 +584,12 @@ class SyncService extends ChangeNotifier {
       var index = 0;
       var sentBytes = 0;
 
+      // One reusable envelope buffer for the whole file instead of a fresh
+      // ~128KB allocation per chunk (~1GB of GC garbage per GB transferred,
+      // which kept the GC — and UI jank — running long after the transfer).
+      final idLen = utf8.encode(song.id).length;
+      final envelope = Uint8List(1 + 2 + idLen + 8 + chunkSize);
+
       final raf = await file.open(mode: FileMode.read);
       try {
         while (sentBytes < fileSize) {
@@ -587,7 +598,8 @@ class SyncService extends ChangeNotifier {
               : (fileSize - sentBytes);
           final piece = await raf.read(toRead);
           if (piece.isEmpty) break;
-          await _sendChunk(channel, song.id, index, total, piece);
+          await _sendChunk(channel, song.id, index, total, piece,
+              envelope: envelope);
           index++;
           sentBytes += piece.length;
           if (_outboundBatch != null && !_outboundBatch!.isDownload) {
@@ -652,10 +664,13 @@ class SyncService extends ChangeNotifier {
     String songId,
     int index,
     int total,
-    List<int> payload,
-  ) async {
-    final envelope = _buildEnvelope(songId, index, total, payload);
-    await channel.send(RTCDataChannelMessage.fromBinary(envelope));
+    List<int> payload, {
+    Uint8List? envelope,
+  }) async {
+    final frame = envelope != null
+        ? _fillEnvelope(envelope, songId, index, total, payload)
+        : _buildEnvelope(songId, index, total, payload);
+    await channel.send(RTCDataChannelMessage.fromBinary(frame));
 
     // Yield every 2 chunks so the event loop stays responsive
     if (index % 2 == 0) {
@@ -866,6 +881,7 @@ class SyncService extends ChangeNotifier {
         artwork: inc.song.artwork,
       );
       _markComplete(peerId, songId);
+      _finalizeAttempts.remove(songId);
       onDownloaded?.call(inc.song.title);
       if (_inboundBatch != null && _inboundBatch!.isDownload) {
         _inboundBatch!.completedSongs++;
@@ -885,7 +901,9 @@ class SyncService extends ChangeNotifier {
           });
         }
       }
-      _flushNotify();
+      // Coalesce: during a batch this fires per song; an immediate notify per
+      // completion hammers the UI. The batch-end path flushes explicitly.
+      _throttledNotify();
     } catch (e) {
       debugPrint('[sync] finalize failed $songId: $e');
       try {
@@ -897,7 +915,19 @@ class SyncService extends ChangeNotifier {
         }
       } catch (_) {}
       _removeProgress(peerId, songId);
-      _send(peerId, {'type': 'request_songs', 'ids': [songId]});
+      // Retry cap: without it a persistently-failing song is re-requested
+      // forever (nonstop CPU + network until the app is restarted).
+      final attempts = (_finalizeAttempts[songId] ?? 0) + 1;
+      _finalizeAttempts[songId] = attempts;
+      if (attempts <= maxFinalizeRetries) {
+        debugPrint('[sync] re-requesting $songId '
+            '(attempt $attempts/${maxFinalizeRetries + 1})');
+        _send(peerId, {'type': 'request_songs', 'ids': [songId]});
+      } else {
+        debugPrint('[sync] giving up on $songId after $attempts failed '
+            'verifications; it will retry on the next resync/reconnect');
+        _finalizeAttempts.remove(songId);
+      }
     }
   }
 
@@ -948,10 +978,19 @@ class SyncService extends ChangeNotifier {
 
   Uint8List _buildEnvelope(
       String songId, int index, int total, List<int> payload) {
+    return _fillEnvelope(
+        Uint8List(1 + 2 + utf8.encode(songId).length + 8 + payload.length),
+        songId, index, total, payload);
+  }
+
+  /// Fills [out] with the chunk envelope and returns the used-length view.
+  /// Reusing one buffer across a whole file avoids thousands of large
+  /// short-lived allocations that kept the GC busy after transfers.
+  Uint8List _fillEnvelope(Uint8List out, String songId, int index, int total,
+      List<int> payload) {
     final idBytes = utf8.encode(songId);
     final idLen = idBytes.length;
     final totalLen = 1 + 2 + idLen + 4 + 4 + payload.length;
-    final out = Uint8List(totalLen);
     var off = 0;
     out[off++] = 0x50;
     out[off++] = (idLen >> 8) & 0xff;
@@ -963,7 +1002,7 @@ class SyncService extends ChangeNotifier {
     _writeUint32(out, off, total);
     off += 4;
     out.setRange(off, off + payload.length, payload);
-    return out;
+    return Uint8List.sublistView(out, 0, totalLen);
   }
 
   /// One-entry decode cache: consecutive chunks almost always belong to the

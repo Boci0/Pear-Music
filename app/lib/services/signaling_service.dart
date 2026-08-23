@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -196,7 +198,6 @@ class SignalingService {
   /// Decrypt base64(nonce||ct||tag) from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
     final key = await _getKeyWithRetry(peerId);
-    debugPrint('[diag] decryptTextFor hasKey=${key != null}');
     if (key == null) return null;
     try {
       final raw = base64Decode(b64);
@@ -208,12 +209,25 @@ class SignalingService {
   }
 
   /// AES-GCM encrypt [bytes] for [peerId] → nonce||ct||tag, or null if no key.
+  ///
+  /// On platforms WITHOUT hardware-accelerated crypto (Windows — the
+  /// cryptography_flutter plugin only covers Android/iOS/macOS), the pure-Dart
+  /// AES-GCM of a 128KB chunk takes long enough to jank the UI, so the work is
+  /// offloaded to a background isolate. Accelerated platforms run inline.
   Future<Uint8List?> encryptBinaryFor(String peerId, Uint8List bytes) async {
     await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
     if (key == null) return null;
     final aes = AesGcm.with256bits();
     final nonce = aes.newNonce();
+    if (_offloadCrypto) {
+      final keyBytes = Uint8List.fromList(await key.extractBytes());
+      final out = await compute(
+          _encryptChunkIsolate,
+          _ChunkCryptoInput(
+              keyBytes, Uint8List.fromList(nonce), bytes));
+      return out;
+    }
     final box = await aes.encrypt(bytes, secretKey: key, nonce: nonce);
     return Uint8List.fromList([...nonce, ...box.cipherText, ...box.mac.bytes]);
   }
@@ -224,11 +238,20 @@ class SignalingService {
     if (key == null) return null;
     try {
       if (frame.length < 28) return null;
+      if (_offloadCrypto) {
+        final keyBytes = Uint8List.fromList(await key.extractBytes());
+        return await compute(
+            _decryptChunkIsolate, _ChunkCryptoInput(keyBytes, null, frame));
+      }
       return await _aesGcmDecrypt(key, frame);
     } catch (_) {
       return null;
     }
   }
+
+  /// True on platforms where AES-GCM has no native implementation and the
+  /// pure-Dart fallback is slow enough to jank the UI on 128KB chunks.
+  static bool get _offloadCrypto => !kIsWeb && Platform.isWindows;
 
   Future<Uint8List> _aesGcmDecrypt(SecretKey key, Uint8List raw) async {
     final nonce = raw.sublist(0, 12);
@@ -345,7 +368,6 @@ class SignalingService {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
-          debugPrint('[diag] raw type=${decoded['type']} from=${decoded['from']}');
           if (decoded['type'] == 'relay_ack') {
             // Backpressure signal: our in-flight binary frame was relayed, so
             // the next chunk may go out.
@@ -666,4 +688,39 @@ class SignalingService {
     _channel?.sink.close();
     _incoming.close();
   }
+}
+
+/// Inputs for the background-isolate chunk crypto (used on platforms without
+/// hardware-accelerated AES-GCM, where the pure-Dart implementation of a
+/// 128KB chunk is slow enough to jank the UI).
+class _ChunkCryptoInput {
+  final Uint8List keyBytes;
+  final Uint8List? nonce; // null for decrypt (embedded in [data])
+  final Uint8List data;
+  const _ChunkCryptoInput(this.keyBytes, this.nonce, this.data);
+}
+
+/// Runs in a background isolate: pure-Dart AES-GCM encrypt.
+Future<Uint8List> _encryptChunkIsolate(_ChunkCryptoInput input) async {
+  final aes = AesGcm.with256bits();
+  final key = SecretKey(input.keyBytes);
+  final box =
+      await aes.encrypt(input.data, secretKey: key, nonce: input.nonce!);
+  return Uint8List.fromList(
+      [...input.nonce!, ...box.cipherText, ...box.mac.bytes]);
+}
+
+/// Runs in a background isolate: pure-Dart AES-GCM decrypt.
+Future<Uint8List> _decryptChunkIsolate(_ChunkCryptoInput input) async {
+  final raw = input.data;
+  if (raw.length < 28) throw ArgumentError('frame too short');
+  final nonce = raw.sublist(0, 12);
+  final ct = raw.sublist(12, raw.length - 16);
+  final mac = raw.sublist(raw.length - 16);
+  final aes = AesGcm.with256bits();
+  final clear = await aes.decrypt(
+    SecretBox(ct, nonce: nonce, mac: Mac(mac)),
+    secretKey: SecretKey(input.keyBytes),
+  );
+  return Uint8List.fromList(clear);
 }
