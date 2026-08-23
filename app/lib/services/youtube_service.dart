@@ -225,6 +225,7 @@ class YoutubeService {
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
         final args = [
           '-f', 'bestaudio[ext=m4a]/bestaudio/best',
+          '--extractor-args', 'youtube:player_client=android,web',
           '--newline',
           '--no-playlist',
           '--no-part',

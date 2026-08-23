@@ -94,6 +94,13 @@ class PlayerTheme extends ChangeNotifier {
     ArtworkPalette.dominant(song).then(_apply);
   }
 
+  /// Forces the theme to re-resolve from the current song. Called on app
+  /// resume so the colour scheme is restored even if caches were cleared.
+  void reapply() {
+    _appliedSongId = null;
+    _onPlayerChanged();
+  }
+
   void _apply(Color accent) {
     final next = _build(accent);
     if (!identical(next, _theme)) {

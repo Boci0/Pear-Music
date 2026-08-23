@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/artwork_palette.dart';
+import '../services/player_theme.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/desktop_player_bar.dart';
 import '../widgets/player_bar.dart';
@@ -47,6 +48,10 @@ class _HomeShellState extends State<HomeShell> {
           PaintingBinding.instance.imageCache.clear();
           PaintingBinding.instance.imageCache.clearLiveImages();
           ArtworkPalette.clearMemoryCaches();
+        } else if (state == AppLifecycleState.resumed) {
+          // Restore the artwork-derived theme after a background/foreground
+          // cycle so the UI doesn't sit on the fallback colour.
+          context.read<PlayerTheme>().reapply();
         }
       },
     );

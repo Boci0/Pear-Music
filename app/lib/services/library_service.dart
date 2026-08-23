@@ -157,12 +157,16 @@ class LibraryService extends ChangeNotifier {
   Timer? _saveIndexDebounce;
   Timer? _notifyDebounce;
 
+  /// Runs in a background isolate: serialises the whole song list to JSON.
+  static String _encodeSongsJson(List<Song> songs) =>
+      jsonEncode(songs.map((s) => s.toJson()).toList());
+
   Future<void> _saveIndex() async {
     _saveIndexDebounce?.cancel();
     _saveIndexDebounce = null;
     if (_indexFile == null) return;
     try {
-      final jsonStr = jsonEncode(_songs.map((s) => s.toJson()).toList());
+      final jsonStr = await compute(_encodeSongsJson, _songs);
       await _indexFile!.writeAsString(jsonStr);
     } catch (e) {
       debugPrint('[library] error saving index: $e');

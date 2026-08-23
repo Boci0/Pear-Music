@@ -35,19 +35,24 @@ class ArtworkPalette {
   static final LinkedHashMap<String, Color> _resolvedColors =
       LinkedHashMap<String, Color>();
 
+  /// Last resolved accent colour. Kept across cache clears so the UI never
+  /// flashes back to the purple [fallback] while colours re-resolve.
+  static Color? _lastAccent;
+
   /// Synchronous cached color extraction for zero-latency widget rendering.
   static Color dominantSync(Song song) {
     final art = song.artwork;
-    if (art == null || art.isEmpty) return fallback;
+    if (art == null || art.isEmpty) return _lastAccent ?? fallback;
     final id = song.id;
     final cached = _resolvedColors[id];
     if (cached != null) return cached;
     // Asynchronously resolve in background isolate without blocking UI thread
     dominant(song).then((color) {
+      _lastAccent = color;
       _resolvedColors[id] = color;
       _trim(_resolvedColors, _maxColorEntries);
     });
-    return fallback;
+    return _lastAccent ?? fallback;
   }
 
   /// Returns the dominant colour for [song] (or [fallback] when the song has
@@ -99,12 +104,12 @@ class ArtworkPalette {
     }
   }
 
-  /// Frees all in-memory caches (bytes, colour futures, resolved colours).
+  /// Frees the decoded-bytes cache only (the largest consumer of RAM).
+  /// Colour futures and resolved colours are kept so themes survive a
+  /// background/foreground cycle without flashing to the fallback colour.
   /// Called when the app is backgrounded to reclaim RAM.
   static void clearMemoryCaches() {
     _bytesCache.clear();
-    _cache.clear();
-    _resolvedColors.clear();
   }
 
   static void _trim<K, V>(LinkedHashMap<K, V> map, int max) {
