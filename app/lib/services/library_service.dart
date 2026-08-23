@@ -22,6 +22,11 @@ class LibraryService extends ChangeNotifier {
   final List<Song> _songs = [];
   final Map<String, Song> _songsById = {};
   final Set<String> _checksums = {};
+
+  /// Song IDs whose audio file is known to exist on disk. Cached so that
+  /// hot paths (manifest matching during sync) avoid per-song `existsSync()`
+  /// syscalls, which caused severe UI lag with large libraries.
+  final Set<String> _filesOnDisk = {};
   List<Song> get songs => List.unmodifiable(_songs);
 
   void _rebuildIndexMaps() {
@@ -70,6 +75,15 @@ class LibraryService extends ChangeNotifier {
     _playlistsFile = File(p.join(support.path, 'playlists.json'));
     await _loadIndex();
     await _loadPlaylists();
+    // One-time disk verification to seed the existence cache.
+    for (final s in _songs) {
+      try {
+        final f = File(p.join(_libraryDir!.path, s.fileName));
+        if (await f.exists() && await f.length() > 0) {
+          _filesOnDisk.add(s.id);
+        }
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
@@ -77,10 +91,20 @@ class LibraryService extends ChangeNotifier {
 
   File songFile(Song song) => File(p.join(_libraryDir!.path, song.fileName));
 
-  bool hasSongFile(Song song) {
+  bool hasSongFile(Song song) => _filesOnDisk.contains(song.id);
+
+  /// Force a real disk check for [song] and refresh the cache. Use when the
+  /// cached answer matters (e.g. before sending a file to a peer).
+  Future<bool> verifySongFile(Song song) async {
     try {
       final file = songFile(song);
-      return file.existsSync() && file.lengthSync() > 0;
+      final ok = await file.exists() && await file.length() > 0;
+      if (ok) {
+        _filesOnDisk.add(song.id);
+      } else {
+        _filesOnDisk.remove(song.id);
+      }
+      return ok;
     } catch (_) {
       return false;
     }
@@ -265,6 +289,7 @@ class LibraryService extends ChangeNotifier {
       );
       _songs.add(song);
       _indexSong(song);
+      _filesOnDisk.add(id);
       added.add(song);
     }
     if (added.isNotEmpty) {
@@ -290,17 +315,20 @@ class LibraryService extends ChangeNotifier {
     final finalName = '$id$ext';
     final targetPath = p.join(_libraryDir!.path, finalName);
     final targetFile = File(targetPath);
+    var fileOnDisk = false;
     if (await tmp.exists()) {
       try {
         if (await targetFile.exists()) {
           await targetFile.delete();
         }
         await tmp.rename(targetPath);
+        fileOnDisk = true;
       } catch (_) {
         // Fallback for cross-device/partition moves (EXDEV) or Windows locks
         try {
           await tmp.copy(targetPath);
           if (await tmp.exists()) await tmp.delete();
+          fileOnDisk = true;
         } catch (_) {}
       }
     }
@@ -325,6 +353,13 @@ class LibraryService extends ChangeNotifier {
       _songs.add(song);
     }
     _indexSong(song);
+    // Only mark the file as present if it actually landed on disk — callers
+    // may register metadata for a file that is still missing (recovery path).
+    if (fileOnDisk || await targetFile.exists()) {
+      _filesOnDisk.add(song.id);
+    } else {
+      _filesOnDisk.remove(song.id);
+    }
     _scheduleSaveIndex();
     _scheduleNotify();
     return song;
@@ -363,6 +398,7 @@ class LibraryService extends ChangeNotifier {
     );
     _songs.add(song);
     _indexSong(song);
+    _filesOnDisk.add(id);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -373,6 +409,7 @@ class LibraryService extends ChangeNotifier {
     if (song == null) return;
     _songs.remove(song);
     _unindexSong(song);
+    _filesOnDisk.remove(id);
     final f = songFile(song);
     if (await f.exists()) await f.delete();
     _stripSongFromPlaylists(id);
@@ -389,6 +426,7 @@ class LibraryService extends ChangeNotifier {
     for (final song in toRemove) {
       _songs.remove(song);
       _unindexSong(song);
+      _filesOnDisk.remove(song.id);
       final f = songFile(song);
       if (await f.exists()) await f.delete();
       _stripSongFromPlaylists(song.id);
