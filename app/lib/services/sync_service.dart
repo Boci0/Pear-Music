@@ -765,13 +765,17 @@ class SyncService extends ChangeNotifier {
     final idLen = (bytes[off] << 8) | bytes[off + 1];
     off += 2;
     if (bytes.length < off + idLen + 8) return;
-    final songId = utf8.decode(bytes.sublist(off, off + idLen));
+    // Zero-copy views: chunks arrive at high frequency, and copying the
+    // ~128KB payload (plus decoding the id string) per chunk on the UI
+    // isolate adds up to visible jank during large transfers.
+    final idBytes = Uint8List.sublistView(bytes, off, off + idLen);
+    final songId = _decodeSongId(idBytes);
     off += idLen;
     final index = _readUint32(bytes, off);
     off += 4;
     final total = _readUint32(bytes, off);
     off += 4;
-    final payload = bytes.sublist(off);
+    final payload = Uint8List.sublistView(bytes, off);
 
     final inc = _incoming[songId];
     if (inc == null) {
@@ -960,6 +964,30 @@ class SyncService extends ChangeNotifier {
     off += 4;
     out.setRange(off, off + payload.length, payload);
     return out;
+  }
+
+  /// One-entry decode cache: consecutive chunks almost always belong to the
+  /// same song, so the UTF-8 id decode runs once per song instead of once per
+  /// chunk.
+  Uint8List? _lastIdBytes;
+  String? _lastId;
+
+  String _decodeSongId(Uint8List idBytes) {
+    final last = _lastIdBytes;
+    if (last != null && last.length == idBytes.length) {
+      var same = true;
+      for (var i = 0; i < last.length; i++) {
+        if (last[i] != idBytes[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return _lastId!;
+    }
+    final decoded = utf8.decode(idBytes);
+    _lastIdBytes = Uint8List.fromList(idBytes);
+    _lastId = decoded;
+    return decoded;
   }
 
   int _readUint32(Uint8List bytes, int offset) {

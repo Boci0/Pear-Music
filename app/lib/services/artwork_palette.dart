@@ -26,11 +26,16 @@ class ArtworkPalette {
   // RAM. Entries are re-inserted on access so the most-recently-used survive
   // eviction.
   static const int _maxBytesEntries = 48;
+  /// Larger cache for the async tile path: a long library list rebuilds many
+  /// tiles while scrolling, and each miss means a synchronous-feeling decode.
+  static const int _maxAsyncBytesEntries = 256;
   static const int _maxColorEntries = 256;
   static final LinkedHashMap<String, Future<Color>> _cache =
       LinkedHashMap<String, Future<Color>>();
   static final LinkedHashMap<String, Uint8List> _bytesCache =
       LinkedHashMap<String, Uint8List>();
+  static final LinkedHashMap<String, Future<Uint8List?>> _asyncBytesCache =
+      LinkedHashMap<String, Future<Uint8List?>>();
 
   static final LinkedHashMap<String, Color> _resolvedColors =
       LinkedHashMap<String, Color>();
@@ -104,12 +109,49 @@ class ArtworkPalette {
     }
   }
 
+  /// Asynchronously decodes artwork for [song] in a background isolate.
+  ///
+  /// List tiles MUST use this instead of [bytes]: the synchronous base64
+  /// decode of every tile that scrolls into view janks the UI thread on large
+  /// libraries (hundreds of embedded JPEGs). Results are cached by song id in
+  /// a bounded LRU so repeated builds are free.
+  static Future<Uint8List?> bytesAsync(Song song) {
+    final art = song.artwork;
+    if (art == null || art.isEmpty) return Future.value(null);
+    final id = song.id;
+    // Sync cache hit: promote into the async cache too so both paths share.
+    final syncCached = _bytesCache[id];
+    if (syncCached != null) {
+      _asyncBytesCache.remove(id);
+      _asyncBytesCache[id] = Future.value(syncCached);
+      _trim(_asyncBytesCache, _maxAsyncBytesEntries);
+      return Future.value(syncCached);
+    }
+    final cached = _asyncBytesCache.remove(id);
+    if (cached != null) {
+      _asyncBytesCache[id] = cached; // re-insert -> most-recently-used end.
+      return cached;
+    }
+    final future = compute(_decodeArtwork, art).then((decoded) {
+      if (decoded != null) {
+        _bytesCache.remove(id);
+        _bytesCache[id] = decoded;
+        _trim(_bytesCache, _maxBytesEntries);
+      }
+      return decoded;
+    });
+    _asyncBytesCache[id] = future;
+    _trim(_asyncBytesCache, _maxAsyncBytesEntries);
+    return future;
+  }
+
   /// Frees the decoded-bytes cache only (the largest consumer of RAM).
   /// Colour futures and resolved colours are kept so themes survive a
   /// background/foreground cycle without flashing to the fallback colour.
   /// Called when the app is backgrounded to reclaim RAM.
   static void clearMemoryCaches() {
     _bytesCache.clear();
+    _asyncBytesCache.clear();
   }
 
   static void _trim<K, V>(LinkedHashMap<K, V> map, int max) {
