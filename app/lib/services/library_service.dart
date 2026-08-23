@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
@@ -254,10 +255,88 @@ class LibraryService extends ChangeNotifier {
     return sink.value?.toString() ?? '';
   }
 
-  /// Offloaded to a background isolate ([compute]) to ensure 0ms UI blockage
-  /// even for large multi-megabyte audio files.
+  // ---- Long-lived hash worker ----
+  //
+  // Verification MD5s used to spawn a FRESH isolate per song (compute). With
+  // several songs finishing back-to-back after a transfer, the repeated
+  // isolate spawns plus sustained hashing saturated a core on phones and
+  // starved the UI/raster threads — the "lag that persists after transfer".
+  // One persistent worker processes the queue serially and yields briefly
+  // between songs so the UI keeps core time.
+  static Isolate? _hashIsolate;
+  static SendPort? _hashSendPort;
+  static final Map<int, Completer<String>> _hashJobs = {};
+  static int _hashJobSeq = 0;
+
+  /// Offloaded to a background worker to ensure zero UI blockage even for
+  /// large multi-megabyte audio files.
   static Future<String> checksum(File file) async {
-    return await compute(checksumPath, file.path);
+    try {
+      return await _checksumViaWorker(file.path);
+    } catch (_) {
+      // Worker unavailable (e.g. test env) — fall back to a one-shot isolate.
+      return await compute(checksumPath, file.path);
+    }
+  }
+
+  static Future<String> _checksumViaWorker(String path) async {
+    await _ensureHashWorker();
+    final seq = _hashJobSeq++;
+    final completer = Completer<String>();
+    _hashJobs[seq] = completer;
+    _hashSendPort!.send([seq, path]);
+    return completer.future;
+  }
+
+  static Future<void> _ensureHashWorker() async {
+    if (_hashSendPort != null) return;
+    final ready = Completer<SendPort>();
+    // One port handles BOTH the worker handshake (first message = its
+    // reply SendPort) and all subsequent [seq, result] job replies.
+    final replyPort = ReceivePort();
+    _hashIsolate = await Isolate.spawn(_hashWorkerMain, replyPort.sendPort);
+    replyPort.listen((msg) {
+      if (msg is SendPort) {
+        if (!ready.isCompleted) ready.complete(msg);
+        return;
+      }
+      if (msg is List && msg.length == 2) {
+        final seq = msg[0] as int;
+        final completer = _hashJobs.remove(seq);
+        if (completer != null) {
+          final value = msg[1];
+          if (value is String) {
+            completer.complete(value);
+          } else {
+            completer.completeError(value as Object);
+          }
+        }
+      }
+    });
+    _hashSendPort = await ready.future;
+  }
+
+  /// Worker entry point: receives [seq, path] jobs, replies [seq, md5].
+  /// Yields ~16ms between jobs so UI/raster threads keep core time.
+  static void _hashWorkerMain(SendPort ready) {
+    // [ready] points back at the main isolate's reply port — results MUST be
+    // sent there (sending on our own job port would loop back to ourselves).
+    final port = ReceivePort();
+    ready.send(port.sendPort);
+    port.listen((job) async {
+      final seq = job[0] as int;
+      final path = job[1] as String;
+      Object result;
+      try {
+        result = checksumPath(path);
+      } catch (e) {
+        result = e;
+      }
+      // Yield between songs: lets the UI thread schedule frames even when a
+      // batch of verifications is queued back-to-back.
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+      ready.send([seq, result]);
+    });
   }
 
   Song? findById(String id) => _songsById[id];

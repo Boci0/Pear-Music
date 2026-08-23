@@ -144,6 +144,10 @@ class SyncService extends ChangeNotifier {
   /// checksum never matches is re-requested forever — two devices ping-pong
   /// the same file nonstop (constant CPU/network/battery) until restart.
   final Map<String, int> _finalizeAttempts = {};
+  /// Last time a song was re-requested after a failed finalize, so periodic
+  /// resyncs can't hammer the same failing files repeatedly.
+  final Map<String, DateTime> _lastRequestAt = {};
+  static const Duration _requestCooldown = Duration(minutes: 2);
   Timer? _completedTimer;
 
   _SyncBatch? _inboundBatch;
@@ -915,11 +919,15 @@ class SyncService extends ChangeNotifier {
         }
       } catch (_) {}
       _removeProgress(peerId, songId);
-      // Retry cap: without it a persistently-failing song is re-requested
-      // forever (nonstop CPU + network until the app is restarted).
+      // Retry cap + cooldown: without them a persistently-failing song is
+      // re-requested forever (nonstop CPU + network until the app restarts).
       final attempts = (_finalizeAttempts[songId] ?? 0) + 1;
       _finalizeAttempts[songId] = attempts;
-      if (attempts <= maxFinalizeRetries) {
+      final lastAt = _lastRequestAt[songId];
+      final cooldownOk = lastAt == null ||
+          DateTime.now().difference(lastAt) > _requestCooldown;
+      if (attempts <= maxFinalizeRetries && cooldownOk) {
+        _lastRequestAt[songId] = DateTime.now();
         debugPrint('[sync] re-requesting $songId '
             '(attempt $attempts/${maxFinalizeRetries + 1})');
         _send(peerId, {'type': 'request_songs', 'ids': [songId]});

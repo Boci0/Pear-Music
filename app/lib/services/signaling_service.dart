@@ -28,6 +28,28 @@ class SignalingService {
     unawaited(ensureE2E());
   }
 
+  /// One summary line per minute, only when something happened — makes
+  /// hidden reconnect/ack-timeout loops visible in logs instead of burning
+  /// CPU invisibly.
+  void _startTelemetry() {
+    _telemetryTimer?.cancel();
+    var lastR = 0, lastA = 0, lastC = 0;
+    _telemetryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_telemetryReconnects == lastR &&
+          _telemetryAckTimeouts == lastA &&
+          _telemetryChunksSent == lastC) {
+        return; // quiet period — stay silent
+      }
+      debugPrint('[signaling] last 60s: reconnects='
+          '${_telemetryReconnects - lastR} ackTimeouts='
+          '${_telemetryAckTimeouts - lastA} chunksSent='
+          '${_telemetryChunksSent - lastC}');
+      lastR = _telemetryReconnects;
+      lastA = _telemetryAckTimeouts;
+      lastC = _telemetryChunksSent;
+    });
+  }
+
   final _incoming = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get stream => _incoming.stream;
 
@@ -65,6 +87,25 @@ class SignalingService {
   Future<void> _relayLock = Future<void>.value();
   Completer<void>? _pendingRelayAck;
   Timer? _relayAckTimeout;
+
+  // ---- Loop circuit breaker ----
+  //
+  // A lost/delayed relay_ack used to cause an endless cycle: chunk -> 20s
+  // timeout -> force reconnect -> resync -> receiver re-requests -> resend ->
+  // lost ack again... burning CPU/network nonstop until the app was closed.
+  // After 3 consecutive ack timeouts we PAUSE outbound relays for a minute
+  // instead of instantly reconnect-and-resending.
+  int _consecutiveAckTimeouts = 0;
+  DateTime? _relayPausedUntil;
+  static const int _ackTimeoutBreakerLimit = 3;
+  static const Duration _relayPauseDuration = Duration(seconds: 60);
+
+  /// Lightweight loop telemetry: one summary line per minute, only when
+  /// something actually happened — makes hidden loops visible in logs.
+  int _telemetryReconnects = 0;
+  int _telemetryAckTimeouts = 0;
+  int _telemetryChunksSent = 0;
+  Timer? _telemetryTimer;
 
   // ---- End-to-end relay encryption ----
   //
@@ -267,6 +308,11 @@ class SignalingService {
 
   Future<void> start() async {
     _manualStop = false;
+    // Periodically log a summary of reconnect/ack/chunk activity so a hidden
+    // transfer loop is visible in logs. Started here (not the constructor) so
+    // tests that construct SignalingService without connecting don't leave a
+    // pending periodic timer.
+    _startTelemetry();
     await _connect();
   }
 
@@ -284,6 +330,8 @@ class SignalingService {
     _reconnectTimer = null;
     _pingTimer?.cancel();
     _pingTimer = null;
+    _telemetryTimer?.cancel();
+    _telemetryTimer = null;
     final ch = _channel;
     _channel = null;
     _resetRelayState();
@@ -447,6 +495,7 @@ class SignalingService {
   }
 
   void _handleDisconnect() {
+    _telemetryReconnects++;
     _connected = false;
     _channel = null;
     _pingTimer?.cancel();
@@ -519,6 +568,20 @@ class SignalingService {
 
     return previous.then((_) async {
       try {
+        // Circuit breaker: while paused after repeated ack timeouts, hold the
+        // relay queue (FIFO order preserved) instead of feeding a tight
+        // reconnect/resend cycle.
+        final pausedUntil = _relayPausedUntil;
+        if (pausedUntil != null) {
+          final wait = pausedUntil.difference(DateTime.now());
+          if (wait > Duration.zero) {
+            debugPrint('[signaling] relay paused ${wait.inSeconds}s '
+                'after repeated ack timeouts');
+            await Future<void>.delayed(wait);
+          }
+          _relayPausedUntil = null;
+          if (_channel == null) return;
+        }
         final ch = _channel;
         if (ch == null) return;
         // E2E: encrypt the whole chunk envelope (nonce||ct||tag) and mark the
@@ -540,6 +603,7 @@ class SignalingService {
         packet.setRange(off, off + payload.length, payload);
 
         ch.sink.add(packet);
+        _telemetryChunksSent++;
 
         final ack = Completer<void>();
         _pendingRelayAck = ack;
@@ -548,7 +612,17 @@ class SignalingService {
         _relayAckTimeout?.cancel();
         _relayAckTimeout = Timer(const Duration(seconds: 20), () {
           if (!ack.isCompleted) {
-            debugPrint('[signaling] relay_ack timed out after 20s for chunk to $peerId; reconnecting to heal stream');
+            _consecutiveAckTimeouts++;
+            _telemetryAckTimeouts++;
+            debugPrint('[signaling] relay_ack timed out after 20s for chunk '
+                'to $peerId (consecutive: $_consecutiveAckTimeouts)');
+            if (_consecutiveAckTimeouts >= _ackTimeoutBreakerLimit) {
+              _relayPausedUntil =
+                  DateTime.now().add(_relayPauseDuration);
+              _consecutiveAckTimeouts = 0;
+              debugPrint('[signaling] circuit breaker OPEN: pausing outbound '
+                  'relays for ${_relayPauseDuration.inSeconds}s');
+            }
             _handleDisconnect();
             ack.complete();
           }
@@ -570,7 +644,10 @@ class SignalingService {
 
   void _onRelayAck() {
     final ack = _pendingRelayAck;
-    if (ack != null && !ack.isCompleted) ack.complete();
+    if (ack != null && !ack.isCompleted) {
+      _consecutiveAckTimeouts = 0; // healthy again — reset the breaker
+      ack.complete();
+    }
   }
 
   void _startHeartbeat() {
@@ -684,6 +761,8 @@ class SignalingService {
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     _pingTimer = null;
+    _telemetryTimer?.cancel();
+    _telemetryTimer = null;
     _resetRelayState();
     _channel?.sink.close();
     _incoming.close();
