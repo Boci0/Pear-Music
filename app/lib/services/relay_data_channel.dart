@@ -125,7 +125,6 @@ class RelayDataChannel extends RTCDataChannel {
   /// E2E key first; un-decryptable/tampered messages are dropped, never
   /// surfaced.
   Future<void> handleRelay(Map<String, dynamic> data) async {
-    debugPrint('[diag] handleRelay t=${data['t']} e=${data['e']} cbNull=${onMessage == null} dIsString=${data['d'] is String}');
     if (data['t'] != 'text') return;
     final completer = Completer<void>();
     _inboundQueue.add(() async {
@@ -142,7 +141,6 @@ class RelayDataChannel extends RTCDataChannel {
           }
           text = utf8.decode(clear);
         }
-        debugPrint('[diag] handleRelay delivering ${text.substring(0, text.length > 80 ? 80 : text.length)}');
         cb(RTCDataChannelMessage(text));
       } finally {
         if (!completer.isCompleted) completer.complete();

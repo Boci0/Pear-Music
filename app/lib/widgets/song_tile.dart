@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -216,24 +218,31 @@ class _Artwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bytes = ArtworkPalette.bytes(song);
-    final Widget image = bytes != null
-        ? ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image.memory(
-              bytes,
-              width: 44,
-              height: 44,
-              // Decode at ~2x display size instead of the full 256px JPEG:
-              // much less RAM per tile in a long library list.
-              cacheWidth: 88,
-              cacheHeight: 88,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              errorBuilder: (_, _, _) => _placeholder(scheme),
-            ),
-          )
-        : _placeholder(scheme);
+    // Async decode: base64-decoding artwork on the UI thread for every tile
+    // that scrolls into view janks scrolling on large libraries. The result
+    // is cached per song, so this future resolves instantly after first load.
+    final Widget image = FutureBuilder<Uint8List?>(
+      future: ArtworkPalette.bytesAsync(song),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null) return _placeholder(scheme);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            bytes,
+            width: 44,
+            height: 44,
+            // Decode at ~2x display size instead of the full 256px JPEG:
+            // much less RAM per tile in a long library list.
+            cacheWidth: 88,
+            cacheHeight: 88,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => _placeholder(scheme),
+          ),
+        );
+      },
+    );
     if (!isCurrent) return image;
     final accent = ArtworkPalette.dominantSync(song);
     return Container(

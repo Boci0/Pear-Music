@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
@@ -22,6 +23,11 @@ class LibraryService extends ChangeNotifier {
   final List<Song> _songs = [];
   final Map<String, Song> _songsById = {};
   final Set<String> _checksums = {};
+
+  /// Song IDs whose audio file is known to exist on disk. Cached so that
+  /// hot paths (manifest matching during sync) avoid per-song `existsSync()`
+  /// syscalls, which caused severe UI lag with large libraries.
+  final Set<String> _filesOnDisk = {};
   List<Song> get songs => List.unmodifiable(_songs);
 
   void _rebuildIndexMaps() {
@@ -70,6 +76,15 @@ class LibraryService extends ChangeNotifier {
     _playlistsFile = File(p.join(support.path, 'playlists.json'));
     await _loadIndex();
     await _loadPlaylists();
+    // One-time disk verification to seed the existence cache.
+    for (final s in _songs) {
+      try {
+        final f = File(p.join(_libraryDir!.path, s.fileName));
+        if (await f.exists() && await f.length() > 0) {
+          _filesOnDisk.add(s.id);
+        }
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
@@ -77,10 +92,20 @@ class LibraryService extends ChangeNotifier {
 
   File songFile(Song song) => File(p.join(_libraryDir!.path, song.fileName));
 
-  bool hasSongFile(Song song) {
+  bool hasSongFile(Song song) => _filesOnDisk.contains(song.id);
+
+  /// Force a real disk check for [song] and refresh the cache. Use when the
+  /// cached answer matters (e.g. before sending a file to a peer).
+  Future<bool> verifySongFile(Song song) async {
     try {
       final file = songFile(song);
-      return file.existsSync() && file.lengthSync() > 0;
+      final ok = await file.exists() && await file.length() > 0;
+      if (ok) {
+        _filesOnDisk.add(song.id);
+      } else {
+        _filesOnDisk.remove(song.id);
+      }
+      return ok;
     } catch (_) {
       return false;
     }
@@ -230,10 +255,166 @@ class LibraryService extends ChangeNotifier {
     return sink.value?.toString() ?? '';
   }
 
-  /// Offloaded to a background isolate ([compute]) to ensure 0ms UI blockage
-  /// even for large multi-megabyte audio files.
+  // ---- Long-lived hash worker ----
+  //
+  // Verification MD5s used to spawn a FRESH isolate per song (compute). With
+  // several songs finishing back-to-back after a transfer, the repeated
+  // isolate spawns plus sustained hashing saturated a core on phones and
+  // starved the UI/raster threads — the "lag that persists after transfer".
+  // One persistent worker processes the queue serially and yields briefly
+  // between songs so the UI keeps core time.
+  //
+  // Lifecycle: once the job queue has drained, an idle timer tears the
+  // worker down completely (isolate killed, ports closed) so an idle app
+  // returns to a true zero-CPU baseline instead of keeping a parked isolate
+  // alive until process exit.
+  static Isolate? _hashIsolate;
+  static SendPort? _hashSendPort;
+  static ReceivePort? _hashReplyPort;
+  static Timer? _hashIdleTimer;
+  static Completer<void>? _hashWorkerStarting;
+  static final Map<int, Completer<String>> _hashJobs = {};
+  static int _hashJobSeq = 0;
+
+  /// How long the worker stays alive after the last queued job finished.
+  /// Long enough to amortise spawn cost across a batch of verifications,
+  /// short enough that post-transfer idle CPU drops within ~30 seconds.
+  static const Duration _hashIdleTimeout = Duration(seconds: 30);
+
+  /// Offloaded to a background worker to ensure zero UI blockage even for
+  /// large multi-megabyte audio files.
   static Future<String> checksum(File file) async {
-    return await compute(checksumPath, file.path);
+    try {
+      return await _checksumViaWorker(file.path);
+    } catch (_) {
+      // Worker unavailable (e.g. test env) — fall back to a one-shot isolate.
+      return await compute(checksumPath, file.path);
+    }
+  }
+
+  static Future<String> _checksumViaWorker(String path) async {
+    await _ensureHashWorker();
+    final seq = _hashJobSeq++;
+    final completer = Completer<String>();
+    _hashJobs[seq] = completer;
+    _hashSendPort!.send([seq, path]);
+    return completer.future;
+  }
+
+  static Future<void> _ensureHashWorker() async {
+    if (_hashSendPort != null) return;
+    // Concurrency guard: two callers may reach this before either handshake
+    // completes; only one of them may spawn the worker.
+    final starting = _hashWorkerStarting;
+    if (starting != null) {
+      await starting.future;
+      return;
+    }
+    final start = Completer<void>();
+    _hashWorkerStarting = start;
+    try {
+      await _spawnHashWorker();
+      start.complete();
+    } catch (e) {
+      start.completeError(e);
+      rethrow;
+    } finally {
+      _hashWorkerStarting = null;
+    }
+  }
+
+  static Future<void> _spawnHashWorker() async {
+    final ready = Completer<SendPort>();
+    // One port handles BOTH the worker handshake (first message = its
+    // reply SendPort) and all subsequent [seq, result] job replies. Keep a
+    // reference so idle teardown can close it deterministically.
+    final replyPort = ReceivePort();
+    _hashReplyPort = replyPort;
+    _hashIsolate = await Isolate.spawn(_hashWorkerMain, replyPort.sendPort);
+    replyPort.listen((msg) {
+      if (msg is SendPort) {
+        if (!ready.isCompleted) ready.complete(msg);
+        return;
+      }
+      if (msg is List && msg.length == 2) {
+        final seq = msg[0] as int;
+        final completer = _hashJobs.remove(seq);
+        if (completer != null) {
+          final value = msg[1];
+          if (value is String) {
+            completer.complete(value);
+          } else {
+            completer.completeError(value as Object);
+          }
+        }
+        // The result has now been emitted strictly to THIS main-isolate
+        // reply port (never the worker's internal job port). If the queue is
+        // empty, start counting down to full teardown.
+        _armHashIdleTeardown();
+      }
+    });
+    _hashSendPort = await ready.future;
+  }
+
+  /// If no checksum jobs are pending, schedule the worker to be killed after
+  /// [_hashIdleTimeout]. Any newly dispatched job cancels the timer first.
+  static void _armHashIdleTeardown() {
+    _hashIdleTimer?.cancel();
+    _hashIdleTimer = null;
+    if (_hashJobs.isNotEmpty) return;
+    _hashIdleTimer = Timer(_hashIdleTimeout, () {
+      _hashIdleTimer = null;
+      if (_hashJobs.isNotEmpty) return; // new jobs arrived meanwhile
+      debugPrint('[library] hash worker idle '
+          '${_hashIdleTimeout.inSeconds}s; tearing down isolate');
+      killHashWorker();
+    });
+  }
+
+  /// Explicitly tear down the long-lived hash worker (kill isolate, close
+  /// ports). Safe to call any time; called from [dispose] and by the idle
+  /// timer so the app never keeps a parked isolate after transfers finish.
+  static void killHashWorker() {
+    _hashIdleTimer?.cancel();
+    _hashIdleTimer = null;
+    _hashIsolate?.kill(priority: Isolate.beforeNextEvent);
+    _hashIsolate = null;
+    _hashSendPort = null;
+    _hashReplyPort?.close();
+    _hashReplyPort = null;
+  }
+
+  /// Worker entry point: receives [seq, path] jobs, replies [seq, md5].
+  /// Yields ~16ms between jobs so UI/raster threads keep core time.
+  ///
+  /// Concurrency guarantee: jobs are processed STRICTLY one at a time. The
+  /// listener must NOT be an `async` closure — Dart would interleave every
+  /// incoming job at its first `await`, running many hashes concurrently and
+  /// re-saturating the core. Instead each job is chained onto a serial
+  /// future tail; the next job's result is only emitted after the previous
+  /// result has been sent back to the main isolate.
+  static void _hashWorkerMain(SendPort ready) {
+    // [ready] points back at the main isolate's reply port — results MUST be
+    // sent there (sending on our own job port would loop back to ourselves).
+    final port = ReceivePort();
+    ready.send(port.sendPort);
+    var tail = Future<void>.value();
+    port.listen((job) {
+      final seq = job[0] as int;
+      final path = job[1] as String;
+      tail = tail.then((_) async {
+        Object result;
+        try {
+          result = checksumPath(path);
+        } catch (e) {
+          result = e;
+        }
+        // Yield between songs: lets the UI thread schedule frames even when a
+        // batch of verifications is queued back-to-back.
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+        ready.send([seq, result]);
+      });
+    });
   }
 
   Song? findById(String id) => _songsById[id];
@@ -265,6 +446,7 @@ class LibraryService extends ChangeNotifier {
       );
       _songs.add(song);
       _indexSong(song);
+      _filesOnDisk.add(id);
       added.add(song);
     }
     if (added.isNotEmpty) {
@@ -290,17 +472,20 @@ class LibraryService extends ChangeNotifier {
     final finalName = '$id$ext';
     final targetPath = p.join(_libraryDir!.path, finalName);
     final targetFile = File(targetPath);
+    var fileOnDisk = false;
     if (await tmp.exists()) {
       try {
         if (await targetFile.exists()) {
           await targetFile.delete();
         }
         await tmp.rename(targetPath);
+        fileOnDisk = true;
       } catch (_) {
         // Fallback for cross-device/partition moves (EXDEV) or Windows locks
         try {
           await tmp.copy(targetPath);
           if (await tmp.exists()) await tmp.delete();
+          fileOnDisk = true;
         } catch (_) {}
       }
     }
@@ -325,6 +510,13 @@ class LibraryService extends ChangeNotifier {
       _songs.add(song);
     }
     _indexSong(song);
+    // Only mark the file as present if it actually landed on disk — callers
+    // may register metadata for a file that is still missing (recovery path).
+    if (fileOnDisk || await targetFile.exists()) {
+      _filesOnDisk.add(song.id);
+    } else {
+      _filesOnDisk.remove(song.id);
+    }
     _scheduleSaveIndex();
     _scheduleNotify();
     return song;
@@ -363,6 +555,7 @@ class LibraryService extends ChangeNotifier {
     );
     _songs.add(song);
     _indexSong(song);
+    _filesOnDisk.add(id);
     await _saveIndex();
     notifyListeners();
     return song;
@@ -373,6 +566,7 @@ class LibraryService extends ChangeNotifier {
     if (song == null) return;
     _songs.remove(song);
     _unindexSong(song);
+    _filesOnDisk.remove(id);
     final f = songFile(song);
     if (await f.exists()) await f.delete();
     _stripSongFromPlaylists(id);
@@ -389,6 +583,7 @@ class LibraryService extends ChangeNotifier {
     for (final song in toRemove) {
       _songs.remove(song);
       _unindexSong(song);
+      _filesOnDisk.remove(song.id);
       final f = songFile(song);
       if (await f.exists()) await f.delete();
       _stripSongFromPlaylists(song.id);
@@ -565,6 +760,8 @@ class LibraryService extends ChangeNotifier {
   void dispose() {
     _saveIndexDebounce?.cancel();
     _notifyDebounce?.cancel();
+    // Lifecycle teardown: never leave the hash isolate parked forever.
+    killHashWorker();
     super.dispose();
   }
 }

@@ -115,11 +115,20 @@ class _SyncBatch {
 
 /// Transfers music files over WebRTC data channels.
 class SyncService extends ChangeNotifier {
-  static const int chunkSize = 64 * 1024;
+  static const int chunkSize = 128 * 1024;
 
   final Duration incomingTimeout;
   static const int maxFinalizeRetries = 2;
   static const Duration resyncInterval = Duration(seconds: 45);
+
+  /// Dynamic resync back-off: when every connected peer reports zero missing
+  /// songs, stretch the interval by this many multiples of [resyncInterval]
+  /// (45s -> 90s -> ... capped so an idle pair never polls faster than ~5
+  /// minutes). Reset to 1 on new channels or local library changes.
+  int _resyncBackoffSteps = 1;
+  static const int _maxResyncBackoffSteps = 6;
+  /// Per-peer flag: last manifest exchange found nothing missing.
+  final Set<String> _peersInSync = {};
 
   final IdentityService identity;
   final LibraryService library;
@@ -128,15 +137,40 @@ class SyncService extends ChangeNotifier {
     required this.identity,
     required this.library,
     this.incomingTimeout = const Duration(seconds: 120),
-  });
+  }) {
+    // Any local library change invalidates the lightweight manifest
+    // fingerprint and resets the resync back-off so peers hear about the
+    // change on the next (short-interval) tick.
+    library.addListener(_onLibraryChanged);
+  }
+
+  void _onLibraryChanged() {
+    _cachedFingerprint = null;
+    _resetResyncBackoff();
+  }
 
   Timer? _resyncTimer;
 
   final Map<String, RTCDataChannel> _channels = {};
+  /// Lightweight per-peer "manifest changed" markers (`id|checksum|size`
+  /// fingerprints, NO artwork). Compared before any jsonEncode of the full
+  /// manifest so routine resyncs skip both serialisation and transmission
+  /// when nothing changed — base64 artwork made full-manifest encoding a
+  /// heavy, repeated CPU cost after transfers.
+  final Map<String, String> _lastFingerprintSent = {};
+  String? _cachedFingerprint;
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, bool> _sending = {};
   final Map<String, TransferProgress> _transfers = {};
   final Map<String, TransferProgress> _completed = {};
+  /// Failed-verification attempts per song id. Without a cap, a song whose
+  /// checksum never matches is re-requested forever — two devices ping-pong
+  /// the same file nonstop (constant CPU/network/battery) until restart.
+  final Map<String, int> _finalizeAttempts = {};
+  /// Last time a song was re-requested after a failed finalize, so periodic
+  /// resyncs can't hammer the same failing files repeatedly.
+  final Map<String, DateTime> _lastRequestAt = {};
+  static const Duration _requestCooldown = Duration(minutes: 2);
   Timer? _completedTimer;
 
   _SyncBatch? _inboundBatch;
@@ -194,6 +228,8 @@ class SyncService extends ChangeNotifier {
     channel.onMessage = (msg) => _onMessage(peerId, msg);
     _sendHelloAndManifest(peerId, channel);
     notifyListeners();
+    // New channel connection: back to the fast 45s cadence.
+    _resetResyncBackoff();
     _startResyncTimer();
   }
 
@@ -210,22 +246,121 @@ class SyncService extends ChangeNotifier {
       'type': 'hello',
       'deviceName': identity.deviceName,
       'e2ePub': e2ePub,
+      // Marks this as an INITIAL connection hello so the peer replies with a
+      // forced manifest — a previous identical manifest may still have been
+      // lost before its handler was attached. Routine resync hellos never
+      // set this flag and therefore never force a full re-encode/send.
+      'initial': true,
     });
-    _send(peerId, {
-      'type': 'manifest',
-      'songs': library.songs.map((s) => s.toJson()).toList(),
-    });
+    _sendManifest(peerId, force: true);
     _send(peerId, _playlistManifestMessage());
   }
 
-  void _startResyncTimer() {
-    _resyncTimer?.cancel();
-    _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
-    _startWatchdog();
+  /// Serialise + send the manifest to [peerId].
+  ///
+  /// Cost control (v1.6.9): a full manifest carries base64 artwork per song,
+  /// so jsonEncode-ing it on every routine tick was a large recurring CPU
+  /// spike after transfers finished. We first compare a lightweight
+  /// fingerprint (`id|checksum|size`, no artwork): when [force] is false and
+  /// the fingerprint matches what this peer last received, we skip BOTH the
+  /// encode AND the send entirely.
+  ///
+  /// [force] is reserved for initial channel connections and explicit
+  /// requests — a previously "identical" manifest may have been lost (e.g.
+  /// sent before the peer attached its handler), so those must resend.
+  void _sendManifest(String peerId, {bool force = false}) {
+    final fp = _manifestFingerprint();
+    if (!force && _lastFingerprintSent[peerId] == fp) return;
+    _lastFingerprintSent[peerId] = fp;
+    final json = jsonEncode({
+      'type': 'manifest',
+      // Artwork is stripped from wire manifests: matching only needs
+      // identity fields. Cover art still reaches peers via file_meta.
+      'songs': library.songs.map(_manifestSongJson).toList(),
+    });
+    final channel = _channels[peerId];
+    if (channel == null) return;
+    try {
+      channel.send(RTCDataChannelMessage(json)).catchError((Object e) {
+        debugPrint('[sync] send failed: $e');
+      });
+    } catch (_) {}
   }
 
-  void _startWatchdog() {
-    _watchdogTimer?.cancel();
+  /// Artwork-free JSON for one song in a wire manifest.
+  Map<String, dynamic> _manifestSongJson(Song s) {
+    final j = s.toJson();
+    j.remove('artwork');
+    return j;
+  }
+
+  /// Cheap library fingerprint WITHOUT artwork: `id|checksum|size` per song.
+  /// O(n) small-string work vs jsonEncode-ing every base64 cover image.
+  String _manifestFingerprint() {
+    final cached = _cachedFingerprint;
+    if (cached != null) return cached;
+    final buf = StringBuffer();
+    for (final s in library.songs) {
+      buf
+        ..write(s.id)
+        ..write('|')
+        ..write(s.checksum)
+        ..write('|')
+        ..write(s.size)
+        ..write(';');
+    }
+    return _cachedFingerprint = buf.toString();
+  }
+
+  void _startResyncTimer() {
+    _scheduleResyncTick();
+    _startWatchdogIfTransferring();
+  }
+
+  /// Self-rescheduling timer honouring the dynamic back-off: interval is
+  /// `resyncInterval * _resyncBackoffSteps`, capped at ~5 minutes. Using a
+  /// plain Timer (not Timer.periodic) lets each tick adopt the current
+  /// back-off without leaking a fixed-cadence timer forever.
+  void _scheduleResyncTick() {
+    _resyncTimer?.cancel();
+    final seconds =
+        (resyncInterval.inSeconds * _resyncBackoffSteps).clamp(45, 300);
+    _resyncTimer = Timer(Duration(seconds: seconds), () {
+      resyncNow();
+      if (_channels.isNotEmpty && !_disposed) _scheduleResyncTick();
+    });
+  }
+
+  void _resetResyncBackoff() {
+    if (_resyncBackoffSteps == 1) return;
+    _resyncBackoffSteps = 1;
+    if (_channels.isNotEmpty && !_disposed) _scheduleResyncTick();
+  }
+
+  /// Called when a peer's manifest exchange found zero missing songs. Only
+  /// stretches the cadence once ALL connected peers are in sync.
+  void _notePeerInSync(String peerId) {
+    _peersInSync.add(peerId);
+    for (final id in _channels.keys) {
+      if (!_peersInSync.contains(id)) return;
+    }
+    if (_resyncBackoffSteps < _maxResyncBackoffSteps) {
+      _resyncBackoffSteps++;
+    }
+    _scheduleResyncTick();
+  }
+
+  void _notePeerOutOfSync(String peerId) {
+    _peersInSync.remove(peerId);
+    _resetResyncBackoff();
+  }
+
+  /// Safety watchdog while downloads are in flight. Started lazily by
+  /// [_startIncoming] and cancelled by [_maybeEnterIdle] so an app that is
+  /// not transferring has ZERO periodic timers beyond the (backed-off)
+  /// resync tick.
+  void _startWatchdogIfTransferring() {
+    if (_watchdogTimer != null || _incoming.isEmpty) return;
     _watchdogTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       final now = DateTime.now().millisecondsSinceEpoch;
       for (final inc in _incoming.values.toList()) {
@@ -236,6 +371,28 @@ class SyncService extends ChangeNotifier {
         }
       }
     });
+  }
+
+  /// True-idle recovery: called after batch/transfer state settles. When no
+  /// files are incoming or sending and both batches are done, cancel the
+  /// watchdog, clear completed-transfer maps and log a single summary line —
+  /// the process then returns to a genuinely idle event loop instead of
+  /// burning CPU until restart.
+  void _maybeEnterIdle() {
+    if (_incoming.isNotEmpty || _sending.isNotEmpty) return;
+    if (_inboundBatch != null && !_inboundBatch!.isDone) return;
+    if (_outboundBatch != null && !_outboundBatch!.isDone) return;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
+    if (_completed.isNotEmpty || _transfers.isNotEmpty) {
+      _completed.clear();
+      _transfers.clear();
+      _completedTimer?.cancel();
+      _completedTimer = null;
+    }
+    debugPrint('[sync] idle: hashJobs pending handled by LibraryService; '
+        'incoming=${_incoming.length} sending=${_sending.length} '
+        'transfers=${_transfers.length} completed=${_completed.length}');
   }
 
   Map<String, dynamic> _playlistManifestMessage() => {
@@ -260,10 +417,7 @@ class SyncService extends ChangeNotifier {
         'e2ePub': e2ePub,
         'ack': true,
       });
-      _send(peerId, {
-        'type': 'manifest',
-        'songs': library.songs.map((s) => s.toJson()).toList(),
-      });
+      _sendManifest(peerId);
       _send(peerId, _playlistManifestMessage());
       _send(peerId, {'type': 'request_manifest'});
     }
@@ -273,6 +427,8 @@ class SyncService extends ChangeNotifier {
   void detachChannel(String peerId) {
     _channels.remove(peerId);
     _sendQueues.remove(peerId);
+    _lastFingerprintSent.remove(peerId);
+    _peersInSync.remove(peerId);
     final incomplete =
         _incoming.values.where((inc) => inc.peerId == peerId).toList();
     for (final inc in incomplete) {
@@ -288,6 +444,7 @@ class SyncService extends ChangeNotifier {
     _transfers.removeWhere((k, t) => t.peerId == peerId);
     _completed.removeWhere((k, t) => t.peerId == peerId);
     _sending.removeWhere((k, _) => k.startsWith('$peerId|'));
+    _finalizeAttempts.removeWhere((k, _) => k.startsWith('$peerId|'));
 
     if (_channels.isEmpty) {
       _resyncTimer?.cancel();
@@ -333,7 +490,8 @@ class SyncService extends ChangeNotifier {
         break;
       case 'file_meta':
         debugPrint('[sync][diag] <- $peerId: file_meta (${(msg['song'] as Map)['title'] ?? '?'})');
-        _startIncoming(peerId, msg['song'] as Map<String, dynamic>);
+        _startIncoming(peerId, msg['song'] as Map<String, dynamic>,
+            chunkSize: (msg['chunkSize'] as num?)?.toInt() ?? chunkSize);
         break;
       case 'file_done':
         _track(_finalizeIncoming(peerId, msg['id'] as String));
@@ -354,10 +512,7 @@ class SyncService extends ChangeNotifier {
         _track(_onPlaylistDelete(peerId, msg));
         break;
       case 'request_manifest':
-        _send(peerId, {
-          'type': 'manifest',
-          'songs': library.songs.map((s) => s.toJson()).toList(),
-        });
+        _sendManifest(peerId, force: true);
         _send(peerId, _playlistManifestMessage());
         break;
     }
@@ -382,23 +537,36 @@ class SyncService extends ChangeNotifier {
           'deviceName': identity.deviceName,
           'e2ePub': ch.signaling.e2ePubB64,
           'ack': true,
+          // Echo the initial flag so the ORIGINAL connector gets a forced
+          // manifest reply; routine resync hellos stay fingerprint-gated.
+          'initial': msg['initial'] == true,
         });
       }
     }
-    _send(peerId, {
-      'type': 'manifest',
-      'songs': library.songs.map((s) => s.toJson()).toList(),
-    });
+    // Routine resync hellos (ack:true) reply NON-forced: if our library is
+    // unchanged the fingerprint check skips the encode + send entirely.
+    _sendManifest(peerId, force: msg['initial'] == true);
     _send(peerId, _playlistManifestMessage());
   }
 
   void _onManifest(String peerId, List<dynamic> rawSongs) {
+    // Build O(1) lookup structures once instead of scanning the whole library
+    // per advertised song (was O(n*m) with a sync disk stat per comparison).
+    final localById = <String, Song>{};
+    final checksumsWithFiles = <String>{};
+    for (final s in library.songs) {
+      localById[s.id] = s;
+      if (library.hasSongFile(s)) {
+        checksumsWithFiles.add(s.checksum);
+      }
+    }
+
     final missingSongs = <Song>[];
     for (final raw in rawSongs) {
       if (raw is! Map) continue;
       final song = Song.fromJson(Map<String, dynamic>.from(raw));
       if (song.sourceDeviceId == identity.deviceId) {
-        if (library.findById(song.id) == null) {
+        if (!localById.containsKey(song.id)) {
           // Source device deleted the song while offline — tell peer to drop the copy
           _send(peerId, {
             'type': 'song_deleted',
@@ -409,11 +577,10 @@ class SyncService extends ChangeNotifier {
           continue;
         }
       }
-      final hasMatchingSong = library.songs.any(
-        (s) =>
-            (s.id == song.id || s.checksum == song.checksum) &&
-            library.hasSongFile(s),
-      );
+      final localMatch = localById[song.id];
+      final hasMatchingSong = (localMatch != null &&
+              library.hasSongFile(localMatch)) ||
+          checksumsWithFiles.contains(song.checksum);
 
       final isActivelyDownloading = _incoming.containsKey(song.id);
 
@@ -422,6 +589,9 @@ class SyncService extends ChangeNotifier {
       }
     }
     if (missingSongs.isNotEmpty) {
+      // Something to fetch: we are NOT in sync. Drop back to the fast resync
+      // cadence until both peers report complete libraries again.
+      _notePeerOutOfSync(peerId);
       debugPrint(
           '[sync][diag] requesting ${missingSongs.length} missing songs from $peerId');
       _inboundBatch?.dismissTimer?.cancel();
@@ -449,6 +619,8 @@ class SyncService extends ChangeNotifier {
     } else {
       debugPrint(
           '[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised)');
+      // Peer has nothing we need — allow the resync cadence to stretch.
+      _notePeerInSync(peerId);
     }
   }
 
@@ -535,11 +707,18 @@ class SyncService extends ChangeNotifier {
       ),
     );
 
-    _send(peerId, {'type': 'file_meta', 'song': song.toJson()});
+    _send(peerId, {
+      'type': 'file_meta',
+      'song': song.toJson(),
+      'chunkSize': chunkSize,
+    });
 
     try {
+      // Verify against real disk before sending (cache may be stale).
+      if (!await library.verifySongFile(song)) {
+        throw Exception('local file missing');
+      }
       final file = library.songFile(song);
-      if (!await file.exists()) throw Exception('local file missing');
       final fileSize = await file.length();
       if (fileSize != song.size && song.size > 0) {
         throw Exception('local file size mismatch ($fileSize vs ${song.size})');
@@ -547,6 +726,12 @@ class SyncService extends ChangeNotifier {
       final total = fileSize == 0 ? 1 : (fileSize / chunkSize).ceil();
       var index = 0;
       var sentBytes = 0;
+
+      // One reusable envelope buffer for the whole file instead of a fresh
+      // ~128KB allocation per chunk (~1GB of GC garbage per GB transferred,
+      // which kept the GC — and UI jank — running long after the transfer).
+      final idLen = utf8.encode(song.id).length;
+      final envelope = Uint8List(1 + 2 + idLen + 8 + chunkSize);
 
       final raf = await file.open(mode: FileMode.read);
       try {
@@ -556,7 +741,8 @@ class SyncService extends ChangeNotifier {
               : (fileSize - sentBytes);
           final piece = await raf.read(toRead);
           if (piece.isEmpty) break;
-          await _sendChunk(channel, song.id, index, total, piece);
+          await _sendChunk(channel, song.id, index, total, piece,
+              envelope: envelope);
           index++;
           sentBytes += piece.length;
           if (_outboundBatch != null && !_outboundBatch!.isDownload) {
@@ -586,6 +772,7 @@ class SyncService extends ChangeNotifier {
               Timer(const Duration(milliseconds: 2500), () {
             _outboundBatch = null;
             _flushNotify();
+            _maybeEnterIdle();
           });
         }
       }
@@ -605,12 +792,15 @@ class SyncService extends ChangeNotifier {
               Timer(const Duration(milliseconds: 2500), () {
             _outboundBatch = null;
             _flushNotify();
+            _maybeEnterIdle();
           });
         }
       }
       _removeProgress(peerId, song.id);
     } finally {
       _sending.remove(sendKey);
+      // Sending side settled: if everything else is quiet too, go idle.
+      _maybeEnterIdle();
     }
   }
 
@@ -621,10 +811,13 @@ class SyncService extends ChangeNotifier {
     String songId,
     int index,
     int total,
-    List<int> payload,
-  ) async {
-    final envelope = _buildEnvelope(songId, index, total, payload);
-    await channel.send(RTCDataChannelMessage.fromBinary(envelope));
+    List<int> payload, {
+    Uint8List? envelope,
+  }) async {
+    final frame = envelope != null
+        ? _fillEnvelope(envelope, songId, index, total, payload)
+        : _buildEnvelope(songId, index, total, payload);
+    await channel.send(RTCDataChannelMessage.fromBinary(frame));
 
     // Yield every 2 chunks so the event loop stays responsive
     if (index % 2 == 0) {
@@ -646,13 +839,18 @@ class SyncService extends ChangeNotifier {
 
   // ---------- receiving ----------
 
-  void _startIncoming(String peerId, Map<String, dynamic> songJson) {
+  void _startIncoming(String peerId, Map<String, dynamic> songJson,
+      {int chunkSize = SyncService.chunkSize}) {
     final song = Song.fromJson(songJson);
-    final hasMatchingFile = library.songs.any(
-      (s) =>
-          (s.id == song.id || s.checksum == song.checksum) &&
-          library.hasSongFile(s),
-    );
+    final existingLocal = library.findById(song.id);
+    final hasMatchingFile = (existingLocal != null &&
+            library.hasSongFile(existingLocal)) ||
+        library.songs.any(
+          (s) =>
+              s.id != song.id &&
+              s.checksum == song.checksum &&
+              library.hasSongFile(s),
+        );
     if (hasMatchingFile) {
       debugPrint('[sync][diag] file_meta for ${song.title} already have; skipping');
       _send(peerId, {'type': 'file_done', 'id': song.id});
@@ -686,6 +884,7 @@ class SyncService extends ChangeNotifier {
       song: song,
       file: file,
       raf: raf,
+      chunkSize: chunkSize,
     );
 
     final watchdogTimeout = incomingTimeout < const Duration(seconds: 8)
@@ -704,6 +903,8 @@ class SyncService extends ChangeNotifier {
       }
     });
     _incoming[song.id] = inc;
+    // Lazily (re)arm the stall watchdog now that a download is in flight.
+    _startWatchdogIfTransferring();
     if (_inboundBatch != null && _inboundBatch!.isDownload) {
       _inboundBatch!.activeSongTitle = song.title;
       _inboundBatch!.activeTotalBytes = song.size;
@@ -728,13 +929,17 @@ class SyncService extends ChangeNotifier {
     final idLen = (bytes[off] << 8) | bytes[off + 1];
     off += 2;
     if (bytes.length < off + idLen + 8) return;
-    final songId = utf8.decode(bytes.sublist(off, off + idLen));
+    // Zero-copy views: chunks arrive at high frequency, and copying the
+    // ~128KB payload (plus decoding the id string) per chunk on the UI
+    // isolate adds up to visible jank during large transfers.
+    final idBytes = Uint8List.sublistView(bytes, off, off + idLen);
+    final songId = _decodeSongId(idBytes);
     off += idLen;
     final index = _readUint32(bytes, off);
     off += 4;
     final total = _readUint32(bytes, off);
     off += 4;
-    final payload = bytes.sublist(off);
+    final payload = Uint8List.sublistView(bytes, off);
 
     final inc = _incoming[songId];
     if (inc == null) {
@@ -746,8 +951,17 @@ class SyncService extends ChangeNotifier {
     }
 
     try {
-      inc.raf.setPositionSync(index * chunkSize);
-      inc.raf.writeFromSync(payload);
+      // Fast path: sequential append when chunks arrive in order (the common
+      // case). Avoids a seek syscall per chunk. Out-of-order chunks fall back
+      // to an absolute seek so correctness is preserved either way.
+      if (index == inc.nextIndex) {
+        inc.raf.writeFromSync(payload);
+        inc.nextIndex++;
+      } else {
+        inc.raf.setPositionSync(index * inc.chunkSize);
+        inc.raf.writeFromSync(payload);
+        if (index >= inc.nextIndex) inc.nextIndex = index + 1;
+      }
       inc.bytesReceived += payload.length;
       inc.lastChunkTime = DateTime.now().millisecondsSinceEpoch;
     } catch (e) {
@@ -816,6 +1030,7 @@ class SyncService extends ChangeNotifier {
         artwork: inc.song.artwork,
       );
       _markComplete(peerId, songId);
+      _finalizeAttempts.remove(songId);
       onDownloaded?.call(inc.song.title);
       if (_inboundBatch != null && _inboundBatch!.isDownload) {
         _inboundBatch!.completedSongs++;
@@ -832,10 +1047,13 @@ class SyncService extends ChangeNotifier {
               Timer(const Duration(milliseconds: 2500), () {
             _inboundBatch = null;
             _flushNotify();
+            _maybeEnterIdle();
           });
         }
       }
-      _flushNotify();
+      // Coalesce: during a batch this fires per song; an immediate notify per
+      // completion hammers the UI. The batch-end path flushes explicitly.
+      _throttledNotify();
     } catch (e) {
       debugPrint('[sync] finalize failed $songId: $e');
       try {
@@ -847,7 +1065,23 @@ class SyncService extends ChangeNotifier {
         }
       } catch (_) {}
       _removeProgress(peerId, songId);
-      _send(peerId, {'type': 'request_songs', 'ids': [songId]});
+      // Retry cap + cooldown: without them a persistently-failing song is
+      // re-requested forever (nonstop CPU + network until the app restarts).
+      final attempts = (_finalizeAttempts[songId] ?? 0) + 1;
+      _finalizeAttempts[songId] = attempts;
+      final lastAt = _lastRequestAt[songId];
+      final cooldownOk = lastAt == null ||
+          DateTime.now().difference(lastAt) > _requestCooldown;
+      if (attempts <= maxFinalizeRetries && cooldownOk) {
+        _lastRequestAt[songId] = DateTime.now();
+        debugPrint('[sync] re-requesting $songId '
+            '(attempt $attempts/${maxFinalizeRetries + 1})');
+        _send(peerId, {'type': 'request_songs', 'ids': [songId]});
+      } else {
+        debugPrint('[sync] giving up on $songId after $attempts failed '
+            'verifications; it will retry on the next resync/reconnect');
+        _finalizeAttempts.remove(songId);
+      }
     }
   }
 
@@ -877,11 +1111,14 @@ class SyncService extends ChangeNotifier {
             Timer(const Duration(milliseconds: 2500), () {
           _inboundBatch = null;
           _flushNotify();
+          _maybeEnterIdle();
         });
       }
     }
     _removeProgress(peerId, songId);
     _flushNotify();
+    // Aborts settle the receiving side; check for full idle.
+    _maybeEnterIdle();
   }
 
   // ---------- helpers ----------
@@ -898,10 +1135,19 @@ class SyncService extends ChangeNotifier {
 
   Uint8List _buildEnvelope(
       String songId, int index, int total, List<int> payload) {
+    return _fillEnvelope(
+        Uint8List(1 + 2 + utf8.encode(songId).length + 8 + payload.length),
+        songId, index, total, payload);
+  }
+
+  /// Fills [out] with the chunk envelope and returns the used-length view.
+  /// Reusing one buffer across a whole file avoids thousands of large
+  /// short-lived allocations that kept the GC busy after transfers.
+  Uint8List _fillEnvelope(Uint8List out, String songId, int index, int total,
+      List<int> payload) {
     final idBytes = utf8.encode(songId);
     final idLen = idBytes.length;
     final totalLen = 1 + 2 + idLen + 4 + 4 + payload.length;
-    final out = Uint8List(totalLen);
     var off = 0;
     out[off++] = 0x50;
     out[off++] = (idLen >> 8) & 0xff;
@@ -913,7 +1159,31 @@ class SyncService extends ChangeNotifier {
     _writeUint32(out, off, total);
     off += 4;
     out.setRange(off, off + payload.length, payload);
-    return out;
+    return Uint8List.sublistView(out, 0, totalLen);
+  }
+
+  /// One-entry decode cache: consecutive chunks almost always belong to the
+  /// same song, so the UTF-8 id decode runs once per song instead of once per
+  /// chunk.
+  Uint8List? _lastIdBytes;
+  String? _lastId;
+
+  String _decodeSongId(Uint8List idBytes) {
+    final last = _lastIdBytes;
+    if (last != null && last.length == idBytes.length) {
+      var same = true;
+      for (var i = 0; i < last.length; i++) {
+        if (last[i] != idBytes[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return _lastId!;
+    }
+    final decoded = utf8.decode(idBytes);
+    _lastIdBytes = Uint8List.fromList(idBytes);
+    _lastId = decoded;
+    return decoded;
   }
 
   int _readUint32(Uint8List bytes, int offset) {
@@ -932,12 +1202,12 @@ class SyncService extends ChangeNotifier {
 
   void _setProgress(TransferProgress p) {
     _transfers[p.key] = p;
-    _flushNotify();
+    _throttledNotify();
   }
 
   void _removeProgress(String peerId, String songId) {
     _transfers.removeWhere((k, v) => v.peerId == peerId && v.songId == songId);
-    _flushNotify();
+    _throttledNotify();
   }
 
   void _markComplete(String peerId, String songId) {
@@ -952,7 +1222,7 @@ class SyncService extends ChangeNotifier {
     _transfers.removeWhere((k, v) => v.peerId == peerId && v.songId == songId);
     found.completedBytes = found.totalBytes;
     _completed[found.key] = found;
-    _flushNotify();
+    _throttledNotify();
     // Use ??= so the cleanup timer is started only once per batch, not reset
     // on every completed song. Resetting caused the 1600ms window to keep
     // extending, then clear all completed entries at once — making batchState
@@ -1069,6 +1339,7 @@ class SyncService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    library.removeListener(_onLibraryChanged);
     _resyncTimer?.cancel();
     _resyncTimer = null;
     _watchdogTimer?.cancel();
@@ -1097,7 +1368,11 @@ class _IncomingFile {
   final Song song;
   final File file;
   final RandomAccessFile raf;
+  /// Chunk size negotiated by the sender via file_meta.
+  final int chunkSize;
   int bytesReceived = 0;
+  /// Next chunk index expected in-order; enables seek-free sequential writes.
+  int nextIndex = 0;
   bool completeChunks = false;
   Timer? timeoutTimer;
   int lastChunkTime = DateTime.now().millisecondsSinceEpoch;
@@ -1107,5 +1382,6 @@ class _IncomingFile {
     required this.song,
     required this.file,
     required this.raf,
+    this.chunkSize = SyncService.chunkSize,
   });
 }

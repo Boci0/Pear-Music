@@ -194,6 +194,31 @@ class YoutubeService {
   /// True when the app can rip with the **bundled** yt-dlp (Android only).
   static bool get isEmbeddedYtDlpSupported => !kIsWeb && Platform.isAndroid;
 
+  /// Locate `aria2c` on PATH (Windows: `where.exe`, others: `which`). Returns
+  /// null when missing or when the check itself fails — aria2c is an optional
+  /// accelerator, never a requirement.
+  @visibleForTesting
+  static Future<String?> aria2cPath() async {
+    if (kIsWeb) return null;
+    try {
+      if (Platform.isWindows) {
+        final r = await Process.run('where.exe', ['aria2c']);
+        if (r.exitCode == 0) {
+          final first =
+              r.stdout.toString().trim().split(RegExp(r'\s+')).first;
+          if (first.isNotEmpty && File(first).existsSync()) return first;
+        }
+      } else {
+        final r = await Process.run('which', ['aria2c']);
+        if (r.exitCode == 0) {
+          final out = r.stdout.toString().trim();
+          if (out.isNotEmpty && File(out).existsSync()) return out;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Rip [url] with an installed yt-dlp binary (desktop). Downloads the best
   /// audio-only stream (m4a preferred; no ffmpeg/conversion needed). Works for
   /// YouTube and Spotify links (yt-dlp resolves Spotify itself).
@@ -222,6 +247,20 @@ class YoutubeService {
       final outTemplate = '${tempDir.path}${Platform.pathSeparator}'
           '%(title).80B [%(id)s].%(ext)s';
 
+      // Optional speed-up: delegate the actual download to aria2c (16
+      // parallel connections) when it is installed. Missing aria2c must
+      // never fail the rip — fall back to yt-dlp's native downloader.
+      final aria2 = await aria2cPath();
+      final downloaderArgs = (aria2 != null)
+          ? <String>[
+              '--downloader', 'aria2c',
+              '--downloader-args', 'aria2c:-x 16 -s 16 -j 16',
+            ]
+          : const <String>[];
+      if (aria2 != null) {
+        debugPrint('[pearmusic] using aria2c downloader: $aria2');
+      }
+
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
         final args = [
           '-f', 'bestaudio[ext=m4a]/bestaudio/best',
@@ -233,6 +272,7 @@ class YoutubeService {
           '--write-thumbnail',
           '--no-check-certificates',
           '--concurrent-fragments', '4',
+          ...downloaderArgs,
           ...extraArgs,
           '-o', outTemplate,
           url,

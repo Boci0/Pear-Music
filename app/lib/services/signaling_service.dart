@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -24,6 +26,28 @@ class SignalingService {
     // ever carries our public key, so neither side can derive the shared key
     // and relay encryption silently stays off.
     unawaited(ensureE2E());
+  }
+
+  /// One summary line per minute, only when something happened — makes
+  /// hidden reconnect/ack-timeout loops visible in logs instead of burning
+  /// CPU invisibly.
+  void _startTelemetry() {
+    _telemetryTimer?.cancel();
+    var lastR = 0, lastA = 0, lastC = 0;
+    _telemetryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_telemetryReconnects == lastR &&
+          _telemetryAckTimeouts == lastA &&
+          _telemetryChunksSent == lastC) {
+        return; // quiet period — stay silent
+      }
+      debugPrint('[signaling] last 60s: reconnects='
+          '${_telemetryReconnects - lastR} ackTimeouts='
+          '${_telemetryAckTimeouts - lastA} chunksSent='
+          '${_telemetryChunksSent - lastC}');
+      lastR = _telemetryReconnects;
+      lastA = _telemetryAckTimeouts;
+      lastC = _telemetryChunksSent;
+    });
   }
 
   final _incoming = StreamController<Map<String, dynamic>>.broadcast();
@@ -63,6 +87,25 @@ class SignalingService {
   Future<void> _relayLock = Future<void>.value();
   Completer<void>? _pendingRelayAck;
   Timer? _relayAckTimeout;
+
+  // ---- Loop circuit breaker ----
+  //
+  // A lost/delayed relay_ack used to cause an endless cycle: chunk -> 20s
+  // timeout -> force reconnect -> resync -> receiver re-requests -> resend ->
+  // lost ack again... burning CPU/network nonstop until the app was closed.
+  // After 3 consecutive ack timeouts we PAUSE outbound relays for a minute
+  // instead of instantly reconnect-and-resending.
+  int _consecutiveAckTimeouts = 0;
+  DateTime? _relayPausedUntil;
+  static const int _ackTimeoutBreakerLimit = 3;
+  static const Duration _relayPauseDuration = Duration(seconds: 60);
+
+  /// Lightweight loop telemetry: one summary line per minute, only when
+  /// something actually happened — makes hidden loops visible in logs.
+  int _telemetryReconnects = 0;
+  int _telemetryAckTimeouts = 0;
+  int _telemetryChunksSent = 0;
+  Timer? _telemetryTimer;
 
   // ---- End-to-end relay encryption ----
   //
@@ -196,7 +239,6 @@ class SignalingService {
   /// Decrypt base64(nonce||ct||tag) from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
     final key = await _getKeyWithRetry(peerId);
-    debugPrint('[diag] decryptTextFor hasKey=${key != null}');
     if (key == null) return null;
     try {
       final raw = base64Decode(b64);
@@ -208,12 +250,25 @@ class SignalingService {
   }
 
   /// AES-GCM encrypt [bytes] for [peerId] → nonce||ct||tag, or null if no key.
+  ///
+  /// On platforms WITHOUT hardware-accelerated crypto (Windows — the
+  /// cryptography_flutter plugin only covers Android/iOS/macOS), the pure-Dart
+  /// AES-GCM of a 128KB chunk takes long enough to jank the UI, so the work is
+  /// offloaded to a background isolate. Accelerated platforms run inline.
   Future<Uint8List?> encryptBinaryFor(String peerId, Uint8List bytes) async {
     await _awaitE2E(peerId);
     final key = _peerKeys[peerId];
     if (key == null) return null;
     final aes = AesGcm.with256bits();
     final nonce = aes.newNonce();
+    if (_offloadCrypto) {
+      final keyBytes = Uint8List.fromList(await key.extractBytes());
+      final out = await compute(
+          _encryptChunkIsolate,
+          _ChunkCryptoInput(
+              keyBytes, Uint8List.fromList(nonce), bytes));
+      return out;
+    }
     final box = await aes.encrypt(bytes, secretKey: key, nonce: nonce);
     return Uint8List.fromList([...nonce, ...box.cipherText, ...box.mac.bytes]);
   }
@@ -224,11 +279,20 @@ class SignalingService {
     if (key == null) return null;
     try {
       if (frame.length < 28) return null;
+      if (_offloadCrypto) {
+        final keyBytes = Uint8List.fromList(await key.extractBytes());
+        return await compute(
+            _decryptChunkIsolate, _ChunkCryptoInput(keyBytes, null, frame));
+      }
       return await _aesGcmDecrypt(key, frame);
     } catch (_) {
       return null;
     }
   }
+
+  /// True on platforms where AES-GCM has no native implementation and the
+  /// pure-Dart fallback is slow enough to jank the UI on 128KB chunks.
+  static bool get _offloadCrypto => !kIsWeb && Platform.isWindows;
 
   Future<Uint8List> _aesGcmDecrypt(SecretKey key, Uint8List raw) async {
     final nonce = raw.sublist(0, 12);
@@ -244,6 +308,11 @@ class SignalingService {
 
   Future<void> start() async {
     _manualStop = false;
+    // Periodically log a summary of reconnect/ack/chunk activity so a hidden
+    // transfer loop is visible in logs. Started here (not the constructor) so
+    // tests that construct SignalingService without connecting don't leave a
+    // pending periodic timer.
+    _startTelemetry();
     await _connect();
   }
 
@@ -261,6 +330,8 @@ class SignalingService {
     _reconnectTimer = null;
     _pingTimer?.cancel();
     _pingTimer = null;
+    _telemetryTimer?.cancel();
+    _telemetryTimer = null;
     final ch = _channel;
     _channel = null;
     _resetRelayState();
@@ -345,7 +416,6 @@ class SignalingService {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
-          debugPrint('[diag] raw type=${decoded['type']} from=${decoded['from']}');
           if (decoded['type'] == 'relay_ack') {
             // Backpressure signal: our in-flight binary frame was relayed, so
             // the next chunk may go out.
@@ -425,6 +495,7 @@ class SignalingService {
   }
 
   void _handleDisconnect() {
+    _telemetryReconnects++;
     _connected = false;
     _channel = null;
     _pingTimer?.cancel();
@@ -497,6 +568,20 @@ class SignalingService {
 
     return previous.then((_) async {
       try {
+        // Circuit breaker: while paused after repeated ack timeouts, hold the
+        // relay queue (FIFO order preserved) instead of feeding a tight
+        // reconnect/resend cycle.
+        final pausedUntil = _relayPausedUntil;
+        if (pausedUntil != null) {
+          final wait = pausedUntil.difference(DateTime.now());
+          if (wait > Duration.zero) {
+            debugPrint('[signaling] relay paused ${wait.inSeconds}s '
+                'after repeated ack timeouts');
+            await Future<void>.delayed(wait);
+          }
+          _relayPausedUntil = null;
+          if (_channel == null) return;
+        }
         final ch = _channel;
         if (ch == null) return;
         // E2E: encrypt the whole chunk envelope (nonce||ct||tag) and mark the
@@ -518,6 +603,7 @@ class SignalingService {
         packet.setRange(off, off + payload.length, payload);
 
         ch.sink.add(packet);
+        _telemetryChunksSent++;
 
         final ack = Completer<void>();
         _pendingRelayAck = ack;
@@ -526,7 +612,17 @@ class SignalingService {
         _relayAckTimeout?.cancel();
         _relayAckTimeout = Timer(const Duration(seconds: 20), () {
           if (!ack.isCompleted) {
-            debugPrint('[signaling] relay_ack timed out after 20s for chunk to $peerId; reconnecting to heal stream');
+            _consecutiveAckTimeouts++;
+            _telemetryAckTimeouts++;
+            debugPrint('[signaling] relay_ack timed out after 20s for chunk '
+                'to $peerId (consecutive: $_consecutiveAckTimeouts)');
+            if (_consecutiveAckTimeouts >= _ackTimeoutBreakerLimit) {
+              _relayPausedUntil =
+                  DateTime.now().add(_relayPauseDuration);
+              _consecutiveAckTimeouts = 0;
+              debugPrint('[signaling] circuit breaker OPEN: pausing outbound '
+                  'relays for ${_relayPauseDuration.inSeconds}s');
+            }
             _handleDisconnect();
             ack.complete();
           }
@@ -548,7 +644,10 @@ class SignalingService {
 
   void _onRelayAck() {
     final ack = _pendingRelayAck;
-    if (ack != null && !ack.isCompleted) ack.complete();
+    if (ack != null && !ack.isCompleted) {
+      _consecutiveAckTimeouts = 0; // healthy again — reset the breaker
+      ack.complete();
+    }
   }
 
   void _startHeartbeat() {
@@ -662,8 +761,45 @@ class SignalingService {
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     _pingTimer = null;
+    _telemetryTimer?.cancel();
+    _telemetryTimer = null;
     _resetRelayState();
     _channel?.sink.close();
     _incoming.close();
   }
+}
+
+/// Inputs for the background-isolate chunk crypto (used on platforms without
+/// hardware-accelerated AES-GCM, where the pure-Dart implementation of a
+/// 128KB chunk is slow enough to jank the UI).
+class _ChunkCryptoInput {
+  final Uint8List keyBytes;
+  final Uint8List? nonce; // null for decrypt (embedded in [data])
+  final Uint8List data;
+  const _ChunkCryptoInput(this.keyBytes, this.nonce, this.data);
+}
+
+/// Runs in a background isolate: pure-Dart AES-GCM encrypt.
+Future<Uint8List> _encryptChunkIsolate(_ChunkCryptoInput input) async {
+  final aes = AesGcm.with256bits();
+  final key = SecretKey(input.keyBytes);
+  final box =
+      await aes.encrypt(input.data, secretKey: key, nonce: input.nonce!);
+  return Uint8List.fromList(
+      [...input.nonce!, ...box.cipherText, ...box.mac.bytes]);
+}
+
+/// Runs in a background isolate: pure-Dart AES-GCM decrypt.
+Future<Uint8List> _decryptChunkIsolate(_ChunkCryptoInput input) async {
+  final raw = input.data;
+  if (raw.length < 28) throw ArgumentError('frame too short');
+  final nonce = raw.sublist(0, 12);
+  final ct = raw.sublist(12, raw.length - 16);
+  final mac = raw.sublist(raw.length - 16);
+  final aes = AesGcm.with256bits();
+  final clear = await aes.decrypt(
+    SecretBox(ct, nonce: nonce, mac: Mac(mac)),
+    secretKey: SecretKey(input.keyBytes),
+  );
+  return Uint8List.fromList(clear);
 }
