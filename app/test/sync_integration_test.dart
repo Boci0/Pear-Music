@@ -231,6 +231,25 @@ void main() {
     expect(copy.length, 700_000);
   });
 
+  test('nudge: remote library change propagates without broadcast', () async {
+    connect();
+    await syncA.idle;
+    await syncB.idle;
+
+    // B adds a song LOCALLY (no broadcastSong call). The nudge path must
+    // make A pull it within seconds even if the periodic resync is backed
+    // off, because B's library listener schedules an immediate nudge.
+    final f = File('${tempDirB.path}/b-only.mp3');
+    f.writeAsBytesSync(List<int>.generate(9000, (i) => (i * 5) % 256));
+    await libB.addLocalFiles([f]);
+
+    await waitFor(
+      () => libA.songs.any((s) => s.title == 'b-only'),
+      timeout: const Duration(seconds: 10),
+    );
+    expect(libA.songs.first.sourceDeviceId, 'device-B');
+  });
+
   test('dedup: already-shared songs are not duplicated', () async {
     await libA.addLocalFiles([makeAudio('dup.mp3', 120_000)]);
     connect();

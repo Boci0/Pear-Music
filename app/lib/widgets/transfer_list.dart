@@ -100,7 +100,7 @@ class TransferList extends StatelessWidget {
                           constraints: const BoxConstraints(),
                           tooltip: 'Retry sync',
                           icon: const Icon(Icons.refresh, size: 16),
-                          onPressed: () => sync.resyncNow(),
+                          onPressed: () => sync.resyncNow(userInitiated: true),
                         ),
                         const SizedBox(width: 6),
                       ],

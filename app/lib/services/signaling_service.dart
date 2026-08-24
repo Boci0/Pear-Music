@@ -36,11 +36,8 @@ class SignalingService {
     _telemetryTimer?.cancel();
     var lastR = 0, lastA = 0, lastC = 0;
     _telemetryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (_telemetryReconnects == lastR &&
-          _telemetryAckTimeouts == lastA &&
-          _telemetryChunksSent == lastC) {
-        return; // quiet period — stay silent
-      }
+      // Logged UNCONDITIONALLY (v1.7.1): a quiet line is itself evidence that
+      // no hidden transfer/reconnect loop is running.
       // RSS in the same line makes heap bloat / GC pressure visible: if RSS
       // stays elevated after a big transfer, resident memory — not a busy
       // loop — is the residual CPU cost.
@@ -98,12 +95,20 @@ class SignalingService {
   // A lost/delayed relay_ack used to cause an endless cycle: chunk -> 20s
   // timeout -> force reconnect -> resync -> receiver re-requests -> resend ->
   // lost ack again... burning CPU/network nonstop until the app was closed.
-  // After 3 consecutive ack timeouts we PAUSE outbound relays for a minute
-  // instead of instantly reconnect-and-resending.
+  // After 3 consecutive ack timeouts we PAUSE outbound relays instead of
+  // instantly reconnect-and-resending. The pause ESCALATES each time the
+  // breaker trips (60s -> 120s -> ... capped at 10 minutes) so a chronically
+  // lossy link cannot keep a low-grade churn loop alive; the escalation only
+  // resets after a long streak of healthy acked chunks.
   int _consecutiveAckTimeouts = 0;
   DateTime? _relayPausedUntil;
   static const int _ackTimeoutBreakerLimit = 3;
-  static const Duration _relayPauseDuration = Duration(seconds: 60);
+  static const Duration _relayPauseBase = Duration(seconds: 60);
+  static const Duration _relayPauseMax = Duration(minutes: 10);
+  int _breakerTrips = 0;
+  /// Healthy acked chunks since the last timeout; a long streak proves the
+  /// link recovered and resets the escalation.
+  int _acksSinceTimeout = 0;
 
   /// Lightweight loop telemetry: one summary line per minute, only when
   /// something actually happened — makes hidden loops visible in logs.
@@ -773,14 +778,18 @@ class SignalingService {
           if (!ack.isCompleted) {
             _consecutiveAckTimeouts++;
             _telemetryAckTimeouts++;
+            _acksSinceTimeout = 0;
             debugPrint('[signaling] relay_ack timed out after 20s for chunk '
                 'to $peerId (consecutive: $_consecutiveAckTimeouts)');
             if (_consecutiveAckTimeouts >= _ackTimeoutBreakerLimit) {
-              _relayPausedUntil =
-                  DateTime.now().add(_relayPauseDuration);
+              final pause = _relayPauseBase * (1 << math.min(_breakerTrips, 3));
+              final capped = pause > _relayPauseMax ? _relayPauseMax : pause;
+              _breakerTrips++;
+              _relayPausedUntil = DateTime.now().add(capped);
               _consecutiveAckTimeouts = 0;
-              debugPrint('[signaling] circuit breaker OPEN: pausing outbound '
-                  'relays for ${_relayPauseDuration.inSeconds}s');
+              debugPrint('[signaling] circuit breaker OPEN (trip '
+                  '$_breakerTrips): pausing outbound relays for '
+                  '${capped.inSeconds}s');
             }
             _handleDisconnect();
             ack.complete();
@@ -805,6 +814,12 @@ class SignalingService {
     final ack = _pendingRelayAck;
     if (ack != null && !ack.isCompleted) {
       _consecutiveAckTimeouts = 0; // healthy again — reset the breaker
+      // A long healthy streak resets the pause escalation entirely.
+      _acksSinceTimeout++;
+      if (_acksSinceTimeout >= 200 && _breakerTrips > 0) {
+        _breakerTrips = 0;
+        debugPrint('[signaling] relay healthy again; breaker escalation reset');
+      }
       ack.complete();
     }
   }
