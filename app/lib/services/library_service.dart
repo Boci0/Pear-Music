@@ -263,10 +263,23 @@ class LibraryService extends ChangeNotifier {
   // starved the UI/raster threads — the "lag that persists after transfer".
   // One persistent worker processes the queue serially and yields briefly
   // between songs so the UI keeps core time.
+  //
+  // Lifecycle: once the job queue has drained, an idle timer tears the
+  // worker down completely (isolate killed, ports closed) so an idle app
+  // returns to a true zero-CPU baseline instead of keeping a parked isolate
+  // alive until process exit.
   static Isolate? _hashIsolate;
   static SendPort? _hashSendPort;
+  static ReceivePort? _hashReplyPort;
+  static Timer? _hashIdleTimer;
+  static Completer<void>? _hashWorkerStarting;
   static final Map<int, Completer<String>> _hashJobs = {};
   static int _hashJobSeq = 0;
+
+  /// How long the worker stays alive after the last queued job finished.
+  /// Long enough to amortise spawn cost across a batch of verifications,
+  /// short enough that post-transfer idle CPU drops within ~30 seconds.
+  static const Duration _hashIdleTimeout = Duration(seconds: 30);
 
   /// Offloaded to a background worker to ensure zero UI blockage even for
   /// large multi-megabyte audio files.
@@ -290,10 +303,33 @@ class LibraryService extends ChangeNotifier {
 
   static Future<void> _ensureHashWorker() async {
     if (_hashSendPort != null) return;
+    // Concurrency guard: two callers may reach this before either handshake
+    // completes; only one of them may spawn the worker.
+    final starting = _hashWorkerStarting;
+    if (starting != null) {
+      await starting.future;
+      return;
+    }
+    final start = Completer<void>();
+    _hashWorkerStarting = start;
+    try {
+      await _spawnHashWorker();
+      start.complete();
+    } catch (e) {
+      start.completeError(e);
+      rethrow;
+    } finally {
+      _hashWorkerStarting = null;
+    }
+  }
+
+  static Future<void> _spawnHashWorker() async {
     final ready = Completer<SendPort>();
     // One port handles BOTH the worker handshake (first message = its
-    // reply SendPort) and all subsequent [seq, result] job replies.
+    // reply SendPort) and all subsequent [seq, result] job replies. Keep a
+    // reference so idle teardown can close it deterministically.
     final replyPort = ReceivePort();
+    _hashReplyPort = replyPort;
     _hashIsolate = await Isolate.spawn(_hashWorkerMain, replyPort.sendPort);
     replyPort.listen((msg) {
       if (msg is SendPort) {
@@ -311,31 +347,73 @@ class LibraryService extends ChangeNotifier {
             completer.completeError(value as Object);
           }
         }
+        // The result has now been emitted strictly to THIS main-isolate
+        // reply port (never the worker's internal job port). If the queue is
+        // empty, start counting down to full teardown.
+        _armHashIdleTeardown();
       }
     });
     _hashSendPort = await ready.future;
   }
 
+  /// If no checksum jobs are pending, schedule the worker to be killed after
+  /// [_hashIdleTimeout]. Any newly dispatched job cancels the timer first.
+  static void _armHashIdleTeardown() {
+    _hashIdleTimer?.cancel();
+    _hashIdleTimer = null;
+    if (_hashJobs.isNotEmpty) return;
+    _hashIdleTimer = Timer(_hashIdleTimeout, () {
+      _hashIdleTimer = null;
+      if (_hashJobs.isNotEmpty) return; // new jobs arrived meanwhile
+      debugPrint('[library] hash worker idle '
+          '${_hashIdleTimeout.inSeconds}s; tearing down isolate');
+      killHashWorker();
+    });
+  }
+
+  /// Explicitly tear down the long-lived hash worker (kill isolate, close
+  /// ports). Safe to call any time; called from [dispose] and by the idle
+  /// timer so the app never keeps a parked isolate after transfers finish.
+  static void killHashWorker() {
+    _hashIdleTimer?.cancel();
+    _hashIdleTimer = null;
+    _hashIsolate?.kill(priority: Isolate.beforeNextEvent);
+    _hashIsolate = null;
+    _hashSendPort = null;
+    _hashReplyPort?.close();
+    _hashReplyPort = null;
+  }
+
   /// Worker entry point: receives [seq, path] jobs, replies [seq, md5].
   /// Yields ~16ms between jobs so UI/raster threads keep core time.
+  ///
+  /// Concurrency guarantee: jobs are processed STRICTLY one at a time. The
+  /// listener must NOT be an `async` closure — Dart would interleave every
+  /// incoming job at its first `await`, running many hashes concurrently and
+  /// re-saturating the core. Instead each job is chained onto a serial
+  /// future tail; the next job's result is only emitted after the previous
+  /// result has been sent back to the main isolate.
   static void _hashWorkerMain(SendPort ready) {
     // [ready] points back at the main isolate's reply port — results MUST be
     // sent there (sending on our own job port would loop back to ourselves).
     final port = ReceivePort();
     ready.send(port.sendPort);
-    port.listen((job) async {
+    var tail = Future<void>.value();
+    port.listen((job) {
       final seq = job[0] as int;
       final path = job[1] as String;
-      Object result;
-      try {
-        result = checksumPath(path);
-      } catch (e) {
-        result = e;
-      }
-      // Yield between songs: lets the UI thread schedule frames even when a
-      // batch of verifications is queued back-to-back.
-      await Future<void>.delayed(const Duration(milliseconds: 16));
-      ready.send([seq, result]);
+      tail = tail.then((_) async {
+        Object result;
+        try {
+          result = checksumPath(path);
+        } catch (e) {
+          result = e;
+        }
+        // Yield between songs: lets the UI thread schedule frames even when a
+        // batch of verifications is queued back-to-back.
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+        ready.send([seq, result]);
+      });
     });
   }
 
@@ -682,6 +760,8 @@ class LibraryService extends ChangeNotifier {
   void dispose() {
     _saveIndexDebounce?.cancel();
     _notifyDebounce?.cancel();
+    // Lifecycle teardown: never leave the hash isolate parked forever.
+    killHashWorker();
     super.dispose();
   }
 }

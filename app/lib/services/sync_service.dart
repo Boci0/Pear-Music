@@ -121,6 +121,15 @@ class SyncService extends ChangeNotifier {
   static const int maxFinalizeRetries = 2;
   static const Duration resyncInterval = Duration(seconds: 45);
 
+  /// Dynamic resync back-off: when every connected peer reports zero missing
+  /// songs, stretch the interval by this many multiples of [resyncInterval]
+  /// (45s -> 90s -> ... capped so an idle pair never polls faster than ~5
+  /// minutes). Reset to 1 on new channels or local library changes.
+  int _resyncBackoffSteps = 1;
+  static const int _maxResyncBackoffSteps = 6;
+  /// Per-peer flag: last manifest exchange found nothing missing.
+  final Set<String> _peersInSync = {};
+
   final IdentityService identity;
   final LibraryService library;
 
@@ -128,14 +137,28 @@ class SyncService extends ChangeNotifier {
     required this.identity,
     required this.library,
     this.incomingTimeout = const Duration(seconds: 120),
-  });
+  }) {
+    // Any local library change invalidates the lightweight manifest
+    // fingerprint and resets the resync back-off so peers hear about the
+    // change on the next (short-interval) tick.
+    library.addListener(_onLibraryChanged);
+  }
+
+  void _onLibraryChanged() {
+    _cachedFingerprint = null;
+    _resetResyncBackoff();
+  }
 
   Timer? _resyncTimer;
 
   final Map<String, RTCDataChannel> _channels = {};
-  /// Last manifest JSON sent to each peer, so periodic resyncs can skip
-  /// re-serialising and re-sending an unchanged library.
-  final Map<String, String> _lastManifestSent = {};
+  /// Lightweight per-peer "manifest changed" markers (`id|checksum|size`
+  /// fingerprints, NO artwork). Compared before any jsonEncode of the full
+  /// manifest so routine resyncs skip both serialisation and transmission
+  /// when nothing changed — base64 artwork made full-manifest encoding a
+  /// heavy, repeated CPU cost after transfers.
+  final Map<String, String> _lastFingerprintSent = {};
+  String? _cachedFingerprint;
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, bool> _sending = {};
   final Map<String, TransferProgress> _transfers = {};
@@ -205,6 +228,8 @@ class SyncService extends ChangeNotifier {
     channel.onMessage = (msg) => _onMessage(peerId, msg);
     _sendHelloAndManifest(peerId, channel);
     notifyListeners();
+    // New channel connection: back to the fast 45s cadence.
+    _resetResyncBackoff();
     _startResyncTimer();
   }
 
@@ -221,23 +246,38 @@ class SyncService extends ChangeNotifier {
       'type': 'hello',
       'deviceName': identity.deviceName,
       'e2ePub': e2ePub,
+      // Marks this as an INITIAL connection hello so the peer replies with a
+      // forced manifest — a previous identical manifest may still have been
+      // lost before its handler was attached. Routine resync hellos never
+      // set this flag and therefore never force a full re-encode/send.
+      'initial': true,
     });
     _sendManifest(peerId, force: true);
     _send(peerId, _playlistManifestMessage());
   }
 
-  /// Serialise + send the manifest to [peerId]. When [force] is false and the
-  /// content is byte-identical to what this peer last received, the send is
-  /// skipped — but ONLY for opportunistic resyncs. A previous identical
-  /// manifest may still have been LOST (e.g. sent before the peer finished
-  /// attaching its handler), so explicit sync points must force a resend.
+  /// Serialise + send the manifest to [peerId].
+  ///
+  /// Cost control (v1.6.9): a full manifest carries base64 artwork per song,
+  /// so jsonEncode-ing it on every routine tick was a large recurring CPU
+  /// spike after transfers finished. We first compare a lightweight
+  /// fingerprint (`id|checksum|size`, no artwork): when [force] is false and
+  /// the fingerprint matches what this peer last received, we skip BOTH the
+  /// encode AND the send entirely.
+  ///
+  /// [force] is reserved for initial channel connections and explicit
+  /// requests — a previously "identical" manifest may have been lost (e.g.
+  /// sent before the peer attached its handler), so those must resend.
   void _sendManifest(String peerId, {bool force = false}) {
+    final fp = _manifestFingerprint();
+    if (!force && _lastFingerprintSent[peerId] == fp) return;
+    _lastFingerprintSent[peerId] = fp;
     final json = jsonEncode({
       'type': 'manifest',
-      'songs': library.songs.map((s) => s.toJson()).toList(),
+      // Artwork is stripped from wire manifests: matching only needs
+      // identity fields. Cover art still reaches peers via file_meta.
+      'songs': library.songs.map(_manifestSongJson).toList(),
     });
-    if (!force && _lastManifestSent[peerId] == json) return;
-    _lastManifestSent[peerId] = json;
     final channel = _channels[peerId];
     if (channel == null) return;
     try {
@@ -247,14 +287,80 @@ class SyncService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void _startResyncTimer() {
-    _resyncTimer?.cancel();
-    _resyncTimer = Timer.periodic(resyncInterval, (_) => resyncNow());
-    _startWatchdog();
+  /// Artwork-free JSON for one song in a wire manifest.
+  Map<String, dynamic> _manifestSongJson(Song s) {
+    final j = s.toJson();
+    j.remove('artwork');
+    return j;
   }
 
-  void _startWatchdog() {
-    _watchdogTimer?.cancel();
+  /// Cheap library fingerprint WITHOUT artwork: `id|checksum|size` per song.
+  /// O(n) small-string work vs jsonEncode-ing every base64 cover image.
+  String _manifestFingerprint() {
+    final cached = _cachedFingerprint;
+    if (cached != null) return cached;
+    final buf = StringBuffer();
+    for (final s in library.songs) {
+      buf
+        ..write(s.id)
+        ..write('|')
+        ..write(s.checksum)
+        ..write('|')
+        ..write(s.size)
+        ..write(';');
+    }
+    return _cachedFingerprint = buf.toString();
+  }
+
+  void _startResyncTimer() {
+    _scheduleResyncTick();
+    _startWatchdogIfTransferring();
+  }
+
+  /// Self-rescheduling timer honouring the dynamic back-off: interval is
+  /// `resyncInterval * _resyncBackoffSteps`, capped at ~5 minutes. Using a
+  /// plain Timer (not Timer.periodic) lets each tick adopt the current
+  /// back-off without leaking a fixed-cadence timer forever.
+  void _scheduleResyncTick() {
+    _resyncTimer?.cancel();
+    final seconds =
+        (resyncInterval.inSeconds * _resyncBackoffSteps).clamp(45, 300);
+    _resyncTimer = Timer(Duration(seconds: seconds), () {
+      resyncNow();
+      if (_channels.isNotEmpty && !_disposed) _scheduleResyncTick();
+    });
+  }
+
+  void _resetResyncBackoff() {
+    if (_resyncBackoffSteps == 1) return;
+    _resyncBackoffSteps = 1;
+    if (_channels.isNotEmpty && !_disposed) _scheduleResyncTick();
+  }
+
+  /// Called when a peer's manifest exchange found zero missing songs. Only
+  /// stretches the cadence once ALL connected peers are in sync.
+  void _notePeerInSync(String peerId) {
+    _peersInSync.add(peerId);
+    for (final id in _channels.keys) {
+      if (!_peersInSync.contains(id)) return;
+    }
+    if (_resyncBackoffSteps < _maxResyncBackoffSteps) {
+      _resyncBackoffSteps++;
+    }
+    _scheduleResyncTick();
+  }
+
+  void _notePeerOutOfSync(String peerId) {
+    _peersInSync.remove(peerId);
+    _resetResyncBackoff();
+  }
+
+  /// Safety watchdog while downloads are in flight. Started lazily by
+  /// [_startIncoming] and cancelled by [_maybeEnterIdle] so an app that is
+  /// not transferring has ZERO periodic timers beyond the (backed-off)
+  /// resync tick.
+  void _startWatchdogIfTransferring() {
+    if (_watchdogTimer != null || _incoming.isEmpty) return;
     _watchdogTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       final now = DateTime.now().millisecondsSinceEpoch;
       for (final inc in _incoming.values.toList()) {
@@ -265,6 +371,28 @@ class SyncService extends ChangeNotifier {
         }
       }
     });
+  }
+
+  /// True-idle recovery: called after batch/transfer state settles. When no
+  /// files are incoming or sending and both batches are done, cancel the
+  /// watchdog, clear completed-transfer maps and log a single summary line —
+  /// the process then returns to a genuinely idle event loop instead of
+  /// burning CPU until restart.
+  void _maybeEnterIdle() {
+    if (_incoming.isNotEmpty || _sending.isNotEmpty) return;
+    if (_inboundBatch != null && !_inboundBatch!.isDone) return;
+    if (_outboundBatch != null && !_outboundBatch!.isDone) return;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
+    if (_completed.isNotEmpty || _transfers.isNotEmpty) {
+      _completed.clear();
+      _transfers.clear();
+      _completedTimer?.cancel();
+      _completedTimer = null;
+    }
+    debugPrint('[sync] idle: hashJobs pending handled by LibraryService; '
+        'incoming=${_incoming.length} sending=${_sending.length} '
+        'transfers=${_transfers.length} completed=${_completed.length}');
   }
 
   Map<String, dynamic> _playlistManifestMessage() => {
@@ -299,7 +427,8 @@ class SyncService extends ChangeNotifier {
   void detachChannel(String peerId) {
     _channels.remove(peerId);
     _sendQueues.remove(peerId);
-    _lastManifestSent.remove(peerId);
+    _lastFingerprintSent.remove(peerId);
+    _peersInSync.remove(peerId);
     final incomplete =
         _incoming.values.where((inc) => inc.peerId == peerId).toList();
     for (final inc in incomplete) {
@@ -408,10 +537,15 @@ class SyncService extends ChangeNotifier {
           'deviceName': identity.deviceName,
           'e2ePub': ch.signaling.e2ePubB64,
           'ack': true,
+          // Echo the initial flag so the ORIGINAL connector gets a forced
+          // manifest reply; routine resync hellos stay fingerprint-gated.
+          'initial': msg['initial'] == true,
         });
       }
     }
-    _sendManifest(peerId, force: true);
+    // Routine resync hellos (ack:true) reply NON-forced: if our library is
+    // unchanged the fingerprint check skips the encode + send entirely.
+    _sendManifest(peerId, force: msg['initial'] == true);
     _send(peerId, _playlistManifestMessage());
   }
 
@@ -455,6 +589,9 @@ class SyncService extends ChangeNotifier {
       }
     }
     if (missingSongs.isNotEmpty) {
+      // Something to fetch: we are NOT in sync. Drop back to the fast resync
+      // cadence until both peers report complete libraries again.
+      _notePeerOutOfSync(peerId);
       debugPrint(
           '[sync][diag] requesting ${missingSongs.length} missing songs from $peerId');
       _inboundBatch?.dismissTimer?.cancel();
@@ -482,6 +619,8 @@ class SyncService extends ChangeNotifier {
     } else {
       debugPrint(
           '[sync][diag] nothing missing from $peerId (${rawSongs.length} advertised)');
+      // Peer has nothing we need — allow the resync cadence to stretch.
+      _notePeerInSync(peerId);
     }
   }
 
@@ -633,6 +772,7 @@ class SyncService extends ChangeNotifier {
               Timer(const Duration(milliseconds: 2500), () {
             _outboundBatch = null;
             _flushNotify();
+            _maybeEnterIdle();
           });
         }
       }
@@ -652,12 +792,15 @@ class SyncService extends ChangeNotifier {
               Timer(const Duration(milliseconds: 2500), () {
             _outboundBatch = null;
             _flushNotify();
+            _maybeEnterIdle();
           });
         }
       }
       _removeProgress(peerId, song.id);
     } finally {
       _sending.remove(sendKey);
+      // Sending side settled: if everything else is quiet too, go idle.
+      _maybeEnterIdle();
     }
   }
 
@@ -760,6 +903,8 @@ class SyncService extends ChangeNotifier {
       }
     });
     _incoming[song.id] = inc;
+    // Lazily (re)arm the stall watchdog now that a download is in flight.
+    _startWatchdogIfTransferring();
     if (_inboundBatch != null && _inboundBatch!.isDownload) {
       _inboundBatch!.activeSongTitle = song.title;
       _inboundBatch!.activeTotalBytes = song.size;
@@ -902,6 +1047,7 @@ class SyncService extends ChangeNotifier {
               Timer(const Duration(milliseconds: 2500), () {
             _inboundBatch = null;
             _flushNotify();
+            _maybeEnterIdle();
           });
         }
       }
@@ -965,11 +1111,14 @@ class SyncService extends ChangeNotifier {
             Timer(const Duration(milliseconds: 2500), () {
           _inboundBatch = null;
           _flushNotify();
+          _maybeEnterIdle();
         });
       }
     }
     _removeProgress(peerId, songId);
     _flushNotify();
+    // Aborts settle the receiving side; check for full idle.
+    _maybeEnterIdle();
   }
 
   // ---------- helpers ----------
@@ -1190,6 +1339,7 @@ class SyncService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    library.removeListener(_onLibraryChanged);
     _resyncTimer?.cancel();
     _resyncTimer = null;
     _watchdogTimer?.cancel();
