@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, ProcessInfo;
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -40,10 +41,14 @@ class SignalingService {
           _telemetryChunksSent == lastC) {
         return; // quiet period — stay silent
       }
+      // RSS in the same line makes heap bloat / GC pressure visible: if RSS
+      // stays elevated after a big transfer, resident memory — not a busy
+      // loop — is the residual CPU cost.
       debugPrint('[signaling] last 60s: reconnects='
           '${_telemetryReconnects - lastR} ackTimeouts='
           '${_telemetryAckTimeouts - lastA} chunksSent='
-          '${_telemetryChunksSent - lastC}');
+          '${_telemetryChunksSent - lastC} rss='
+          '${(ProcessInfo.currentRss / (1024 * 1024)).toStringAsFixed(0)}MB');
       lastR = _telemetryReconnects;
       lastA = _telemetryAckTimeouts;
       lastC = _telemetryChunksSent;
@@ -263,11 +268,10 @@ class SignalingService {
     final nonce = aes.newNonce();
     if (_offloadCrypto) {
       final keyBytes = Uint8List.fromList(await key.extractBytes());
-      final out = await compute(
-          _encryptChunkIsolate,
-          _ChunkCryptoInput(
-              keyBytes, Uint8List.fromList(nonce), bytes));
-      return out;
+      return _runCryptoJob(
+        encrypt: true,
+        input: _ChunkCryptoInput(keyBytes, Uint8List.fromList(nonce), bytes),
+      );
     }
     final box = await aes.encrypt(bytes, secretKey: key, nonce: nonce);
     return Uint8List.fromList([...nonce, ...box.cipherText, ...box.mac.bytes]);
@@ -281,8 +285,10 @@ class SignalingService {
       if (frame.length < 28) return null;
       if (_offloadCrypto) {
         final keyBytes = Uint8List.fromList(await key.extractBytes());
-        return await compute(
-            _decryptChunkIsolate, _ChunkCryptoInput(keyBytes, null, frame));
+        return await _runCryptoJob(
+          encrypt: false,
+          input: _ChunkCryptoInput(keyBytes, null, frame),
+        );
       }
       return await _aesGcmDecrypt(key, frame);
     } catch (_) {
@@ -290,9 +296,162 @@ class SignalingService {
     }
   }
 
-  /// True on platforms where AES-GCM has no native implementation and the
-  /// pure-Dart fallback is slow enough to jank the UI on 128KB chunks.
+  // ---- Long-lived chunk-crypto worker (Windows) ----
+  //
+  // v1.6.x spawned a FRESH isolate per 128KB chunk via compute(). A single
+  // 5MB song cost ~40 isolate spawn/teardown cycles and two ~128KB message
+  // copies each — thousands per large transfer, saturating a core alongside
+  // the UI/raster threads (the "stutter during transfer" on Windows).
+  // One persistent worker processes encrypt/decrypt jobs STRICTLY serially
+  // (the relay path already paces sends by relay_ack, so throughput is
+  // unaffected) and tears itself down after the queue has been empty for
+  // [_cryptoIdleTimeout], exactly like the MD5 hash worker.
+  static Isolate? _cryptoIsolate;
+  static SendPort? _cryptoSendPort;
+  static ReceivePort? _cryptoReplyPort;
+  static Timer? _cryptoIdleTimer;
+  static Completer<void>? _cryptoWorkerStarting;
+  static final Map<int, Completer<Uint8List?>> _cryptoJobs = {};
+  static int _cryptoJobSeq = 0;
+  static const Duration _cryptoIdleTimeout = Duration(seconds: 30);
+
   static bool get _offloadCrypto => !kIsWeb && Platform.isWindows;
+
+  /// Runs one AES-GCM job on the long-lived worker. Falls back to a one-shot
+  /// [compute] isolate if the worker cannot start (e.g. test environments).
+  static Future<Uint8List?> _runCryptoJob({
+    required bool encrypt,
+    required _ChunkCryptoInput input,
+  }) async {
+    try {
+      await _ensureCryptoWorker();
+    } catch (_) {
+      return _runCryptoOneShot(encrypt, input);
+    }
+    final seq = _cryptoJobSeq++;
+    final completer = Completer<Uint8List?>();
+    _cryptoJobs[seq] = completer;
+    _cryptoIdleTimer?.cancel();
+    _cryptoIdleTimer = null;
+    _cryptoSendPort!.send([
+      seq,
+      encrypt,
+      input.keyBytes,
+      input.nonce,
+      input.data,
+    ]);
+    return completer.future;
+  }
+
+  static Future<Uint8List?> _runCryptoOneShot(
+      bool encrypt, _ChunkCryptoInput input) {
+    return encrypt
+        ? compute(_encryptChunkIsolate, input)
+        : compute(_decryptChunkIsolate, input);
+  }
+
+  static Future<void> _ensureCryptoWorker() async {
+    if (_cryptoSendPort != null) return;
+    final starting = _cryptoWorkerStarting;
+    if (starting != null) {
+      await starting.future;
+      return;
+    }
+    final start = Completer<void>();
+    _cryptoWorkerStarting = start;
+    try {
+      await _spawnCryptoWorker();
+      start.complete();
+    } catch (e) {
+      start.completeError(e);
+      rethrow;
+    } finally {
+      _cryptoWorkerStarting = null;
+    }
+  }
+
+  static Future<void> _spawnCryptoWorker() async {
+    final ready = Completer<SendPort>();
+    final replyPort = ReceivePort();
+    _cryptoReplyPort = replyPort;
+    _cryptoIsolate = await Isolate.spawn(_cryptoWorkerMain, replyPort.sendPort);
+    replyPort.listen((msg) {
+      if (msg is SendPort) {
+        if (!ready.isCompleted) ready.complete(msg);
+        return;
+      }
+      if (msg is List && msg.length == 2) {
+        final seq = msg[0] as int;
+        final completer = _cryptoJobs.remove(seq);
+        if (completer != null) {
+          final value = msg[1];
+          if (value is Uint8List || value == null) {
+            completer.complete(value as Uint8List?);
+          } else {
+            completer.completeError(value as Object);
+          }
+        }
+        _armCryptoIdleTeardown();
+      }
+    });
+    _cryptoSendPort = await ready.future;
+  }
+
+  static void _armCryptoIdleTeardown() {
+    _cryptoIdleTimer?.cancel();
+    _cryptoIdleTimer = null;
+    if (_cryptoJobs.isNotEmpty) return;
+    _cryptoIdleTimer = Timer(_cryptoIdleTimeout, () {
+      _cryptoIdleTimer = null;
+      if (_cryptoJobs.isNotEmpty) return;
+      debugPrint('[signaling] crypto worker idle '
+          '${_cryptoIdleTimeout.inSeconds}s; tearing down isolate');
+      killCryptoWorker();
+    });
+  }
+
+  /// Explicitly tear down the crypto worker. Safe to call any time.
+  static void killCryptoWorker() {
+    _cryptoIdleTimer?.cancel();
+    _cryptoIdleTimer = null;
+    _cryptoIsolate?.kill(priority: Isolate.beforeNextEvent);
+    _cryptoIsolate = null;
+    _cryptoSendPort = null;
+    _cryptoReplyPort?.close();
+    _cryptoReplyPort = null;
+  }
+
+  /// Worker entry point: receives [seq, encrypt, keyBytes, nonce?, data]
+  /// jobs, replies [seq, result-or-error]. Jobs are chained onto a serial
+  /// future tail so exactly one AES-GCM operation runs at a time (a plain
+  /// `async` listener would interleave every job at its first `await`).
+  static void _cryptoWorkerMain(SendPort ready) {
+    final port = ReceivePort();
+    ready.send(port.sendPort);
+    var tail = Future<void>.value();
+    port.listen((job) {
+      final seq = job[0] as int;
+      final encrypt = job[1] as bool;
+      final input = _ChunkCryptoInput(
+        job[2] as Uint8List,
+        job[3] as Uint8List?,
+        job[4] as Uint8List,
+      );
+      tail = tail.then((_) async {
+        Object result;
+        try {
+          result = await (encrypt
+              ? _encryptChunkIsolate(input)
+              : _decryptChunkIsolate(input));
+        } catch (e) {
+          result = e;
+        }
+        // Small yield between chunks so UI/raster threads keep core time.
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        ready.send([seq, result]);
+      });
+    });
+  }
 
   Future<Uint8List> _aesGcmDecrypt(SecretKey key, Uint8List raw) async {
     final nonce = raw.sublist(0, 12);
@@ -763,6 +922,7 @@ class SignalingService {
     _pingTimer = null;
     _telemetryTimer?.cancel();
     _telemetryTimer = null;
+    killCryptoWorker();
     _resetRelayState();
     _channel?.sink.close();
     _incoming.close();
