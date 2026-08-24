@@ -373,6 +373,14 @@ class SyncService extends ChangeNotifier {
     });
   }
 
+  /// Keep LibraryService.index saves deferred while any transfer batch is
+  /// mid-flight; called after every batch state mutation.
+  void _updateDeferSaves() {
+    library.deferIndexSaves =
+        (_inboundBatch != null && !_inboundBatch!.isDone) ||
+            (_outboundBatch != null && !_outboundBatch!.isDone);
+  }
+
   /// True-idle recovery: called after batch/transfer state settles. When no
   /// files are incoming or sending and both batches are done, cancel the
   /// watchdog, clear completed-transfer maps and log a single summary line —
@@ -382,6 +390,8 @@ class SyncService extends ChangeNotifier {
     if (_incoming.isNotEmpty || _sending.isNotEmpty) return;
     if (_inboundBatch != null && !_inboundBatch!.isDone) return;
     if (_outboundBatch != null && !_outboundBatch!.isDone) return;
+    // Safety net: never stay in deferred-save mode once everything settled.
+    _updateDeferSaves();
     _watchdogTimer?.cancel();
     _watchdogTimer = null;
     if (_completed.isNotEmpty || _transfers.isNotEmpty) {
@@ -455,6 +465,7 @@ class SyncService extends ChangeNotifier {
       _inboundBatch = null;
       _outboundBatch?.dismissTimer?.cancel();
       _outboundBatch = null;
+      _updateDeferSaves();
     }
     _flushNotify();
   }
@@ -512,7 +523,12 @@ class SyncService extends ChangeNotifier {
         _track(_onPlaylistDelete(peerId, msg));
         break;
       case 'request_manifest':
-        _sendManifest(peerId, force: true);
+        // Explicit ask, but an UNCHANGED library must not be re-encoded and
+        // re-sent on every tick — that was a recurring multi-hundred-KB
+        // jsonEncode on both peers forever (post-transfer CPU never settled).
+        // Gate by fingerprint; force only if we have NEVER sent this peer a
+        // manifest (fresh attach / earlier one may have been lost).
+        _sendManifest(peerId, force: !_lastFingerprintSent.containsKey(peerId));
         _send(peerId, _playlistManifestMessage());
         break;
     }
@@ -611,6 +627,8 @@ class SyncService extends ChangeNotifier {
           resyncNow();
         }
       });
+      // Defer artwork-heavy index encodes until the batch finishes.
+      _updateDeferSaves();
       _send(peerId, {
         'type': 'request_songs',
         'ids': missingSongs.map((s) => s.id).toList(),
@@ -665,6 +683,8 @@ class SyncService extends ChangeNotifier {
         totalBytes: totalBytes,
         isDownload: false,
       );
+      // Defer artwork-heavy index encodes until the batch finishes.
+      _updateDeferSaves();
       for (final song in requestedSongs) {
         final sendKey = _sendKey(peerId, song.id);
         if (_sending.containsKey(sendKey)) {
@@ -767,10 +787,12 @@ class SyncService extends ChangeNotifier {
         _outboundBatch!.activeTotalBytes = 0;
         if (_outboundBatch!.completedSongs >= _outboundBatch!.totalSongs) {
           _outboundBatch!.isDone = true;
+          _updateDeferSaves();
           _outboundBatch!.dismissTimer?.cancel();
           _outboundBatch!.dismissTimer =
               Timer(const Duration(milliseconds: 2500), () {
             _outboundBatch = null;
+            _updateDeferSaves();
             _flushNotify();
             _maybeEnterIdle();
           });
@@ -787,10 +809,12 @@ class SyncService extends ChangeNotifier {
         _outboundBatch!.activeTotalBytes = 0;
         if (_outboundBatch!.completedSongs >= _outboundBatch!.totalSongs) {
           _outboundBatch!.isDone = true;
+          _updateDeferSaves();
           _outboundBatch!.dismissTimer?.cancel();
           _outboundBatch!.dismissTimer =
               Timer(const Duration(milliseconds: 2500), () {
             _outboundBatch = null;
+            _updateDeferSaves();
             _flushNotify();
             _maybeEnterIdle();
           });
@@ -1040,12 +1064,15 @@ class SyncService extends ChangeNotifier {
         _inboundBatch!.activeTotalBytes = 0;
         if (_inboundBatch!.completedSongs >= _inboundBatch!.totalSongs) {
           _inboundBatch!.isDone = true;
+          // Lift the deferral BEFORE the flush so this encode actually runs.
+          _updateDeferSaves();
           await library.flushSaveIndex();
           library.flushNotify();
           _inboundBatch!.dismissTimer?.cancel();
           _inboundBatch!.dismissTimer =
               Timer(const Duration(milliseconds: 2500), () {
             _inboundBatch = null;
+            _updateDeferSaves();
             _flushNotify();
             _maybeEnterIdle();
           });
@@ -1110,6 +1137,7 @@ class SyncService extends ChangeNotifier {
         _inboundBatch!.dismissTimer =
             Timer(const Duration(milliseconds: 2500), () {
           _inboundBatch = null;
+          _updateDeferSaves();
           _flushNotify();
           _maybeEnterIdle();
         });

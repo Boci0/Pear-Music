@@ -182,6 +182,16 @@ class LibraryService extends ChangeNotifier {
   Timer? _saveIndexDebounce;
   Timer? _notifyDebounce;
 
+  /// When true, scheduled index saves are POSTPONED (re-checked every few
+  /// seconds) instead of written. SyncService sets this while a transfer
+  /// batch is active: without it, every received song schedules a debounced
+  /// save that jsonEncodes the ENTIRE song index — including all base64
+  /// artwork — producing tens of MB of transient garbage per batch on both
+  /// Windows and Android. That garbage balloons the old-gen heap and keeps
+  /// the GC burning CPU long after the transfer ends (only a restart resets
+  /// it). One save at batch completion ([flushSaveIndex]) is enough.
+  bool deferIndexSaves = false;
+
   /// Runs in a background isolate: serialises the whole song list to JSON.
   static String _encodeSongsJson(List<Song> songs) =>
       jsonEncode(songs.map((s) => s.toJson()).toList());
@@ -200,7 +210,23 @@ class LibraryService extends ChangeNotifier {
 
   void _scheduleSaveIndex() {
     _saveIndexDebounce?.cancel();
-    _saveIndexDebounce = Timer(const Duration(milliseconds: 1500), () {
+    if (deferIndexSaves) {
+      // Batch in progress: re-check shortly instead of encoding the whole
+      // index now; the batch-completion path calls flushSaveIndex().
+      _saveIndexDebounce = Timer(const Duration(seconds: 2), () {
+        _saveIndexDebounce = null;
+        if (deferIndexSaves) {
+          _scheduleSaveIndex();
+        } else {
+          _saveIndex();
+        }
+      });
+      return;
+    }
+    // Idle debounce of 4s coalesces bursts of single-song changes
+    // (scrape/add/delete) into one encode.
+    _saveIndexDebounce = Timer(const Duration(milliseconds: 4000), () {
+      _saveIndexDebounce = null;
       _saveIndex();
     });
   }
