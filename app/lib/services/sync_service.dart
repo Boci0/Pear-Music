@@ -214,6 +214,12 @@ class SyncService extends ChangeNotifier {
   String? _cachedFingerprint;
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, bool> _sending = {};
+
+  /// Per-song cooldown for unknown-chunk replies: a flood of already in-flight
+  /// chunks for a song we never registered must not generate a reply storm of
+  /// its own. At most one `file_error` per song per window.
+  final Map<String, DateTime> _unknownChunkReplied = {};
+  static const Duration _unknownChunkReplyCooldown = Duration(seconds: 30);
   final Map<String, TransferProgress> _transfers = {};
   final Map<String, TransferProgress> _completed = {};
   /// Failed-verification attempts per song id. Without a cap, a song whose
@@ -1056,6 +1062,9 @@ class SyncService extends ChangeNotifier {
       }
     });
     _incoming[song.id] = inc;
+    // A real transfer started for this song: clear any unknown-chunk cooldown
+    // so its chunks are accepted (and would produce replies) immediately.
+    _unknownChunkReplied.remove(song.id);
     // Lazily (re)arm the stall watchdog now that a download is in flight.
     _startWatchdogIfTransferring();
     if (_inboundBatch != null && _inboundBatch!.isDownload) {
@@ -1070,6 +1079,22 @@ class SyncService extends ChangeNotifier {
       isDownload: true,
       totalBytes: song.size,
     ));
+  }
+
+  void _noteUnknownChunk(String peerId, String songId) {
+    // Storm breaker: an unreachable/undecryptable sender replaying a song we
+    // never registered fires at most ONE reply per [_unknownChunkReplyCooldown]
+    // instead of a reply per chunk (which would itself be a CPU/network loop).
+    final now = DateTime.now();
+    final last = _unknownChunkReplied[songId];
+    if (last != null && now.difference(last) < _unknownChunkReplyCooldown) {
+      return;
+    }
+    _unknownChunkReplied[songId] = now;
+    debugPrint('[sync] <- $peerId: chunk for UNKNOWN song $songId; asking sender to stop');
+    _send(
+        peerId,
+        {'type': 'file_error', 'id': songId, 'message': 'no active incoming transfer for this song'});
   }
 
   void _onBinary(String peerId, Uint8List bytes) {
@@ -1096,7 +1121,7 @@ class SyncService extends ChangeNotifier {
 
     final inc = _incoming[songId];
     if (inc == null) {
-      debugPrint('[sync][diag] <- $peerId: chunk for UNKNOWN song $songId idx=$index/$total dropped');
+      _noteUnknownChunk(peerId, songId);
       return;
     }
     if (index == 0 || index == total - 1) {

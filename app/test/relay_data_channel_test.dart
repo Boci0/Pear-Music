@@ -210,6 +210,52 @@ void main() {
     expect(dec, payload);
   });
 
+  test('consecutive decrypt failures trip plaintext fallback, a good '
+      'decrypt clears it', () async {
+    // Two distinct identities, like two real devices.
+    SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-A'});
+    final idA = IdentityService(await SharedPreferences.getInstance());
+    SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-B'});
+    final idB = IdentityService(await SharedPreferences.getInstance());
+    final sigA = SignalingService(idA);
+    final sigB = SignalingService(idB);
+    await sigA.ensureE2E();
+    await sigB.ensureE2E();
+    final pubB = base64Decode(sigB.e2ePubB64!);
+    await sigA.setPeerE2E('device-B', pubB);
+
+    expect(sigA.isPlaintextPeer('device-B'), isFalse);
+    // A valid ciphertext captured BEFORE any failures; later it proves a
+    // decrypt success re-enables E2E (while in fallback we refuse to encrypt).
+    final validEnc = await sigA.encryptTextFor('device-B', 'still-here');
+    expect(validEnc, isNotNull);
+    // Feed the decrypt helper ciphertext that fails trace auth (all-zero
+    // nonce||ct||tag of valid length): each must NOT wipe the key, and the
+    // 3rd consecutive failure must trip fallback.
+    var k = 0;
+    while (k < 3) {
+      final dec = await sigA.decryptTextFor(
+        'device-B',
+        base64Encode(Uint8List(40)),
+      );
+      expect(dec, isNull);
+      k++;
+    }
+    expect(sigA.isPlaintextPeer('device-B'), isTrue,
+        reason: '3 consecutive decrypt failures trip plaintext fallback');
+    // While in fallback we no longer encrypt (returns null); the key was NOT
+    // wiped by the failures.
+    expect(await sigA.encryptTextFor('device-B', 'x'), isNull,
+        reason: 'fallback forces plaintext so sync never stalls');
+
+    // A later SUCCESSFUL decrypt (a working key turning E2E back on) clears
+    // fallback immediately.
+    final ok = await sigA.decryptTextFor('device-B', validEnc!);
+    expect(utf8.decode(ok!), 'still-here');
+    expect(sigA.isPlaintextPeer('device-B'), isFalse,
+        reason: 'a decrypt success re-enables E2E');
+  });
+
   test('re-pairing after key removal awaits derivation and decrypts correctly',
       () async {
     SharedPreferences.setMockInitialValues({'peerm_device_id': 'device-A'});

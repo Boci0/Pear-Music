@@ -131,6 +131,47 @@ class SignalingService {
   Uint8List? _e2ePub;
   final Map<String, SecretKey> _peerKeys = {};
 
+  /// Peers currently sending us plaintext because of repeated decrypt
+  /// failures (see [noteDecryptFailure]). Per-peer AND per-session: cleared on
+  /// detach / fresh attach / successful key re-derivation, so a later working
+  /// hello turns E2E back on.
+  ///
+  /// SECURITY NOTE: while a peer is in this set our relay traffic to/from it
+  /// is UNENCRYPTED, so the relay server can see those bytes. Sync correctness
+  /// deliberately outranks E2E here: an unrecoverable key wobble must never
+  /// wedge two devices into an infinite retransmission storm.
+  final Set<String> _plaintextPeers = {};
+
+  /// Consecutive decrypt failures per peer. A single bad frame must NOT wipe
+  /// the key; only a run of failures trips fallback. Reset on success.
+  final Map<String, int> _decryptFails = {};
+  static const int _decryptFailLimit = 3;
+
+  bool isPlaintextPeer(String peerId) => _plaintextPeers.contains(peerId);
+
+  /// Record a decrypt failure for [peerId]. After [_decryptFailLimit] CONSECUTIVE
+  /// failures the peer enters plaintext fallback (logged once).
+  void noteDecryptFailure(String peerId) {
+    final count = (_decryptFails[peerId] ?? 0) + 1;
+    _decryptFails[peerId] = count;
+    if (count >= _decryptFailLimit) {
+      if (_plaintextPeers.add(peerId)) {
+        debugPrint('[e2e] E2E temporarily disabled for $peerId after '
+            '$count consecutive decrypt failures; sync continues in '
+            'plaintext until a working hello re-derives a key');
+      }
+    }
+  }
+
+  /// Record a decrypt SUCCESS for [peerId]: a working key is present, so any
+  /// fallback clears immediately.
+  void noteDecryptSuccess(String peerId) {
+    _decryptFails.remove(peerId);
+    if (_plaintextPeers.remove(peerId)) {
+      debugPrint('[e2e] E2E re-enabled for $peerId (decrypt succeeded)');
+    }
+  }
+
   /// In-flight E2E key derivations per peer (set by [setPeerE2E]). Encrypt and
   /// decrypt await any pending derivation so a frame that arrives right after
   /// the `hello` that started it is never dropped for lack of a key.
@@ -177,6 +218,11 @@ class SignalingService {
     _peerPubs[peerId] = peerPubBytes;
     final future = _deriveKey(peerId, peerPubBytes);
     _e2eDerivations[peerId] = future;
+    // A NEW public key means a fresh derivation attempt: if a previous one
+    // succeeded we can safely leave fallback and go back to encryption.
+    if (_peerKeys.containsKey(peerId) && _plaintextPeers.remove(peerId)) {
+      debugPrint('[e2e] E2E re-enabled for $peerId (new key derived)');
+    }
     return future;
   }
 
@@ -211,9 +257,23 @@ class SignalingService {
   }
 
   void removePeerKey(String peerId) {
+    // NOTE: call only from explicit unpair / channel teardown. A transient
+    // decrypt failure must NOT land here: blanking the derived key strands
+    // both devices unable to decrypt, which is exactly the retransmission
+    // storm this file now defends against.
     _peerKeys.remove(peerId);
     _peerPubs.remove(peerId);
     _e2eDerivations.remove(peerId);
+    _decryptFails.remove(peerId);
+    _plaintextPeers.remove(peerId);
+  }
+
+  /// Notify a peer (control path) that we are entering plaintext fallback.
+  void setPeerPlaintext(String peerId) {
+    if (_plaintextPeers.add(peerId)) {
+      debugPrint('[e2e] peer $peerId left E2E, sync will continue in '
+          'plaintext for this session');
+    }
   }
 
   bool hasPeerKey(String peerId) => _peerKeys.containsKey(peerId);
@@ -237,6 +297,7 @@ class SignalingService {
   /// or null if there's no shared key (caller should send plaintext).
   Future<String?> encryptTextFor(String peerId, String plaintext) async {
     await _awaitE2E(peerId);
+    if (_plaintextPeers.contains(peerId)) return null;
     final key = _peerKeys[peerId];
     if (key == null) return null;
     final aes = AesGcm.with256bits();
@@ -246,15 +307,17 @@ class SignalingService {
     return base64Encode([...nonce, ...box.cipherText, ...box.mac.bytes]);
   }
 
-  /// Decrypt base64(nonce||ct||tag) from [peerId]; null if no key / bad tag.
   Future<Uint8List?> decryptTextFor(String peerId, String b64) async {
     final key = await _getKeyWithRetry(peerId);
     if (key == null) return null;
     try {
       final raw = base64Decode(b64);
       if (raw.length < 28) return null;
-      return await _aesGcmDecrypt(key, raw);
+      final out = await _aesGcmDecrypt(key, raw);
+      noteDecryptSuccess(peerId);
+      return out;
     } catch (_) {
+      noteDecryptFailure(peerId);
       return null;
     }
   }
@@ -267,6 +330,7 @@ class SignalingService {
   /// offloaded to a background isolate. Accelerated platforms run inline.
   Future<Uint8List?> encryptBinaryFor(String peerId, Uint8List bytes) async {
     await _awaitE2E(peerId);
+    if (_plaintextPeers.contains(peerId)) return null;
     final key = _peerKeys[peerId];
     if (key == null) return null;
     final aes = AesGcm.with256bits();
@@ -283,20 +347,31 @@ class SignalingService {
   }
 
   /// Decrypt nonce||ct||tag from [peerId]; null if no key / bad tag.
+  ///
+  /// NOTE: if [lastResort] is true the peer IS already in plaintext fallback;
+  /// we only attempt a decrypt if a key happens to be cached (a live hello
+  /// may have just re-derived one). Otherwise a null return is simply
+  /// swallowed as "can't read this frame".
   Future<Uint8List?> decryptBinaryFor(String peerId, Uint8List frame) async {
+    if (_plaintextPeers.contains(peerId)) return null;
     final key = await _getKeyWithRetry(peerId);
     if (key == null) return null;
     try {
       if (frame.length < 28) return null;
+      Uint8List? out;
       if (_offloadCrypto) {
         final keyBytes = Uint8List.fromList(await key.extractBytes());
-        return await _runCryptoJob(
+        out = await _runCryptoJob(
           encrypt: false,
           input: _ChunkCryptoInput(keyBytes, null, frame),
         );
+      } else {
+        out = await _aesGcmDecrypt(key, frame);
       }
-      return await _aesGcmDecrypt(key, frame);
+      noteDecryptSuccess(peerId);
+      return out;
     } catch (_) {
+      noteDecryptFailure(peerId);
       return null;
     }
   }
@@ -692,12 +767,22 @@ class SignalingService {
   void signalTo(String peerId, Map<String, dynamic> data) =>
       send({'type': 'signal', 'to': peerId, 'data': data});
 
+  /// Relay a small control message (JSON text) to a paired peer without
+  /// encryption. Used for the bidirectional `e2e_fallback` signal so a peer
+  /// that can no longer decrypt E2E is told to switch to plaintext even when
+  /// our E2E key still exists locally.
+  Future<void> sendRelayPlaintext(String peerId, Map<String, dynamic> data) async {
+    send({'type': 'relay', 'to': peerId, 'data': data});
+  }
+
   /// Relay a small control message (JSON text) to a paired peer. When a shared
   /// E2E key exists, the payload is AES-GCM encrypted (base64 nonce||ct||tag)
-  /// so the relay server can't read it; otherwise it's sent as-is (old peers).
+  /// so the relay server can't read it; otherwise it's sent as plaintext
+  /// (old peers / peers in E2E-fallback).
   Future<void> sendRelay(String peerId, Map<String, dynamic> data) async {
     await _awaitE2E(peerId);
-    if (data['t'] == 'text' &&
+    if (!_plaintextPeers.contains(peerId) &&
+        data['t'] == 'text' &&
         data['d'] is String &&
         _peerKeys.containsKey(peerId)) {
       final enc = await encryptTextFor(peerId, data['d'] as String);
@@ -752,7 +837,8 @@ class SignalingService {
         // marker with e:1 when a shared key exists; no key → plaintext so old
         // peers keep working.
         await _awaitE2E(peerId);
-        final encrypted = _peerKeys.containsKey(peerId);
+        final encrypted = !_plaintextPeers.contains(peerId) &&
+            _peerKeys.containsKey(peerId);
         final payload = encrypted
             ? (await encryptBinaryFor(peerId, bytes)) ?? bytes
             : bytes;

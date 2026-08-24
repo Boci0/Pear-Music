@@ -34,6 +34,10 @@ class RelayDataChannel extends RTCDataChannel {
   final List<Future<void> Function()> _inboundQueue = [];
   bool _drainingInbound = false;
 
+  /// Sent the plaintext fallback request at least once this channel session,
+  /// so a flood of undecryptable frames does not re-send it every chunk.
+  bool _fallbackRequested = false;
+
   @override
   RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
 
@@ -117,6 +121,7 @@ class RelayDataChannel extends RTCDataChannel {
     _inboundQueue.clear();
     _draining = false;
     _drainingInbound = false;
+    _fallbackRequested = false;
     onMessage = null;
   }
 
@@ -135,11 +140,25 @@ class RelayDataChannel extends RTCDataChannel {
         if (data['e'] == 1) {
           final clear = await signaling.decryptTextFor(peerId, text);
           if (clear == null) {
-            debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed); resetting peer key');
-            signaling.removePeerKey(peerId);
+            debugPrint('[diag] handleRelay DROPPED encrypted text (decrypt failed)');
+            // Do NOT wipe the peer key here (that stranded both devices in an
+            // endless retransmission storm). Tell the peer to send plaintext
+            // instead once it has crossed the consecutive-failure threshold.
+            _maybeRequestFallback();
             return;
           }
           text = utf8.decode(clear);
+        }
+        // Incoming `e2e_fallback`: the PEER could not decrypt us. Mark for
+        // plaintext outbound so both sides stop encrypting (the asymmetry
+        // where one encrypts and the other cannot read it WAS the storm).
+        if (text.startsWith('{"type":"e2e_fallback"}') ||
+            text.startsWith('{"t "')) {
+          final inner = jsonDecode(text);
+          if (inner is Map && inner['type'] == 'e2e_fallback') {
+            signaling.setPeerPlaintext(peerId);
+            return;
+          }
         }
         cb(RTCDataChannelMessage(text));
       } finally {
@@ -163,6 +182,7 @@ class RelayDataChannel extends RTCDataChannel {
         if (encrypted) {
           final clear = await signaling.decryptBinaryFor(peerId, bytes);
           if (clear == null) {
+            _maybeRequestFallback();
             if (bytes.isNotEmpty && bytes[0] == 0x50) {
               cb(RTCDataChannelMessage.fromBinary(bytes));
             }
@@ -177,5 +197,19 @@ class RelayDataChannel extends RTCDataChannel {
     });
     _drainInbound();
     return completer.future;
+  }
+
+  /// Send a plaintext `e2e_fallback` request to the peer, at most once per
+  /// session. Called when [SignalingService] has just reported this peer
+  /// entered fallback; harmless to repeat (idempotent on the far side) but a
+  /// guard avoids a request per in-flight chunk.
+  void _maybeRequestFallback() {
+    if (_fallbackRequested) return;
+    if (!signaling.isPlaintextPeer(peerId)) return;
+    _fallbackRequested = true;
+    signaling.sendRelayPlaintext(peerId, {
+      't': 'text',
+      'd': '{"type":"e2e_fallback"}',
+    });
   }
 }
