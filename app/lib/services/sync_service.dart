@@ -11,6 +11,7 @@ import '../models/song.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
 import 'relay_data_channel.dart';
+import 'update_service.dart';
 
 /// Progress of an in-flight transfer (for the UI).
 class TransferProgress {
@@ -147,6 +148,58 @@ class SyncService extends ChangeNotifier {
   void _onLibraryChanged() {
     _cachedFingerprint = null;
     _resetResyncBackoff();
+    // Event-driven fast path: tell connected peers right away that our
+    // library changed so they pull the manifest immediately instead of
+    // waiting for the next (possibly backed-off) resync tick.
+    _scheduleNudge();
+  }
+
+  // ---- Library-change nudge ----
+  //
+  // A nudge is a tiny control message meaning "my library just changed, ask
+  // me for my manifest now". It makes cross-device propagation take seconds
+  // even while the periodic resync is backed off to ~5 minutes, without
+  // adding any idle work: nudges are only ever sent in direct response to a
+  // local library mutation.
+
+  Timer? _nudgeTimer;
+  DateTime _lastNudgeSent = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastNudgeHandled = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Coalesce bursts (e.g. importing many files) into ONE nudge.
+  void _scheduleNudge() {
+    if (_channels.isEmpty || _disposed) return;
+    _nudgeTimer ??= Timer(const Duration(milliseconds: 500), () {
+      _nudgeTimer = null;
+      _sendNudges();
+    });
+  }
+
+  void _sendNudges() {
+    if (_channels.isEmpty || _disposed) return;
+    final now = DateTime.now();
+    if (now.difference(_lastNudgeSent) < const Duration(seconds: 1)) return;
+    _lastNudgeSent = now;
+    for (final peerId in _channels.keys.toList()) {
+      debugPrint('[sync] -> $peerId: nudge (local library changed)');
+      _send(peerId, {'type': 'nudge'});
+    }
+  }
+
+  /// Peer told us its library changed. Exchange manifests immediately.
+  /// Loop safety: this handler only produces manifest traffic, never another
+  /// nudge, so nudges cannot cascade between peers.
+  void _onNudge(String peerId) {
+    final now = DateTime.now();
+    if (now.difference(_lastNudgeHandled) < const Duration(milliseconds: 250)) {
+      return; // rate limit: one exchange per burst of nudges
+    }
+    _lastNudgeHandled = now;
+    debugPrint('[sync] <- $peerId: nudge; exchanging manifests now');
+    // Fingerprint-gated: goes out immediately only if OUR library also
+    // changed since we last synced with this peer.
+    _sendManifest(peerId);
+    _send(peerId, {'type': 'request_manifest'});
   }
 
   Timer? _resyncTimer;
@@ -171,6 +224,15 @@ class SyncService extends ChangeNotifier {
   /// resyncs can't hammer the same failing files repeatedly.
   final Map<String, DateTime> _lastRequestAt = {};
   static const Duration _requestCooldown = Duration(minutes: 2);
+  /// CUMULATIVE failed-verification strikes per song, surviving across
+  /// resyncs. A permanently corrupt/oversized source file used to be
+  /// re-requested on every cooldown expiry forever — each cycle resent the
+  /// whole file (constant CPU + network on both devices until restart).
+  final Map<String, int> _songStrikes = {};
+  static const int _songStrikeLimit = 3;
+  /// Songs that exhausted their strikes: excluded from automatic re-request
+  /// until a manual resync or a fresh channel attach clears them.
+  final Set<String> _quarantined = {};
   Timer? _completedTimer;
 
   _SyncBatch? _inboundBatch;
@@ -180,6 +242,29 @@ class SyncService extends ChangeNotifier {
   bool _notifyQueued = false;
   bool _disposed = false;
   Timer? _watchdogTimer;
+
+  /// Peers whose hello version was already logged (bounded: entries are
+  /// dropped when the peer detaches).
+  final Set<String> _peerVersionsLogged = {};
+
+  /// Unconditional 60s status line: proves whether anything is still alive
+  /// (transfers, batches, quarantines) after a big sync, plus RSS so memory
+  /// bloat vs an active loop is distinguishable at a glance.
+  Timer? _statsTimer;
+  void _startStatsTimer() {
+    _statsTimer ??= Timer.periodic(const Duration(seconds: 60), (_) {
+      if (_disposed) return;
+      final rss = ProcessInfo.currentRss;
+      final batches = (_inboundBatch != null ? 'in' : '') +
+          (_outboundBatch != null ? 'out' : '');
+      debugPrint('[sync] status: channels=${_channels.length} '
+          'incoming=${_incoming.length} sending=${_sending.length} '
+          'transfers=${_transfers.length} batches=$batches '
+          'quarantined=${_quarantined.length} '
+          'deferSaves=${library.deferIndexSaves} '
+          'rss=${(rss / (1024 * 1024)).toStringAsFixed(0)}MB');
+    });
+  }
 
   SyncBatchState? get batchState {
     if (_inboundBatch != null) {
@@ -226,11 +311,20 @@ class SyncService extends ChangeNotifier {
   void attachChannel(String peerId, RTCDataChannel channel) {
     _channels[peerId] = channel;
     channel.onMessage = (msg) => _onMessage(peerId, msg);
+    // Fresh attach: give previously quarantined songs another chance (the
+    // peer may have repaired/replaced the failing file since).
+    if (_quarantined.isNotEmpty) {
+      debugPrint('[sync] fresh attach: releasing ${_quarantined.length} '
+          'quarantined song(s)');
+      _quarantined.clear();
+      _songStrikes.clear();
+    }
     _sendHelloAndManifest(peerId, channel);
     notifyListeners();
     // New channel connection: back to the fast 45s cadence.
     _resetResyncBackoff();
     _startResyncTimer();
+    _startStatsTimer();
   }
 
   Future<void> _sendHelloAndManifest(
@@ -246,6 +340,7 @@ class SyncService extends ChangeNotifier {
       'type': 'hello',
       'deviceName': identity.deviceName,
       'e2ePub': e2ePub,
+      'v': UpdateService.currentVersion,
       // Marks this as an INITIAL connection hello so the peer replies with a
       // forced manifest — a previous identical manifest may still have been
       // lost before its handler was attached. Routine resync hellos never
@@ -414,8 +509,19 @@ class SyncService extends ChangeNotifier {
         },
       };
 
-  int resyncNow() {
+  /// Trigger a manifest exchange with all connected peers.
+  ///
+  /// [userInitiated] marks an explicit user action (the refresh button):
+  /// quarantined songs get another chance. The periodic backed-off tick must
+  /// NOT clear quarantines, or poison songs would resume their resend loop.
+  int resyncNow({bool userInitiated = false}) {
     if (_channels.isEmpty) return 0;
+    if (userInitiated && _quarantined.isNotEmpty) {
+      debugPrint('[sync] manual resync: releasing '
+          '${_quarantined.length} quarantined song(s)');
+      _quarantined.clear();
+      _songStrikes.clear();
+    }
     final count = _channels.length;
     for (final peerId in _channels.keys.toList()) {
       final ch = _channels[peerId];
@@ -425,6 +531,7 @@ class SyncService extends ChangeNotifier {
         'type': 'hello',
         'deviceName': identity.deviceName,
         'e2ePub': e2ePub,
+        'v': UpdateService.currentVersion,
         'ack': true,
       });
       _sendManifest(peerId);
@@ -461,6 +568,9 @@ class SyncService extends ChangeNotifier {
       _resyncTimer = null;
       _watchdogTimer?.cancel();
       _watchdogTimer = null;
+      _statsTimer?.cancel();
+      _statsTimer = null;
+      _peerVersionsLogged.removeWhere((k) => k.startsWith('$peerId|'));
       _inboundBatch?.dismissTimer?.cancel();
       _inboundBatch = null;
       _outboundBatch?.dismissTimer?.cancel();
@@ -513,6 +623,9 @@ class SyncService extends ChangeNotifier {
       case 'song_deleted':
         _track(_onRemoteDeleted(peerId, msg));
         break;
+      case 'nudge':
+        _onNudge(peerId);
+        break;
       case 'playlist_manifest':
         _track(_onPlaylistManifest(peerId, msg));
         break;
@@ -536,6 +649,18 @@ class SyncService extends ChangeNotifier {
 
   Future<void> _onHello(String peerId, Map<String, dynamic> msg) async {
     debugPrint('[sync] <- $peerId: hello (e2ePub: ${msg['e2ePub'] != null})');
+    // Peer version exchange: makes mixed-version pairs visible in logs
+    // instead of letting old-peer behaviour masquerade as a mystery bug.
+    final peerV = msg['v']?.toString() ?? 'unknown';
+    if (_peerVersionsLogged.add('$peerId|$peerV')) {
+      if (peerV != UpdateService.currentVersion) {
+        debugPrint('[sync] WARNING: peer $peerId runs v$peerV, this device '
+            'runs v${UpdateService.currentVersion}; newer optimisations '
+            '(manifest gating etc.) are inactive against old peers');
+      } else {
+        debugPrint('[sync] peer $peerId version $peerV');
+      }
+    }
     final e2ePub = msg['e2ePub'];
     final ch = _channels[peerId];
     if (ch is RelayDataChannel) {
@@ -552,6 +677,7 @@ class SyncService extends ChangeNotifier {
           'type': 'hello',
           'deviceName': identity.deviceName,
           'e2ePub': ch.signaling.e2ePubB64,
+          'v': UpdateService.currentVersion,
           'ack': true,
           // Echo the initial flag so the ORIGINAL connector gets a forced
           // manifest reply; routine resync hellos stay fingerprint-gated.
@@ -601,6 +727,9 @@ class SyncService extends ChangeNotifier {
       final isActivelyDownloading = _incoming.containsKey(song.id);
 
       if (!hasMatchingSong && !isActivelyDownloading) {
+        // Quarantined songs are never auto re-requested; they wait for a
+        // manual resync or a fresh attach.
+        if (_quarantined.contains(song.id)) continue;
         missingSongs.add(song);
       }
     }
@@ -1055,6 +1184,7 @@ class SyncService extends ChangeNotifier {
       );
       _markComplete(peerId, songId);
       _finalizeAttempts.remove(songId);
+      _songStrikes.remove(songId); // healthy again: strikes reset
       onDownloaded?.call(inc.song.title);
       if (_inboundBatch != null && _inboundBatch!.isDownload) {
         _inboundBatch!.completedSongs++;
@@ -1094,20 +1224,32 @@ class SyncService extends ChangeNotifier {
       _removeProgress(peerId, songId);
       // Retry cap + cooldown: without them a persistently-failing song is
       // re-requested forever (nonstop CPU + network until the app restarts).
-      final attempts = (_finalizeAttempts[songId] ?? 0) + 1;
-      _finalizeAttempts[songId] = attempts;
-      final lastAt = _lastRequestAt[songId];
-      final cooldownOk = lastAt == null ||
-          DateTime.now().difference(lastAt) > _requestCooldown;
-      if (attempts <= maxFinalizeRetries && cooldownOk) {
-        _lastRequestAt[songId] = DateTime.now();
-        debugPrint('[sync] re-requesting $songId '
-            '(attempt $attempts/${maxFinalizeRetries + 1})');
-        _send(peerId, {'type': 'request_songs', 'ids': [songId]});
-      } else {
-        debugPrint('[sync] giving up on $songId after $attempts failed '
-            'verifications; it will retry on the next resync/reconnect');
+      // Cumulative strikes ACROSS resyncs: caps the total cost of a song
+      // that can never verify instead of retrying it forever.
+      final strikes = (_songStrikes[songId] ?? 0) + 1;
+      _songStrikes[songId] = strikes;
+      if (strikes >= _songStrikeLimit) {
+        _quarantined.add(songId);
         _finalizeAttempts.remove(songId);
+        debugPrint('[sync] QUARANTINE $songId after $strikes failed '
+            'verifications; auto-retry disabled (manual resync or reconnect '
+            'clears it)');
+      } else {
+        final attempts = (_finalizeAttempts[songId] ?? 0) + 1;
+        _finalizeAttempts[songId] = attempts;
+        final lastAt = _lastRequestAt[songId];
+        final cooldownOk = lastAt == null ||
+            DateTime.now().difference(lastAt) > _requestCooldown;
+        if (attempts <= maxFinalizeRetries && cooldownOk) {
+          _lastRequestAt[songId] = DateTime.now();
+          debugPrint('[sync] re-requesting $songId '
+              '(attempt $attempts/${maxFinalizeRetries + 1}, '
+              'strike $strikes/$_songStrikeLimit)');
+          _send(peerId, {'type': 'request_songs', 'ids': [songId]});
+        } else {
+          debugPrint('[sync] deferring $songId (cooldown); '
+              'strike $strikes/$_songStrikeLimit');
+        }
       }
     }
   }
@@ -1368,6 +1510,10 @@ class SyncService extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     library.removeListener(_onLibraryChanged);
+    _nudgeTimer?.cancel();
+    _nudgeTimer = null;
+    _statsTimer?.cancel();
+    _statsTimer = null;
     _resyncTimer?.cancel();
     _resyncTimer = null;
     _watchdogTimer?.cancel();

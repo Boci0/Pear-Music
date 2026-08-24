@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'controllers/app_controller.dart';
 import 'screens/home_shell.dart';
+import 'services/debug_log.dart';
 import 'services/identity_service.dart';
 import 'services/library_service.dart';
 import 'services/player_service.dart';
@@ -22,6 +23,15 @@ import 'services/youtube_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Mirror every debugPrint into a rotating peerm_debug.log file so release
+  // builds (no console on Windows) can still be diagnosed in the field:
+  // post-transfer lag, resend loops and reconnect churn all leave traces.
+  final originalDebugPrint = debugPrint;
+  debugPrint = (String? message, {int? wrapWidth}) {
+    if (message != null) DebugLog.write(message);
+    originalDebugPrint(message, wrapWidth: wrapWidth);
+  };
 
   // Route AES-GCM (E2E relay encryption) through the platform's native crypto
   // engine on Android/iOS. Without this every transfer chunk is encrypted in
