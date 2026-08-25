@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/playlist.dart';
@@ -101,7 +101,7 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                             ),
                           ),
                           child: Text(
-                            'Playing from ',
+                            'Playing from ${player.queueTitle}',
                             style: Theme.of(context)
                                 .textTheme
                                 .labelSmall
@@ -144,14 +144,14 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                                 value: 0,
                                 icon: const Icon(Icons.queue_music_rounded,
                                     size: 18),
-                                label: Text('Queue ()'),
+                                label: Text('Queue (${player.queue.length})'),
                               ),
                               ButtonSegment(
                                 value: 1,
                                 icon: const Icon(Icons.playlist_play_rounded,
                                     size: 18),
                                 label: Text(
-                                    'Playlists ()'),
+                                    'Playlists (${controller.playlists.length})'),
                               ),
                             ],
                             selected: {_selectedTab},
@@ -319,7 +319,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                     ? Icon(Icons.graphic_eq_rounded,
                         color: scheme.primary, size: 20)
                     : Text(
-                        '',
+                        '${i + 1}',
                         style: TextStyle(
                           color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
                           fontWeight: FontWeight.w600,
@@ -436,7 +436,7 @@ class PlayerWidePlaylistsView extends StatelessWidget {
                         )
                       : null,
                 ),
-                subtitle: Text(' songs'),
+                subtitle: Text('${pl.songIds.length} songs'),
                 trailing: IconButton(
                   icon: const Icon(Icons.play_circle_filled_rounded),
                   color: scheme.primary,

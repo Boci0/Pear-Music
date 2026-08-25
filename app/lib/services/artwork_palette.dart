@@ -47,17 +47,16 @@ class ArtworkPalette {
   /// Synchronous cached color extraction for zero-latency widget rendering.
   static Color dominantSync(Song song) {
     final art = song.artwork;
-    if (art == null || art.isEmpty) return _lastAccent ?? fallback;
+    if (art == null || art.isEmpty) return fallback;
     final id = song.id;
     final cached = _resolvedColors[id];
     if (cached != null) return cached;
     // Asynchronously resolve in background isolate without blocking UI thread
     dominant(song).then((color) {
-      _lastAccent = color;
       _resolvedColors[id] = color;
       _trim(_resolvedColors, _maxColorEntries);
     });
-    return _lastAccent ?? fallback;
+    return fallback;
   }
 
   /// Returns the dominant colour for [song] (or [fallback] when the song has

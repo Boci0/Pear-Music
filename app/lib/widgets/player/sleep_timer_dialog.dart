@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -60,7 +60,7 @@ Future<void> showSleepTimerDialog(
                   child: Text(
                     player.sleepTimerEndOfSong
                         ? 'Stopping playback at the end of this song'
-                        : 'Stopping playback in  minutes',
+                        : 'Stopping playback in ${(remaining?.inMinutes ?? 0) + 1} minutes',
                     style: TextStyle(
                       color: scheme.primary,
                       fontWeight: FontWeight.w600,
@@ -174,12 +174,12 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
       } else if (remaining != null) {
         final m = remaining.inMinutes;
         final s = remaining.inSeconds % 60;
-        label = ':';
+        label = '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
       }
     }
 
     return IconButton(
-      tooltip: isActive ? 'Sleep timer: ' : 'Set sleep timer',
+      tooltip: isActive ? 'Sleep timer: $label' : 'Set sleep timer',
       icon: isActive
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

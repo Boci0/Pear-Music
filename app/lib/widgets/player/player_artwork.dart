@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -86,7 +86,7 @@ class PlayerArtworkHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Hero(
-      tag: 'player_artwork_',
+      tag: 'player_artwork_${song.id}',
       child: Material(
         type: MaterialType.transparency,
         child: PlayerArtwork(

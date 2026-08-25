@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/playlist.dart';
@@ -94,7 +94,7 @@ class PlayerDrawer extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          subtitle: Text(' songs'),
+                          subtitle: Text('${pl.songIds.length} songs'),
                           selected: selected,
                           onTap: () {
                             onActivePlaylistChanged(pl.id);

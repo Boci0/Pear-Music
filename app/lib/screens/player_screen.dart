@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
 import '../widgets/player/player_drawer.dart';
@@ -38,6 +39,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// HomeShell''s Scaffold (which has no drawer) and silently do nothing.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  Color _accentColor = ArtworkPalette.fallback;
+  String? _resolvedSongId;
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +50,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
         player.queueSourceId!.startsWith('playlist:')) {
       _activePlaylistId = player.queueSourceId!.substring('playlist:'.length);
     }
+  }
+
+  void _resolveAccent(Song song) {
+    if (_resolvedSongId == song.id) return;
+    _resolvedSongId = song.id;
+    if (song.artwork == null || song.artwork!.isEmpty) {
+      _accentColor = ArtworkPalette.fallback;
+      return;
+    }
+    _accentColor = ArtworkPalette.dominantSync(song);
+    ArtworkPalette.dominant(song).then((color) {
+      if (mounted && _resolvedSongId == song.id && _accentColor != color) {
+        setState(() => _accentColor = color);
+      }
+    });
   }
 
   @override
@@ -82,11 +101,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
+    _resolveAccent(song);
+
     final duration = player.duration ?? Duration.zero;
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
 
-    // Theme the player around the song''s artwork: extract a dominant colour
+    // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
     // changes.
     return Scaffold(
@@ -103,14 +124,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   setState(() => _activePlaylistId = id),
             ),
       body: TweenAnimationBuilder<Color?>(
+        key: ValueKey(song.id),
         tween: ColorTween(
           begin: ArtworkPalette.fallback,
-          end: ArtworkPalette.dominantSync(song),
+          end: _accentColor,
         ),
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
         builder: (context, animColor, _) {
-          final activeAccent = animColor ?? ArtworkPalette.fallback;
+          final activeAccent = animColor ?? _accentColor;
           return SafeArea(
             child: Padding(
               padding:
