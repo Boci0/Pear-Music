@@ -98,7 +98,36 @@ class StreamCacheManager {
         } catch (_) {}
       }
 
-      // Method 1: Fast & rate-limit-resistant yt-dlp stream extraction
+      // Method 1: Fast direct HTTP stream pipe (Native on Android, iOS, Windows, macOS, Linux)
+      try {
+        final manifest = await _client.videos.streamsClient
+            .getManifest(videoId)
+            .timeout(const Duration(seconds: 8));
+        final audioOnly = manifest.audioOnly;
+        if (audioOnly.isNotEmpty) {
+          final audio = audioOnly.withHighestBitrate();
+          final stream = _client.videos.streamsClient.get(audio);
+          final sink = partFile.openWrite();
+          await stream.pipe(sink);
+          await sink.flush();
+          await sink.close();
+
+          if (await partFile.exists() && (await partFile.length()) > 50000) {
+            if (await targetFile.exists()) {
+              try {
+                await targetFile.delete();
+              } catch (_) {}
+            }
+            await partFile.rename(targetFile.path);
+            unawaited(enforceCacheQuota());
+            return targetFile;
+          }
+        }
+      } catch (e) {
+        debugPrint('[StreamCacheManager] direct stream download failed: $e');
+      }
+
+      // Method 2: yt-dlp extractor fallback
       try {
         final bin = await YoutubeService.ytDlpPath();
         if (bin != null) {
@@ -129,68 +158,7 @@ class StreamCacheManager {
           }
         }
       } catch (e) {
-        debugPrint('[StreamCacheManager] yt-dlp stream download failed: $e');
-      }
-
-      // Method 2: Android embedded yt-dlp channel
-      if (YoutubeService.isEmbeddedYtDlpSupported) {
-        try {
-          const channel = MethodChannel('peerm/ytdlp');
-          await channel.invokeMethod('init').timeout(const Duration(seconds: 30));
-          final processId = 'peerm-stream-${DateTime.now().millisecondsSinceEpoch}';
-          final outDir = Directory(p.join(dir.path, 'tmp_$videoId'));
-          if (!await outDir.exists()) await outDir.create(recursive: true);
-
-          await channel.invokeMethod('download', {
-            'url': 'https://www.youtube.com/watch?v=$videoId',
-            'outputDir': outDir.path,
-            'processId': processId,
-          }).timeout(const Duration(seconds: 30));
-
-          for (final f in outDir.listSync().whereType<File>()) {
-            if (await f.length() > 50000) {
-              if (await targetFile.exists()) {
-                try {
-                  await targetFile.delete();
-                } catch (_) {}
-              }
-              await f.rename(targetFile.path);
-              try {
-                await outDir.delete(recursive: true);
-              } catch (_) {}
-              unawaited(enforceCacheQuota());
-              return targetFile;
-            }
-          }
-        } catch (e) {
-          debugPrint('[StreamCacheManager] Android embedded yt-dlp failed: $e');
-        }
-      }
-
-      // Method 2: youtube_explode fallback
-      try {
-        final manifest = await _client.videos.streamsClient
-            .getManifest(videoId)
-            .timeout(const Duration(seconds: 5));
-        final audio = manifest.audioOnly.withHighestBitrate();
-        final stream = _client.videos.streamsClient.get(audio);
-        final sink = partFile.openWrite();
-        await stream.pipe(sink);
-        await sink.flush();
-        await sink.close();
-
-        if (await partFile.exists() && (await partFile.length()) > 50000) {
-          if (await targetFile.exists()) {
-            try {
-              await targetFile.delete();
-            } catch (_) {}
-          }
-          await partFile.rename(targetFile.path);
-          unawaited(enforceCacheQuota());
-          return targetFile;
-        }
-      } catch (e) {
-        debugPrint('[StreamCacheManager] youtube_explode download failed: $e');
+        debugPrint('[StreamCacheManager] yt-dlp fallback failed: $e');
       }
     } catch (e) {
       debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');
