@@ -148,6 +148,13 @@ class SyncService extends ChangeNotifier {
   void _onLibraryChanged() {
     _cachedFingerprint = null;
     _resetResyncBackoff();
+    // Do not spam nudges across peers while an inbound/outbound batch is actively in flight.
+    if (_incoming.isNotEmpty ||
+        (_inboundBatch != null && !_inboundBatch!.isDone) ||
+        _sending.isNotEmpty ||
+        (_outboundBatch != null && !_outboundBatch!.isDone)) {
+      return;
+    }
     // Event-driven fast path: tell connected peers right away that our
     // library changed so they pull the manifest immediately instead of
     // waiting for the next (possibly backed-off) resync tick.
@@ -214,6 +221,9 @@ class SyncService extends ChangeNotifier {
   String? _cachedFingerprint;
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, bool> _sending = {};
+  final Map<String, Set<String>> _queuedSongIds = {};
+  final Set<String> _cancelledSends = {};
+  final Map<String, DateTime> _ignoredSongChunks = {};
 
   /// Per-song cooldown for unknown-chunk replies: a flood of already in-flight
   /// chunks for a song we never registered must not generate a reply storm of
@@ -501,6 +511,9 @@ class SyncService extends ChangeNotifier {
       _completedTimer?.cancel();
       _completedTimer = null;
     }
+    _ignoredSongChunks.clear();
+    // Flush one nudge now that transfers have settled so peers get the final manifest
+    _scheduleNudge();
     debugPrint('[sync] idle: hashJobs pending handled by LibraryService; '
         'incoming=${_incoming.length} sending=${_sending.length} '
         'transfers=${_transfers.length} completed=${_completed.length}');
@@ -550,6 +563,8 @@ class SyncService extends ChangeNotifier {
   void detachChannel(String peerId) {
     _channels.remove(peerId);
     _sendQueues.remove(peerId);
+    _queuedSongIds.remove(peerId);
+    _cancelledSends.removeWhere((k) => k.startsWith('$peerId|'));
     _lastFingerprintSent.remove(peerId);
     _peersInSync.remove(peerId);
     final incomplete =
@@ -624,7 +639,11 @@ class SyncService extends ChangeNotifier {
         _track(_finalizeIncoming(peerId, msg['id'] as String));
         break;
       case 'file_error':
-        _track(_abortIncoming(peerId, msg['id'] as String));
+        final songId = msg['id'] as String?;
+        if (songId != null) {
+          _cancelledSends.add(_sendKey(peerId, songId));
+          _track(_abortIncoming(peerId, songId));
+        }
         break;
       case 'song_deleted':
         _track(_onRemoteDeleted(peerId, msg));
@@ -780,14 +799,23 @@ class SyncService extends ChangeNotifier {
   final Map<String, Future<void>> _sendQueues = {};
 
   void _enqueueSend(String peerId, Song song) {
+    final sendKey = _sendKey(peerId, song.id);
+    final queued = _queuedSongIds.putIfAbsent(peerId, () => <String>{});
+    if (queued.contains(song.id) || _sending.containsKey(sendKey)) {
+      return;
+    }
+    queued.add(song.id);
+
     final prev = _sendQueues[peerId] ?? Future<void>.value();
     final next = prev.then((_) async {
-      if (_channels.containsKey(peerId)) {
+      queued.remove(song.id);
+      if (_channels.containsKey(peerId) && !_cancelledSends.contains(sendKey)) {
         await _sendFile(peerId, song);
       } else {
         _removeProgress(peerId, song.id);
       }
     }).catchError((Object e) {
+      queued.remove(song.id);
       debugPrint('[sync] send error for ${song.title}: $e');
       _removeProgress(peerId, song.id);
     });
@@ -821,11 +849,6 @@ class SyncService extends ChangeNotifier {
       // Defer artwork-heavy index encodes until the batch finishes.
       _updateDeferSaves();
       for (final song in requestedSongs) {
-        final sendKey = _sendKey(peerId, song.id);
-        if (_sending.containsKey(sendKey)) {
-          // Already actively in-flight to this peer; do not duplicate
-          continue;
-        }
         _enqueueSend(peerId, song);
       }
       _flushNotify();
@@ -891,6 +914,10 @@ class SyncService extends ChangeNotifier {
       final raf = await file.open(mode: FileMode.read);
       try {
         while (sentBytes < fileSize) {
+          if (_cancelledSends.contains(sendKey) || !_channels.containsKey(peerId)) {
+            debugPrint('[sync] aborted sending ${song.id} to $peerId (cancelled / channel closed)');
+            break;
+          }
           final toRead = (fileSize - sentBytes) > chunkSize
               ? chunkSize
               : (fileSize - sentBytes);
@@ -910,6 +937,11 @@ class SyncService extends ChangeNotifier {
         }
       } finally {
         await raf.close();
+      }
+
+      if (_cancelledSends.contains(sendKey)) {
+        _removeProgress(peerId, song.id);
+        return;
       }
 
       _send(peerId, {'type': 'file_done', 'id': song.id});
@@ -958,6 +990,7 @@ class SyncService extends ChangeNotifier {
       _removeProgress(peerId, song.id);
     } finally {
       _sending.remove(sendKey);
+      _cancelledSends.remove(sendKey);
       // Sending side settled: if everything else is quiet too, go idle.
       _maybeEnterIdle();
     }
@@ -1012,6 +1045,7 @@ class SyncService extends ChangeNotifier {
         );
     if (hasMatchingFile) {
       debugPrint('[sync][diag] file_meta for ${song.title} already have; skipping');
+      _ignoredSongChunks[song.id] = DateTime.now();
       _send(peerId, {'type': 'file_done', 'id': song.id});
       return;
     }
@@ -1082,6 +1116,11 @@ class SyncService extends ChangeNotifier {
   }
 
   void _noteUnknownChunk(String peerId, String songId) {
+    final ignoredAt = _ignoredSongChunks[songId];
+    if (ignoredAt != null &&
+        DateTime.now().difference(ignoredAt) < const Duration(seconds: 30)) {
+      return; // Silently ignore in-flight chunks for a song we already have
+    }
     // Storm breaker: an unreachable/undecryptable sender replaying a song we
     // never registered fires at most ONE reply per [_unknownChunkReplyCooldown]
     // instead of a reply per chunk (which would itself be a CPU/network loop).

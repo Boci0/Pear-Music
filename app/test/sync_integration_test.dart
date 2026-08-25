@@ -600,6 +600,36 @@ void main() {
         timeout: const Duration(seconds: 5));
     expect(syncB.batchState, isNull);
   });
+
+  test('file_error aborts in-flight file send and duplicate requests are ignored',
+      () async {
+    final audio = makeAudio('huge-stream.mp3', 500_000);
+    await libA.addLocalFiles([audio]);
+    final song = libA.songs.first;
+
+    final fakeCh = _FakeChannel();
+    syncA.attachChannel('device-X', fakeCh);
+
+    // Request the same song twice back to back
+    fakeCh.onMessage?.call(RTCDataChannelMessage(jsonEncode({
+      'type': 'request_songs',
+      'ids': [song.id],
+    })));
+    fakeCh.onMessage?.call(RTCDataChannelMessage(jsonEncode({
+      'type': 'request_songs',
+      'ids': [song.id],
+    })));
+
+    // Send file_error to cancel in-flight transfer
+    fakeCh.onMessage?.call(RTCDataChannelMessage(jsonEncode({
+      'type': 'file_error',
+      'id': song.id,
+      'message': 'already have',
+    })));
+
+    await waitFor(() => syncA.transfers.isEmpty);
+    expect(syncA.transfers.isEmpty, isTrue);
+  });
 }
 
 /// Fire-and-forget wrapper so tests read cleanly.

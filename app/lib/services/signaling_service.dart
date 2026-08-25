@@ -878,7 +878,7 @@ class SignalingService {
                   '${capped.inSeconds}s');
             }
             _handleDisconnect();
-            ack.complete();
+            if (!ack.isCompleted) ack.complete();
           }
         });
         try {
