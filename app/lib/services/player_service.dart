@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song.dart';
 import 'artwork_service.dart';
+import 'identity_service.dart';
 import 'library_service.dart';
 import 'youtube_search_service.dart';
 
@@ -21,13 +22,16 @@ enum LoopSetting { off, all, one }
 ///
 /// The queue is owned in Dart: only ONE source is loaded at a time and
 /// [next]/[previous] load the next song explicitly. This is reliable across
-/// backends (multi-source playlists don't advance on media_kit — the cause of
+/// backends (multi-source playlists don't advance on media_kit: the cause of
 /// "it just loops on 1 song") and gives us loop + shuffle for free. Each source
 /// carries a [MediaItem] tag so `just_audio_background` renders the
 /// notification (play/pause, next/previous, repeat, shuffle).
 class PlayerService extends ChangeNotifier {
   final LibraryService library;
-  final AudioPlayer _player = AudioPlayer();
+  final IdentityService? identity;
+  late final AudioPlayer _player;
+  AndroidLoudnessEnhancer? _loudnessEnhancer;
+  bool _loudnessNormalization = true;
   final math.Random _random = math.Random();
 
   Song? currentSong;
@@ -40,7 +44,15 @@ class PlayerService extends ChangeNotifier {
 
   final List<StreamSubscription> _subs = [];
 
-  PlayerService(this.library);
+  PlayerService(this.library, {this.identity}) {
+    if (Platform.isAndroid) {
+      _loudnessEnhancer = AndroidLoudnessEnhancer();
+      final pipeline = AudioPipeline(androidAudioEffects: [_loudnessEnhancer!]);
+      _player = AudioPlayer(audioPipeline: pipeline);
+    } else {
+      _player = AudioPlayer();
+    }
+  }
 
   Song? get song => currentSong;
   Duration? get position => _player.position;
@@ -48,13 +60,42 @@ class PlayerService extends ChangeNotifier {
   bool get playing => _player.playing;
   double get volume => _player.volume;
   bool get hasLoaded => currentSong != null;
+  bool get loudnessNormalization => _loudnessNormalization;
 
   List<Song> get queue => List.unmodifiable(_queue);
   int get queueIndex => _queueIndex;
   LoopSetting get loopMode => _loopMode;
   bool get shuffle => _shuffle;
 
+  Future<void> setLoudnessNormalization(bool enabled) async {
+    _loudnessNormalization = enabled;
+    if (identity != null) {
+      await identity!.setLoudnessNormalization(enabled);
+    }
+    if (Platform.isAndroid && _loudnessEnhancer != null) {
+      try {
+        await _loudnessEnhancer!.setEnabled(enabled);
+        if (enabled) {
+          await _loudnessEnhancer!.setTargetGain(2.0);
+        }
+      } catch (e) {
+        debugPrint('[player] loudness enhancer error: $e');
+      }
+    }
+    notifyListeners();
+  }
+
   Future<void> init() async {
+    _loudnessNormalization = identity?.loudnessNormalization ?? true;
+    if (Platform.isAndroid && _loudnessEnhancer != null) {
+      try {
+        await _loudnessEnhancer!.setEnabled(_loudnessNormalization);
+        if (_loudnessNormalization) {
+          await _loudnessEnhancer!.setTargetGain(2.0);
+        }
+      } catch (_) {}
+    }
+
     // Pre-render the default album art (if it isn't cached yet) so the first
     // play starts instantly and the notification already has artwork.
     ArtworkService.warmUp();

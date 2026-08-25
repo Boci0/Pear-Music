@@ -34,6 +34,7 @@ class IdentityService {
   static const _pairedIdsKey = 'peerm_paired_device_ids';
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
   static const _sortOptionKey = 'peerm_sort_option';
+  static const _loudnessNormKey = 'peerm_loudness_normalization';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -44,6 +45,7 @@ class IdentityService {
   late Map<String, String> _paired; // deviceId -> last known name
   late Set<String> _favoriteSongIds;
   late SortOption _sortOption;
+  late bool _loudnessNormalization;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -59,6 +61,7 @@ class IdentityService {
       (e) => e.name == sortStr,
       orElse: () => SortOption.dateAdded,
     );
+    _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -193,5 +196,12 @@ class IdentityService {
   Future<void> setSortOption(SortOption option) async {
     _sortOption = option;
     await _prefs.setString(_sortOptionKey, option.name);
+  }
+
+  bool get loudnessNormalization => _loudnessNormalization;
+
+  Future<void> setLoudnessNormalization(bool value) async {
+    _loudnessNormalization = value;
+    await _prefs.setBool(_loudnessNormKey, value);
   }
 }

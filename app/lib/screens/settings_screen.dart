@@ -168,6 +168,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          _sectionTitle(context, 'Audio & Playback'),
+          Card(
+            child: SwitchListTile(
+              secondary: const Icon(Icons.equalizer_rounded),
+              title: const Text('Loudness Normalization'),
+              subtitle: const Text(
+                  'Equalize volume levels across tracks to prevent sudden volume jumps'),
+              value: identity.loudnessNormalization,
+              onChanged: (val) async {
+                await identity.setLoudnessNormalization(val);
+                await controller.player.setLoudnessNormalization(val);
+                setState(() {});
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
           _sectionTitle(context, 'Download from links'),
           Card(
             child: Padding(

@@ -86,7 +86,7 @@ Future<void> main() async {
   final library = LibraryService();
   final signaling = SignalingService(identity);
   final sync = SyncService(identity: identity, library: library);
-  final player = PlayerService(library);
+  final player = PlayerService(library, identity: identity);
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());
 
