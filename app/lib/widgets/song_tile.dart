@@ -52,6 +52,17 @@ class SongTile extends StatelessWidget {
             ),
             const Divider(height: 1),
             ListTile(
+              leading: const Icon(Icons.sensors_rounded),
+              title: const Text('Start Radio'),
+              onTap: () => Navigator.pop(ctx, 'radio'),
+            ),
+            if (song.sourceDeviceId == 'stream')
+              ListTile(
+                leading: const Icon(Icons.download_rounded),
+                title: const Text('Save to library'),
+                onTap: () => Navigator.pop(ctx, 'save_stream'),
+              ),
+            ListTile(
               leading: Icon(
                 isFav ? Icons.favorite : Icons.favorite_border,
                 color: isFav ? Theme.of(ctx).colorScheme.primary : null,
@@ -64,20 +75,25 @@ class SongTile extends StatelessWidget {
               title: const Text('Add to playlist'),
               onTap: () => Navigator.pop(ctx, 'playlist'),
             ),
-            ListTile(
-              leading: Icon(Icons.delete_outline,
-                  color: Theme.of(ctx).colorScheme.error),
-              title: Text('Remove from library',
-                  style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-              onTap: () => Navigator.pop(ctx, 'remove'),
-            ),
+            if (song.sourceDeviceId != 'stream')
+              ListTile(
+                leading: Icon(Icons.delete_outline,
+                    color: Theme.of(ctx).colorScheme.error),
+                title: Text('Remove from library',
+                    style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                onTap: () => Navigator.pop(ctx, 'remove'),
+              ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
     if (!context.mounted) return;
-    if (action == 'favorite') {
+    if (action == 'radio') {
+      await controller.startRadio(song);
+    } else if (action == 'save_stream') {
+      await controller.saveStreamToLibrary(song);
+    } else if (action == 'favorite') {
       await controller.toggleFavorite(song.id);
     } else if (action == 'playlist') {
       await showAddToPlaylistSheet(context, controller, song);
@@ -150,16 +166,22 @@ class SongTile extends StatelessWidget {
       ),
       subtitle: Row(
         children: [
-          if (fromPeer) ...[
+          if (song.sourceDeviceId == 'stream') ...[
+            Icon(Icons.sensors_rounded,
+                size: 14, color: theme.colorScheme.tertiary),
+            const SizedBox(width: 4),
+          ] else if (fromPeer) ...[
             Icon(Icons.cloud_done_outlined,
                 size: 14, color: theme.colorScheme.primary),
             const SizedBox(width: 4),
           ],
           Expanded(
             child: Text(
-              fromPeer
-                  ? 'Shared · ${song.sizeLabel}'
-                  : 'Local · ${song.sizeLabel}',
+              song.sourceDeviceId == 'stream'
+                  ? 'Radio Stream'
+                  : fromPeer
+                      ? 'Shared · ${song.sizeLabel}'
+                      : 'Local · ${song.sizeLabel}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall,

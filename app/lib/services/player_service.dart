@@ -11,6 +11,8 @@ import '../models/song.dart';
 import 'artwork_service.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
+import 'recommendation_service.dart';
+import 'stream_cache_manager.dart';
 import 'youtube_search_service.dart';
 
 /// How the queue advances when a track ends or the user skips.
@@ -37,10 +39,15 @@ class PlayerService extends ChangeNotifier {
   Song? currentSong;
   List<Song> _queue = [];
   int _queueIndex = -1;
-  String? queueSourceId; // 'library' | 'favorites' | 'search' | 'playlist:<id>'
+  String? queueSourceId; // 'library' | 'favorites' | 'search' | 'playlist:<id>' | 'radio'
   String? queueTitle;
   LoopSetting _loopMode = LoopSetting.off;
   bool _shuffle = false;
+  bool _autoplay = true;
+
+  String? _continuationToken;
+  bool _isLoadingRecommendations = false;
+  DateTime _lastInteraction = DateTime.now();
 
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
@@ -76,6 +83,13 @@ class PlayerService extends ChangeNotifier {
   int get queueIndex => _queueIndex;
   LoopSetting get loopMode => _loopMode;
   bool get shuffle => _shuffle;
+  bool get autoplay => _autoplay;
+
+  void setAutoplay(bool value) {
+    if (_autoplay == value) return;
+    _autoplay = value;
+    notifyListeners();
+  }
 
   void setSleepTimer(Duration? duration, {bool endOfSong = false}) {
     _sleepTimer?.cancel();
@@ -231,6 +245,77 @@ class PlayerService extends ChangeNotifier {
         maxPeriod: const Duration(milliseconds: 250),
       );
 
+  /// Starts an infinite radio mix based on [seedSong].
+  Future<void> startRadio(Song seedSong) async {
+    _lastInteraction = DateTime.now();
+    _continuationToken = null;
+    queueSourceId = 'radio';
+    queueTitle = 'Radio (${seedSong.title})';
+    _queue = [seedSong];
+    _queueIndex = 0;
+    currentSong = seedSong;
+    notifyListeners();
+
+    // Trigger initial background fetch of recommended tracks
+    unawaited(fetchAndAppendRecommendations());
+
+    await playSong(seedSong, queue: _queue, sourceId: 'radio', sourceTitle: queueTitle);
+  }
+
+  /// Fetches the next batch of recommendations and appends them to [_queue].
+  Future<bool> fetchAndAppendRecommendations() async {
+    if (_isLoadingRecommendations || _queue.isEmpty) return false;
+    _isLoadingRecommendations = true;
+    notifyListeners();
+
+    try {
+      final excludeIds = _queue.map((s) => s.id).toSet();
+      final seed = currentSong ?? _queue.last;
+
+      RecommendationBatch batch;
+      if (_continuationToken != null) {
+        batch = await RecommendationService.fetchContinuation(
+          _continuationToken!,
+          excludeVideoIds: excludeIds,
+        );
+      } else {
+        batch = await RecommendationService.fetchRadio(
+          seed,
+          excludeVideoIds: excludeIds,
+        );
+      }
+
+      if (batch.items.isNotEmpty) {
+        _continuationToken = batch.continuationToken;
+        final newSongs = batch.items.map((item) => item.toSong()).toList();
+        _queue = [..._queue, ...newSongs];
+        notifyListeners();
+        return true;
+      }
+
+      // Offline / Empty fallback: pull from local library
+      final offlineSongs = RecommendationService.getOfflineRecommendations(
+        seed,
+        library.songs,
+        excludeSongIds: excludeIds,
+      );
+      if (offlineSongs.isNotEmpty) {
+        _queue = [..._queue, ...offlineSongs];
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('[PlayerService] fetchAndAppendRecommendations error: $e');
+      return false;
+    } finally {
+      _isLoadingRecommendations = false;
+      notifyListeners();
+    }
+  }
+
+  int _playRequestToken = 0;
+
   /// Play [song], optionally in the context of [queue] (e.g. a playlist).
   Future<void> playSong(
     Song song, {
@@ -238,6 +323,10 @@ class PlayerService extends ChangeNotifier {
     String? sourceId,
     String? sourceTitle,
   }) async {
+    _lastInteraction = DateTime.now();
+    RecommendationService.markPlayed(song.id);
+    final token = ++_playRequestToken;
+
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
     // play shows the notification; the prompt does not delay playback.
@@ -258,33 +347,73 @@ class PlayerService extends ChangeNotifier {
       _queueIndex = 0;
     }
     currentSong = song;
+    notifyListeners();
+
+    // Trigger pre-fetch if we are within 3 songs of the queue end and autoplay is on
+    if (_autoplay && _queueIndex >= _queue.length - 3 && !_isLoadingRecommendations) {
+      unawaited(fetchAndAppendRecommendations());
+    }
 
     // The library's files have no embedded cover art, so use the generated
     // default artwork. Without artUri the media notification renders the app
     // launcher icon as a big placeholder instead of a proper album thumbnail.
     final artUri = await ArtworkService.defaultArtworkUri();
+    if (token != _playRequestToken) return;
 
     try {
       // Load a SINGLE source (not the whole playlist) so advancing works on
       // every backend; our Dart queue drives next/previous/loop/shuffle.
       await _player.setLoopMode(LoopMode.off);
-      await _player.setAudioSource(
-        AudioSource.uri(
-          Uri.file(library.songFile(song).path),
-          tag: MediaItem(
-            id: song.id,
-            title: song.title,
-            album: 'Pear Music',
-            artUri: artUri,
+      if (token != _playRequestToken) return;
+
+      if (song.sourceDeviceId == 'stream') {
+        final videoId = song.id.replaceFirst('stream_', '');
+        final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
+        if (token != _playRequestToken) return;
+
+        if (streamUri != null) {
+          await _player.setAudioSource(
+            AudioSource.uri(
+              streamUri,
+              tag: MediaItem(
+                id: song.id,
+                title: song.title,
+                album: 'Pear Radio',
+                artUri: artUri,
+              ),
+            ),
+          );
+        } else {
+          // If streaming failed, advance to next track
+          debugPrint('[PlayerService] Stream resolution failed for ${song.title}');
+          unawaited(next());
+          return;
+        }
+      } else {
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.file(library.songFile(song).path),
+            tag: MediaItem(
+              id: song.id,
+              title: song.title,
+              album: 'Pear Music',
+              artUri: artUri,
+            ),
           ),
-        ),
-      );
+        );
+      }
+      if (token != _playRequestToken) return;
+
       await _player.play();
     } catch (e) {
-      debugPrint('[player] failed to play ${song.title}: $e');
+      if (token == _playRequestToken) {
+        debugPrint('[player] failed to play ${song.title}: $e');
+      }
     }
-    _publishNotificationState();
-    notifyListeners();
+    if (token == _playRequestToken) {
+      _publishNotificationState();
+      notifyListeners();
+    }
   }
 
   /// Updates the current queue without restarting playback. Adjusts the active
@@ -316,6 +445,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> pause({bool smooth = true}) async {
+    _lastInteraction = DateTime.now();
     if (!_player.playing) return;
     final originalVol = _player.volume;
     if (smooth && originalVol > 0.05) {
@@ -329,6 +459,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> toggle() async {
+    _lastInteraction = DateTime.now();
     if (currentSong == null) {
       if (library.songs.isNotEmpty) {
         await playSong(library.songs.first);
@@ -344,6 +475,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> next() async {
+    _lastInteraction = DateTime.now();
     if (_queue.isEmpty) return;
     if (_loopMode == LoopSetting.one) {
       await _replayCurrent();
@@ -351,6 +483,24 @@ class PlayerService extends ChangeNotifier {
     }
     final nextIndex = _pickNextIndex();
     if (nextIndex == null) {
+      // Check 2-hour inactivity guard
+      if (DateTime.now().difference(_lastInteraction) > const Duration(hours: 2)) {
+        debugPrint('[PlayerService] Autoplay paused due to 2-hour inactivity guard.');
+        await _player.pause();
+        await _player.seek(Duration.zero);
+        notifyListeners();
+        return;
+      }
+
+      // Autoplay: fetch next batch and continue
+      if (_autoplay && currentSong != null) {
+        final appended = await fetchAndAppendRecommendations();
+        if (appended && _queueIndex + 1 < _queue.length) {
+          await playSong(_queue[_queueIndex + 1], queue: _queue);
+          return;
+        }
+      }
+
       // Loop off + end of queue: stop at the end.
       await _player.pause();
       await _player.seek(Duration.zero);

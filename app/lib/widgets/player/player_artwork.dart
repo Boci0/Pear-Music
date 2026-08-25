@@ -116,7 +116,24 @@ class PlayerSongInfo extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(width: 48),
+            if (song.sourceDeviceId == 'stream')
+              IconButton(
+                icon: Icon(
+                  Icons.download_rounded,
+                  color: theme.colorScheme.tertiary,
+                ),
+                tooltip: 'Save to library',
+                onPressed: () => controller.saveStreamToLibrary(song),
+              )
+            else
+              IconButton(
+                icon: Icon(
+                  Icons.sensors_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                tooltip: 'Start Radio mix',
+                onPressed: () => controller.startRadio(song),
+              ),
             Expanded(
               child: Text(
                 song.title,
@@ -140,7 +157,11 @@ class PlayerSongInfo extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          song.sourceDeviceId == null ? 'Added on this device' : 'Shared',
+          song.sourceDeviceId == 'stream'
+              ? 'Radio Stream'
+              : song.sourceDeviceId == null
+                  ? 'Added on this device'
+                  : 'Shared',
           style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

@@ -61,6 +61,19 @@ class PlayerDrawer extends StatelessWidget {
                   ),
                   const Spacer(),
                   IconButton(
+                    iconSize: 20,
+                    tooltip: player.autoplay
+                        ? 'Autoplay ON (Similar tracks)'
+                        : 'Autoplay OFF',
+                    icon: Icon(
+                      Icons.auto_awesome_rounded,
+                      color: player.autoplay
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                    ),
+                    onPressed: () => player.setAutoplay(!player.autoplay),
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
                   ),

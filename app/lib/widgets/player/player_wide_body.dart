@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/playlist.dart';
@@ -162,25 +163,41 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                             ),
                           ),
                           const Spacer(),
-                          if (_selectedTab == 0 && player.queue.length > 1)
-                            TextButton.icon(
-                              onPressed: () => player.toggleShuffle(),
+                          if (_selectedTab == 0) ...[
+                            IconButton(
+                              iconSize: 18,
+                              tooltip: player.autoplay
+                                  ? 'Autoplay ON (Similar tracks)'
+                                  : 'Autoplay OFF',
                               icon: Icon(
-                                Icons.shuffle_rounded,
-                                size: 16,
-                                color: player.shuffle
+                                Icons.auto_awesome_rounded,
+                                color: player.autoplay
                                     ? scheme.primary
-                                    : scheme.onSurfaceVariant,
+                                    : scheme.onSurfaceVariant.withValues(alpha: 0.4),
                               ),
-                              label: Text(
-                                player.shuffle ? 'Shuffled' : 'Shuffle',
-                                style: TextStyle(
+                              onPressed: () =>
+                                  player.setAutoplay(!player.autoplay),
+                            ),
+                            if (player.queue.length > 1)
+                              TextButton.icon(
+                                onPressed: () => player.toggleShuffle(),
+                                icon: Icon(
+                                  Icons.shuffle_rounded,
+                                  size: 16,
                                   color: player.shuffle
                                       ? scheme.primary
                                       : scheme.onSurfaceVariant,
                                 ),
+                                label: Text(
+                                  player.shuffle ? 'Shuffled' : 'Shuffle',
+                                  style: TextStyle(
+                                    color: player.shuffle
+                                        ? scheme.primary
+                                        : scheme.onSurfaceVariant,
+                                  ),
+                                ),
                               ),
-                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 14),
@@ -265,11 +282,16 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
     if (idx >= 0) {
       final targetOffset = (idx * 56.0 - 80.0)
           .clamp(0.0, _scrollController.position.maxScrollExtent);
-      _scrollController.animateTo(
-        targetOffset,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-      );
+      final diff = (_scrollController.offset - targetOffset).abs();
+      if (diff > 250) {
+        _scrollController.jumpTo(targetOffset);
+      } else if (diff > 2) {
+        _scrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+        );
+      }
     }
   }
 
@@ -337,15 +359,32 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                       : null,
                 ),
                 subtitle: Text(
-                  item.sourceDeviceId == null ? 'Local track' : 'Shared',
+                  item.sourceDeviceId == 'stream'
+                      ? 'Radio Stream'
+                      : item.sourceDeviceId == null
+                          ? 'Local track'
+                          : 'Shared',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: isCurrent
                             ? scheme.primary.withValues(alpha: 0.8)
                             : scheme.onSurfaceVariant,
                       ),
                 ),
-                trailing: isCurrent
-                    ? Container(
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (item.sourceDeviceId == 'stream')
+                      IconButton(
+                        iconSize: 18,
+                        tooltip: 'Save to library',
+                        icon: Icon(Icons.download_rounded,
+                            color: scheme.tertiary),
+                        onPressed: () => context
+                            .read<AppController>()
+                            .saveStreamToLibrary(item),
+                      ),
+                    if (isCurrent)
+                      Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 2,
@@ -362,8 +401,9 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                      )
-                    : null,
+                      ),
+                  ],
+                ),
                 onTap: () => widget.player.playSong(item, queue: queue),
               ),
             ),

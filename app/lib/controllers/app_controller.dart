@@ -17,6 +17,7 @@ import '../services/relay_data_channel.dart';
 import '../services/server_discovery.dart';
 import '../services/signaling_server.dart';
 import '../services/signaling_service.dart';
+import '../services/stream_cache_manager.dart';
 import '../services/sync_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
@@ -1226,6 +1227,22 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         sourceId: sourceId ?? (queue != null ? null : 'library'),
         sourceTitle: sourceTitle,
       );
+  Future<void> startRadio(Song song) => player.startRadio(song);
+  bool get autoplay => player.autoplay;
+  void setAutoplay(bool value) {
+    player.setAutoplay(value);
+    notifyListeners();
+  }
+  Future<void> saveStreamToLibrary(Song song) async {
+    _postMessage('Downloading "${song.title}" to library…');
+    final saved = await StreamCacheManager.saveToLibrary(song, library);
+    if (saved != null) {
+      _postMessage('Added "${saved.title}" to library');
+      notifyListeners();
+    } else {
+      _postMessage('Failed to download "${song.title}"');
+    }
+  }
   Future<void> togglePlayback() => player.toggle();
   Future<void> nextTrack() => player.next();
   Future<void> previousTrack() => player.previous();
