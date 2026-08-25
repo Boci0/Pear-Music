@@ -45,25 +45,27 @@ class ArtworkPalette {
   static Color? _lastAccent;
 
   /// Synchronous cached color extraction for zero-latency widget rendering.
-  static Color dominantSync(Song song) {
+  static Color dominantSync(Song song, {Color? fallbackColor}) {
+    final fb = fallbackColor ?? fallback;
     final art = song.artwork;
-    if (art == null || art.isEmpty) return fallback;
+    if (art == null || art.isEmpty) return fb;
     final id = song.id;
     final cached = _resolvedColors[id];
     if (cached != null) return cached;
     // Asynchronously resolve in background isolate without blocking UI thread
-    dominant(song).then((color) {
+    dominant(song, fallbackColor: fb).then((color) {
       _resolvedColors[id] = color;
       _trim(_resolvedColors, _maxColorEntries);
     });
-    return fallback;
+    return fb;
   }
 
   /// Returns the dominant colour for [song] (or [fallback] when the song has
   /// no artwork). The returned future is cached, so repeated calls are free.
-  static Future<Color> dominant(Song song) {
+  static Future<Color> dominant(Song song, {Color? fallbackColor}) {
+    final fb = fallbackColor ?? fallback;
     final art = song.artwork;
-    if (art == null || art.isEmpty) return Future.value(fallback);
+    if (art == null || art.isEmpty) return Future.value(fb);
     final id = song.id;
     final cachedColor = _resolvedColors[id];
     if (cachedColor != null) return Future.value(cachedColor);

@@ -39,7 +39,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// HomeShell''s Scaffold (which has no drawer) and silently do nothing.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  Color _accentColor = ArtworkPalette.fallback;
+  Color? _accentColor;
   String? _resolvedSongId;
 
   @override
@@ -52,15 +52,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  void _resolveAccent(Song song) {
+  void _resolveAccent(Song song, Color themePrimary) {
     if (_resolvedSongId == song.id) return;
     _resolvedSongId = song.id;
     if (song.artwork == null || song.artwork!.isEmpty) {
-      _accentColor = ArtworkPalette.fallback;
+      _accentColor = themePrimary;
       return;
     }
-    _accentColor = ArtworkPalette.dominantSync(song);
-    ArtworkPalette.dominant(song).then((color) {
+    final fallbackTarget = _accentColor ?? themePrimary;
+    _accentColor = ArtworkPalette.dominantSync(
+      song,
+      fallbackColor: fallbackTarget,
+    );
+    ArtworkPalette.dominant(song, fallbackColor: themePrimary).then((color) {
       if (mounted && _resolvedSongId == song.id && _accentColor != color) {
         setState(() => _accentColor = color);
       }
@@ -73,6 +77,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final controller = context.read<AppController>();
     final song = player.currentSong;
     final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final themePrimary = Theme.of(context).colorScheme.primary;
 
     final appBar = AppBar(
       title: isWide ? const Text('Now Playing') : null,
@@ -101,7 +106,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    _resolveAccent(song);
+    _resolveAccent(song, themePrimary);
+    final targetAccent = _accentColor ?? themePrimary;
 
     final duration = player.duration ?? Duration.zero;
     final landscape =
@@ -124,15 +130,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   setState(() => _activePlaylistId = id),
             ),
       body: TweenAnimationBuilder<Color?>(
-        key: ValueKey(song.id),
         tween: ColorTween(
-          begin: ArtworkPalette.fallback,
-          end: _accentColor,
+          end: targetAccent,
         ),
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
         builder: (context, animColor, _) {
-          final activeAccent = animColor ?? _accentColor;
+          final activeAccent = animColor ?? targetAccent;
           return SafeArea(
             child: Padding(
               padding:
