@@ -390,6 +390,19 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         YoutubeDL.getInstance().init(ctx)
         FFmpeg.getInstance().init(ctx)
         initialized = true
+
+        if (!updateChecked) {
+            updateChecked = true
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    android.util.Log.i(TAG, "Checking background yt-dlp update...")
+                    YoutubeDL.getInstance().updateYoutubeDL(ctx, YoutubeDL.UpdateChannel.STABLE)
+                    android.util.Log.i(TAG, "yt-dlp updated: " + YoutubeDL.getInstance().versionName(ctx))
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "Background yt-dlp update failed: ${e.message}")
+                }
+            }
+        }
     }
 
     private fun startDownload(
@@ -472,15 +485,28 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         executor.execute {
             try {
                 ensureInit(ctx)
-                val req = YoutubeDLRequest(url)
-                req.addOption("-g")
-                req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
-                req.addOption("--no-warnings")
-                req.addOption("--no-check-certificates")
-                req.addOption("--force-ipv4")
-                req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
-                val response = YoutubeDL.getInstance().execute(req)
-                val streamUrl = response.out?.trim()?.split("\n")?.firstOrNull { it.startsWith("http") }
+                fun makeUrlReq(useExtractorArgs: Boolean): YoutubeDLRequest {
+                    val req = YoutubeDLRequest(url)
+                    req.addOption("-g")
+                    req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                    req.addOption("--no-warnings")
+                    req.addOption("--no-check-certificates")
+                    req.addOption("--force-ipv4")
+                    if (useExtractorArgs) {
+                        req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
+                    }
+                    return req
+                }
+
+                val response = try {
+                    YoutubeDL.getInstance().execute(makeUrlReq(true))
+                } catch (firstErr: Exception) {
+                    android.util.Log.w(TAG, "getStreamUrl attempt 1 failed: ${firstErr.message}, trying without extra args...")
+                    YoutubeDL.getInstance().execute(makeUrlReq(false))
+                }
+
+                val lines = response.out?.trim()?.split(Regex("[\r\n]+"))?.filter { it.startsWith("http") } ?: emptyList()
+                val streamUrl = lines.lastOrNull() ?: lines.firstOrNull()
                 if (streamUrl != null) {
                     mainHandler.post { result.success(streamUrl) }
                 } else {
