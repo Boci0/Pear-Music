@@ -42,7 +42,7 @@ class RecommendationItem {
       size: (duration?.inSeconds ?? 200) * 16000, // estimated byte size (~128kbps)
       checksum: 'stream_$videoId',
       sourceDeviceId: sourceDeviceId,
-      artwork: null,
+      artwork: thumbnailUrl,
       addedAt: DateTime.now(),
     );
   }

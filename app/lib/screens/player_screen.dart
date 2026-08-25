@@ -91,8 +91,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         SleepTimerButton(player: player),
         if (!isWide)
           IconButton(
-            tooltip: 'Library',
-            icon: const Icon(Icons.menu),
+            tooltip: 'Queue / Library',
+            icon: const Icon(Icons.queue_music),
             onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
       ],

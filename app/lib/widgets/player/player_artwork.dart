@@ -9,11 +9,13 @@ import '../../models/song.dart';
 /// Large album artwork container with rounded corners and ambient accent glow.
 class PlayerArtwork extends StatelessWidget {
   final Uint8List? artwork;
+  final String? networkUrl;
   final double size;
   final Color? accent;
   const PlayerArtwork({
     super.key,
     this.artwork,
+    this.networkUrl,
     this.size = 240,
     this.accent,
   });
@@ -45,24 +47,37 @@ class PlayerArtwork extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: radius,
-        child: artwork != null && artwork!.isNotEmpty
-            ? Image.memory(
-                artwork!,
+        child: networkUrl != null && networkUrl!.isNotEmpty
+            ? Image.network(
+                networkUrl!,
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
+                errorBuilder: (_, _, _) => _placeholder(scheme),
               )
-            : Container(
-                width: size,
-                height: size,
-                color: scheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.music_note,
-                  size: size * 0.45,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
+            : artwork != null && artwork!.isNotEmpty
+                ? Image.memory(
+                    artwork!,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                  )
+                : _placeholder(scheme),
+      ),
+    );
+  }
+
+  Widget _placeholder(ColorScheme scheme) {
+    return Container(
+      width: size,
+      height: size,
+      color: scheme.surfaceContainerHighest,
+      child: Icon(
+        Icons.music_note,
+        size: size * 0.45,
+        color: scheme.onSurfaceVariant,
       ),
     );
   }
@@ -86,12 +101,14 @@ class PlayerArtworkHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
     return Hero(
       tag: 'player_artwork_${song.id}',
       child: Material(
         type: MaterialType.transparency,
         child: PlayerArtwork(
-          artwork: artwork,
+          artwork: isNetwork ? null : artwork,
+          networkUrl: isNetwork ? song.artwork : null,
           size: size,
           accent: accent,
         ),

@@ -244,29 +244,44 @@ class _Artwork extends StatelessWidget {
     // Async decode: base64-decoding artwork on the UI thread for every tile
     // that scrolls into view janks scrolling on large libraries. The result
     // is cached per song, so this future resolves instantly after first load.
-    final Widget image = FutureBuilder<Uint8List?>(
-      initialData: initialBytes,
-      future: ArtworkPalette.bytesAsync(song),
-      builder: (context, snapshot) {
-        final bytes = snapshot.data ?? initialBytes;
-        if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Image.memory(
-            bytes,
-            width: 44,
-            height: 44,
-            // Decode at ~2x display size instead of the full 256px JPEG:
-            // much less RAM per tile in a long library list.
-            cacheWidth: 88,
-            cacheHeight: 88,
-            fit: BoxFit.cover,
-            gaplessPlayback: true,
-            errorBuilder: (_, _, _) => _placeholder(scheme),
-          ),
-        );
-      },
-    );
+    final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
+    final Widget image = isNetwork
+        ? ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.network(
+              song.artwork!,
+              width: 44,
+              height: 44,
+              cacheWidth: 88,
+              cacheHeight: 88,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => _placeholder(scheme),
+            ),
+          )
+        : FutureBuilder<Uint8List?>(
+            initialData: initialBytes,
+            future: ArtworkPalette.bytesAsync(song),
+            builder: (context, snapshot) {
+              final bytes = snapshot.data ?? initialBytes;
+              if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.memory(
+                  bytes,
+                  width: 44,
+                  height: 44,
+                  // Decode at ~2x display size instead of the full 256px JPEG:
+                  // much less RAM per tile in a long library list.
+                  cacheWidth: 88,
+                  cacheHeight: 88,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => _placeholder(scheme),
+                ),
+              );
+            },
+          );
     if (!isCurrent) return image;
     final accent = ArtworkPalette.dominantSync(song);
     return Container(

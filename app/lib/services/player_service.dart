@@ -366,6 +366,10 @@ class PlayerService extends ChangeNotifier {
       await _player.setLoopMode(LoopMode.off);
       if (token != _playRequestToken) return;
 
+      final effectiveArtUri = (song.artwork != null && song.artwork!.startsWith('http'))
+          ? Uri.tryParse(song.artwork!) ?? artUri
+          : artUri;
+
       if (song.sourceDeviceId == 'stream') {
         final videoId = song.id.replaceFirst('stream_', '');
         final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
@@ -375,11 +379,16 @@ class PlayerService extends ChangeNotifier {
           await _player.setAudioSource(
             AudioSource.uri(
               streamUri,
+              headers: const {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.youtube.com/',
+              },
               tag: MediaItem(
                 id: song.id,
                 title: song.title,
                 album: 'Pear Radio',
-                artUri: artUri,
+                artUri: effectiveArtUri,
               ),
             ),
           );
@@ -397,7 +406,7 @@ class PlayerService extends ChangeNotifier {
               id: song.id,
               title: song.title,
               album: 'Pear Music',
-              artUri: artUri,
+              artUri: effectiveArtUri,
             ),
           ),
         );

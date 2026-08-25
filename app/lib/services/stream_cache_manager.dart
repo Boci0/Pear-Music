@@ -35,16 +35,49 @@ class StreamCacheManager {
     return dir;
   }
 
+  static final Map<String, String> _streamUrlCache = {};
+
   /// Resolves the best audio-only stream URI for a given [videoId].
   static Future<Uri?> resolveStreamUri(String videoId) async {
+    if (_streamUrlCache.containsKey(videoId)) {
+      return Uri.tryParse(_streamUrlCache[videoId]!);
+    }
+
+    // Attempt 1: Fast youtube_explode resolution
     try {
-      final manifest = await _client.videos.streamsClient.getManifest(videoId);
+      final manifest = await _client.videos.streamsClient
+          .getManifest(videoId)
+          .timeout(const Duration(seconds: 4));
       final audioOnly = manifest.audioOnly.withHighestBitrate();
+      final urlStr = audioOnly.url.toString();
+      _streamUrlCache[videoId] = urlStr;
       return audioOnly.url;
     } catch (e) {
-      debugPrint('[StreamCacheManager] Failed to resolve stream URI: $e');
-      return null;
+      debugPrint('[StreamCacheManager] youtube_explode failed, trying yt-dlp: $e');
     }
+
+    // Attempt 2: yt-dlp -g fallback (reliable on desktop)
+    try {
+      final bin = await YoutubeService.ytDlpPath();
+      if (bin != null) {
+        final res = await Process.run(bin, [
+          '-g',
+          '-f',
+          'bestaudio/best',
+          'https://www.youtube.com/watch?v=$videoId',
+        ]).timeout(const Duration(seconds: 6));
+        if (res.exitCode == 0) {
+          final line = res.stdout.toString().trim().split(RegExp(r'\r?\n')).first;
+          if (line.startsWith('http')) {
+            _streamUrlCache[videoId] = line;
+            return Uri.parse(line);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[StreamCacheManager] yt-dlp fallback error: $e');
+    }
+    return null;
   }
 
   /// Checks if available free space is safe for stream caching.
