@@ -80,6 +80,50 @@ class StreamCacheManager {
     return null;
   }
 
+  /// Ensures the audio stream for [videoId] is downloaded into the local cache.
+  /// Returns the cached [File] ready for instant offline playback.
+  static Future<File?> ensureStreamCached(String videoId) async {
+    try {
+      final dir = await getCacheDirectory();
+      final targetFile = File(p.join(dir.path, '$videoId.m4a'));
+      if (await targetFile.exists() && (await targetFile.length()) > 50000) {
+        return targetFile;
+      }
+
+      final partFile = File(p.join(dir.path, '$videoId.part'));
+      if (await partFile.exists()) {
+        try {
+          await partFile.delete();
+        } catch (_) {}
+      }
+
+      // Download audio stream cleanly via youtube_explode
+      final manifest = await _client.videos.streamsClient
+          .getManifest(videoId)
+          .timeout(const Duration(seconds: 8));
+      final audio = manifest.audioOnly.withHighestBitrate();
+      final stream = _client.videos.streamsClient.get(audio);
+      final sink = partFile.openWrite();
+      await stream.pipe(sink);
+      await sink.flush();
+      await sink.close();
+
+      if (await partFile.exists() && (await partFile.length()) > 50000) {
+        if (await targetFile.exists()) {
+          try {
+            await targetFile.delete();
+          } catch (_) {}
+        }
+        await partFile.rename(targetFile.path);
+        unawaited(enforceCacheQuota());
+        return targetFile;
+      }
+    } catch (e) {
+      debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');
+    }
+    return null;
+  }
+
   /// Checks if available free space is safe for stream caching.
   static Future<bool> isStorageSafe() async {
     try {

@@ -372,18 +372,14 @@ class PlayerService extends ChangeNotifier {
 
       if (song.sourceDeviceId == 'stream') {
         final videoId = song.id.replaceFirst('stream_', '');
-        final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
+        // Download audio directly to local stream cache for reliable offline/local playback
+        final cachedFile = await StreamCacheManager.ensureStreamCached(videoId);
         if (token != _playRequestToken) return;
 
-        if (streamUri != null) {
+        if (cachedFile != null && await cachedFile.exists()) {
           await _player.setAudioSource(
             AudioSource.uri(
-              streamUri,
-              headers: const {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://www.youtube.com/',
-              },
+              Uri.file(cachedFile.path),
               tag: MediaItem(
                 id: song.id,
                 title: song.title,
@@ -393,10 +389,36 @@ class PlayerService extends ChangeNotifier {
             ),
           );
         } else {
-          // If streaming failed, advance to next track
-          debugPrint('[PlayerService] Stream resolution failed for ${song.title}');
-          unawaited(next());
-          return;
+          // Direct URL streaming fallback
+          final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
+          if (token != _playRequestToken) return;
+
+          if (streamUri != null) {
+            await _player.setAudioSource(
+              AudioSource.uri(
+                streamUri,
+                tag: MediaItem(
+                  id: song.id,
+                  title: song.title,
+                  album: 'Pear Radio',
+                  artUri: effectiveArtUri,
+                ),
+              ),
+            );
+          } else {
+            debugPrint('[PlayerService] Stream resolution failed for ${song.title}');
+            unawaited(next());
+            return;
+          }
+        }
+
+        // Pre-cache the NEXT queued stream track in background for 0ms transition!
+        if (_queueIndex >= 0 && _queueIndex + 1 < _queue.length) {
+          final nextSong = _queue[_queueIndex + 1];
+          if (nextSong.sourceDeviceId == 'stream') {
+            final nextVideoId = nextSong.id.replaceFirst('stream_', '');
+            unawaited(StreamCacheManager.ensureStreamCached(nextVideoId));
+          }
         }
       } else {
         await _player.setAudioSource(

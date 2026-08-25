@@ -122,10 +122,27 @@ class _Thumb extends StatelessWidget {
           color: theme.colorScheme.onPrimaryContainer, size: 20),
     );
     if (artwork == null || artwork.isEmpty) return placeholder;
+    if (artwork.startsWith('http')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          artwork,
+          width: 40,
+          height: 40,
+          cacheWidth: 80,
+          cacheHeight: 80,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => placeholder,
+        ),
+      );
+    }
+    final bytes = ArtworkPalette.bytes(song);
+    if (bytes == null || bytes.isEmpty) return placeholder;
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.memory(
-        ArtworkPalette.bytes(song)!,
+        bytes,
         width: 40,
         height: 40,
         cacheWidth: 80,
