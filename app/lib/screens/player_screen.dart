@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -56,6 +57,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final appBar = AppBar(
       title: isWide ? const Text('Now Playing') : null,
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: 0,
+      elevation: 0,
+      notificationPredicate: (_) => false,
       // The player is pushed over the shell, so always offer a way back. An
       // explicit leading also stops the drawer from swallowing the back button.
       leading: const BackButton(),
@@ -510,15 +516,25 @@ class _VolumeSliderState extends State<_VolumeSlider> {
   Widget build(BuildContext context) {
     final player = context.watch<PlayerService>();
     final value = _dragValue ?? player.volume.clamp(0.0, 1.0);
-    return Slider(
-      value: value,
-      onChangeStart: (_) =>
-          setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
-      onChanged: (v) {
-        setState(() => _dragValue = v);
-        player.setVolume(v);
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent) {
+          final delta = event.scrollDelta.dy > 0 ? -0.05 : 0.05;
+          final next = (player.volume + delta).clamp(0.0, 1.0);
+          player.setVolume(next);
+          setState(() => _dragValue = next);
+        }
       },
-      onChangeEnd: (_) => setState(() => _dragValue = null),
+      child: Slider(
+        value: value,
+        onChangeStart: (_) =>
+            setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
+        onChanged: (v) {
+          setState(() => _dragValue = v);
+          player.setVolume(v);
+        },
+        onChangeEnd: (_) => setState(() => _dragValue = null),
+      ),
     );
   }
 }
@@ -784,90 +800,149 @@ class _WideBodyState extends State<_WideBody> {
   }
 }
 
-class _WideQueueView extends StatelessWidget {
+class _WideQueueView extends StatefulWidget {
   final PlayerService player;
   final Song currentSong;
   final ColorScheme scheme;
   const _WideQueueView({
+    super.key,
     required this.player,
     required this.currentSong,
     required this.scheme,
   });
 
   @override
+  State<_WideQueueView> createState() => _WideQueueViewState();
+}
+
+class _WideQueueViewState extends State<_WideQueueView> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+  }
+
+  @override
+  void didUpdateWidget(covariant _WideQueueView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentSong.id != widget.currentSong.id) {
+      _scrollToCurrent();
+    }
+  }
+
+  void _scrollToCurrent() {
+    if (!_scrollController.hasClients) return;
+    final queue = widget.player.queue;
+    final idx = queue.indexWhere((s) => s.id == widget.currentSong.id);
+    if (idx >= 0) {
+      final targetOffset = (idx * 56.0 - 80.0)
+          .clamp(0.0, _scrollController.position.maxScrollExtent);
+      _scrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final queue = player.queue;
+    final queue = widget.player.queue;
+    final scheme = widget.scheme;
     if (queue.isEmpty) {
       return const Center(child: Text('Queue is empty'));
     }
 
-    return ListView.builder(
-      itemCount: queue.length,
-      itemBuilder: (context, i) {
-        final item = queue[i];
-        final isCurrent = item.id == currentSong.id;
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          decoration: BoxDecoration(
-            color: isCurrent
-                ? scheme.primaryContainer.withValues(alpha: 0.4)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ListTile(
-            dense: true,
-            shape: RoundedRectangleBorder(
+    return Theme(
+      data: Theme.of(context).copyWith(
+        hoverColor: scheme.primary.withValues(alpha: 0.08),
+        highlightColor: Colors.transparent,
+        splashColor: scheme.primary.withValues(alpha: 0.12),
+      ),
+      child: ListView.builder(
+        controller: _scrollController,
+        itemCount: queue.length,
+        itemBuilder: (context, i) {
+          final item = queue[i];
+          final isCurrent = item.id == widget.currentSong.id;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Material(
+              color: isCurrent
+                  ? scheme.primaryContainer.withValues(alpha: 0.35)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
-            ),
-            leading: isCurrent
-                ? Icon(Icons.graphic_eq_rounded, color: scheme.primary, size: 20)
-                : Text(
-                    '${i + 1}',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-            title: Text(
-              item.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: isCurrent
-                  ? TextStyle(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.bold,
-                    )
-                  : null,
-            ),
-            subtitle: Text(
-              item.sourceDeviceId == null ? 'Local track' : 'Shared',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: isCurrent
-                        ? scheme.primary.withValues(alpha: 0.8)
-                        : scheme.onSurfaceVariant,
-                  ),
-            ),
-            trailing: isCurrent
-                ? Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: scheme.primary,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'PLAYING',
-                      style: TextStyle(
-                        color: scheme.onPrimary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+              clipBehavior: Clip.antiAlias,
+              child: ListTile(
+                dense: true,
+                mouseCursor: SystemMouseCursors.click,
+                hoverColor: scheme.primary.withValues(alpha: 0.08),
+                splashColor: scheme.primary.withValues(alpha: 0.12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                leading: isCurrent
+                    ? Icon(Icons.graphic_eq_rounded, color: scheme.primary, size: 20)
+                    : Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  )
-                : null,
-            onTap: () => player.playSong(item, queue: queue),
-          ),
-        );
-      },
+                title: Text(
+                  item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: isCurrent
+                      ? TextStyle(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.bold,
+                        )
+                      : null,
+                ),
+                subtitle: Text(
+                  item.sourceDeviceId == null ? 'Local track' : 'Shared',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isCurrent
+                            ? scheme.primary.withValues(alpha: 0.8)
+                            : scheme.onSurfaceVariant,
+                      ),
+                ),
+                trailing: isCurrent
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'PLAYING',
+                          style: TextStyle(
+                            color: scheme.onPrimary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    : null,
+                onTap: () => widget.player.playSong(item, queue: queue),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -891,50 +966,61 @@ class _WidePlaylistsView extends StatelessWidget {
       return const Center(child: Text('No playlists yet'));
     }
 
-    return ListView.builder(
-      itemCount: playlists.length,
-      itemBuilder: (context, i) {
-        final pl = playlists[i];
-        final selected = pl.id == activePlaylistId;
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          decoration: BoxDecoration(
-            color: selected
-                ? scheme.primaryContainer.withValues(alpha: 0.4)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ListTile(
-            dense: true,
-            shape: RoundedRectangleBorder(
+    return Theme(
+      data: Theme.of(context).copyWith(
+        hoverColor: scheme.primary.withValues(alpha: 0.08),
+        highlightColor: Colors.transparent,
+        splashColor: scheme.primary.withValues(alpha: 0.12),
+      ),
+      child: ListView.builder(
+        itemCount: playlists.length,
+        itemBuilder: (context, i) {
+          final pl = playlists[i];
+          final selected = pl.id == activePlaylistId;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Material(
+              color: selected
+                  ? scheme.primaryContainer.withValues(alpha: 0.35)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: ListTile(
+                dense: true,
+                mouseCursor: SystemMouseCursors.click,
+                hoverColor: scheme.primary.withValues(alpha: 0.08),
+                splashColor: scheme.primary.withValues(alpha: 0.12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                leading: Icon(
+                  Icons.playlist_play_rounded,
+                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                ),
+                title: Text(
+                  pl.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: selected
+                      ? TextStyle(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.bold,
+                        )
+                      : null,
+                ),
+                subtitle: Text('${pl.songIds.length} songs'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.play_circle_filled_rounded),
+                  color: scheme.primary,
+                  tooltip: 'Play playlist',
+                  onPressed: () => onSelect(pl),
+                ),
+                onTap: () => onSelect(pl),
+              ),
             ),
-            leading: Icon(
-              Icons.playlist_play_rounded,
-              color: selected ? scheme.primary : scheme.onSurfaceVariant,
-            ),
-            title: Text(
-              pl.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: selected
-                  ? TextStyle(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.bold,
-                    )
-                  : null,
-            ),
-            subtitle: Text('${pl.songIds.length} songs'),
-            trailing: IconButton(
-              icon: const Icon(Icons.play_circle_filled_rounded),
-              color: scheme.primary,
-              tooltip: 'Play playlist',
-              onPressed: () => onSelect(pl),
-            ),
-            onTap: () => onSelect(pl),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
