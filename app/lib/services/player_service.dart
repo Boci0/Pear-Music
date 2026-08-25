@@ -42,6 +42,10 @@ class PlayerService extends ChangeNotifier {
   LoopSetting _loopMode = LoopSetting.off;
   bool _shuffle = false;
 
+  Timer? _sleepTimer;
+  DateTime? _sleepTimerEndTime;
+  bool _sleepTimerEndOfSong = false;
+
   final List<StreamSubscription> _subs = [];
 
   PlayerService(this.library, {this.identity}) {
@@ -62,10 +66,73 @@ class PlayerService extends ChangeNotifier {
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
 
+  bool get isSleepTimerActive => _sleepTimer != null || _sleepTimerEndOfSong;
+  Duration? get sleepTimerRemaining => _sleepTimerEndTime != null
+      ? _sleepTimerEndTime!.difference(DateTime.now())
+      : null;
+  bool get sleepTimerEndOfSong => _sleepTimerEndOfSong;
+
   List<Song> get queue => List.unmodifiable(_queue);
   int get queueIndex => _queueIndex;
   LoopSetting get loopMode => _loopMode;
   bool get shuffle => _shuffle;
+
+  void setSleepTimer(Duration? duration, {bool endOfSong = false}) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepTimerEndTime = null;
+    _sleepTimerEndOfSong = endOfSong;
+
+    if (endOfSong) {
+      notifyListeners();
+      return;
+    }
+
+    if (duration != null && duration > Duration.zero) {
+      _sleepTimerEndTime = DateTime.now().add(duration);
+      _sleepTimer = Timer(duration, () async {
+        await _triggerSleepTimerStop();
+      });
+    }
+    notifyListeners();
+  }
+
+  void cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepTimerEndTime = null;
+    _sleepTimerEndOfSong = false;
+    notifyListeners();
+  }
+
+  Future<void> _fadeVolume(
+    double targetVolume, {
+    Duration duration = const Duration(milliseconds: 100),
+  }) async {
+    final startVolume = _player.volume;
+    if ((startVolume - targetVolume).abs() < 0.01) return;
+    const steps = 6;
+    final stepDuration =
+        Duration(milliseconds: (duration.inMilliseconds / steps).round());
+    final volumeDelta = (targetVolume - startVolume) / steps;
+    for (var i = 1; i <= steps; i++) {
+      await Future<void>.delayed(stepDuration);
+      if (!_player.playing && targetVolume == 0) break;
+      await _player.setVolume((startVolume + volumeDelta * i).clamp(0.0, 1.0));
+    }
+  }
+
+  Future<void> _triggerSleepTimerStop() async {
+    final originalVol = _player.volume;
+    if (_player.playing && originalVol > 0.05) {
+      await _fadeVolume(0.0, duration: const Duration(seconds: 3));
+      await _player.pause();
+      await _player.setVolume(originalVol);
+    } else {
+      await _player.pause();
+    }
+    cancelSleepTimer();
+  }
 
   Future<void> setLoudnessNormalization(bool enabled) async {
     _loudnessNormalization = enabled;
@@ -100,7 +167,7 @@ class PlayerService extends ChangeNotifier {
     // play starts instantly and the notification already has artwork.
     ArtworkService.warmUp();
 
-    // Never let the underlying player loop by itself — loop modes are
+    // Never let the underlying player loop by itself: loop modes are
     // implemented in Dart (single-source loads). This is also what fixes the
     // "loops on 1 song" issue on backends that don't advance playlists.
     unawaited(_player.setLoopMode(LoopMode.off));
@@ -108,7 +175,7 @@ class PlayerService extends ChangeNotifier {
     // NOTE: `positionStream` is deliberately NOT forwarded through
     // notifyListeners(). It fires many times per second while playing and
     // would rebuild every widget watching AppController (HomeShell keeps all
-    // three tabs alive via IndexedStack) on every tick — the single biggest
+    // three tabs alive via IndexedStack) on every tick: the single biggest
     // cause of UI jank. Widgets that need live position subscribe to
     // [positionStream] directly with a StreamBuilder instead (see PlayerScreen
     // seek bar). We still notify on everything that changes rarely: duration,
@@ -118,7 +185,12 @@ class PlayerService extends ChangeNotifier {
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _queue.isNotEmpty) {
-        unawaited(next());
+        if (_sleepTimerEndOfSong) {
+          _sleepTimerEndOfSong = false;
+          unawaited(pause(smooth: true));
+        } else {
+          unawaited(next());
+        }
       }
     }));
 
@@ -243,6 +315,19 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> pause({bool smooth = true}) async {
+    if (!_player.playing) return;
+    final originalVol = _player.volume;
+    if (smooth && originalVol > 0.05) {
+      await _fadeVolume(0.0, duration: const Duration(milliseconds: 90));
+      await _player.pause();
+      await _player.setVolume(originalVol);
+    } else {
+      await _player.pause();
+    }
+    notifyListeners();
+  }
+
   Future<void> toggle() async {
     if (currentSong == null) {
       if (library.songs.isNotEmpty) {
@@ -251,11 +336,11 @@ class PlayerService extends ChangeNotifier {
       return;
     }
     if (_player.playing) {
-      await _player.pause();
+      await pause(smooth: true);
     } else {
       await _player.play();
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> next() async {
