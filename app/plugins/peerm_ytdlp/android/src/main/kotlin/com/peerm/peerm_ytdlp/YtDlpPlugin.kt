@@ -93,6 +93,14 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 }
                 startDownload(ctx, url, outputDir, processId, outputTemplate, result)
             }
+            "getStreamUrl" -> {
+                val url = call.argument<String>("url")
+                if (url == null) {
+                    result.error("bad_args", "url required", null)
+                    return
+                }
+                getStreamUrl(ctx, url, result)
+            }
             "canRequestPackageInstalls" -> {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     result.success(ctx.packageManager.canRequestPackageInstalls())
@@ -451,6 +459,37 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 mainHandler.post { result.error("download_failed", e.message, null) }
             } finally {
                 executors.remove(processId)?.shutdown()
+            }
+        }
+    }
+
+    private fun getStreamUrl(
+        ctx: Context,
+        url: String,
+        result: MethodChannel.Result,
+    ) {
+        val executor = Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                ensureInit(ctx)
+                val req = YoutubeDLRequest(url)
+                req.addOption("-g")
+                req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                req.addOption("--no-warnings")
+                req.addOption("--no-check-certificates")
+                req.addOption("--force-ipv4")
+                req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
+                val response = YoutubeDL.getInstance().execute(req)
+                val streamUrl = response.out?.trim()?.split("\n")?.firstOrNull { it.startsWith("http") }
+                if (streamUrl != null) {
+                    mainHandler.post { result.success(streamUrl) }
+                } else {
+                    mainHandler.post { result.error("no_url", "Could not resolve stream URL", null) }
+                }
+            } catch (e: Exception) {
+                mainHandler.post { result.error("resolve_failed", e.message, null) }
+            } finally {
+                executor.shutdown()
             }
         }
     }

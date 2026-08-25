@@ -49,6 +49,7 @@ class PlayerService extends ChangeNotifier {
   bool _isLoadingRecommendations = false;
   DateTime _lastInteraction = DateTime.now();
   bool _isAdvancing = false;
+  int _consecutiveStreamFailures = 0;
 
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
@@ -395,24 +396,24 @@ class PlayerService extends ChangeNotifier {
 
       if (song.sourceDeviceId == 'stream') {
         final videoId = song.id.replaceFirst('stream_', '');
-        // Download audio directly to local stream cache for reliable offline/local playback
-        final cachedFile = await StreamCacheManager.ensureStreamCached(videoId);
+        final mediaTag = MediaItem(
+          id: song.id,
+          title: song.title,
+          album: 'Pear Radio',
+          artUri: effectiveArtUri,
+        );
+
+        // Step 1: Check local cache (instant, no network)
+        final cachedFile = await StreamCacheManager.getCachedFile(videoId);
         if (token != _playRequestToken) return;
 
-        if (cachedFile != null && await cachedFile.exists()) {
+        if (cachedFile != null) {
           await _player.setAudioSource(
-            AudioSource.file(
-              cachedFile.path,
-              tag: MediaItem(
-                id: song.id,
-                title: song.title,
-                album: 'Pear Radio',
-                artUri: effectiveArtUri,
-              ),
-            ),
+            AudioSource.file(cachedFile.path, tag: mediaTag),
           );
+          _consecutiveStreamFailures = 0;
         } else {
-          // Direct URL streaming fallback with browser User-Agent to bypass CDN 403 blocks
+          // Step 2: Resolve stream URL (fast ~3-5s on Android via embedded yt-dlp)
           final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
           if (token != _playRequestToken) return;
 
@@ -424,19 +425,37 @@ class PlayerService extends ChangeNotifier {
                   'User-Agent':
                       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 },
-                tag: MediaItem(
-                  id: song.id,
-                  title: song.title,
-                  album: 'Pear Radio',
-                  artUri: effectiveArtUri,
-                ),
+                tag: mediaTag,
               ),
             );
+            _consecutiveStreamFailures = 0;
+            // Download in background for future instant playback
+            unawaited(StreamCacheManager.ensureStreamCached(videoId));
           } else {
-            debugPrint('[PlayerService] Stream resolution failed for ${song.title}');
-            _isAdvancing = false;
-            unawaited(next());
-            return;
+            // Step 3: Full download as last resort
+            final downloaded = await StreamCacheManager.ensureStreamCached(videoId);
+            if (token != _playRequestToken) return;
+
+            if (downloaded != null && await downloaded.exists()) {
+              await _player.setAudioSource(
+                AudioSource.file(downloaded.path, tag: mediaTag),
+              );
+              _consecutiveStreamFailures = 0;
+            } else {
+              // Circuit breaker: stop after 3 consecutive failures
+              _consecutiveStreamFailures++;
+              debugPrint(
+                '[PlayerService] Stream failed for ${song.title} '
+                '(failure $_consecutiveStreamFailures/3)',
+              );
+              if (_consecutiveStreamFailures >= 3) {
+                debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
+                return;
+              }
+              // Skip to next track (keep _isAdvancing true to block processingState races)
+              unawaited(next());
+              return;
+            }
           }
         }
       } else {
@@ -530,6 +549,7 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> next() async {
     _lastInteraction = DateTime.now();
+    _consecutiveStreamFailures = 0;
     if (_queue.isEmpty) return;
     if (_loopMode == LoopSetting.one) {
       await _replayCurrent();

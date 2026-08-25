@@ -38,13 +38,43 @@ class StreamCacheManager {
 
   static final Map<String, String> _streamUrlCache = {};
 
+  /// Quick cache-only check: returns the cached file if it exists, null otherwise.
+  /// Does NOT trigger any network requests or downloads.
+  static Future<File?> getCachedFile(String videoId) async {
+    final dir = await getCacheDirectory();
+    for (final ext in ['m4a', 'mp4', 'webm']) {
+      final f = File(p.join(dir.path, '$videoId.$ext'));
+      if (await f.exists() && (await f.length()) > 50000) {
+        return f;
+      }
+    }
+    return null;
+  }
+
   /// Resolves the best audio-only stream URI for a given [videoId].
+  /// On Android, uses the embedded yt-dlp engine first (immune to rate limits).
   static Future<Uri?> resolveStreamUri(String videoId) async {
     if (_streamUrlCache.containsKey(videoId)) {
       return Uri.tryParse(_streamUrlCache[videoId]!);
     }
 
-    // Attempt 1: Fast youtube_explode resolution (prefer MP4/AAC for universal ExoPlayer compatibility)
+    // Attempt 1 (Android): Embedded yt-dlp URL resolution via method channel (~3-5s)
+    if (YoutubeService.isEmbeddedYtDlpSupported) {
+      try {
+        const channel = MethodChannel('peerm/ytdlp');
+        final url = await channel.invokeMethod<String>('getStreamUrl', {
+          'url': 'https://www.youtube.com/watch?v=$videoId',
+        }).timeout(const Duration(seconds: 12));
+        if (url != null && url.startsWith('http')) {
+          _streamUrlCache[videoId] = url;
+          return Uri.parse(url);
+        }
+      } catch (e) {
+        debugPrint('[StreamCacheManager] embedded yt-dlp URL resolve failed: $e');
+      }
+    }
+
+    // Attempt 2: youtube_explode resolution (prefer MP4/AAC for ExoPlayer)
     try {
       final manifest = await _client.videos.streamsClient
           .getManifest(videoId)
@@ -59,10 +89,10 @@ class StreamCacheManager {
       _streamUrlCache[videoId] = urlStr;
       return audioOnly.url;
     } catch (e) {
-      debugPrint('[StreamCacheManager] youtube_explode failed, trying yt-dlp: $e');
+      debugPrint('[StreamCacheManager] youtube_explode failed: $e');
     }
 
-    // Attempt 2: yt-dlp -g fallback (reliable on desktop)
+    // Attempt 3: Desktop yt-dlp -g fallback
     try {
       final bin = await YoutubeService.ytDlpPath();
       if (bin != null) {
@@ -73,7 +103,7 @@ class StreamCacheManager {
           'https://www.youtube.com/watch?v=$videoId',
         ]).timeout(const Duration(seconds: 6));
         if (res.exitCode == 0) {
-          final line = res.stdout.toString().trim().split(RegExp(r'\r?\n')).first;
+          final line = res.stdout.toString().trim().split(RegExp(r'\\r?\n')).first;
           if (line.startsWith('http')) {
             _streamUrlCache[videoId] = line;
             return Uri.parse(line);
