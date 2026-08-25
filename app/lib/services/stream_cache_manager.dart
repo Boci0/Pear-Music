@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -103,12 +104,14 @@ class StreamCacheManager {
         if (bin != null) {
           final res = await Process.run(bin, [
             '-f',
-            'ba/b',
-            '--extract-audio',
-            '--audio-format',
-            'm4a',
+            'bestaudio[ext=m4a]/bestaudio/best',
+            '--extractor-args',
+            'youtube:player_client=android,web,mweb',
             '--no-playlist',
             '--no-warnings',
+            '--no-check-certificates',
+            '--concurrent-fragments',
+            '4',
             '-o',
             partFile.path,
             'https://www.youtube.com/watch?v=$videoId',
@@ -127,6 +130,41 @@ class StreamCacheManager {
         }
       } catch (e) {
         debugPrint('[StreamCacheManager] yt-dlp stream download failed: $e');
+      }
+
+      // Method 2: Android embedded yt-dlp channel
+      if (YoutubeService.isEmbeddedYtDlpSupported) {
+        try {
+          const channel = MethodChannel('peerm/ytdlp');
+          await channel.invokeMethod('init').timeout(const Duration(seconds: 30));
+          final processId = 'peerm-stream-${DateTime.now().millisecondsSinceEpoch}';
+          final outDir = Directory(p.join(dir.path, 'tmp_$videoId'));
+          if (!await outDir.exists()) await outDir.create(recursive: true);
+
+          await channel.invokeMethod('download', {
+            'url': 'https://www.youtube.com/watch?v=$videoId',
+            'outputDir': outDir.path,
+            'processId': processId,
+          }).timeout(const Duration(seconds: 30));
+
+          for (final f in outDir.listSync().whereType<File>()) {
+            if (await f.length() > 50000) {
+              if (await targetFile.exists()) {
+                try {
+                  await targetFile.delete();
+                } catch (_) {}
+              }
+              await f.rename(targetFile.path);
+              try {
+                await outDir.delete(recursive: true);
+              } catch (_) {}
+              unawaited(enforceCacheQuota());
+              return targetFile;
+            }
+          }
+        } catch (e) {
+          debugPrint('[StreamCacheManager] Android embedded yt-dlp failed: $e');
+        }
       }
 
       // Method 2: youtube_explode fallback

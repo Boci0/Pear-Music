@@ -48,6 +48,7 @@ class PlayerService extends ChangeNotifier {
   String? _continuationToken;
   bool _isLoadingRecommendations = false;
   DateTime _lastInteraction = DateTime.now();
+  bool _isAdvancing = false;
 
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
@@ -198,7 +199,7 @@ class PlayerService extends ChangeNotifier {
     _subs.add(_player.playerStateStream.listen((_) => notifyListeners()));
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed && _queue.isNotEmpty) {
+      if (state == ProcessingState.completed && _queue.isNotEmpty && !_isAdvancing) {
         if (_sleepTimerEndOfSong) {
           _sleepTimerEndOfSong = false;
           unawaited(pause(smooth: true));
@@ -326,6 +327,15 @@ class PlayerService extends ChangeNotifier {
     _lastInteraction = DateTime.now();
     RecommendationService.markPlayed(song.id);
     final token = ++_playRequestToken;
+    _isAdvancing = true;
+
+    // Immediately pause previous player playback to reset any ProcessingState.completed
+    // and eliminate re-entrant skip storms while buffering the new track.
+    try {
+      if (_player.playing) {
+        await _player.pause();
+      }
+    } catch (_) {}
 
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
@@ -348,6 +358,19 @@ class PlayerService extends ChangeNotifier {
     }
     currentSong = song;
     notifyListeners();
+
+    // Pre-cache the next 2 upcoming queued stream tracks in background
+    if (_queueIndex >= 0) {
+      for (int offset = 1; offset <= 2; offset++) {
+        if (_queueIndex + offset < _queue.length) {
+          final nextSong = _queue[_queueIndex + offset];
+          if (nextSong.sourceDeviceId == 'stream') {
+            final nextVideoId = nextSong.id.replaceFirst('stream_', '');
+            unawaited(StreamCacheManager.ensureStreamCached(nextVideoId));
+          }
+        }
+      }
+    }
 
     // Trigger pre-fetch if we are within 3 songs of the queue end and autoplay is on
     if (_autoplay && _queueIndex >= _queue.length - 3 && !_isLoadingRecommendations) {
@@ -407,17 +430,9 @@ class PlayerService extends ChangeNotifier {
             );
           } else {
             debugPrint('[PlayerService] Stream resolution failed for ${song.title}');
+            _isAdvancing = false;
             unawaited(next());
             return;
-          }
-        }
-
-        // Pre-cache the NEXT queued stream track in background for 0ms transition!
-        if (_queueIndex >= 0 && _queueIndex + 1 < _queue.length) {
-          final nextSong = _queue[_queueIndex + 1];
-          if (nextSong.sourceDeviceId == 'stream') {
-            final nextVideoId = nextSong.id.replaceFirst('stream_', '');
-            unawaited(StreamCacheManager.ensureStreamCached(nextVideoId));
           }
         }
       } else {
@@ -439,6 +454,10 @@ class PlayerService extends ChangeNotifier {
     } catch (e) {
       if (token == _playRequestToken) {
         debugPrint('[player] failed to play ${song.title}: $e');
+      }
+    } finally {
+      if (token == _playRequestToken) {
+        _isAdvancing = false;
       }
     }
     if (token == _playRequestToken) {

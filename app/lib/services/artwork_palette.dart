@@ -1,5 +1,6 @@
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show Color;
 
@@ -161,12 +162,21 @@ class ArtworkPalette {
     }
   }
 
-  static Future<Color> _extract(String base64Art) async {
+  static Future<Color> _extract(String art) async {
     try {
-      return await compute(computeDominant, base64Art);
-    } catch (_) {
-      return fallback;
-    }
+      if (art.startsWith('http')) {
+        final client = HttpClient();
+        final req = await client.getUrl(Uri.parse(art)).timeout(const Duration(seconds: 4));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final bytes = await consolidateHttpClientResponseBytes(resp);
+          return await compute(computeDominantFromBytes, bytes);
+        }
+      } else {
+        return await compute(computeDominant, art);
+      }
+    } catch (_) {}
+    return fallback;
   }
 
   /// A softened, readable accent for controls (play button, sliders, active
@@ -191,41 +201,54 @@ class ArtworkPalette {
   /// "vibrant" frequent colour — penalising near-black / near-white / gray
   /// pixels so a plain background never wins over the actual art.
   static Color computeDominant(String base64Art) {
-    final bytes = base64Decode(base64Art);
-    final decoded = img.decodeImage(Uint8List.fromList(bytes));
-    if (decoded == null) return fallback;
-    final small = img.copyResize(decoded, width: 32, height: 32);
-
-    final counts = <int, int>{};
-    for (final p in small) {
-      final r = (p.r.toInt() ~/ 16) * 16;
-      final g = (p.g.toInt() ~/ 16) * 16;
-      final b = (p.b.toInt() ~/ 16) * 16;
-      final key = (r << 16) | (g << 8) | b;
-      counts[key] = (counts[key] ?? 0) + 1;
+    try {
+      final bytes = base64Decode(base64Art);
+      return computeDominantFromBytes(Uint8List.fromList(bytes));
+    } catch (_) {
+      return fallback;
     }
+  }
 
-    int? best;
-    double bestScore = -1;
-    for (final entry in counts.entries) {
-      final key = entry.key;
-      final r = (key >> 16) & 0xFF;
-      final g = (key >> 8) & 0xFF;
-      final b = key & 0xFF;
-      final maxC = math.max(r, math.max(g, b));
-      final minC = math.min(r, math.min(g, b));
-      final sat = (maxC - minC) / 255.0;
-      final lum = (maxC + minC) / 510.0;
-      var score = entry.value * (1 + sat * 2);
-      if (lum < 0.12 || lum > 0.88) score *= 0.3; // near black / white
-      if (sat < 0.2) score *= 0.5; // gray
-      if (score > bestScore) {
-        bestScore = score;
-        best = key;
+  /// Runs in a background isolate on raw image bytes.
+  static Color computeDominantFromBytes(Uint8List bytes) {
+    try {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return fallback;
+      final small = img.copyResize(decoded, width: 32, height: 32);
+
+      final counts = <int, int>{};
+      for (final p in small) {
+        final r = (p.r.toInt() ~/ 16) * 16;
+        final g = (p.g.toInt() ~/ 16) * 16;
+        final b = (p.b.toInt() ~/ 16) * 16;
+        final key = (r << 16) | (g << 8) | b;
+        counts[key] = (counts[key] ?? 0) + 1;
       }
-    }
 
-    if (best == null) return fallback;
-    return Color(0xFF000000 | best);
+      int? best;
+      double bestScore = -1;
+      for (final entry in counts.entries) {
+        final key = entry.key;
+        final r = (key >> 16) & 0xFF;
+        final g = (key >> 8) & 0xFF;
+        final b = key & 0xFF;
+        final maxC = math.max(r, math.max(g, b));
+        final minC = math.min(r, math.min(g, b));
+        final sat = (maxC - minC) / 255.0;
+        final lum = (maxC + minC) / 510.0;
+        var score = entry.value * (1 + sat * 2.5);
+        if (lum < 0.12 || lum > 0.88) score *= 0.3; // near black / white
+        if (sat < 0.15) score *= 0.4; // gray
+        if (score > bestScore) {
+          bestScore = score;
+          best = key;
+        }
+      }
+
+      if (best == null) return fallback;
+      return Color(0xFF000000 | best);
+    } catch (_) {
+      return fallback;
+    }
   }
 }

@@ -133,40 +133,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
         tween: ColorTween(
           end: targetAccent,
         ),
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeInOutCubic,
         builder: (context, animColor, _) {
           final activeAccent = animColor ?? targetAccent;
-          return SafeArea(
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              child: isWide
-                  ? PlayerWideBody(
-                      controller: controller,
-                      player: player,
-                      song: song,
-                      duration: duration,
-                      accent: activeAccent,
-                      activePlaylistId: _activePlaylistId,
-                      onActivePlaylistChanged: (id) =>
-                          setState(() => _activePlaylistId = id),
-                    )
-                  : landscape
-                      ? PlayerLandscapeBody(
-                          controller: controller,
-                          player: player,
-                          song: song,
-                          duration: duration,
-                          accent: activeAccent,
-                        )
-                      : PlayerPortraitBody(
-                          controller: controller,
-                          player: player,
-                          song: song,
-                          duration: duration,
-                          accent: activeAccent,
-                        ),
+          final washColor = ArtworkPalette.wash(activeAccent, lightness: 0.09);
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeInOutCubic,
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.35),
+                radius: 1.25,
+                colors: [
+                  activeAccent.withValues(alpha: 0.18),
+                  washColor.withValues(alpha: 0.10),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                child: isWide
+                    ? PlayerWideBody(
+                        controller: controller,
+                        player: player,
+                        song: song,
+                        duration: duration,
+                        accent: activeAccent,
+                        activePlaylistId: _activePlaylistId,
+                        onActivePlaylistChanged: (id) =>
+                            setState(() => _activePlaylistId = id),
+                      )
+                    : landscape
+                        ? PlayerLandscapeBody(
+                            controller: controller,
+                            player: player,
+                            song: song,
+                            duration: duration,
+                            accent: activeAccent,
+                          )
+                        : PlayerPortraitBody(
+                            controller: controller,
+                            player: player,
+                            song: song,
+                            duration: duration,
+                            accent: activeAccent,
+                          ),
+              ),
             ),
           );
         },
