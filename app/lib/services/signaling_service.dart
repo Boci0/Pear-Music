@@ -395,7 +395,7 @@ class SignalingService {
   static int _cryptoJobSeq = 0;
   static const Duration _cryptoIdleTimeout = Duration(seconds: 30);
 
-  static bool get _offloadCrypto => !kIsWeb && Platform.isWindows;
+  static bool get _offloadCrypto => !kIsWeb;
 
   /// Runs one AES-GCM job on the long-lived worker. Falls back to a one-shot
   /// [compute] isolate if the worker cannot start (e.g. test environments).

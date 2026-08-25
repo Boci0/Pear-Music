@@ -83,6 +83,7 @@ class RelayDataChannel extends RTCDataChannel {
           } catch (e) {
             debugPrint('[relay] send task error: $e');
           }
+          await Future<void>.delayed(Duration.zero);
         }
       } finally {
         _draining = false;
@@ -105,6 +106,7 @@ class RelayDataChannel extends RTCDataChannel {
           } catch (e) {
             debugPrint('[relay] inbound task error: $e');
           }
+          await Future<void>.delayed(Duration.zero);
         }
       } finally {
         _drainingInbound = false;

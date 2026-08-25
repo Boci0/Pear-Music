@@ -573,9 +573,13 @@ class SyncService extends ChangeNotifier {
       inc.timeoutTimer?.cancel();
       _incoming.remove(inc.song.id);
       try {
-        inc.raf.closeSync();
-        final partFile = library.incomingFile(inc.song.id);
-        if (partFile.existsSync()) partFile.deleteSync();
+        inc.writeTail.then((_) async {
+          try {
+            await inc.raf.close();
+            final partFile = library.incomingFile(inc.song.id);
+            if (partFile.existsSync()) partFile.deleteSync();
+          } catch (_) {}
+        });
       } catch (_) {}
       _removeProgress(peerId, inc.song.id);
     }
@@ -931,8 +935,9 @@ class SyncService extends ChangeNotifier {
             _outboundBatch!.activeBytes = sentBytes;
           }
           _updateUploadProgress(peerId, song.id, sentBytes);
+          await Future<void>.delayed(Duration.zero);
           if (index % 4 == 0) {
-            await Future.delayed(const Duration(milliseconds: 1));
+            await Future<void>.delayed(const Duration(milliseconds: 2));
           }
         }
       } finally {
@@ -1167,23 +1172,22 @@ class SyncService extends ChangeNotifier {
       debugPrint('[sync][diag] <- $peerId: chunk $songId idx=$index/$total (${payload.length} bytes)');
     }
 
-    try {
-      // Fast path: sequential append when chunks arrive in order (the common
-      // case). Avoids a seek syscall per chunk. Out-of-order chunks fall back
-      // to an absolute seek so correctness is preserved either way.
-      if (index == inc.nextIndex) {
-        inc.raf.writeFromSync(payload);
-        inc.nextIndex++;
-      } else {
-        inc.raf.setPositionSync(index * inc.chunkSize);
-        inc.raf.writeFromSync(payload);
-        if (index >= inc.nextIndex) inc.nextIndex = index + 1;
+    inc.writeTail = inc.writeTail.then((_) async {
+      try {
+        if (index == inc.nextIndex) {
+          await inc.raf.writeFrom(payload);
+          inc.nextIndex++;
+        } else {
+          await inc.raf.setPosition(index * inc.chunkSize);
+          await inc.raf.writeFrom(payload);
+          if (index >= inc.nextIndex) inc.nextIndex = index + 1;
+        }
+      } catch (e) {
+        debugPrint('[sync] error writing chunk for $songId: $e');
       }
-      inc.bytesReceived += payload.length;
-      inc.lastChunkTime = DateTime.now().millisecondsSinceEpoch;
-    } catch (e) {
-      debugPrint('[sync] error writing chunk for $songId: $e');
-    }
+    });
+    inc.bytesReceived += payload.length;
+    inc.lastChunkTime = DateTime.now().millisecondsSinceEpoch;
 
     final progress = _transfers['$peerId|$songId'];
     if (progress != null) {
@@ -1224,9 +1228,10 @@ class SyncService extends ChangeNotifier {
     inc.timeoutTimer?.cancel();
     inc.timeoutTimer = null;
     try {
+      await inc.writeTail;
       try {
-        inc.raf.flushSync();
-        inc.raf.closeSync();
+        await inc.raf.flush();
+        await inc.raf.close();
       } catch (_) {}
       final length = await inc.file.length();
       if (length != inc.song.size) {
@@ -1593,7 +1598,13 @@ class SyncService extends ChangeNotifier {
     for (final inc in _incoming.values) {
       inc.timeoutTimer?.cancel();
       try {
-        inc.raf.closeSync();
+        inc.writeTail.then((_) async {
+          try {
+            await inc.raf.close();
+            final partFile = library.incomingFile(inc.song.id);
+            if (partFile.existsSync()) partFile.deleteSync();
+          } catch (_) {}
+        });
       } catch (_) {}
     }
     _incoming.clear();
@@ -1614,6 +1625,7 @@ class _IncomingFile {
   bool completeChunks = false;
   Timer? timeoutTimer;
   int lastChunkTime = DateTime.now().millisecondsSinceEpoch;
+  Future<void> writeTail = Future<void>.value();
 
   _IncomingFile({
     required this.peerId,

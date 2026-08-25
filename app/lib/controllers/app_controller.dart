@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -425,7 +426,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      debugPrint('[app] app resumed — refreshing connectivity and sync');
+      debugPrint('[app] app resumed: refreshing connectivity and sync');
       if (connectionStatus != 'connected') {
         unawaited(_ensureConnection());
       } else {
@@ -435,10 +436,30 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (identity.isHost) {
         _scheduleHostReconcile();
       }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      debugPrint('[app] app backgrounded: flushing pending saves & releasing idle workers');
+      library.flushSaveIndex();
+      if (!player.playing && sync.transfers.isEmpty) {
+        SignalingService.killCryptoWorker();
+        LibraryService.killHashWorker();
+        YouTubeSearchService.dispose();
+      }
+    } else if (state == AppLifecycleState.detached) {
+      debugPrint('[app] app detached: executing full cleanup');
+      unawaited(disposeAll());
     }
   }
 
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    debugPrint('[app] app exit requested: tearing down all resources');
+    await disposeAll();
+    return AppExitResponse.exit;
+  }
+
   Future<void> disposeAll() async {
+    if (_closing) return;
     _closing = true;
     try {
       WidgetsBinding.instance.removeObserver(this);
@@ -450,13 +471,20 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     for (final s in _subs) {
       await s.cancel();
     }
+    _subs.clear();
     for (final remove in _removeNotifierListeners) {
       remove();
     }
+    _removeNotifierListeners.clear();
     sync.detachChannelAll();
+    sync.dispose();
     signaling.dispose();
     player.dispose();
     await server.stop();
+    library.dispose();
+    SignalingService.killCryptoWorker();
+    LibraryService.killHashWorker();
+    YouTubeSearchService.dispose();
     _messages.close();
     super.dispose();
   }
