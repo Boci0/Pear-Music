@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.8.1';
+  static const String currentVersion = '1.8.2';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -377,20 +377,25 @@ param(
     [string]\$ExePath
 )
 
+\$logFile = Join-Path \$env:TEMP 'peerm_updater.log'
+"\$(Get-Date): Updater launched for PID \$AppPid" | Out-File -FilePath \$logFile -Encoding utf8
+
 if (\$AppPid -gt 0) {
     try {
-        Wait-Process -Id \$AppPid -Timeout 12 -ErrorAction SilentlyContinue
+        Wait-Process -Id \$AppPid -Timeout 15 -ErrorAction SilentlyContinue
     } catch {}
 }
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 1000
 
-\$retries = 6
+\$retries = 8
 \$extracted = \$false
 while (\$retries -gt 0 -and -not \$extracted) {
     try {
         Expand-Archive -LiteralPath \$ZipPath -DestinationPath \$AppDir -Force -ErrorAction Stop
         \$extracted = \$true
+        "\$(Get-Date): Extraction succeeded into \$AppDir" | Out-File -FilePath \$logFile -Append -Encoding utf8
     } catch {
+        "\$(Get-Date): Extract retry (\$retries attempts left): \$(\$_.Exception.Message)" | Out-File -FilePath \$logFile -Append -Encoding utf8
         \$retries--
         Start-Sleep -Seconds 1
     }
@@ -398,7 +403,10 @@ while (\$retries -gt 0 -and -not \$extracted) {
 
 if (\$extracted) {
     Start-Process -FilePath \$ExePath
+    "\$(Get-Date): Launched \$ExePath" | Out-File -FilePath \$logFile -Append -Encoding utf8
     Remove-Item -LiteralPath \$ZipPath -Force -ErrorAction SilentlyContinue
+} else {
+    "\$(Get-Date): Extraction failed after all retries." | Out-File -FilePath \$logFile -Append -Encoding utf8
 }
 
 Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
@@ -424,7 +432,7 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
             '-ExePath',
             exePath,
           ],
-          mode: ProcessStartMode.detached,
+          mode: ProcessStartMode.inheritStdio,
         );
 
         exit(0);
