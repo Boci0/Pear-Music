@@ -401,8 +401,8 @@ class PlayerService extends ChangeNotifier {
 
         if (cachedFile != null && await cachedFile.exists()) {
           await _player.setAudioSource(
-            AudioSource.uri(
-              Uri.file(cachedFile.path),
+            AudioSource.file(
+              cachedFile.path,
               tag: MediaItem(
                 id: song.id,
                 title: song.title,
@@ -412,7 +412,7 @@ class PlayerService extends ChangeNotifier {
             ),
           );
         } else {
-          // Direct URL streaming fallback
+          // Direct URL streaming fallback with browser User-Agent to bypass CDN 403 blocks
           final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
           if (token != _playRequestToken) return;
 
@@ -420,6 +420,10 @@ class PlayerService extends ChangeNotifier {
             await _player.setAudioSource(
               AudioSource.uri(
                 streamUri,
+                headers: const {
+                  'User-Agent':
+                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                },
                 tag: MediaItem(
                   id: song.id,
                   title: song.title,

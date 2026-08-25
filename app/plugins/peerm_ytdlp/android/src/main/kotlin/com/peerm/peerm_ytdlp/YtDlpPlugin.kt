@@ -86,11 +86,12 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 val url = call.argument<String>("url")
                 val outputDir = call.argument<String>("outputDir")
                 val processId = call.argument<String>("processId")
+                val outputTemplate = call.argument<String>("outputTemplate")
                 if (url == null || outputDir == null || processId == null) {
                     result.error("bad_args", "url/outputDir/processId required", null)
                     return
                 }
-                startDownload(ctx, url, outputDir, processId, result)
+                startDownload(ctx, url, outputDir, processId, outputTemplate, result)
             }
             "canRequestPackageInstalls" -> {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -381,23 +382,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         YoutubeDL.getInstance().init(ctx)
         FFmpeg.getInstance().init(ctx)
         initialized = true
-
-        if (!updateChecked) {
-            updateChecked = true
-            try {
-                YoutubeDL.getInstance()
-                    .updateYoutubeDL(ctx, YoutubeDL.UpdateChannel.STABLE)
-                android.util.Log.i(
-                    TAG,
-                    "yt-dlp ready: " + YoutubeDL.getInstance().versionName(ctx)
-                )
-            } catch (e: Exception) {
-                android.util.Log.w(
-                    TAG,
-                    "yt-dlp update failed (using bundled): ${e.message}"
-                )
-            }
-        }
     }
 
     private fun startDownload(
@@ -405,6 +389,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         url: String,
         outputDir: String,
         processId: String,
+        outputTemplate: String?,
         result: MethodChannel.Result,
     ) {
         val executor = Executors.newSingleThreadExecutor()
@@ -415,9 +400,10 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 fun makeRequest(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                    val template = outputTemplate ?: "%(title).80B [%(id)s].%(ext)s"
                     req.addOption(
                         "-o",
-                        File(outputDir, "%(title).80B [%(id)s].%(ext)s").absolutePath,
+                        File(outputDir, template).absolutePath,
                     )
                     req.addOption("--newline")
                     req.addOption("--no-playlist")

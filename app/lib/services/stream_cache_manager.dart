@@ -44,12 +44,17 @@ class StreamCacheManager {
       return Uri.tryParse(_streamUrlCache[videoId]!);
     }
 
-    // Attempt 1: Fast youtube_explode resolution
+    // Attempt 1: Fast youtube_explode resolution (prefer MP4/AAC for universal ExoPlayer compatibility)
     try {
       final manifest = await _client.videos.streamsClient
           .getManifest(videoId)
-          .timeout(const Duration(seconds: 4));
-      final audioOnly = manifest.audioOnly.withHighestBitrate();
+          .timeout(const Duration(seconds: 5));
+      final mp4s = manifest.audioOnly
+          .where((s) => s.container.name.toLowerCase() == 'mp4')
+          .toList();
+      final audioOnly = mp4s.isNotEmpty
+          ? mp4s.withHighestBitrate()
+          : manifest.audioOnly.withHighestBitrate();
       final urlStr = audioOnly.url.toString();
       _streamUrlCache[videoId] = urlStr;
       return audioOnly.url;
@@ -86,26 +91,109 @@ class StreamCacheManager {
   static Future<File?> ensureStreamCached(String videoId) async {
     try {
       final dir = await getCacheDirectory();
-      final targetFile = File(p.join(dir.path, '$videoId.m4a'));
-      if (await targetFile.exists() && (await targetFile.length()) > 50000) {
-        return targetFile;
+      for (final ext in ['m4a', 'mp4', 'webm']) {
+        final existing = File(p.join(dir.path, '$videoId.$ext'));
+        if (await existing.exists() && (await existing.length()) > 50000) {
+          return existing;
+        }
       }
 
-      final partFile = File(p.join(dir.path, '$videoId.part.m4a'));
-      if (await partFile.exists()) {
+      // Method 1: Android embedded yt-dlp engine (Immune to YouTube bot checks & rate limits)
+      if (YoutubeService.isEmbeddedYtDlpSupported) {
         try {
-          await partFile.delete();
-        } catch (_) {}
+          const channel = MethodChannel('peerm/ytdlp');
+          final processId = 'peerm-stream-${DateTime.now().millisecondsSinceEpoch}';
+          final outDir = Directory(p.join(dir.path, 'tmp_$videoId'));
+          if (!await outDir.exists()) await outDir.create(recursive: true);
+
+          await channel.invokeMethod('download', {
+            'url': 'https://www.youtube.com/watch?v=$videoId',
+            'outputDir': outDir.path,
+            'outputTemplate': '$videoId.%(ext)s',
+            'processId': processId,
+          }).timeout(const Duration(seconds: 20));
+
+          for (final f in outDir.listSync().whereType<File>()) {
+            if (await f.length() > 50000) {
+              final ext = p.extension(f.path);
+              final target = File(p.join(dir.path, '$videoId$ext'));
+              if (await target.exists()) {
+                try {
+                  await target.delete();
+                } catch (_) {}
+              }
+              await f.rename(target.path);
+              try {
+                await outDir.delete(recursive: true);
+              } catch (_) {}
+              unawaited(enforceCacheQuota());
+              return target;
+            }
+          }
+        } catch (e) {
+          debugPrint('[StreamCacheManager] Android embedded yt-dlp stream cache failed: $e');
+        }
       }
 
-      // Method 1: Fast direct HTTP stream pipe (Native on Android, iOS, Windows, macOS, Linux)
+      // Method 2: Desktop yt-dlp engine
+      try {
+        final bin = await YoutubeService.ytDlpPath();
+        if (bin != null) {
+          final fallbackTarget = File(p.join(dir.path, '$videoId.m4a'));
+          final fallbackPart = File(p.join(dir.path, '$videoId.part.m4a'));
+          final res = await Process.run(bin, [
+            '-f',
+            'bestaudio[ext=m4a]/bestaudio/best',
+            '--extractor-args',
+            'youtube:player_client=android,web,mweb',
+            '--no-playlist',
+            '--no-warnings',
+            '--no-check-certificates',
+            '--concurrent-fragments',
+            '4',
+            '-o',
+            fallbackPart.path,
+            'https://www.youtube.com/watch?v=$videoId',
+          ]).timeout(const Duration(seconds: 12));
+
+          if (res.exitCode == 0 && await fallbackPart.exists() && (await fallbackPart.length()) > 50000) {
+            if (await fallbackTarget.exists()) {
+              try {
+                await fallbackTarget.delete();
+              } catch (_) {}
+            }
+            await fallbackPart.rename(fallbackTarget.path);
+            unawaited(enforceCacheQuota());
+            return fallbackTarget;
+          }
+        }
+      } catch (e) {
+        debugPrint('[StreamCacheManager] yt-dlp fallback failed: $e');
+      }
+
+      // Method 3: Direct HTTP stream pipe fallback
       try {
         final manifest = await _client.videos.streamsClient
             .getManifest(videoId)
             .timeout(const Duration(seconds: 8));
-        final audioOnly = manifest.audioOnly;
-        if (audioOnly.isNotEmpty) {
-          final audio = audioOnly.withHighestBitrate();
+        final audioStreams = manifest.audioOnly;
+        if (audioStreams.isNotEmpty) {
+          final mp4s = audioStreams
+              .where((s) => s.container.name.toLowerCase() == 'mp4')
+              .toList();
+          final audio = mp4s.isNotEmpty
+              ? mp4s.withHighestBitrate()
+              : audioStreams.withHighestBitrate();
+          final ext = audio.container.name.toLowerCase() == 'webm' ? 'webm' : 'm4a';
+          final targetFile = File(p.join(dir.path, '$videoId.$ext'));
+          final partFile = File(p.join(dir.path, '$videoId.part.$ext'));
+
+          if (await partFile.exists()) {
+            try {
+              await partFile.delete();
+            } catch (_) {}
+          }
+
           final stream = _client.videos.streamsClient.get(audio);
           final sink = partFile.openWrite();
           await stream.pipe(sink);
@@ -125,40 +213,6 @@ class StreamCacheManager {
         }
       } catch (e) {
         debugPrint('[StreamCacheManager] direct stream download failed: $e');
-      }
-
-      // Method 2: yt-dlp extractor fallback
-      try {
-        final bin = await YoutubeService.ytDlpPath();
-        if (bin != null) {
-          final res = await Process.run(bin, [
-            '-f',
-            'bestaudio[ext=m4a]/bestaudio/best',
-            '--extractor-args',
-            'youtube:player_client=android,web,mweb',
-            '--no-playlist',
-            '--no-warnings',
-            '--no-check-certificates',
-            '--concurrent-fragments',
-            '4',
-            '-o',
-            partFile.path,
-            'https://www.youtube.com/watch?v=$videoId',
-          ]).timeout(const Duration(seconds: 12));
-
-          if (res.exitCode == 0 && await partFile.exists() && (await partFile.length()) > 50000) {
-            if (await targetFile.exists()) {
-              try {
-                await targetFile.delete();
-              } catch (_) {}
-            }
-            await partFile.rename(targetFile.path);
-            unawaited(enforceCacheQuota());
-            return targetFile;
-          }
-        }
-      } catch (e) {
-        debugPrint('[StreamCacheManager] yt-dlp fallback failed: $e');
       }
     } catch (e) {
       debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');
