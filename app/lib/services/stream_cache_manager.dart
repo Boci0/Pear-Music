@@ -90,33 +90,69 @@ class StreamCacheManager {
         return targetFile;
       }
 
-      final partFile = File(p.join(dir.path, '$videoId.part'));
+      final partFile = File(p.join(dir.path, '$videoId.part.m4a'));
       if (await partFile.exists()) {
         try {
           await partFile.delete();
         } catch (_) {}
       }
 
-      // Download audio stream cleanly via youtube_explode
-      final manifest = await _client.videos.streamsClient
-          .getManifest(videoId)
-          .timeout(const Duration(seconds: 8));
-      final audio = manifest.audioOnly.withHighestBitrate();
-      final stream = _client.videos.streamsClient.get(audio);
-      final sink = partFile.openWrite();
-      await stream.pipe(sink);
-      await sink.flush();
-      await sink.close();
+      // Method 1: Fast & rate-limit-resistant yt-dlp stream extraction
+      try {
+        final bin = await YoutubeService.ytDlpPath();
+        if (bin != null) {
+          final res = await Process.run(bin, [
+            '-f',
+            'ba/b',
+            '--extract-audio',
+            '--audio-format',
+            'm4a',
+            '--no-playlist',
+            '--no-warnings',
+            '-o',
+            partFile.path,
+            'https://www.youtube.com/watch?v=$videoId',
+          ]).timeout(const Duration(seconds: 12));
 
-      if (await partFile.exists() && (await partFile.length()) > 50000) {
-        if (await targetFile.exists()) {
-          try {
-            await targetFile.delete();
-          } catch (_) {}
+          if (res.exitCode == 0 && await partFile.exists() && (await partFile.length()) > 50000) {
+            if (await targetFile.exists()) {
+              try {
+                await targetFile.delete();
+              } catch (_) {}
+            }
+            await partFile.rename(targetFile.path);
+            unawaited(enforceCacheQuota());
+            return targetFile;
+          }
         }
-        await partFile.rename(targetFile.path);
-        unawaited(enforceCacheQuota());
-        return targetFile;
+      } catch (e) {
+        debugPrint('[StreamCacheManager] yt-dlp stream download failed: $e');
+      }
+
+      // Method 2: youtube_explode fallback
+      try {
+        final manifest = await _client.videos.streamsClient
+            .getManifest(videoId)
+            .timeout(const Duration(seconds: 5));
+        final audio = manifest.audioOnly.withHighestBitrate();
+        final stream = _client.videos.streamsClient.get(audio);
+        final sink = partFile.openWrite();
+        await stream.pipe(sink);
+        await sink.flush();
+        await sink.close();
+
+        if (await partFile.exists() && (await partFile.length()) > 50000) {
+          if (await targetFile.exists()) {
+            try {
+              await targetFile.delete();
+            } catch (_) {}
+          }
+          await partFile.rename(targetFile.path);
+          unawaited(enforceCacheQuota());
+          return targetFile;
+        }
+      } catch (e) {
+        debugPrint('[StreamCacheManager] youtube_explode download failed: $e');
       }
     } catch (e) {
       debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');

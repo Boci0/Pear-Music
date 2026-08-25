@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -76,7 +78,8 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                             final artSize = (constraints.maxHeight * 0.85)
                                 .clamp(180.0, 380.0);
                             return Center(
-                              child: PlayerArtwork(
+                              child: PlayerArtworkHero(
+                                song: song,
                                 size: artSize,
                                 artwork: ArtworkPalette.bytes(song),
                                 accent: accent,
@@ -337,16 +340,72 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                leading: isCurrent
-                    ? Icon(Icons.graphic_eq_rounded,
-                        color: scheme.primary, size: 20)
-                    : Text(
-                        '${i + 1}',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                          fontWeight: FontWeight.w600,
-                        ),
+                leading: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      child: isCurrent
+                          ? Icon(Icons.graphic_eq_rounded,
+                              color: scheme.primary, size: 18)
+                          : Text(
+                              '${i + 1}',
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: item.artwork != null && item.artwork!.startsWith('http')
+                            ? Image.network(
+                                item.artwork!,
+                                width: 36,
+                                height: 36,
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                                errorBuilder: (_, _, _) => Container(
+                                  color: scheme.surfaceContainerHighest,
+                                  child: Icon(Icons.music_note,
+                                      size: 18, color: scheme.onSurfaceVariant),
+                                ),
+                              )
+                            : FutureBuilder<Uint8List?>(
+                                initialData: ArtworkPalette.bytes(item),
+                                future: ArtworkPalette.bytesAsync(item),
+                                builder: (context, snapshot) {
+                                  final bytes =
+                                      snapshot.data ?? ArtworkPalette.bytes(item);
+                                  if (bytes != null && bytes.isNotEmpty) {
+                                    return Image.memory(
+                                      bytes,
+                                      width: 36,
+                                      height: 36,
+                                      fit: BoxFit.cover,
+                                      gaplessPlayback: true,
+                                      errorBuilder: (_, _, _) => Container(
+                                        color: scheme.surfaceContainerHighest,
+                                        child: Icon(Icons.music_note,
+                                            size: 18, color: scheme.onSurfaceVariant),
+                                      ),
+                                    );
+                                  }
+                                  return Container(
+                                    color: scheme.surfaceContainerHighest,
+                                    child: Icon(Icons.music_note,
+                                        size: 18, color: scheme.onSurfaceVariant),
+                                  );
+                                },
+                              ),
                       ),
+                    ),
+                  ],
+                ),
                 title: Text(
                   item.title,
                   maxLines: 1,

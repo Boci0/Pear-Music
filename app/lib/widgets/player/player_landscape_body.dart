@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
@@ -43,7 +43,8 @@ class PlayerLandscapeBody extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          PlayerArtwork(
+                          PlayerArtworkHero(
+                            song: song,
                             size: artSize,
                             artwork: ArtworkPalette.bytes(song),
                             accent: accent,
