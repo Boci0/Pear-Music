@@ -92,6 +92,30 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 }
                 startDownload(ctx, url, outputDir, processId, result)
             }
+            "canRequestPackageInstalls" -> {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    result.success(ctx.packageManager.canRequestPackageInstalls())
+                } else {
+                    result.success(true)
+                }
+            }
+            "openInstallPermissionSettings" -> {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    val settingsIntent = android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        android.net.Uri.parse("package:${ctx.packageName}")
+                    ).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    ctx.startActivity(settingsIntent)
+                    result.success(true)
+                } else {
+                    result.success(true)
+                }
+            }
+            "getSupportedAbis" -> {
+                result.success(android.os.Build.SUPPORTED_ABIS.toList())
+            }
             "cancel" -> {
                 val processId = call.argument<String>("processId")
                 if (processId != null) cancelProcess(processId)
@@ -258,7 +282,37 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     return@execute
                 }
 
-                notificationManager.cancel(notificationId)
+                val apkUri = androidx.core.content.FileProvider.getUriForFile(
+                    ctx,
+                    "${ctx.packageName}.fileprovider",
+                    destFile
+                )
+                val installIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val pendingIntent = android.app.PendingIntent.getActivity(
+                    ctx,
+                    notificationId,
+                    installIntent,
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                    } else {
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                    }
+                )
+
+                builder.setContentTitle("Pear Music update ready")
+                    .setContentText("Tap to install")
+                    .setOngoing(false)
+                    .setProgress(0, 0, false)
+                    .setContentIntent(pendingIntent)
+                    .setAutoCancel(true)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                notificationManager.notify(notificationId, builder.build())
+
                 mainHandler.post {
                     try {
                         installApk(ctx, destFile.absolutePath)
@@ -296,6 +350,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 ctx.startActivity(settingsIntent)
+                return
             }
         }
 

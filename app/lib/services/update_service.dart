@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.7.9';
+  static const String currentVersion = '1.8.0';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -58,6 +58,10 @@ class UpdateService {
         final bodyText = (json['body'] as String? ?? 'No release notes provided.').trim();
 
         String? apkUrl;
+        String? apkArm64Url;
+        String? apkArmv7Url;
+        String? apkX86Url;
+        String? apkUniversalUrl;
         String? setupUrl;
         String? zipUrl;
         String? sumsUrl;
@@ -69,10 +73,14 @@ class UpdateService {
                 (asset['name'] as String? ?? p.basename(downloadUrl))
                     .toLowerCase();
             if (downloadUrl.endsWith('.apk')) {
-              if (downloadUrl.contains('arm64')) {
-                apkUrl = downloadUrl;
+              if (name.contains('arm64')) {
+                apkArm64Url = downloadUrl;
+              } else if (name.contains('armv7') || name.contains('armeabi')) {
+                apkArmv7Url = downloadUrl;
+              } else if (name.contains('x86_64')) {
+                apkX86Url = downloadUrl;
               } else {
-                apkUrl ??= downloadUrl;
+                apkUniversalUrl = downloadUrl;
               }
             } else if (downloadUrl.endsWith('.exe')) {
               setupUrl = downloadUrl;
@@ -82,6 +90,30 @@ class UpdateService {
               sumsUrl = downloadUrl;
             }
           }
+        }
+
+        // Select the best matching APK for this Android device architecture
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          try {
+            const channel = MethodChannel('peerm/ytdlp');
+            final abis = await channel
+                .invokeMethod<List<dynamic>>('getSupportedAbis')
+                .timeout(const Duration(milliseconds: 600));
+            final abisList = abis?.map((e) => e.toString().toLowerCase()).toList() ?? [];
+            if (abisList.any((a) => a.contains('arm64')) && apkArm64Url != null) {
+              apkUrl = apkArm64Url;
+            } else if (abisList.any((a) => a.contains('v7') || a.contains('arm')) && apkArmv7Url != null) {
+              apkUrl = apkArmv7Url;
+            } else if (abisList.any((a) => a.contains('x86_64')) && apkX86Url != null) {
+              apkUrl = apkX86Url;
+            } else {
+              apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
+            }
+          } catch (_) {
+            apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
+          }
+        } else {
+          apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
         }
 
         // Resolve expected SHA-256 digests so downloads can be verified
@@ -130,8 +162,9 @@ class UpdateService {
           final m = RegExp(r'^([0-9a-fA-F]{64})\s+\*?(.+)$')
               .firstMatch(line.trim());
           if (m != null) {
-            result[p.basename(m.group(2)!.trim())] =
-                m.group(1)!.toLowerCase();
+            final fileName = p.basename(m.group(2)!.trim());
+            final hash = m.group(1)!.toLowerCase();
+            result[fileName] = hash;
           }
         }
       }
@@ -158,6 +191,17 @@ class UpdateService {
       }
     }
     return result;
+  }
+
+  /// Finds the expected SHA-256 for a given filename using case-insensitive lookup.
+  static String? _findExpectedHash(UpdateInfo info, String filename) {
+    final key = filename.toLowerCase();
+    for (final entry in info.sha256ByName.entries) {
+      if (entry.key.toLowerCase() == key) {
+        return entry.value.toLowerCase();
+      }
+    }
+    return null;
   }
 
   /// Streams [file] through SHA-256 and returns the lowercase hex digest.
@@ -294,11 +338,13 @@ class UpdateService {
         await sink.close();
 
         // Integrity gate: never extract/relaunch without a matching SHA-256.
-        final expected = info.sha256ByName[p.basename(zipUrl)]?.toLowerCase();
+        final expected = _findExpectedHash(info, p.basename(zipUrl));
         if (expected == null || expected.isEmpty) {
           debugPrint('[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}');
           await zipFile.delete();
-          await _showMissingHashDialog(context, info);
+          if (context.mounted) {
+            await _showMissingHashDialog(context, info);
+          }
           return;
         }
         final actual = await computeFileSha256(zipFile);
@@ -322,19 +368,62 @@ class UpdateService {
         final exePath = Platform.resolvedExecutable;
         final appDir = p.dirname(exePath);
 
-        final batchScript = File(p.join(tempDir.path, 'peerm_updater.bat'));
-        await batchScript.writeAsString('''
-@echo off
-timeout /t 2 /nobreak > NUL
-powershell -Command "Expand-Archive -Path '${zipFile.path}' -DestinationPath '$appDir' -Force"
-start "" "$exePath"
-del "${zipFile.path}"
-(goto) 2>nul & del "%~f0"
+        final updaterScript = File(p.join(tempDir.path, 'peerm_updater.ps1'));
+        await updaterScript.writeAsString('''
+param(
+    [int]\$AppPid,
+    [string]\$ZipPath,
+    [string]\$AppDir,
+    [string]\$ExePath
+)
+
+if (\$AppPid -gt 0) {
+    try {
+        Wait-Process -Id \$AppPid -Timeout 12 -ErrorAction SilentlyContinue
+    } catch {}
+}
+Start-Sleep -Milliseconds 800
+
+\$retries = 6
+\$extracted = \$false
+while (\$retries -gt 0 -and -not \$extracted) {
+    try {
+        Expand-Archive -LiteralPath \$ZipPath -DestinationPath \$AppDir -Force -ErrorAction Stop
+        \$extracted = \$true
+    } catch {
+        \$retries--
+        Start-Sleep -Seconds 1
+    }
+}
+
+if (\$extracted) {
+    Start-Process -FilePath \$ExePath
+    Remove-Item -LiteralPath \$ZipPath -Force -ErrorAction SilentlyContinue
+}
+
+Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''');
 
+        final currentPid = pid;
         await Process.start(
-          'cmd.exe',
-          ['/c', batchScript.path],
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-WindowStyle',
+            'Hidden',
+            '-File',
+            updaterScript.path,
+            '-AppPid',
+            '$currentPid',
+            '-ZipPath',
+            zipFile.path,
+            '-AppDir',
+            appDir,
+            '-ExePath',
+            exePath,
+          ],
           mode: ProcessStartMode.detached,
         );
 
@@ -360,8 +449,7 @@ del "${zipFile.path}"
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     // Integrity gate: refuse to download/install without expected SHA-256.
-    final expected =
-        info.sha256ByName[p.basename(apkUrl)]?.toLowerCase();
+    final expected = _findExpectedHash(info, p.basename(apkUrl));
     if (expected == null || expected.isEmpty) {
       debugPrint('[UpdateService] No SHA-256 data for ${p.basename(apkUrl)}');
       await _showMissingHashDialog(context, info);
@@ -384,7 +472,7 @@ del "${zipFile.path}"
     } on PlatformException catch (e) {
       debugPrint('[UpdateService] Android in-app update failed: $e');
       if (e.code == 'hash_missing') {
-        await _showMissingHashDialog(context, info);
+        if (context.mounted) await _showMissingHashDialog(context, info);
       } else if (e.code == 'hash_mismatch') {
         scaffoldMessenger.showSnackBar(
           const SnackBar(
