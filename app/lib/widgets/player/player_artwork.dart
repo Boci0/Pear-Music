@@ -51,6 +51,7 @@ class PlayerArtwork extends StatelessWidget {
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
+                gaplessPlayback: true,
               )
             : Container(
                 width: size,

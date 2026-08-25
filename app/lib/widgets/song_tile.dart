@@ -218,14 +218,16 @@ class _Artwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final initialBytes = ArtworkPalette.bytes(song);
     // Async decode: base64-decoding artwork on the UI thread for every tile
     // that scrolls into view janks scrolling on large libraries. The result
     // is cached per song, so this future resolves instantly after first load.
     final Widget image = FutureBuilder<Uint8List?>(
+      initialData: initialBytes,
       future: ArtworkPalette.bytesAsync(song),
       builder: (context, snapshot) {
-        final bytes = snapshot.data;
-        if (bytes == null) return _placeholder(scheme);
+        final bytes = snapshot.data ?? initialBytes;
+        if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
         return ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: Image.memory(
