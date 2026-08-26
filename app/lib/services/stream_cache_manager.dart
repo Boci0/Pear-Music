@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -171,7 +171,7 @@ class StreamCacheManager {
         if (bin != null) {
           final res = await Process.run(bin, [
             '-f',
-            'bestaudio[ext=m4a]/bestaudio/ba/best',
+            'bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio[ext=m4a]/bestaudio/ba/best',
             '-o',
             tempPart.path,
             '--no-playlist',
@@ -186,6 +186,12 @@ class StreamCacheManager {
             '16k',
             '--http-chunk-size',
             '10M',
+            '--socket-timeout',
+            '15',
+            '--retries',
+            '3',
+            '--fragment-retries',
+            '3',
             '--extractor-args',
             'youtube:player_client=android,web,mweb',
             'https://www.youtube.com/watch?v=$videoId',

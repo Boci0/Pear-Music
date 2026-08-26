@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -117,6 +117,19 @@ class RecommendationService {
 
   static final Map<String, String> _seedVideoIdCache = {};
 
+  /// Cleans a song title or filename for accurate online searching.
+  static String cleanSongQuery(Song song) {
+    var query = song.title
+        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+        .replaceAll(RegExp(r'\([^)]*\)'), '')
+        .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|ogg|webm|aac|opus)$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'^\d+[\s\.\-_]+'), '')
+        .replaceAll(RegExp(r'[_]+'), ' ')
+        .trim();
+    if (query.isEmpty) query = song.title.trim();
+    return query;
+  }
+
   /// Resolves the YouTube video ID for a given [Song], querying search if necessary.
   static Future<String?> resolveSeedVideoId(Song song) async {
     final directId = _extractVideoId(song.id) ?? _extractVideoId(song.fileName);
@@ -124,20 +137,25 @@ class RecommendationService {
       return directId;
     }
 
-    final cacheKey = song.title.trim().toLowerCase();
+    final query = cleanSongQuery(song);
+    final cacheKey = query.toLowerCase();
     if (_seedVideoIdCache.containsKey(cacheKey)) {
       return _seedVideoIdCache[cacheKey];
     }
 
-    // Clean title for searching (remove brackets, extensions, extra symbols)
-    var query = song.title
-        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
-        .replaceAll(RegExp(r'\([^)]*\)'), '')
-        .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|ogg|webm)$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'^\d+[\s\.\-_]+'), '')
-        .trim();
-    if (query.isEmpty) query = song.title.trim();
+    // Step 1: Direct Innertube Music Search
+    try {
+      final innertubeResults = await searchInnertubeSongs(query, limit: 1);
+      if (innertubeResults.isNotEmpty) {
+        final id = innertubeResults.first.videoId;
+        _seedVideoIdCache[cacheKey] = id;
+        return id;
+      }
+    } catch (e) {
+      debugPrint('[RecommendationService] Innertube seed search error: $e');
+    }
 
+    // Step 2: YouTubeSearchService fallback
     try {
       final results = await YouTubeSearchService.search(query, limit: 1);
       if (results.isNotEmpty) {
@@ -148,6 +166,7 @@ class RecommendationService {
     } catch (e) {
       debugPrint('[RecommendationService] Search seed resolve failed: $e');
     }
+
     return null;
   }
 
@@ -158,26 +177,49 @@ class RecommendationService {
   }) async {
     final videoId = await resolveSeedVideoId(song);
 
-    if (videoId == null || videoId.isEmpty) {
-      debugPrint('[RecommendationService] Could not resolve videoId for "${song.title}"');
-      return const RecommendationBatch(items: []);
+    if (videoId != null && videoId.isNotEmpty) {
+      if (_radioCache.containsKey(videoId)) {
+        return _radioCache[videoId]!;
+      }
+
+      // Attempt 1: Multi-client Innertube next endpoint with RDAMVM automix
+      final automixBatch = await _fetchInnertubeRadio(
+        videoId,
+        playlistPrefix: 'RDAMVM',
+        excludeVideoIds: excludeVideoIds,
+      );
+      if (automixBatch.items.isNotEmpty) {
+        _cacheRadioBatch(videoId, automixBatch);
+        return automixBatch;
+      }
+
+      // Attempt 2: Innertube next endpoint with pure RD playlist
+      final rdBatch = await _fetchInnertubeRadio(
+        videoId,
+        playlistPrefix: 'RD',
+        excludeVideoIds: excludeVideoIds,
+      );
+      if (rdBatch.items.isNotEmpty) {
+        _cacheRadioBatch(videoId, rdBatch);
+        return rdBatch;
+      }
+
+      // Attempt 3: Innertube next endpoint without playlist (Up Next queue)
+      final upNextBatch = await _fetchInnertubeRadio(
+        videoId,
+        playlistPrefix: null,
+        excludeVideoIds: excludeVideoIds,
+      );
+      if (upNextBatch.items.isNotEmpty) {
+        _cacheRadioBatch(videoId, upNextBatch);
+        return upNextBatch;
+      }
     }
 
-    if (_radioCache.containsKey(videoId)) {
-      return _radioCache[videoId]!;
-    }
-
-    // Attempt 1: Multi-client Innertube next endpoint
-    final innertubeBatch = await _fetchInnertubeRadio(videoId, excludeVideoIds: excludeVideoIds);
-    if (innertubeBatch.items.isNotEmpty) {
-      _cacheRadioBatch(videoId, innertubeBatch);
-      return innertubeBatch;
-    }
-
-    // Attempt 2: Fallback related tracks via YouTube search automix
+    // Attempt 4: Fallback related tracks via Innertube song search & YouTube search automix
     final fallbackBatch = await _fetchFallbackRelated(song, videoId, excludeVideoIds: excludeVideoIds);
     if (fallbackBatch.items.isNotEmpty) {
-      _cacheRadioBatch(videoId, fallbackBatch);
+      if (videoId != null) _cacheRadioBatch(videoId, fallbackBatch);
       return fallbackBatch;
     }
 
@@ -193,6 +235,7 @@ class RecommendationService {
 
   static Future<RecommendationBatch> _fetchInnertubeRadio(
     String videoId, {
+    String? playlistPrefix = 'RDAMVM',
     Set<String>? excludeVideoIds,
   }) async {
     final clientConfigs = [
@@ -219,7 +262,7 @@ class RecommendationService {
         request.headers.set('User-Agent', cfg['userAgent']!);
         request.headers.set('Referer', cfg['referer']!);
 
-        final body = jsonEncode({
+        final payload = <String, dynamic>{
           'context': {
             'client': {
               'clientName': cfg['clientName'],
@@ -229,11 +272,14 @@ class RecommendationService {
             }
           },
           'videoId': videoId,
-          'playlistId': 'RDAMVM$videoId',
-        });
+        };
 
-        request.write(body);
-        final response = await request.close().timeout(const Duration(seconds: 5));
+        if (playlistPrefix != null) {
+          payload['playlistId'] = '$playlistPrefix$videoId';
+        }
+
+        request.write(jsonEncode(payload));
+        final response = await request.close().timeout(const Duration(seconds: 6));
         if (response.statusCode != 200) {
           continue;
         }
@@ -309,20 +355,144 @@ class RecommendationService {
     return const RecommendationBatch(items: []);
   }
 
+  /// Searches Innertube Music directly for song tracks.
+  static Future<List<RecommendationItem>> searchInnertubeSongs(String query, {int limit = 20}) async {
+    final clientConfigs = [
+      {
+        'clientName': 'WEB_REMIX',
+        'clientVersion': '1.20260801.01.00',
+        'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    ];
+
+    for (final cfg in clientConfigs) {
+      try {
+        final request = await _httpClient.postUrl(
+          Uri.parse('https://music.youtube.com/youtubei/v1/search'),
+        );
+        request.headers.set('Content-Type', 'application/json');
+        request.headers.set('User-Agent', cfg['userAgent']!);
+        request.headers.set('Referer', 'https://music.youtube.com/');
+
+        final payload = {
+          'context': {
+            'client': {
+              'clientName': cfg['clientName'],
+              'clientVersion': cfg['clientVersion'],
+              'hl': 'en',
+              'gl': 'US',
+            }
+          },
+          'query': query,
+          'params': 'EgWKAQIIAWoKEAUQCRADEAQQBQ==', // Song filter
+        };
+
+        request.write(jsonEncode(payload));
+        final response = await request.close().timeout(const Duration(seconds: 6));
+        if (response.statusCode != 200) continue;
+
+        final respText = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(respText) as Map<String, dynamic>;
+
+        final items = <RecommendationItem>[];
+        final sections = data['contents']?['tabbedSearchResultsRenderer']?['tabs']?[0]
+            ?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
+
+        if (sections != null) {
+          for (final sec in sections) {
+            final shelf = sec['musicShelfRenderer'];
+            final shelfContents = shelf?['contents'] as List?;
+            if (shelfContents == null) continue;
+
+            for (final row in shelfContents) {
+              if (items.length >= limit) break;
+              final renderer = row['musicResponsiveListItemRenderer'];
+              if (renderer == null) continue;
+
+              final flexCols = renderer['flexColumns'] as List?;
+              if (flexCols == null || flexCols.isEmpty) continue;
+
+              final titleRuns = flexCols[0]?['musicResponsiveListItemFlexColumnRenderer']
+                  ?['text']?['runs'] as List?;
+              final title = titleRuns != null && titleRuns.isNotEmpty
+                  ? titleRuns[0]['text'] as String? ?? 'Unknown'
+                  : 'Unknown';
+
+              String artist = '';
+              String? lengthStr;
+              if (flexCols.length > 1) {
+                final subRuns = flexCols[1]?['musicResponsiveListItemFlexColumnRenderer']
+                    ?['text']?['runs'] as List?;
+                if (subRuns != null && subRuns.isNotEmpty) {
+                  artist = subRuns[0]['text'] as String? ?? '';
+                  if (subRuns.length >= 3) {
+                    lengthStr = subRuns.last['text'] as String?;
+                  }
+                }
+              }
+
+              final playNav = renderer['overlay']?['musicItemThumbnailOverlayRenderer']
+                  ?['content']?['musicPlayButtonRenderer']?['playNavigationEndpoint'];
+              final vId = playNav?['watchEndpoint']?['videoId'] as String? ??
+                  renderer['playlistItemData']?['videoId'] as String?;
+
+              if (vId == null || vId.isEmpty) continue;
+
+              final thumbs = renderer['thumbnail']?['musicThumbnailRenderer']
+                  ?['thumbnail']?['thumbnails'] as List?;
+              final thumbUrl = thumbs != null && thumbs.isNotEmpty
+                  ? thumbs.last['url'] as String?
+                  : null;
+
+              items.add(
+                RecommendationItem(
+                  videoId: vId,
+                  title: title,
+                  artist: artist,
+                  duration: _parseDuration(lengthStr),
+                  thumbnailUrl: thumbUrl,
+                ),
+              );
+            }
+          }
+        }
+
+        if (items.isNotEmpty) return items;
+      } catch (e) {
+        debugPrint('[RecommendationService] Innertube search error: $e');
+      }
+    }
+    return const [];
+  }
+
   static Future<RecommendationBatch> _fetchFallbackRelated(
     Song song,
-    String videoId, {
+    String? videoId, {
     Set<String>? excludeVideoIds,
   }) async {
     try {
-      final cleanTitle = song.title
-          .replaceAll(RegExp(r'\[[^\]]*\]'), '')
-          .replaceAll(RegExp(r'\([^)]*\)'), '')
-          .trim();
-      final results = await YouTubeSearchService.search('$cleanTitle mix', limit: 20);
-      final seen = <String>{...?excludeVideoIds, ..._sessionPlayedVideoIds, videoId};
+      final cleanTitle = cleanSongQuery(song);
+      final seen = <String>{
+        ...?excludeVideoIds,
+        ..._sessionPlayedVideoIds,
+        if (videoId != null) videoId,
+      };
       final items = <RecommendationItem>[];
 
+      // Strategy A: Innertube Music search for "$cleanTitle"
+      final innertubeMatches = await searchInnertubeSongs(cleanTitle, limit: 20);
+      for (final r in innertubeMatches) {
+        if (seen.contains(r.videoId)) continue;
+        seen.add(r.videoId);
+        items.add(r);
+      }
+
+      if (items.length >= 5) {
+        return RecommendationBatch(items: items);
+      }
+
+      // Strategy B: YouTubeSearchService for "$cleanTitle"
+      final results = await YouTubeSearchService.search('$cleanTitle mix', limit: 20);
       for (final r in results) {
         if (seen.contains(r.videoId)) continue;
         seen.add(r.videoId);
@@ -355,12 +525,6 @@ class RecommendationService {
         'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'referer': 'https://music.youtube.com/',
       },
-      {
-        'clientName': 'ANDROID_MUSIC',
-        'clientVersion': '6.42.52',
-        'userAgent': 'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
-        'referer': 'https://music.youtube.com/',
-      },
     ];
 
     for (final cfg in clientConfigs) {
@@ -385,104 +549,109 @@ class RecommendationService {
         });
 
         request.write(body);
-        final response = await request.close().timeout(const Duration(seconds: 5));
-        if (response.statusCode != 200) {
-          continue;
+        final response = await request.close().timeout(const Duration(seconds: 6));
+        if (response.statusCode != 200) continue;
+
+        final respText = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(respText) as Map<String, dynamic>;
+
+        final continuations = data['continuationContents']?['playlistPanelContinuation'];
+        final rawItems = continuations?['contents'] as List?;
+        final items = <RecommendationItem>[];
+        final seen = <String>{...?excludeVideoIds, ..._sessionPlayedVideoIds};
+
+        if (rawItems != null && rawItems.isNotEmpty) {
+          for (final item in rawItems) {
+            final renderer = item['playlistPanelVideoRenderer'];
+            if (renderer == null) continue;
+            final vId = renderer['videoId'] as String?;
+            if (vId == null || vId.isEmpty || seen.contains(vId)) continue;
+            seen.add(vId);
+
+            final titleRuns = renderer['title']?['runs'] as List?;
+            final title = titleRuns != null && titleRuns.isNotEmpty
+                ? titleRuns[0]['text'] as String? ?? 'Unknown Title'
+                : 'Unknown Title';
+
+            final bylineRuns = renderer['longBylineText']?['runs'] as List?;
+            final artist = bylineRuns != null && bylineRuns.isNotEmpty
+                ? bylineRuns[0]['text'] as String? ?? ''
+                : '';
+
+            final lengthRuns = renderer['lengthText']?['runs'] as List?;
+            final lengthStr = lengthRuns != null && lengthRuns.isNotEmpty
+                ? lengthRuns[0]['text'] as String?
+                : null;
+
+            final thumbs = renderer['thumbnail']?['thumbnails'] as List?;
+            final thumbUrl = thumbs != null && thumbs.isNotEmpty
+                ? thumbs.last['url'] as String?
+                : null;
+
+            items.add(
+              RecommendationItem(
+                videoId: vId,
+                title: title,
+                artist: artist,
+                duration: _parseDuration(lengthStr),
+                thumbnailUrl: thumbUrl,
+              ),
+            );
+          }
         }
 
-      final respText = await response.transform(utf8.decoder).join();
-      final data = jsonDecode(respText) as Map<String, dynamic>;
-
-      final panel = data['continuationContents']?['playlistPanelContinuation'];
-      final rawItems = panel?['contents'] as List?;
-      final items = <RecommendationItem>[];
-      final seen = <String>{...?excludeVideoIds, ..._sessionPlayedVideoIds};
-
-      if (rawItems != null) {
-        for (final item in rawItems) {
-          final renderer = item['playlistPanelVideoRenderer'];
-          if (renderer == null) continue;
-          final vId = renderer['videoId'] as String?;
-          if (vId == null || vId.isEmpty || seen.contains(vId)) continue;
-          seen.add(vId);
-
-          final titleRuns = renderer['title']?['runs'] as List?;
-          final title = titleRuns != null && titleRuns.isNotEmpty
-              ? titleRuns[0]['text'] as String? ?? 'Unknown Title'
-              : 'Unknown Title';
-
-          final bylineRuns = renderer['longBylineText']?['runs'] as List?;
-          final artist = bylineRuns != null && bylineRuns.isNotEmpty
-              ? bylineRuns[0]['text'] as String? ?? ''
-              : '';
-
-          final lengthRuns = renderer['lengthText']?['runs'] as List?;
-          final lengthStr = lengthRuns != null && lengthRuns.isNotEmpty
-              ? lengthRuns[0]['text'] as String?
-              : null;
-
-          final thumbs = renderer['thumbnail']?['thumbnails'] as List?;
-          final thumbUrl = thumbs != null && thumbs.isNotEmpty
-              ? thumbs.last['url'] as String?
-              : null;
-
-          items.add(
-            RecommendationItem(
-              videoId: vId,
-              title: title,
-              artist: artist,
-              duration: _parseDuration(lengthStr),
-              thumbnailUrl: thumbUrl,
-            ),
-          );
-        }
-      }
-
-        String? nextContinuation;
-        final nextConts = panel?['continuations'] as List?;
-        if (nextConts != null && nextConts.isNotEmpty) {
-          nextContinuation = nextConts[0]['nextContinuationData']?['continuation'] as String?;
+        String? nextToken;
+        final nextContinuations = continuations?['continuations'] as List?;
+        if (nextContinuations != null && nextContinuations.isNotEmpty) {
+          nextToken = nextContinuations[0]['nextContinuationData']?['continuation'] as String?;
         }
 
         if (items.isNotEmpty) {
           return RecommendationBatch(
             items: items,
-            continuationToken: nextContinuation,
+            continuationToken: nextToken,
           );
         }
       } catch (e) {
-        debugPrint('[RecommendationService] Failed continuation for ${cfg['clientName']}: $e');
+        debugPrint('[RecommendationService] fetchContinuation error: $e');
       }
     }
     return const RecommendationBatch(items: []);
   }
 
-  /// Offline fallback: selects tracks from [allLibrarySongs] with artist/title affinity to [seed].
+  /// Offline fallback: intelligently sorts existing [librarySongs] by matching
+  /// artist names and keywords in [seedSong.title].
   static List<Song> getOfflineRecommendations(
-    Song seed,
-    List<Song> allLibrarySongs, {
-    int count = 15,
+    Song seedSong,
+    List<Song> librarySongs, {
     Set<String>? excludeSongIds,
   }) {
-    final seen = <String>{seed.id, ...?excludeSongIds};
-    final candidates = allLibrarySongs.where((s) => !seen.contains(s.id)).toList();
-    if (candidates.isEmpty) return const [];
+    if (librarySongs.isEmpty) return const [];
+    final pool = librarySongs.where((s) => s.id != seedSong.id && !(excludeSongIds?.contains(s.id) ?? false)).toList();
+    if (pool.isEmpty) return const [];
 
-    final seedWords = seed.title.toLowerCase().split(RegExp(r'[\s\-_,]+')).where((w) => w.length > 2).toSet();
+    final seedTokens = seedSong.title
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
+        .split(RegExp(r'\s+'))
+        .where((t) => t.length > 2)
+        .toSet();
 
-    candidates.sort((a, b) {
-      var scoreA = 0;
-      var scoreB = 0;
+    pool.sort((a, b) {
+      int scoreA = 0;
+      int scoreB = 0;
 
-      final wordsA = a.title.toLowerCase().split(RegExp(r'[\s\-_,]+')).toSet();
-      final wordsB = b.title.toLowerCase().split(RegExp(r'[\s\-_,]+')).toSet();
+      final titleA = a.title.toLowerCase();
+      final titleB = b.title.toLowerCase();
 
-      scoreA += wordsA.intersection(seedWords).length * 3;
-      scoreB += wordsB.intersection(seedWords).length * 3;
+      for (final t in seedTokens) {
+        if (titleA.contains(t)) scoreA += 2;
+        if (titleB.contains(t)) scoreB += 2;
+      }
 
       return scoreB.compareTo(scoreA);
     });
 
-    return candidates.take(count).toList();
+    return pool.take(10).toList();
   }
 }
