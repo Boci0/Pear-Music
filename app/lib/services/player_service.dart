@@ -408,7 +408,6 @@ class PlayerService extends ChangeNotifier {
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
-          _consecutiveStreamFailures = 0;
         } else {
           _consecutiveStreamFailures++;
           debugPrint(
@@ -417,6 +416,10 @@ class PlayerService extends ChangeNotifier {
           );
           if (_consecutiveStreamFailures >= 3) {
             debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
+            _isAdvancing = false;
+            _isLoadingTrack = false;
+            await _player.pause();
+            notifyListeners();
             return;
           }
           unawaited(next());
@@ -436,16 +439,24 @@ class PlayerService extends ChangeNotifier {
             ),
           ),
         );
-        _consecutiveStreamFailures = 0;
       }
 
       if (token != _playRequestToken) return;
       _isLoadingTrack = false;
       await _player.play();
+      _consecutiveStreamFailures = 0;
       _preloadUpcomingStreams();
     } catch (e) {
       debugPrint('[PlayerService] playSong error: $e');
       if (token != _playRequestToken) return;
+      _consecutiveStreamFailures++;
+      if (_consecutiveStreamFailures >= 3) {
+        _isAdvancing = false;
+        _isLoadingTrack = false;
+        await _player.pause();
+        notifyListeners();
+        return;
+      }
       unawaited(next());
     } finally {
       _isAdvancing = false;
@@ -553,7 +564,6 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> next() async {
     _lastInteraction = DateTime.now();
-    _consecutiveStreamFailures = 0;
     if (_queue.isEmpty) return;
     if (_loopMode == LoopSetting.one) {
       await _replayCurrent();

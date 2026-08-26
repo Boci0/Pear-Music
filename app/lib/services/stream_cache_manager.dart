@@ -146,7 +146,7 @@ class StreamCacheManager {
             'url': 'https://www.youtube.com/watch?v=$videoId',
             'outputPath': tempPart.path,
             'processId': processId,
-          }).timeout(const Duration(seconds: 10));
+          }).timeout(const Duration(seconds: 25));
 
           if (await tempPart.exists() && (await tempPart.length()) > 50000) {
             if (await targetFile.exists()) {
@@ -189,7 +189,7 @@ class StreamCacheManager {
             '--extractor-args',
             'youtube:player_client=android,web,mweb',
             'https://www.youtube.com/watch?v=$videoId',
-          ]).timeout(const Duration(seconds: 10));
+          ]).timeout(const Duration(seconds: 25));
 
           if (res.exitCode == 0 && await tempPart.exists() && (await tempPart.length()) > 50000) {
             if (await targetFile.exists()) {
@@ -213,15 +213,15 @@ class StreamCacheManager {
         final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
         if (streamInfo != null && streamInfo.url.startsWith('http')) {
           final client = HttpClient()
-            ..connectionTimeout = const Duration(seconds: 4)
-            ..idleTimeout = const Duration(seconds: 8);
+            ..connectionTimeout = const Duration(seconds: 6)
+            ..idleTimeout = const Duration(seconds: 15);
           final req = await client.getUrl(Uri.parse(streamInfo.url));
           req.headers.set(
             'User-Agent',
             'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
           );
           req.headers.set('Referer', 'https://music.youtube.com/');
-          final resp = await req.close().timeout(const Duration(seconds: 8));
+          final resp = await req.close().timeout(const Duration(seconds: 15));
 
           if (resp.statusCode == 200 || resp.statusCode == 206) {
             final sink = tempPart.openWrite();
