@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -47,6 +47,17 @@ class StreamCacheManager {
     return _cachedVideoIds.contains(videoId);
   }
 
+  /// Returns the in-flight download future if this track is currently being cached.
+  static Future<File?>? getInFlightDownload(String videoId) {
+    return _inFlightDownloads[videoId]?.future;
+  }
+
+  /// Invalidate cached stream URL for a given video ID
+  static void invalidateStreamUrl(String videoId) {
+    _streamUrlCache.remove(videoId);
+    InnertubePlayerService.invalidateCache(videoId);
+  }
+
   /// Quick cache-only check: returns the cached file if it exists, null otherwise.
   /// Does NOT trigger any network requests or downloads.
   static Future<File?> getCachedFile(String videoId) async {
@@ -86,14 +97,23 @@ class StreamCacheManager {
   }
 
   /// Sequentially pre-downloads upcoming tracks into the local cache file system.
-  static Future<void> preloadUpcomingTracks(List<String> videoIds) async {
+  static Future<void> preloadUpcomingTracks(
+    List<String> videoIds, {
+    void Function(String videoId)? onTrackCached,
+  }) async {
     for (final id in videoIds) {
       if (id.isEmpty) continue;
       final cached = await getCachedFile(id);
-      if (cached != null) continue;
+      if (cached != null) {
+        onTrackCached?.call(id);
+        continue;
+      }
       // Pre-download sequentially in background
       try {
-        await ensureStreamCached(id);
+        final downloaded = await ensureStreamCached(id);
+        if (downloaded != null) {
+          onTrackCached?.call(id);
+        }
       } catch (_) {}
     }
   }

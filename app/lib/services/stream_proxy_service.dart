@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -70,6 +70,18 @@ class StreamProxyService {
       if (cachedFile != null && await cachedFile.exists()) {
         await _serveLocalFile(request, cachedFile);
         return;
+      }
+
+      // Step 1.5: If in-flight download is running, await it briefly
+      final inFlight = StreamCacheManager.getInFlightDownload(videoId);
+      if (inFlight != null) {
+        try {
+          final file = await inFlight.timeout(const Duration(seconds: 4));
+          if (file != null && await file.exists()) {
+            await _serveLocalFile(request, file);
+            return;
+          }
+        } catch (_) {}
       }
 
       // Step 2: Resolve stream URL via Innertube Player Service
@@ -179,6 +191,7 @@ class StreamProxyService {
       final upstreamResp = await upstreamReq.close().timeout(const Duration(seconds: 8));
       var statusCode = upstreamResp.statusCode;
       if (statusCode == HttpStatus.forbidden || statusCode == HttpStatus.unauthorized) {
+        StreamCacheManager.invalidateStreamUrl(videoId);
         return false;
       }
 

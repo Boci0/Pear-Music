@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -32,6 +32,11 @@ class InnertubePlayerService {
     ..idleTimeout = const Duration(seconds: 10);
 
   static final Map<String, ({InnertubeAudioStream stream, DateTime expiresAt})> _streamCache = {};
+
+  /// Invalidate cached stream for a given video ID
+  static void invalidateCache(String videoId) {
+    _streamCache.remove(videoId);
+  }
 
   static const List<Map<String, dynamic>> _clientContexts = [
     {

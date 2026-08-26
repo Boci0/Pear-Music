@@ -406,8 +406,18 @@ class PlayerService extends ChangeNotifier {
         );
 
         // Step 1: Check instant local cache (0 ms)
-        final cachedFile = await StreamCacheManager.getCachedFile(videoId);
+        var cachedFile = await StreamCacheManager.getCachedFile(videoId);
         if (token != _playRequestToken) return;
+
+        if (cachedFile == null) {
+          final inFlight = StreamCacheManager.getInFlightDownload(videoId);
+          if (inFlight != null) {
+            try {
+              cachedFile = await inFlight.timeout(const Duration(seconds: 4));
+            } catch (_) {}
+            if (token != _playRequestToken) return;
+          }
+        }
 
         if (cachedFile != null) {
           await _player.setAudioSource(
@@ -498,7 +508,7 @@ class PlayerService extends ChangeNotifier {
   void _preloadUpcomingStreams() {
     if (_queueIndex < 0 || _queue.isEmpty) return;
     final upcomingVideoIds = <String>[];
-    for (int offset = 1; offset <= 3; offset++) {
+    for (int offset = 1; offset <= 25; offset++) {
       final idx = _queueIndex + offset;
       if (idx < _queue.length) {
         final s = _queue[idx];
@@ -514,7 +524,10 @@ class PlayerService extends ChangeNotifier {
       _isPreloadingUpcoming = true;
       notifyListeners();
       unawaited(StreamCacheManager.preloadStreamUrls(upcomingVideoIds));
-      StreamCacheManager.preloadUpcomingTracks(upcomingVideoIds).whenComplete(() {
+      StreamCacheManager.preloadUpcomingTracks(
+        upcomingVideoIds,
+        onTrackCached: (_) => notifyListeners(),
+      ).whenComplete(() {
         _isPreloadingUpcoming = false;
         notifyListeners();
       });

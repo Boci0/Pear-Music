@@ -34,17 +34,8 @@ class PlayerBar extends StatelessWidget {
 
     return Material(
       color: barColor,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          if (player.isPreloadingUpcoming)
-            LinearProgressIndicator(
-              minHeight: 2,
-              backgroundColor: Colors.transparent,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                control.withOpacity(0.7),
-              ),
-            ),
           InkWell(
             onTap: () => Navigator.of(context).push(
               PageRouteBuilder(
@@ -63,49 +54,62 @@ class PlayerBar extends StatelessWidget {
                 children: [
                   _Thumb(song: song),
                   const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        Text(
+                          'Playing on this device',
+                          style: theme.textTheme.labelSmall,
+                        ),
+                      ],
                     ),
-                    Text(
-                      'Playing on this device',
-                      style: theme.textTheme.labelSmall,
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.skip_previous, color: control),
+                    onPressed: () => controller.previousTrack(),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      player.playing
+                          ? Icons.pause_circle_filled
+                          : Icons.play_circle_filled,
+                      size: 36,
+                      color: control,
                     ),
-                  ],
-                ),
+                    onPressed: () => controller.togglePlayback(),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.skip_next, color: control),
+                    onPressed: () => controller.nextTrack(),
+                  ),
+                ],
               ),
-              IconButton(
-                icon: Icon(Icons.skip_previous, color: control),
-                onPressed: () => controller.previousTrack(),
-              ),
-              IconButton(
-                icon: Icon(
-                  player.playing
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_filled,
-                  size: 36,
-                  color: control,
-                ),
-                onPressed: () => controller.togglePlayback(),
-              ),
-              IconButton(
-                icon: Icon(Icons.skip_next, color: control),
-                onPressed: () => controller.nextTrack(),
-              ),
-            ],
+            ),
           ),
-        ),
+          if (player.isPreloadingUpcoming)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: LinearProgressIndicator(
+                minHeight: 2,
+                backgroundColor: Colors.transparent,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  control.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+        ],
       ),
-    ],
-  ),
-);
+    );
   }
 }
 
