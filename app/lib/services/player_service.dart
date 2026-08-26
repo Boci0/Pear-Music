@@ -353,7 +353,7 @@ class PlayerService extends ChangeNotifier {
     // play shows the notification; the prompt does not delay playback.
     _requestNotificationPermissionIfNeeded();
 
-    _queue = queue ?? library.songs;
+    _queue = List<Song>.from(queue ?? library.songs);
     if (sourceId != null) {
       queueSourceId = sourceId;
       queueTitle = sourceTitle;
@@ -777,8 +777,10 @@ class PlayerService extends ChangeNotifier {
     if (oldIndex < newIndex) {
       newIndex -= 1;
     }
-    final item = _queue.removeAt(oldIndex);
-    _queue.insert(newIndex, item);
+    final mutableQueue = List<Song>.from(_queue);
+    final item = mutableQueue.removeAt(oldIndex);
+    mutableQueue.insert(newIndex, item);
+    _queue = mutableQueue;
     if (currentSong != null) {
       _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
     }
@@ -793,7 +795,9 @@ class PlayerService extends ChangeNotifier {
     if (index == _queueIndex) {
       unawaited(next());
     }
-    _queue.removeAt(index);
+    final mutableQueue = List<Song>.from(_queue);
+    mutableQueue.removeAt(index);
+    _queue = mutableQueue;
     if (currentSong != null) {
       _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
     }

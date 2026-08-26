@@ -19,17 +19,12 @@ import '../models/song.dart';
 /// song. Decoded artwork bytes are cached too, so the player's large artwork
 /// isn't re-decoded from base64 on every rebuild.
 class ArtworkPalette {
-  /// Theme seed colour — the fallback for songs with no artwork.
-  static const Color fallback = Color(0xFF7C4DFF);
+  /// Theme seed colour — the fallback for songs with no artwork (Emerald Green).
+  static const Color fallback = Color(0xFF10B981);
 
-  // Bounded LRU caches. A library can hold hundreds of songs and each decoded
-  // artwork bitmap is ~256KB, so keeping every song in memory would balloon
-  // RAM. Entries are re-inserted on access so the most-recently-used survive
-  // eviction.
-  static const int _maxBytesEntries = 48;
-  /// Larger cache for the async tile path: a long library list rebuilds many
-  /// tiles while scrolling, and each miss means a synchronous-feeling decode.
-  static const int _maxAsyncBytesEntries = 256;
+  // Bounded LRU caches. Memory caps optimized for high responsiveness and minimal RAM.
+  static const int _maxBytesEntries = 32;
+  static const int _maxAsyncBytesEntries = 64;
   static const int _maxColorEntries = 256;
   static final LinkedHashMap<String, Future<Color>> _cache =
       LinkedHashMap<String, Future<Color>>();
@@ -42,20 +37,26 @@ class ArtworkPalette {
       LinkedHashMap<String, Color>();
 
   /// Last resolved accent colour. Kept across cache clears so the UI never
-  /// flashes back to the purple [fallback] while colours re-resolve.
+  /// flashes back to fallback while colours re-resolve.
   static Color? _lastAccent;
+
+  static final HttpClient _httpClient = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 4)
+    ..idleTimeout = const Duration(seconds: 15)
+    ..maxConnectionsPerHost = 6;
 
   /// Synchronous cached color extraction for zero-latency widget rendering.
   static Color dominantSync(Song song, {Color? fallbackColor}) {
-    final fb = fallbackColor ?? fallback;
-    final art = song.artwork;
-    if (art == null || art.isEmpty) return fb;
     final id = song.id;
     final cached = _resolvedColors[id];
     if (cached != null) return cached;
+    final fb = fallbackColor ?? _lastAccent ?? fallback;
+    final art = song.artwork;
+    if (art == null || art.isEmpty) return fb;
     // Asynchronously resolve in background isolate without blocking UI thread
     dominant(song, fallbackColor: fb).then((color) {
       _resolvedColors[id] = color;
+      _lastAccent = color;
       _trim(_resolvedColors, _maxColorEntries);
     });
     return fb;
@@ -64,7 +65,7 @@ class ArtworkPalette {
   /// Returns the dominant colour for [song] (or [fallback] when the song has
   /// no artwork). The returned future is cached, so repeated calls are free.
   static Future<Color> dominant(Song song, {Color? fallbackColor}) {
-    final fb = fallbackColor ?? fallback;
+    final fb = fallbackColor ?? _lastAccent ?? fallback;
     final art = song.artwork;
     if (art == null || art.isEmpty) return Future.value(fb);
     final id = song.id;
@@ -76,9 +77,11 @@ class ArtworkPalette {
       return cached;
     }
     final future = _extract(art).then((color) {
-      _resolvedColors[id] = color;
+      final effective = (color == fallback && _lastAccent != null) ? _lastAccent! : color;
+      _resolvedColors[id] = effective;
+      _lastAccent = effective;
       _trim(_resolvedColors, _maxColorEntries);
-      return color;
+      return effective;
     });
     _cache[id] = future;
     _trim(_cache, _maxColorEntries);
@@ -165,8 +168,7 @@ class ArtworkPalette {
   static Future<Color> _extract(String art) async {
     try {
       if (art.startsWith('http')) {
-        final client = HttpClient();
-        final req = await client.getUrl(Uri.parse(art)).timeout(const Duration(seconds: 4));
+        final req = await _httpClient.getUrl(Uri.parse(art)).timeout(const Duration(seconds: 4));
         final resp = await req.close().timeout(const Duration(seconds: 4));
         if (resp.statusCode == 200) {
           final bytes = await consolidateHttpClientResponseBytes(resp);
@@ -176,7 +178,7 @@ class ArtworkPalette {
         return await compute(computeDominant, art);
       }
     } catch (_) {}
-    return fallback;
+    return _lastAccent ?? fallback;
   }
 
   /// A softened, readable accent for controls (play button, sliders, active

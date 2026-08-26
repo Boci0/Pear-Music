@@ -306,183 +306,206 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
 
   @override
   Widget build(BuildContext context) {
-    final queue = widget.player.queue;
-    final scheme = widget.scheme;
-    if (queue.isEmpty) {
-      return const Center(child: Text('Queue is empty'));
-    }
+    return ListenableBuilder(
+      listenable: widget.player,
+      builder: (context, _) {
+        final queue = widget.player.queue;
+        final scheme = widget.scheme;
+        if (queue.isEmpty) {
+          return const Center(child: Text('Queue is empty'));
+        }
 
-    return Theme(
-      data: Theme.of(context).copyWith(
-        hoverColor: scheme.primary.withValues(alpha: 0.08),
-        highlightColor: Colors.transparent,
-        splashColor: scheme.primary.withValues(alpha: 0.12),
-      ),
-      child: ReorderableListView.builder(
-        scrollController: _scrollController,
-        onReorder: (oldIdx, newIdx) =>
-            context.read<AppController>().reorderQueue(oldIdx, newIdx),
-        itemCount: queue.length,
-        itemBuilder: (context, i) {
-          final item = queue[i];
-          final isCurrent = item.id == widget.currentSong.id;
-          return Padding(
-            key: ValueKey('wide_queue_item_${item.id}_$i'),
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Material(
-              color: isCurrent
-                  ? scheme.primaryContainer.withValues(alpha: 0.35)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              clipBehavior: Clip.antiAlias,
-              child: ListTile(
-                dense: true,
-                mouseCursor: SystemMouseCursors.click,
-                hoverColor: scheme.primary.withValues(alpha: 0.08),
-                splashColor: scheme.primary.withValues(alpha: 0.12),
-                shape: RoundedRectangleBorder(
+        return Theme(
+          data: Theme.of(context).copyWith(
+            hoverColor: scheme.primary.withValues(alpha: 0.08),
+            highlightColor: Colors.transparent,
+            splashColor: scheme.primary.withValues(alpha: 0.12),
+          ),
+          child: ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            proxyDecorator: (child, index, animation) {
+              return Material(
+                elevation: 6,
+                color: scheme.surfaceContainerHigh,
+                shadowColor: Colors.black45,
+                borderRadius: BorderRadius.circular(12),
+                child: child,
+              );
+            },
+            scrollController: _scrollController,
+            onReorder: (oldIdx, newIdx) =>
+                context.read<AppController>().reorderQueue(oldIdx, newIdx),
+            itemCount: queue.length,
+            itemBuilder: (context, i) {
+              final item = queue[i];
+              final isCurrent = item.id == widget.currentSong.id;
+              return Padding(
+                key: ValueKey('wide_queue_${item.id}'),
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Material(
+                  color: isCurrent
+                      ? scheme.primaryContainer.withValues(alpha: 0.35)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
-                ),
-                leading: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 24,
-                      child: isCurrent
-                          ? Icon(Icons.graphic_eq_rounded,
-                              color: scheme.primary, size: 18)
-                          : Text(
-                              '${i + 1}',
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    dense: true,
+                    mouseCursor: SystemMouseCursors.click,
+                    hoverColor: scheme.primary.withValues(alpha: 0.08),
+                    splashColor: scheme.primary.withValues(alpha: 0.12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(width: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: item.artwork != null && item.artwork!.startsWith('http')
-                            ? Image.network(
-                                item.artwork!,
-                                width: 36,
-                                height: 36,
-                                fit: BoxFit.cover,
-                                gaplessPlayback: true,
-                                errorBuilder: (_, _, _) => Container(
-                                  color: scheme.surfaceContainerHighest,
-                                  child: Icon(Icons.music_note,
-                                      size: 18, color: scheme.onSurfaceVariant),
+                    leading: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          child: isCurrent
+                              ? Icon(Icons.graphic_eq_rounded,
+                                  color: scheme.primary, size: 18)
+                              : Text(
+                                  '${i + 1}',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              )
-                            : FutureBuilder<Uint8List?>(
-                                initialData: ArtworkPalette.bytes(item),
-                                future: ArtworkPalette.bytesAsync(item),
-                                builder: (context, snapshot) {
-                                  final bytes =
-                                      snapshot.data ?? ArtworkPalette.bytes(item);
-                                  if (bytes != null && bytes.isNotEmpty) {
-                                    return Image.memory(
-                                      bytes,
-                                      width: 36,
-                                      height: 36,
-                                      fit: BoxFit.cover,
-                                      gaplessPlayback: true,
-                                      errorBuilder: (_, _, _) => Container(
+                        ),
+                        const SizedBox(width: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: item.artwork != null && item.artwork!.startsWith('http')
+                                ? Image.network(
+                                    item.artwork!,
+                                    width: 36,
+                                    height: 36,
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                    errorBuilder: (_, _, _) => Container(
+                                      color: scheme.surfaceContainerHighest,
+                                      child: Icon(Icons.music_note,
+                                          size: 18, color: scheme.onSurfaceVariant),
+                                    ),
+                                  )
+                                : FutureBuilder<Uint8List?>(
+                                    initialData: ArtworkPalette.bytes(item),
+                                    future: ArtworkPalette.bytesAsync(item),
+                                    builder: (context, snapshot) {
+                                      final bytes =
+                                          snapshot.data ?? ArtworkPalette.bytes(item);
+                                      if (bytes != null && bytes.isNotEmpty) {
+                                        return Image.memory(
+                                          bytes,
+                                          width: 36,
+                                          height: 36,
+                                          fit: BoxFit.cover,
+                                          gaplessPlayback: true,
+                                          errorBuilder: (_, _, _) => Container(
+                                            color: scheme.surfaceContainerHighest,
+                                            child: Icon(Icons.music_note,
+                                                size: 18, color: scheme.onSurfaceVariant),
+                                          ),
+                                        );
+                                      }
+                                      return Container(
                                         color: scheme.surfaceContainerHighest,
                                         child: Icon(Icons.music_note,
                                             size: 18, color: scheme.onSurfaceVariant),
-                                      ),
-                                    );
-                                  }
-                                  return Container(
-                                    color: scheme.surfaceContainerHighest,
-                                    child: Icon(Icons.music_note,
-                                        size: 18, color: scheme.onSurfaceVariant),
-                                  );
-                                },
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-                title: Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: isCurrent
-                      ? TextStyle(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.bold,
-                        )
-                      : null,
-                ),
-                subtitle: Text(
-                  item.sourceDeviceId == 'stream'
-                      ? 'Radio Stream'
-                      : item.sourceDeviceId == null
-                          ? 'Local track'
-                          : 'Shared',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isCurrent
-                            ? scheme.primary.withValues(alpha: 0.8)
-                            : scheme.onSurfaceVariant,
-                      ),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (item.sourceDeviceId == 'stream')
-                      IconButton(
-                        iconSize: 18,
-                        tooltip: 'Save to library',
-                        icon: Icon(Icons.download_rounded,
-                            color: scheme.tertiary),
-                        onPressed: () => context
-                            .read<AppController>()
-                            .saveStreamToLibrary(item),
-                      ),
-                    if (isCurrent)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'PLAYING',
-                          style: TextStyle(
-                            color: scheme.onPrimary,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+                                      );
+                                    },
+                                  ),
                           ),
                         ),
-                      ),
-                    ReorderableDragStartListener(
-                      index: i,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Icon(
-                          Icons.drag_handle,
-                          size: 20,
-                          color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
-                        ),
-                      ),
+                      ],
                     ),
-                  ],
+                    title: Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: isCurrent
+                          ? TextStyle(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.bold,
+                            )
+                          : null,
+                    ),
+                    subtitle: Text(
+                      item.sourceDeviceId == 'stream'
+                          ? 'Radio Stream'
+                          : item.sourceDeviceId == null
+                              ? 'Local track'
+                              : 'Shared',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isCurrent
+                                ? scheme.primary.withValues(alpha: 0.8)
+                                : scheme.onSurfaceVariant,
+                          ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (item.sourceDeviceId == 'stream')
+                          IconButton(
+                            iconSize: 18,
+                            tooltip: 'Save to library',
+                            icon: Icon(Icons.download_rounded,
+                                color: scheme.tertiary),
+                            onPressed: () => context
+                                .read<AppController>()
+                                .saveStreamToLibrary(item),
+                          ),
+                        if (isCurrent)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'PLAYING',
+                              style: TextStyle(
+                                color: scheme.onPrimary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        IconButton(
+                          iconSize: 18,
+                          tooltip: 'Remove from queue',
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => context
+                              .read<AppController>()
+                              .removeFromQueue(i),
+                        ),
+                        ReorderableDragStartListener(
+                          index: i,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Icon(
+                              Icons.drag_handle_rounded,
+                              size: 20,
+                              color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () => widget.player.playSong(item, queue: queue),
+                  ),
                 ),
-                onTap: () => widget.player.playSong(item, queue: queue),
-              ),
-            ),
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
