@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -35,8 +35,8 @@ void main() {
 
     test('enforceCacheQuota bounds cache to maxTrackCount and maxCacheBytes', () async {
       final dir = await StreamCacheManager.getCacheDirectory();
-      expect(StreamCacheManager.maxTrackCount, 15);
-      expect(StreamCacheManager.maxCacheBytes, 60 * 1024 * 1024);
+      expect(StreamCacheManager.maxTrackCount, 50);
+      expect(StreamCacheManager.maxCacheBytes, 150 * 1024 * 1024);
 
       final dummyOldTemp = File('${dir.path}/test_cleanup.tmp.m4a');
       await dummyOldTemp.writeAsString('test');

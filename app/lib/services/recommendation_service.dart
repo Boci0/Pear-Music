@@ -256,7 +256,18 @@ class RecommendationService {
 
     if (videoId != null && videoId.isNotEmpty) {
       if (_radioCache.containsKey(videoId)) {
-        return _radioCache[videoId]!;
+        final cached = _radioCache[videoId]!;
+        final freshItems = cached.items
+            .where((item) =>
+                !(excludeVideoIds?.contains(item.videoId) ?? false) &&
+                !_sessionPlayedVideoIds.contains(item.videoId))
+            .toList();
+        if (freshItems.length >= 5) {
+          return RecommendationBatch(
+            items: freshItems,
+            continuationToken: cached.continuationToken,
+          );
+        }
       }
 
       // Attempt 1: Multi-client Innertube next endpoint with RDAMVM automix

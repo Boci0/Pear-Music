@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/innertube_player_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 
@@ -32,8 +32,8 @@ void main() {
     });
 
     test('cache quota constraints are bounded', () {
-      expect(StreamCacheManager.maxCacheBytes, equals(60 * 1024 * 1024));
-      expect(StreamCacheManager.maxTrackCount, equals(15));
+      expect(StreamCacheManager.maxCacheBytes, equals(150 * 1024 * 1024));
+      expect(StreamCacheManager.maxTrackCount, equals(50));
     });
   });
 }

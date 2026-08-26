@@ -274,8 +274,13 @@ class PlayerService extends ChangeNotifier {
     currentSong = seedSong;
     notifyListeners();
 
-    // Trigger initial background fetch of recommended tracks
-    unawaited(fetchAndAppendRecommendations());
+    // Trigger initial background fetch of recommended tracks (fetch 2 batches for a deep ~40-50 song queue)
+    unawaited(() async {
+      final firstOk = await fetchAndAppendRecommendations();
+      if (firstOk && _queue.length < 35) {
+        await fetchAndAppendRecommendations();
+      }
+    }());
 
     await playSong(seedSong, queue: _queue, sourceId: 'radio', sourceTitle: queueTitle);
   }
@@ -296,6 +301,13 @@ class PlayerService extends ChangeNotifier {
           _continuationToken!,
           excludeVideoIds: excludeIds,
         );
+        if (batch.items.isEmpty) {
+          _continuationToken = null;
+          batch = await RecommendationService.fetchRadio(
+            seed,
+            excludeVideoIds: excludeIds,
+          );
+        }
       } else {
         batch = await RecommendationService.fetchRadio(
           seed,
@@ -381,8 +393,8 @@ class PlayerService extends ChangeNotifier {
     // Speculatively pre-resolve and cache upcoming queue streams
     _preloadUpcomingStreams();
 
-    // Trigger pre-fetch if we are within 3 songs of the queue end and autoplay is on
-    if (_autoplay && _queueIndex >= _queue.length - 3 && !_isLoadingRecommendations) {
+    // Trigger proactive background pre-fetch when within 10 songs of the queue end
+    if (_autoplay && _queueIndex >= _queue.length - 10 && !_isLoadingRecommendations) {
       unawaited(fetchAndAppendRecommendations());
     }
 

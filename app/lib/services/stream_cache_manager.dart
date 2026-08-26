@@ -14,9 +14,9 @@ import 'youtube_service.dart';
 /// High-speed ephemeral radio cache manager.
 /// Streams audio directly into local disk files using optimized audio-only extractors.
 class StreamCacheManager {
-  static const int maxCacheBytes = 60 * 1024 * 1024; // 60 MB cap (~18-20 songs)
-  static const int targetEvictionBytes = 40 * 1024 * 1024; // prune to 40 MB
-  static const int maxTrackCount = 15;
+  static const int maxCacheBytes = 150 * 1024 * 1024; // 150 MB cap (~45-50 songs)
+  static const int targetEvictionBytes = 100 * 1024 * 1024; // prune to 100 MB
+  static const int maxTrackCount = 50;
 
   static Directory? _cacheDir;
 
@@ -93,7 +93,7 @@ class StreamCacheManager {
   }) {
     final seq = ++_slidingWindowSequence;
     unawaited(() async {
-      for (final id in videoIds.take(3)) {
+      for (final id in videoIds.take(4)) {
         if (seq != _slidingWindowSequence) break;
         if (id.isEmpty) continue;
         final cached = await getCachedFile(id);
