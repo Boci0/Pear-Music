@@ -78,6 +78,125 @@ class StreamCacheManager {
     }
   }
 
+  /// Sequentially pre-downloads upcoming tracks into the local cache file system.
+  static Future<void> preloadUpcomingTracks(List<String> videoIds) async {
+    for (final id in videoIds) {
+      if (id.isEmpty) continue;
+      final cached = await getCachedFile(id);
+      if (cached != null) continue;
+      // Pre-download sequentially in background
+      try {
+        await ensureStreamCached(id);
+      } catch (_) {}
+    }
+  }
+
+  /// Prepares an audio file for [videoId] and returns a playable [File] as soon as
+  /// the initial audio buffer (~64 KB, ~200ms) arrives, while downloading the remainder
+  /// in the background for 100% offline playback.
+  static Future<File?> prepareStreamFile(String videoId) async {
+    final cached = await getCachedFile(videoId);
+    if (cached != null) return cached;
+
+    // Single-flight deduplication
+    if (_inFlightDownloads.containsKey(videoId)) {
+      return await _inFlightDownloads[videoId]!.future;
+    }
+
+    final completer = Completer<File?>();
+    _inFlightDownloads[videoId] = completer;
+
+    try {
+      final dir = await getCacheDirectory();
+
+      // Progressive Innertube chunk stream download (~150ms resolve + progressive write)
+      final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
+      if (streamInfo != null && streamInfo.url.startsWith('http')) {
+        final ext = streamInfo.container;
+        final targetFile = File(p.join(dir.path, '$videoId.$ext'));
+        final tempFile = File(p.join(dir.path, '$videoId.tmp.$ext'));
+        if (await tempFile.exists()) {
+          try {
+            await tempFile.delete();
+          } catch (_) {}
+        }
+
+        final client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5)
+          ..idleTimeout = const Duration(seconds: 10);
+        final req = await client.getUrl(Uri.parse(streamInfo.url));
+        req.headers.set(
+          'User-Agent',
+          'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
+        );
+        req.headers.set('Referer', 'https://music.youtube.com/');
+        final resp = await req.close().timeout(const Duration(seconds: 15));
+
+        if (resp.statusCode == 200 || resp.statusCode == 206) {
+          final sink = tempFile.openWrite();
+          int written = 0;
+          bool completedEarly = false;
+
+          resp.listen(
+            (chunk) {
+              sink.add(chunk);
+              written += chunk.length;
+              if (!completedEarly && written >= 64 * 1024) {
+                completedEarly = true;
+                if (!completer.isCompleted) {
+                  completer.complete(tempFile);
+                }
+              }
+            },
+            onDone: () async {
+              try {
+                await sink.flush();
+                await sink.close();
+                if (await tempFile.exists() && (await tempFile.length()) > 50000) {
+                  if (await targetFile.exists()) {
+                    try {
+                      await targetFile.delete();
+                    } catch (_) {}
+                  }
+                  await tempFile.rename(targetFile.path);
+                  unawaited(enforceCacheQuota());
+                }
+              } catch (_) {}
+              if (!completer.isCompleted) {
+                completer.complete(targetFile);
+              }
+            },
+            onError: (e) async {
+              try {
+                await sink.close();
+              } catch (_) {}
+              if (!completer.isCompleted) {
+                completer.complete(null);
+              }
+            },
+            cancelOnError: true,
+          );
+
+          // Wait for initial playable chunk or full stream
+          final result = await completer.future;
+          if (result != null) {
+            return result;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[StreamCacheManager] prepareStreamFile error for $videoId: $e');
+    } finally {
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+      _inFlightDownloads.remove(videoId);
+    }
+
+    // Fallback: full download via ensureStreamCached
+    return await ensureStreamCached(videoId);
+  }
+
   /// Returns the localhost stream proxy URI for [videoId] to prevent 403 errors.
   static Future<Uri?> getStreamProxyUri(String videoId) async {
     return await StreamProxyService.getStreamProxyUri(videoId);

@@ -15,7 +15,8 @@ class StreamProxyService {
   static int? _port;
   static final HttpClient _proxyClient = HttpClient()
     ..idleTimeout = const Duration(seconds: 15)
-    ..connectionTimeout = const Duration(seconds: 8);
+    ..connectionTimeout = const Duration(seconds: 8)
+    ..badCertificateCallback = ((cert, host, port) => true);
 
   /// Initializes and binds the loopback proxy server if not already running.
   static Future<int> ensureStarted() async {
@@ -27,7 +28,7 @@ class StreamProxyService {
       debugPrint('[StreamProxyService] Started audio proxy on port ' + _port.toString());
 
       _server!.listen(_handleRequest, onError: (e) {
-        debugPrint('[StreamProxyService] Server error: ' + e.toString());
+        debugPrint('[StreamProxyService] Server socket error: ' + e.toString());
       });
 
       return _port!;
@@ -47,15 +48,19 @@ class StreamProxyService {
   static Future<void> _handleRequest(HttpRequest request) async {
     final path = request.uri.path;
     if (!path.startsWith('/stream/')) {
-      request.response.statusCode = HttpStatus.notFound;
-      await request.response.close();
+      try {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      } catch (_) {}
       return;
     }
 
     final videoId = path.replaceFirst('/stream/', '').trim();
     if (videoId.isEmpty) {
-      request.response.statusCode = HttpStatus.badRequest;
-      await request.response.close();
+      try {
+        request.response.statusCode = HttpStatus.badRequest;
+        await request.response.close();
+      } catch (_) {}
       return;
     }
 
@@ -81,8 +86,10 @@ class StreamProxyService {
         return;
       }
 
-      request.response.statusCode = HttpStatus.notFound;
-      await request.response.close();
+      try {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      } catch (_) {}
     } catch (e) {
       debugPrint('[StreamProxyService] Error handling /stream/' + videoId + ': ' + e.toString());
       try {
@@ -93,51 +100,57 @@ class StreamProxyService {
   }
 
   static Future<void> _serveLocalFile(HttpRequest request, File file) async {
-    final fileSize = await file.length();
-    final ext = p.extension(file.path).toLowerCase();
-    final mimeType = ext.contains('webm') ? 'audio/webm' : 'audio/mp4';
+    try {
+      final fileSize = await file.length();
+      final ext = p.extension(file.path).toLowerCase();
+      final mimeType = ext.contains('webm') ? 'audio/webm' : 'audio/mp4';
 
-    request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
 
-    if (request.method == 'HEAD') {
-      request.response.statusCode = HttpStatus.ok;
-      request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
-      request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize);
-      await request.response.close();
-      return;
-    }
-
-    final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
-    if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
-      final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(rangeHeader);
-      if (match != null) {
-        final start = int.parse(match.group(1)!);
-        final endStr = match.group(2);
-        final end = (endStr != null && endStr.isNotEmpty)
-            ? int.parse(endStr)
-            : fileSize - 1;
-
-        final contentLength = end - start + 1;
-        request.response.statusCode = HttpStatus.partialContent;
+      if (request.method == 'HEAD') {
+        request.response.statusCode = HttpStatus.ok;
         request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
-        request.response.headers.set(
-          HttpHeaders.contentRangeHeader,
-          'bytes ' + start.toString() + '-' + end.toString() + '/' + fileSize.toString(),
-        );
-        request.response.headers.set(HttpHeaders.contentLengthHeader, contentLength);
-
-        final stream = file.openRead(start, end + 1);
-        await request.response.addStream(stream);
+        request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize);
         await request.response.close();
         return;
       }
-    }
 
-    request.response.statusCode = HttpStatus.ok;
-    request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
-    request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize);
-    await request.response.addStream(file.openRead());
-    await request.response.close();
+      final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
+      if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+        final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(rangeHeader);
+        if (match != null) {
+          final start = int.parse(match.group(1)!);
+          final endStr = match.group(2);
+          final end = (endStr != null && endStr.isNotEmpty)
+              ? int.parse(endStr)
+              : fileSize - 1;
+
+          final contentLength = end - start + 1;
+          request.response.statusCode = HttpStatus.partialContent;
+          request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
+          request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          request.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes ' + start.toString() + '-' + end.toString() + '/' + fileSize.toString(),
+          );
+          request.response.headers.set(HttpHeaders.contentLengthHeader, contentLength);
+
+          final stream = file.openRead(start, end + 1);
+          await request.response.addStream(stream);
+          await request.response.close();
+          return;
+        }
+      }
+
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize);
+      await request.response.addStream(file.openRead());
+      await request.response.close();
+    } catch (_) {
+      // Client closed connection during stream playback (normal on pause/seek/skip)
+    }
   }
 
   static Future<void> _proxyRemoteUrl(
@@ -146,74 +159,78 @@ class StreamProxyService {
     String videoId,
     InnertubeAudioStream? streamInfo,
   ) async {
-    final isHead = request.method == 'HEAD';
-    final upstreamReq = isHead
-        ? await _proxyClient.headUrl(Uri.parse(targetUrl))
-        : await _proxyClient.getUrl(Uri.parse(targetUrl));
+    try {
+      final isHead = request.method == 'HEAD';
+      final upstreamReq = isHead
+          ? await _proxyClient.headUrl(Uri.parse(targetUrl))
+          : await _proxyClient.getUrl(Uri.parse(targetUrl));
 
-    upstreamReq.headers.set(
-      'User-Agent',
-      'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
-    );
-    upstreamReq.headers.set('Referer', 'https://music.youtube.com/');
+      upstreamReq.headers.set(
+        'User-Agent',
+        'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
+      );
+      upstreamReq.headers.set('Referer', 'https://music.youtube.com/');
 
-    final clientRange = request.headers.value(HttpHeaders.rangeHeader);
-    if (clientRange != null) {
-      upstreamReq.headers.set(HttpHeaders.rangeHeader, clientRange);
-    }
+      final clientRange = request.headers.value(HttpHeaders.rangeHeader);
+      if (clientRange != null) {
+        upstreamReq.headers.set(HttpHeaders.rangeHeader, clientRange);
+      }
 
-    final upstreamResp = await upstreamReq.close().timeout(const Duration(seconds: 10));
-    var statusCode = upstreamResp.statusCode;
-    final totalLength = streamInfo?.contentLength ?? upstreamResp.contentLength;
+      final upstreamResp = await upstreamReq.close().timeout(const Duration(seconds: 8));
+      var statusCode = upstreamResp.statusCode;
+      final totalLength = streamInfo?.contentLength ?? upstreamResp.contentLength;
 
-    // Normalize HTTP 200 with Range header into HTTP 206 Partial Content for ExoPlayer
-    if (statusCode == HttpStatus.ok && clientRange != null && clientRange.startsWith('bytes=')) {
-      final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(clientRange);
-      if (match != null) {
-        final start = int.parse(match.group(1)!);
-        final endStr = match.group(2);
-        final end = (endStr != null && endStr.isNotEmpty)
-            ? int.parse(endStr)
-            : (totalLength > 0 ? totalLength - 1 : upstreamResp.contentLength - 1);
-        if (end >= start) {
-          statusCode = HttpStatus.partialContent;
-          final totalStr = totalLength > 0 ? totalLength.toString() : "*";
-          request.response.headers.set(
-            HttpHeaders.contentRangeHeader,
-            'bytes ' + start.toString() + '-' + end.toString() + '/' + totalStr,
-          );
+      // Normalize HTTP 200 with Range header into HTTP 206 Partial Content for ExoPlayer
+      if (statusCode == HttpStatus.ok && clientRange != null && clientRange.startsWith('bytes=')) {
+        final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(clientRange);
+        if (match != null) {
+          final start = int.parse(match.group(1)!);
+          final endStr = match.group(2);
+          final end = (endStr != null && endStr.isNotEmpty)
+              ? int.parse(endStr)
+              : (totalLength > 0 ? totalLength - 1 : upstreamResp.contentLength - 1);
+          if (end >= start) {
+            statusCode = HttpStatus.partialContent;
+            final totalStr = totalLength > 0 ? totalLength.toString() : "*";
+            request.response.headers.set(
+              HttpHeaders.contentRangeHeader,
+              'bytes ' + start.toString() + '-' + end.toString() + '/' + totalStr,
+            );
+          }
         }
       }
-    }
 
-    request.response.statusCode = statusCode;
+      request.response.statusCode = statusCode;
 
-    upstreamResp.headers.forEach((name, values) {
-      final lower = name.toLowerCase();
-      if (lower == HttpHeaders.contentTypeHeader ||
-          lower == HttpHeaders.contentLengthHeader ||
-          lower == HttpHeaders.contentRangeHeader ||
-          lower == HttpHeaders.acceptRangesHeader) {
-        for (final v in values) {
-          request.response.headers.add(name, v);
+      upstreamResp.headers.forEach((name, values) {
+        final lower = name.toLowerCase();
+        if (lower == HttpHeaders.contentTypeHeader ||
+            lower == HttpHeaders.contentLengthHeader ||
+            lower == HttpHeaders.contentRangeHeader ||
+            lower == HttpHeaders.acceptRangesHeader) {
+          for (final v in values) {
+            request.response.headers.add(name, v);
+          }
         }
+      });
+
+      if (request.response.headers.value(HttpHeaders.acceptRangesHeader) == null) {
+        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
       }
-    });
+      if (streamInfo != null && request.response.headers.value(HttpHeaders.contentTypeHeader) == null) {
+        request.response.headers.set(HttpHeaders.contentTypeHeader, streamInfo.mimeType);
+      }
 
-    if (request.response.headers.value(HttpHeaders.acceptRangesHeader) == null) {
-      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-    }
-    if (streamInfo != null && request.response.headers.value(HttpHeaders.contentTypeHeader) == null) {
-      request.response.headers.set(HttpHeaders.contentTypeHeader, streamInfo.mimeType);
-    }
+      if (isHead) {
+        await request.response.close();
+        return;
+      }
 
-    if (isHead) {
+      await request.response.addStream(upstreamResp);
       await request.response.close();
-      return;
+    } catch (_) {
+      // Client closed connection during track change or seek (normal lifecycle)
     }
-
-    await request.response.addStream(upstreamResp);
-    await request.response.close();
   }
 
   /// Closes the proxy server.

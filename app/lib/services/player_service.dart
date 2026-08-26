@@ -394,94 +394,69 @@ class PlayerService extends ChangeNotifier {
           artUri: effectiveArtUri,
         );
 
-        // Step 1: Check local cache (instant, no network)
-        final cachedFile = await StreamCacheManager.getCachedFile(videoId);
+        // Step 1: Instant local cache check (0 ms)
+        var audioFile = await StreamCacheManager.getCachedFile(videoId);
         if (token != _playRequestToken) return;
 
-        if (cachedFile != null) {
+        // Step 2: Progressive file preparation (~150-200ms)
+        audioFile ??= await StreamCacheManager.prepareStreamFile(videoId);
+        if (token != _playRequestToken) return;
+
+        if (audioFile != null && await audioFile.exists()) {
           await _player.setAudioSource(
-            AudioSource.file(cachedFile.path, tag: mediaTag),
+            AudioSource.file(audioFile.path, tag: mediaTag),
           );
           _consecutiveStreamFailures = 0;
+          // Lookahead cache upcoming tracks in background
+          _preloadUpcomingStreams();
         } else {
-          // Step 2: Route through localhost Audio Proxy (zero-403, real-time chunk streaming)
-          final proxyUri = await StreamCacheManager.getStreamProxyUri(videoId);
-          if (token != _playRequestToken) return;
-
-          bool playSuccess = false;
-          if (proxyUri != null) {
-            try {
-              await _player.setAudioSource(
-                AudioSource.uri(proxyUri, tag: mediaTag),
-              );
-              playSuccess = true;
-              _consecutiveStreamFailures = 0;
-              // Cache on disk in background for future instant playback
-              unawaited(StreamCacheManager.ensureStreamCached(videoId));
-            } catch (e) {
-              debugPrint('[PlayerService] Proxy playback error for $videoId: $e');
-            }
+          // Circuit breaker: stop after 3 consecutive failures
+          _consecutiveStreamFailures++;
+          debugPrint(
+            '[PlayerService] Stream failed for ${song.title} '
+            '(failure $_consecutiveStreamFailures/3)',
+          );
+          if (_consecutiveStreamFailures >= 3) {
+            debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
+            return;
           }
-
-          if (!playSuccess) {
-            // Step 3: Direct native download/file cache fallback
-            final downloaded = await StreamCacheManager.ensureStreamCached(videoId);
-            if (token != _playRequestToken) return;
-
-            if (downloaded != null && await downloaded.exists()) {
-              await _player.setAudioSource(
-                AudioSource.file(downloaded.path, tag: mediaTag),
-              );
-              _consecutiveStreamFailures = 0;
-            } else {
-              // Circuit breaker: stop after 3 consecutive failures
-              _consecutiveStreamFailures++;
-              debugPrint(
-                '[PlayerService] Stream failed for ${song.title} '
-                '(failure $_consecutiveStreamFailures/3)',
-              );
-              if (_consecutiveStreamFailures >= 3) {
-                debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
-                return;
-              }
-              // Skip to next track (keep _isAdvancing true to block processingState races)
-              unawaited(next());
-              return;
-            }
-          }
+          // Skip to next track (keep _isAdvancing true to block processingState races)
+          unawaited(next());
+          return;
         }
       } else {
+        // Local song: play directly from local file
+        final file = library.songFile(song);
         await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(library.songFile(song).path),
+          AudioSource.file(
+            file.path,
             tag: MediaItem(
               id: song.id,
               title: song.title,
-              album: 'Pear Music',
+              album: 'Local Music',
               artUri: effectiveArtUri,
             ),
           ),
         );
+        _consecutiveStreamFailures = 0;
       }
-      if (token != _playRequestToken) return;
 
+      if (token != _playRequestToken) return;
       await _player.play();
+      _preloadUpcomingStreams();
     } catch (e) {
-      if (token == _playRequestToken) {
-        debugPrint('[player] failed to play ${song.title}: $e');
-      }
+      debugPrint('[PlayerService] playSong error: $e');
+      if (token != _playRequestToken) return;
+      unawaited(next());
     } finally {
       if (token == _playRequestToken) {
         _isAdvancing = false;
       }
-    }
-    if (token == _playRequestToken) {
-      _publishNotificationState();
       notifyListeners();
     }
   }
 
-  /// Speculatively pre-resolves stream URLs and pre-caches the nearest track.
+  /// Speculatively pre-resolves stream URLs and pre-caches upcoming tracks to disk.
   void _preloadUpcomingStreams() {
     if (_queueIndex < 0 || _queue.isEmpty) return;
     final upcomingVideoIds = <String>[];
@@ -499,8 +474,7 @@ class PlayerService extends ChangeNotifier {
     }
     if (upcomingVideoIds.isNotEmpty) {
       unawaited(StreamCacheManager.preloadStreamUrls(upcomingVideoIds));
-      // Pre-cache nearest upcoming stream audio file in background
-      unawaited(StreamCacheManager.ensureStreamCached(upcomingVideoIds.first));
+      unawaited(StreamCacheManager.preloadUpcomingTracks(upcomingVideoIds));
     }
   }
 
