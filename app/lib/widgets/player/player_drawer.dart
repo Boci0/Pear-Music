@@ -7,6 +7,7 @@ import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/player_service.dart';
+import '../../services/stream_cache_manager.dart';
 
 /// Mobile drawer: view Playing Queue or browse Playlists + Songs.
 class PlayerDrawer extends StatefulWidget {
@@ -188,6 +189,22 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         ),
                       ),
                     ),
+                    if (StreamCacheManager.isStreamCachedSync(song.id.replaceFirst('stream_', ''))) ...[
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.check_circle_outline_rounded,
+                        size: 12,
+                        color: scheme.primary,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Buffered',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ],
                   ],
                 )
               : null,

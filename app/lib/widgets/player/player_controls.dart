@@ -154,50 +154,17 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Stack(
-                alignment: Alignment.center,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _fmt(Duration(milliseconds: clampedValue.round())),
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                      Text(
-                        _fmt(widget.duration),
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                    ],
+                  Text(
+                    _fmt(Duration(milliseconds: clampedValue.round())),
+                    style: Theme.of(context).textTheme.labelSmall,
                   ),
-                  if (!widget.player.isNextTrackReady &&
-                      widget.player.hasNextTrack &&
-                      widget.player.isPreloadingUpcoming)
-                    RepaintBoundary(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 8,
-                            height: 8,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.5,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Buffering next...',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.primary,
-                                  fontSize: 10,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  Text(
+                    _fmt(widget.duration),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
                 ],
               ),
             ),
