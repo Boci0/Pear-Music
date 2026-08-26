@@ -147,7 +147,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// forever against an unreachable host (each cycle tears down channels and
   /// re-syncs songs, which reads as a "shaky" connection).
   final Map<String, DateTime> _unreachableHosts = {};
-  static const Duration _unreachableCooldown = Duration(seconds: 30);
+  static const Duration _unreachableCooldown = Duration(minutes: 2);
 
   // Faster host failover: when the host dies, a client takes over in ~6s (was
   // 25s); a starting client that can't reach its remembered host takes over in
@@ -273,6 +273,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     await signaling.start();
     await Future.delayed(_hostGrace);
     if (_closing || connectionStatus == 'connected') return;
+    _markUnreachable(identity.serverUrl);
     await _takeOverAsHost();
   }
 
@@ -413,6 +414,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     _failoverTimer ??= Timer(_failoverDelay, () {
       if (_closing || identity.isHost) return;
       if (connectionStatus != 'connected') {
+        _markUnreachable(identity.serverUrl);
         unawaited(_takeOverAsHost());
       }
     });
