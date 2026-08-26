@@ -318,13 +318,16 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
         highlightColor: Colors.transparent,
         splashColor: scheme.primary.withValues(alpha: 0.12),
       ),
-      child: ListView.builder(
-        controller: _scrollController,
+      child: ReorderableListView.builder(
+        scrollController: _scrollController,
+        onReorder: (oldIdx, newIdx) =>
+            context.read<AppController>().reorderQueue(oldIdx, newIdx),
         itemCount: queue.length,
         itemBuilder: (context, i) {
           final item = queue[i];
           final isCurrent = item.id == widget.currentSong.id;
           return Padding(
+            key: ValueKey('wide_queue_item_${item.id}_$i'),
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: Material(
               color: isCurrent
@@ -461,6 +464,17 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                           ),
                         ),
                       ),
+                    ReorderableDragStartListener(
+                      index: i,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(
+                          Icons.drag_handle,
+                          size: 20,
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 onTap: () => widget.player.playSong(item, queue: queue),

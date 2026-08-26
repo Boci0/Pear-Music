@@ -1251,6 +1251,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> previousTrack() => player.previous();
   Future<void> toggleLoop() => player.toggleLoop();
   void toggleShuffle() => player.toggleShuffle();
+  void reorderQueue(int oldIndex, int newIndex) =>
+      player.reorderQueue(oldIndex, newIndex);
+  void removeFromQueue(int index) => player.removeFromQueue(index);
   Future<void> seek(Duration d) => player.seek(d);
   Future<void> setVolume(double v) => player.setVolume(v);
 

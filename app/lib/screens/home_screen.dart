@@ -5,6 +5,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
@@ -37,8 +38,40 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = {};
   List<YouTubeSearchResult> _ytResults = [];
+  List<String> _recentSearches = [];
   bool _isSearchingYt = false;
   Timer? _ytSearchDebounce;
+  int _searchRequestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecentSearches();
+  }
+
+  Future<void> _loadRecentSearches() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('peerm_recent_searches') ?? [];
+      if (mounted) {
+        setState(() => _recentSearches = list);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveRecentSearch(String query) async {
+    final clean = query.trim();
+    if (clean.length < 2) return;
+    try {
+      final updated = [
+        clean,
+        ..._recentSearches.where((s) => s.toLowerCase() != clean.toLowerCase()),
+      ].take(6).toList();
+      setState(() => _recentSearches = updated);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('peerm_recent_searches', updated);
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -50,6 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onSearchQueryChanged(String v) {
     setState(() => _searchQuery = v);
     _ytSearchDebounce?.cancel();
+    final reqId = ++_searchRequestId;
     if (v.trim().length < 2) {
       setState(() {
         _ytResults = [];
@@ -61,11 +95,14 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isSearchingYt = true);
     _ytSearchDebounce = Timer(const Duration(milliseconds: 350), () async {
       final res = await YouTubeSearchService.search(v);
-      if (mounted && _searchQuery == v) {
+      if (mounted && _searchQuery == v && reqId == _searchRequestId) {
         setState(() {
           _ytResults = res;
           _isSearchingYt = false;
         });
+        if (res.isNotEmpty) {
+          _saveRecentSearch(v);
+        }
       }
     });
   }
@@ -289,6 +326,39 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+          if (_searchQuery.trim().isEmpty && _recentSearches.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'RECENT SEARCHES',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: _recentSearches.map((term) {
+                        return ActionChip(
+                          avatar: const Icon(Icons.history, size: 16),
+                          label: Text(term),
+                          onPressed: () {
+                            _searchController.text = term;
+                            _onSearchQueryChanged(term);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (_searchFilter != SearchFilter.youtube) ...[
             SliverToBoxAdapter(
               child: Padding(

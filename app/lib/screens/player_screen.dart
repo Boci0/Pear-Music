@@ -138,9 +138,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         builder: (context, animColor, _) {
           final activeAccent = animColor ?? targetAccent;
           final washColor = ArtworkPalette.wash(activeAccent, lightness: 0.09);
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 450),
-            curve: Curves.easeInOutCubic,
+          return Container(
             decoration: BoxDecoration(
               gradient: RadialGradient(
                 center: const Alignment(0, -0.35),

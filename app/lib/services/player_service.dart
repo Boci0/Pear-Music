@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/song.dart';
 import 'artwork_service.dart';
 import 'identity_service.dart';
+import 'innertube_player_service.dart';
 import 'library_service.dart';
 import 'recommendation_service.dart';
 import 'stream_cache_manager.dart';
@@ -401,7 +402,7 @@ class PlayerService extends ChangeNotifier {
           artUri: effectiveArtUri,
         );
 
-        final cachedFile = await StreamCacheManager.ensureStreamCached(videoId);
+        final cachedFile = await StreamCacheManager.getCachedFile(videoId);
         if (token != _playRequestToken) return;
 
         if (cachedFile != null && await cachedFile.exists()) {
@@ -409,21 +410,60 @@ class PlayerService extends ChangeNotifier {
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
         } else {
-          _consecutiveStreamFailures++;
-          debugPrint(
-            '[PlayerService] Stream failed for ${song.title} '
-            '(failure $_consecutiveStreamFailures/3)',
-          );
-          if (_consecutiveStreamFailures >= 3) {
-            debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
-            _isAdvancing = false;
-            _isLoadingTrack = false;
-            await _player.pause();
-            notifyListeners();
-            return;
+          // Fast-path: Resolve direct stream URL for sub-300ms playback start
+          // while caching to disk in the background.
+          unawaited(StreamCacheManager.ensureStreamCached(videoId));
+
+          AudioSource? directStreamSource;
+          try {
+            final streamInfo =
+                await InnertubePlayerService.resolveAudioStream(videoId);
+            if (streamInfo != null && streamInfo.url.startsWith('http')) {
+              directStreamSource = AudioSource.uri(
+                Uri.parse(streamInfo.url),
+                headers: const {
+                  'User-Agent':
+                      'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
+                  'Referer': 'https://music.youtube.com/',
+                },
+                tag: mediaTag,
+              );
+            }
+          } catch (_) {}
+
+          if (token != _playRequestToken) return;
+
+          if (directStreamSource != null) {
+            await _player.setAudioSource(directStreamSource);
+          } else {
+            // Fallback: wait for disk cache download
+            final downloadedFile =
+                await StreamCacheManager.ensureStreamCached(videoId);
+            if (token != _playRequestToken) return;
+
+            if (downloadedFile != null && await downloadedFile.exists()) {
+              await _player.setAudioSource(
+                AudioSource.file(downloadedFile.path, tag: mediaTag),
+              );
+            } else {
+              _consecutiveStreamFailures++;
+              debugPrint(
+                '[PlayerService] Stream failed for ${song.title} '
+                '(failure $_consecutiveStreamFailures/3)',
+              );
+              if (_consecutiveStreamFailures >= 3) {
+                debugPrint(
+                    '[PlayerService] Circuit breaker tripped, halting playback');
+                _isAdvancing = false;
+                _isLoadingTrack = false;
+                await _player.pause();
+                notifyListeners();
+                return;
+              }
+              unawaited(next());
+              return;
+            }
           }
-          unawaited(next());
-          return;
         }
       } else {
         // Local song: play directly from local file
@@ -725,6 +765,40 @@ class PlayerService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[player] notification permission request failed: $e');
     }
+  }
+
+  void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 ||
+        oldIndex >= _queue.length ||
+        newIndex < 0 ||
+        newIndex > _queue.length) {
+      return;
+    }
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    final item = _queue.removeAt(oldIndex);
+    _queue.insert(newIndex, item);
+    if (currentSong != null) {
+      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    }
+    _preloadUpcomingStreams();
+    notifyListeners();
+  }
+
+  void removeFromQueue(int index) {
+    if (index < 0 || index >= _queue.length) {
+      return;
+    }
+    if (index == _queueIndex) {
+      unawaited(next());
+    }
+    _queue.removeAt(index);
+    if (currentSong != null) {
+      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    }
+    _preloadUpcomingStreams();
+    notifyListeners();
   }
 
   Future<void> stop() async {

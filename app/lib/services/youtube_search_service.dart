@@ -57,7 +57,11 @@ class YouTubeSearchService {
             title: video.title,
             author: video.author,
             duration: video.duration,
-            thumbnailUrl: video.thumbnails.lowResUrl,
+            thumbnailUrl: video.thumbnails.highResUrl.isNotEmpty
+                ? video.thumbnails.highResUrl
+                : (video.thumbnails.mediumResUrl.isNotEmpty
+                    ? video.thumbnails.mediumResUrl
+                    : video.thumbnails.lowResUrl),
           ),
         );
       }

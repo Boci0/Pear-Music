@@ -138,115 +138,149 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
       );
     }
 
-    return ListView.builder(
+    return ReorderableListView.builder(
+      onReorder: (oldIdx, newIdx) => controller.reorderQueue(oldIdx, newIdx),
       itemCount: queue.length,
       itemBuilder: (context, i) {
         final song = queue[i];
         final isCurrent = i == player.queueIndex;
         final isStream = song.sourceDeviceId == 'stream';
-        final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
+        final isNetwork =
+            song.artwork != null && song.artwork!.startsWith('http');
 
-        return ListTile(
-          dense: true,
-          leading: isNetwork
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Image.network(
-                    song.artwork!,
-                    width: 36,
-                    height: 36,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => _iconPlaceholder(isCurrent, scheme),
+        return Dismissible(
+          key: ValueKey('queue_item_${song.id}_$i'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 16),
+            color: scheme.error,
+            child: const Icon(Icons.delete_outline, color: Colors.white),
+          ),
+          onDismissed: (_) => controller.removeFromQueue(i),
+          child: ListTile(
+            key: ValueKey('queue_tile_${song.id}_$i'),
+            dense: true,
+            leading: isNetwork
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.network(
+                      song.artwork!,
+                      width: 36,
+                      height: 36,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          _iconPlaceholder(isCurrent, scheme),
+                    ),
+                  )
+                : FutureBuilder<Uint8List?>(
+                    initialData: ArtworkPalette.bytes(song),
+                    future: ArtworkPalette.bytesAsync(song),
+                    builder: (context, snapshot) {
+                      final bytes =
+                          snapshot.data ?? ArtworkPalette.bytes(song);
+                      if (bytes == null || bytes.isEmpty) {
+                        return _iconPlaceholder(isCurrent, scheme);
+                      }
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.memory(
+                          bytes,
+                          width: 36,
+                          height: 36,
+                          cacheWidth: 72,
+                          cacheHeight: 72,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              _iconPlaceholder(isCurrent, scheme),
+                        ),
+                      );
+                    },
                   ),
-                )
-              : FutureBuilder<Uint8List?>(
-                  initialData: ArtworkPalette.bytes(song),
-                  future: ArtworkPalette.bytesAsync(song),
-                  builder: (context, snapshot) {
-                    final bytes = snapshot.data ?? ArtworkPalette.bytes(song);
-                    if (bytes == null || bytes.isEmpty) {
-                      return _iconPlaceholder(isCurrent, scheme);
-                    }
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.memory(
-                        bytes,
-                        width: 36,
-                        height: 36,
-                        cacheWidth: 72,
-                        cacheHeight: 72,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => _iconPlaceholder(isCurrent, scheme),
+            title: Text(
+              song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: isCurrent
+                  ? TextStyle(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.bold,
+                    )
+                  : null,
+            ),
+            subtitle: isStream
+                ? Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: scheme.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Radio Stream',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: scheme.primary,
+                          ),
+                        ),
                       ),
-                    );
-                  },
-                ),
-          title: Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: isCurrent
-                ? TextStyle(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.bold,
+                      if (StreamCacheManager.isStreamCachedSync(
+                          song.id.replaceFirst('stream_', ''))) ...[
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 12,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Buffered',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                    ],
                   )
                 : null,
-          ),
-          subtitle: isStream
-              ? Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Radio Stream',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: scheme.primary,
-                        ),
-                      ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isStream)
+                  IconButton(
+                    icon: const Icon(Icons.download_rounded, size: 20),
+                    tooltip: 'Save to library',
+                    onPressed: () {
+                      final appCtrl = context.read<AppController>();
+                      appCtrl.saveStreamToLibrary(song);
+                    },
+                  ),
+                ReorderableDragStartListener(
+                  index: i,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(
+                      Icons.drag_handle,
+                      size: 20,
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                     ),
-                    if (StreamCacheManager.isStreamCachedSync(song.id.replaceFirst('stream_', ''))) ...[
-                      const SizedBox(width: 6),
-                      Icon(
-                        Icons.check_circle_outline_rounded,
-                        size: 12,
-                        color: scheme.primary,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        'Buffered',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ],
-                  ],
-                )
-              : null,
-          trailing: isStream
-              ? IconButton(
-                  icon: const Icon(Icons.download_rounded, size: 20),
-                  tooltip: 'Save to library',
-                  onPressed: () {
-                    final appCtrl = context.read<AppController>();
-                    appCtrl.saveStreamToLibrary(song);
-                  },
-                )
-              : null,
-          onTap: () {
-            player.playSong(
-              song,
-              queue: queue,
-              sourceId: player.queueSourceId,
-              sourceTitle: player.queueTitle,
-            );
-          },
+                  ),
+                ),
+              ],
+            ),
+            onTap: () {
+              player.playSong(
+                song,
+                queue: queue,
+                sourceId: player.queueSourceId,
+                sourceTitle: player.queueTitle,
+              );
+            },
+          ),
         );
       },
     );

@@ -32,72 +32,96 @@ class PlayerBar extends StatelessWidget {
         ) ??
         theme.colorScheme.surfaceContainerHigh;
 
-    return Material(
-      color: barColor,
-      child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          PageRouteBuilder(
-            transitionDuration: const Duration(milliseconds: 150),
-            reverseTransitionDuration: const Duration(milliseconds: 150),
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const PlayerScreen(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) =>
-                    FadeTransition(opacity: animation, child: child),
+    return GestureDetector(
+      onHorizontalDragEnd: (details) {
+        final vx = details.primaryVelocity ?? 0;
+        if (vx < -200) {
+          controller.nextTrack();
+        } else if (vx > 200) {
+          controller.previousTrack();
+        }
+      },
+      onVerticalDragEnd: (details) {
+        final vy = details.primaryVelocity ?? 0;
+        if (vy < -200) {
+          _openPlayer(context);
+        }
+      },
+      child: Material(
+        color: barColor,
+        child: InkWell(
+          onTap: () => _openPlayer(context),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              children: [
+                _Thumb(song: song),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      Text(
+                        'Playing on this device',
+                        style: theme.textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.skip_previous, color: control),
+                  onPressed: () => controller.previousTrack(),
+                ),
+                IconButton(
+                  icon: Icon(
+                    player.playing
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_filled,
+                    size: 36,
+                    color: control,
+                  ),
+                  onPressed: () => controller.togglePlayback(),
+                ),
+                IconButton(
+                  icon: Icon(Icons.skip_next, color: control),
+                  onPressed: () => controller.nextTrack(),
+                ),
+              ],
+            ),
           ),
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            children: [
-              _Thumb(song: song),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    Text(
-                      'Playing on this device',
-                      style: theme.textTheme.labelSmall,
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.skip_previous, color: control),
-                onPressed: () => controller.previousTrack(),
-              ),
-              IconButton(
-                icon: Icon(
-                  player.playing
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_filled,
-                  size: 36,
-                  color: control,
-                ),
-                onPressed: () => controller.togglePlayback(),
-              ),
-              IconButton(
-                icon: Icon(Icons.skip_next, color: control),
-                onPressed: () => controller.nextTrack(),
-              ),
-            ],
+      ),
+    );
+  }
+
+  void _openPlayer(BuildContext context) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 250),
+        reverseTransitionDuration: const Duration(milliseconds: 250),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const PlayerScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
           ),
+          child: child,
         ),
       ),
     );
   }
 }
 
-/// 40×40 artwork thumb for the now-playing bar: scraped artwork when the song
-/// has it, otherwise the gradient + note placeholder.
+/// 40x40 artwork thumb for the now-playing bar wrapped in a Hero tag.
 class _Thumb extends StatelessWidget {
   final Song song;
   const _Thumb({required this.song});
@@ -121,9 +145,12 @@ class _Thumb extends StatelessWidget {
       child: Icon(Icons.music_note,
           color: theme.colorScheme.onPrimaryContainer, size: 20),
     );
-    if (artwork == null || artwork.isEmpty) return placeholder;
-    if (artwork.startsWith('http')) {
-      return ClipRRect(
+
+    Widget imageWidget;
+    if (artwork == null || artwork.isEmpty) {
+      imageWidget = placeholder;
+    } else if (artwork.startsWith('http')) {
+      imageWidget = ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.network(
           artwork,
@@ -136,20 +163,32 @@ class _Thumb extends StatelessWidget {
           errorBuilder: (_, _, _) => placeholder,
         ),
       );
+    } else {
+      final bytes = ArtworkPalette.bytes(song);
+      if (bytes == null || bytes.isEmpty) {
+        imageWidget = placeholder;
+      } else {
+        imageWidget = ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            bytes,
+            width: 40,
+            height: 40,
+            cacheWidth: 80,
+            cacheHeight: 80,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => placeholder,
+          ),
+        );
+      }
     }
-    final bytes = ArtworkPalette.bytes(song);
-    if (bytes == null || bytes.isEmpty) return placeholder;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Image.memory(
-        bytes,
-        width: 40,
-        height: 40,
-        cacheWidth: 80,
-        cacheHeight: 80,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => placeholder,
+
+    return Hero(
+      tag: 'player_artwork_${song.id}',
+      child: Material(
+        type: MaterialType.transparency,
+        child: imageWidget,
       ),
     );
   }

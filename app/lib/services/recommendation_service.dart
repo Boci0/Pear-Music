@@ -67,7 +67,10 @@ class RecommendationBatch {
 /// Core recommendation engine that interfaces with YouTube Music's automix/radio
 /// system and provides session de-duplication and offline local library fallbacks.
 class RecommendationService {
-  static final HttpClient _httpClient = HttpClient();
+  static final HttpClient _httpClient = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 5)
+    ..idleTimeout = const Duration(seconds: 30)
+    ..maxConnectionsPerHost = 6;
   static final Set<String> _sessionPlayedVideoIds = {};
   static final Map<String, RecommendationBatch> _radioCache = {};
   static const int _maxCacheSize = 25;

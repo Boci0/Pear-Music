@@ -210,8 +210,10 @@ class SongTile extends StatelessWidget {
                 if (isCurrent)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: Icon(Icons.graphic_eq,
-                        color: theme.colorScheme.primary),
+                    child: _EqualizerBars(
+                      isPlaying: controller.player.playing,
+                      color: theme.colorScheme.primary,
+                    ),
                   ),
                 IconButton(
                   tooltip: 'More options',
@@ -328,3 +330,91 @@ class _Artwork extends StatelessWidget {
     );
   }
 }
+
+/// Dynamic 3-bar equalizer visualizer that animates smoothly when audio is playing.
+class _EqualizerBars extends StatefulWidget {
+  final bool isPlaying;
+  final Color color;
+
+  const _EqualizerBars({
+    required this.isPlaying,
+    required this.color,
+  });
+
+  @override
+  State<_EqualizerBars> createState() => _EqualizerBarsState();
+}
+
+class _EqualizerBarsState extends State<_EqualizerBars>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 750),
+    );
+    if (widget.isPlaying) {
+      _controller.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _EqualizerBars oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying != oldWidget.isPlaying) {
+      if (widget.isPlaying) {
+        _controller.repeat(reverse: true);
+      } else {
+        _controller.stop();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t = _controller.value;
+        final h1 = widget.isPlaying ? 5.0 + 9.0 * (0.5 + 0.5 * (t * 2 - 1).abs()) : 6.0;
+        final h2 = widget.isPlaying ? 4.0 + 12.0 * t : 12.0;
+        final h3 = widget.isPlaying ? 5.0 + 8.0 * (1.0 - t) : 8.0;
+
+        return SizedBox(
+          width: 18,
+          height: 18,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _buildBar(h1),
+              _buildBar(h2),
+              _buildBar(h3),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBar(double height) {
+    return Container(
+      width: 3.5,
+      height: height.clamp(3.0, 16.0),
+      decoration: BoxDecoration(
+        color: widget.color,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+  }
+}
+
