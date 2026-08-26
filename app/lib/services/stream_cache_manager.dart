@@ -39,6 +39,7 @@ class StreamCacheManager {
   }
 
   static final Map<String, ({String url, DateTime expiresAt})> _streamUrlCache = {};
+  static final Map<String, Completer<File?>> _inFlightDownloads = {};
 
   /// Quick cache-only check: returns the cached file if it exists, null otherwise.
   /// Does NOT trigger any network requests or downloads.
@@ -72,7 +73,7 @@ class StreamCacheManager {
       final cached = await getCachedFile(id);
       if (cached != null) continue;
       if (isStreamUrlCached(id)) continue;
-      // Pre-resolve asynchronously without blocking
+      // Pre-resolve asynchronously in parallel
       unawaited(resolveStreamUri(id));
     }
   }
@@ -180,14 +181,19 @@ class StreamCacheManager {
   /// Ensures the audio stream for [videoId] is downloaded into the local cache.
   /// Returns the cached [File] ready for instant offline playback.
   static Future<File?> ensureStreamCached(String videoId) async {
+    final existing = await getCachedFile(videoId);
+    if (existing != null) return existing;
+
+    // Single-flight deduplication to avoid socket starvation and temp file collisions
+    if (_inFlightDownloads.containsKey(videoId)) {
+      return await _inFlightDownloads[videoId]!.future;
+    }
+
+    final completer = Completer<File?>();
+    _inFlightDownloads[videoId] = completer;
+
     try {
       final dir = await getCacheDirectory();
-      for (final ext in ['m4a', 'mp4', 'webm']) {
-        final existing = File(p.join(dir.path, '$videoId.$ext'));
-        if (await existing.exists() && (await existing.length()) > 50000) {
-          return existing;
-        }
-      }
 
       // Method 1: Fast direct native HTTP download from Innertube player (~1-2s)
       try {
@@ -196,7 +202,11 @@ class StreamCacheManager {
           final ext = streamInfo.container;
           final target = File(p.join(dir.path, '$videoId.$ext'));
           final tempFile = File(p.join(dir.path, '$videoId.tmp.$ext'));
-          if (await tempFile.exists()) await tempFile.delete();
+          if (await tempFile.exists()) {
+            try {
+              await tempFile.delete();
+            } catch (_) {}
+          }
 
           final client = HttpClient();
           final req = await client.getUrl(Uri.parse(streamInfo.url));
@@ -211,9 +221,14 @@ class StreamCacheManager {
             final sink = tempFile.openWrite();
             await resp.pipe(sink);
             if (await tempFile.exists() && (await tempFile.length()) > 50000) {
-              if (await target.exists()) await target.delete();
+              if (await target.exists()) {
+                try {
+                  await target.delete();
+                } catch (_) {}
+              }
               await tempFile.rename(target.path);
               unawaited(enforceCacheQuota());
+              completer.complete(target);
               return target;
             }
           }
@@ -332,6 +347,7 @@ class StreamCacheManager {
             }
             await partFile.rename(targetFile.path);
             unawaited(enforceCacheQuota());
+            completer.complete(targetFile);
             return targetFile;
           }
         }
@@ -340,6 +356,11 @@ class StreamCacheManager {
       }
     } catch (e) {
       debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');
+    } finally {
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+      _inFlightDownloads.remove(videoId);
     }
     return null;
   }
@@ -356,7 +377,8 @@ class StreamCacheManager {
     }
   }
 
-  /// Trims stream cache directory to remain strictly under the [maxCacheBytes] quota.
+  /// Trims stream cache directory to remain strictly under the [maxCacheBytes] quota
+  /// and purges stale temporary download artifacts.
   static Future<void> enforceCacheQuota() async {
     try {
       final dir = await getCacheDirectory();
@@ -364,9 +386,21 @@ class StreamCacheManager {
       final files = entities.whereType<File>().toList();
       int totalSize = 0;
       final fileStats = <File, FileStat>{};
+      final now = DateTime.now();
 
       for (final f in files) {
         final stat = await f.stat();
+        final name = p.basename(f.path);
+
+        // Delete dangling temp files older than 2 minutes
+        if ((name.contains('.tmp.') || name.contains('.part.')) &&
+            now.difference(stat.modified) > const Duration(minutes: 2)) {
+          try {
+            await f.delete();
+          } catch (_) {}
+          continue;
+        }
+
         fileStats[f] = stat;
         totalSize += stat.size;
       }
@@ -374,13 +408,14 @@ class StreamCacheManager {
       if (totalSize <= maxCacheBytes) return;
 
       // Sort by last accessed / modified (oldest first)
-      files.sort((a, b) {
-        final statA = fileStats[a]!;
-        final statB = fileStats[b]!;
-        return statA.modified.compareTo(statB.modified);
-      });
+      final validFiles = fileStats.keys.toList()
+        ..sort((a, b) {
+          final statA = fileStats[a]!;
+          final statB = fileStats[b]!;
+          return statA.modified.compareTo(statB.modified);
+        });
 
-      for (final f in files) {
+      for (final f in validFiles) {
         if (totalSize <= targetEvictionBytes) break;
         final size = fileStats[f]?.size ?? 0;
         try {
@@ -394,9 +429,22 @@ class StreamCacheManager {
   }
 
   /// Saves an ephemeral stream track permanently into the user's local [library].
+  /// If already in stream cache, copies the file into library instantly in 0 ms.
   static Future<Song?> saveToLibrary(Song streamSong, LibraryService library) async {
     try {
       final videoId = streamSong.id.replaceFirst('stream_', '');
+      final cached = await getCachedFile(videoId);
+
+      if (cached != null && await cached.exists()) {
+        // Fast 0 ms promotion from stream cache
+        final song = await library.addScrapedFile(
+          cached,
+          title: streamSong.title,
+          artwork: streamSong.artwork,
+        );
+        if (song != null) return song;
+      }
+
       final ytUrl = 'https://www.youtube.com/watch?v=$videoId';
       final youtubeService = YoutubeService();
 
@@ -414,5 +462,6 @@ class StreamCacheManager {
   static void dispose() {
     _yt?.close();
     _yt = null;
+    StreamProxyService.stop();
   }
 }

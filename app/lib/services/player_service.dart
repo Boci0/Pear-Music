@@ -291,6 +291,7 @@ class PlayerService extends ChangeNotifier {
         _continuationToken = batch.continuationToken;
         final newSongs = batch.items.map((item) => item.toSong()).toList();
         _queue = [..._queue, ...newSongs];
+        _preloadUpcomingStreams();
         notifyListeners();
         return true;
       }

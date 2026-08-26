@@ -8,12 +8,14 @@ import 'innertube_player_service.dart';
 import 'stream_cache_manager.dart';
 
 /// Embedded localhost HTTP proxy that serves audio streams to ExoPlayer / JustAudio
-/// on 127.0.0.1, eliminating HTTP 403 Forbidden errors and automatically caching
-/// audio in real-time.
+/// on 127.0.0.1, eliminating HTTP 403 Forbidden errors, handling Range/HEAD probes,
+/// and streaming without competing connection races.
 class StreamProxyService {
   static HttpServer? _server;
   static int? _port;
-  static final HttpClient _proxyClient = HttpClient();
+  static final HttpClient _proxyClient = HttpClient()
+    ..idleTimeout = const Duration(seconds: 15)
+    ..connectionTimeout = const Duration(seconds: 8);
 
   /// Initializes and binds the loopback proxy server if not already running.
   static Future<int> ensureStarted() async {
@@ -58,7 +60,7 @@ class StreamProxyService {
     }
 
     try {
-      // Step 1: Check if already fully cached on disk
+      // Step 1: If fully cached, serve from local file instantly
       final cachedFile = await StreamCacheManager.getCachedFile(videoId);
       if (cachedFile != null && await cachedFile.exists()) {
         await _serveLocalFile(request, cachedFile);
@@ -67,19 +69,20 @@ class StreamProxyService {
 
       // Step 2: Resolve stream URL via Innertube Player Service
       final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
-      if (streamInfo == null) {
-        // Fallback to youtube_explode stream URI
-        final fallbackUri = await StreamCacheManager.resolveStreamUri(videoId);
-        if (fallbackUri == null) {
-          request.response.statusCode = HttpStatus.notFound;
-          await request.response.close();
-          return;
-        }
+      if (streamInfo != null && streamInfo.url.startsWith('http')) {
+        await _proxyRemoteUrl(request, streamInfo.url, videoId, streamInfo);
+        return;
+      }
+
+      // Step 3: Fallback stream URI resolution
+      final fallbackUri = await StreamCacheManager.resolveStreamUri(videoId);
+      if (fallbackUri != null) {
         await _proxyRemoteUrl(request, fallbackUri.toString(), videoId, null);
         return;
       }
 
-      await _proxyRemoteUrl(request, streamInfo.url, videoId, streamInfo);
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
     } catch (e) {
       debugPrint('[StreamProxyService] Error handling /stream/' + videoId + ': ' + e.toString());
       try {
@@ -94,6 +97,16 @@ class StreamProxyService {
     final ext = p.extension(file.path).toLowerCase();
     final mimeType = ext.contains('webm') ? 'audio/webm' : 'audio/mp4';
 
+    request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+
+    if (request.method == 'HEAD') {
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
+      request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize);
+      await request.response.close();
+      return;
+    }
+
     final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
     if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
       final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(rangeHeader);
@@ -107,7 +120,6 @@ class StreamProxyService {
         final contentLength = end - start + 1;
         request.response.statusCode = HttpStatus.partialContent;
         request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
-        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
         request.response.headers.set(
           HttpHeaders.contentRangeHeader,
           'bytes ' + start.toString() + '-' + end.toString() + '/' + fileSize.toString(),
@@ -123,7 +135,6 @@ class StreamProxyService {
 
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.set(HttpHeaders.contentTypeHeader, mimeType);
-    request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
     request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize);
     await request.response.addStream(file.openRead());
     await request.response.close();
@@ -135,7 +146,11 @@ class StreamProxyService {
     String videoId,
     InnertubeAudioStream? streamInfo,
   ) async {
-    final upstreamReq = await _proxyClient.getUrl(Uri.parse(targetUrl));
+    final isHead = request.method == 'HEAD';
+    final upstreamReq = isHead
+        ? await _proxyClient.headUrl(Uri.parse(targetUrl))
+        : await _proxyClient.getUrl(Uri.parse(targetUrl));
+
     upstreamReq.headers.set(
       'User-Agent',
       'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
@@ -147,8 +162,31 @@ class StreamProxyService {
       upstreamReq.headers.set(HttpHeaders.rangeHeader, clientRange);
     }
 
-    final upstreamResp = await upstreamReq.close();
-    request.response.statusCode = upstreamResp.statusCode;
+    final upstreamResp = await upstreamReq.close().timeout(const Duration(seconds: 10));
+    var statusCode = upstreamResp.statusCode;
+    final totalLength = streamInfo?.contentLength ?? upstreamResp.contentLength;
+
+    // Normalize HTTP 200 with Range header into HTTP 206 Partial Content for ExoPlayer
+    if (statusCode == HttpStatus.ok && clientRange != null && clientRange.startsWith('bytes=')) {
+      final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(clientRange);
+      if (match != null) {
+        final start = int.parse(match.group(1)!);
+        final endStr = match.group(2);
+        final end = (endStr != null && endStr.isNotEmpty)
+            ? int.parse(endStr)
+            : (totalLength > 0 ? totalLength - 1 : upstreamResp.contentLength - 1);
+        if (end >= start) {
+          statusCode = HttpStatus.partialContent;
+          final totalStr = totalLength > 0 ? totalLength.toString() : "*";
+          request.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes ' + start.toString() + '-' + end.toString() + '/' + totalStr,
+          );
+        }
+      }
+    }
+
+    request.response.statusCode = statusCode;
 
     upstreamResp.headers.forEach((name, values) {
       final lower = name.toLowerCase();
@@ -164,6 +202,14 @@ class StreamProxyService {
 
     if (request.response.headers.value(HttpHeaders.acceptRangesHeader) == null) {
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+    }
+    if (streamInfo != null && request.response.headers.value(HttpHeaders.contentTypeHeader) == null) {
+      request.response.headers.set(HttpHeaders.contentTypeHeader, streamInfo.mimeType);
+    }
+
+    if (isHead) {
+      await request.response.close();
+      return;
     }
 
     await request.response.addStream(upstreamResp);
