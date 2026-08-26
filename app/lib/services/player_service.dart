@@ -385,16 +385,12 @@ class PlayerService extends ChangeNotifier {
       unawaited(fetchAndAppendRecommendations());
     }
 
-    final artUri = await ArtworkService.defaultArtworkUri();
+    final effectiveArtUri = await ArtworkService.songArtworkUri(song);
     if (token != _playRequestToken) return;
 
     try {
       await _player.setLoopMode(LoopMode.off);
       if (token != _playRequestToken) return;
-
-      final effectiveArtUri = (song.artwork != null && song.artwork!.startsWith('http'))
-          ? Uri.tryParse(song.artwork!) ?? artUri
-          : artUri;
 
       if (song.sourceDeviceId == 'stream') {
         final videoId = song.id.replaceFirst('stream_', '');

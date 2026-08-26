@@ -159,7 +159,28 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     errorBuilder: (_, _, _) => _iconPlaceholder(isCurrent, scheme),
                   ),
                 )
-              : _iconPlaceholder(isCurrent, scheme),
+              : FutureBuilder<Uint8List?>(
+                  initialData: ArtworkPalette.bytes(song),
+                  future: ArtworkPalette.bytesAsync(song),
+                  builder: (context, snapshot) {
+                    final bytes = snapshot.data ?? ArtworkPalette.bytes(song);
+                    if (bytes == null || bytes.isEmpty) {
+                      return _iconPlaceholder(isCurrent, scheme);
+                    }
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.memory(
+                        bytes,
+                        width: 36,
+                        height: 36,
+                        cacheWidth: 72,
+                        cacheHeight: 72,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => _iconPlaceholder(isCurrent, scheme),
+                      ),
+                    );
+                  },
+                ),
           title: Text(
             song.title,
             maxLines: 1,

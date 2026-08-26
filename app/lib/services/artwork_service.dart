@@ -7,19 +7,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/song.dart';
+import 'artwork_palette.dart';
+
 /// Generates (once) a default album-art placeholder PNG and returns its
 /// [Uri] for use as [MediaItem.artUri].
-///
-/// The songs in the Pear Music library are raw audio files with no embedded cover
-/// art, so without this the Android media notification falls back to rendering
-/// the app's launcher icon as a large, off-looking placeholder. This renders
-/// the app's pear icon instead, so the notification reads as Pear Music (and the
-/// large notification icon is the same pear as the app icon).
-///
-/// The PNG is rendered once with `dart:ui` (same pear geometry as
-/// `tool/gen_icons.dart`) and cached on disk, so subsequent plays resolve
-/// instantly. Generation is fire-and-forget in [warmUp] so it never blocks
-/// playback.
 class ArtworkService {
   static const int _size = 600;
 
@@ -28,6 +20,33 @@ class ArtworkService {
   /// Returns a file [Uri] to the default artwork. The first caller renders it;
   /// everyone else gets the shared (already-resolved or in-flight) future.
   static Future<Uri> defaultArtworkUri() => _pending ??= _loadOrCreate();
+
+  /// Resolves the best artwork [Uri] for a specific [song] for notification display.
+  static Future<Uri> songArtworkUri(Song song) async {
+    final art = song.artwork;
+    if (art != null && art.startsWith('http')) {
+      final parsed = Uri.tryParse(art);
+      if (parsed != null) return parsed;
+    }
+
+    try {
+      final bytes = ArtworkPalette.bytes(song) ?? await ArtworkPalette.bytesAsync(song);
+      if (bytes != null && bytes.isNotEmpty) {
+        final dir = await getApplicationCacheDirectory();
+        final safeId = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+        final file = File('${dir.path}/artwork/song_$safeId.jpg');
+        if (!await file.exists()) {
+          await file.create(recursive: true);
+          await file.writeAsBytes(bytes, flush: true);
+        }
+        return Uri.file(file.path);
+      }
+    } catch (e) {
+      debugPrint('[artwork] failed to resolve song artwork: $e');
+    }
+
+    return await defaultArtworkUri();
+  }
 
   /// Kick off artwork generation early (e.g. from [PlayerService.init]) so the
   /// notification is ready before the user's first play.
