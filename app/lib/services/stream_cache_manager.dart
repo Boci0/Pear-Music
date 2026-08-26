@@ -8,7 +8,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
+import 'innertube_player_service.dart';
 import 'library_service.dart';
+import 'stream_proxy_service.dart';
 import 'youtube_service.dart';
 
 /// Manages ephemeral stream downloads and LRU cache eviction so continuous radio
@@ -75,9 +77,14 @@ class StreamCacheManager {
     }
   }
 
+  /// Returns the localhost stream proxy URI for [videoId] to prevent 403 errors.
+  static Future<Uri?> getStreamProxyUri(String videoId) async {
+    return await StreamProxyService.getStreamProxyUri(videoId);
+  }
+
   /// Resolves the best audio-only stream URI for a given [videoId].
-  /// Uses ultra-fast direct manifest extraction first (~200-500ms), falling back
-  /// to platform yt-dlp engines if needed.
+  /// Uses ultra-fast direct Innertube player resolution first (~150ms), falling back
+  /// to youtube_explode and platform yt-dlp engines if needed.
   static Future<Uri?> resolveStreamUri(String videoId) async {
     final cachedEntry = _streamUrlCache[videoId];
     if (cachedEntry != null) {
@@ -87,7 +94,21 @@ class StreamCacheManager {
       _streamUrlCache.remove(videoId);
     }
 
-    // Attempt 1: Fast direct stream extraction via youtube_explode (~200-500ms)
+    // Attempt 1: Fast direct Innertube player resolution (~150ms, unscrambled mobile audio)
+    try {
+      final innertubeStream = await InnertubePlayerService.resolveAudioStream(videoId);
+      if (innertubeStream != null && innertubeStream.url.startsWith('http')) {
+        _streamUrlCache[videoId] = (
+          url: innertubeStream.url,
+          expiresAt: DateTime.now().add(const Duration(hours: 2)),
+        );
+        return Uri.tryParse(innertubeStream.url);
+      }
+    } catch (e) {
+      debugPrint('[StreamCacheManager] Innertube player resolution failed for $videoId: $e');
+    }
+
+    // Attempt 2: Direct stream extraction via youtube_explode (~200-500ms)
     try {
       final manifest = await _client.videos.streamsClient
           .getManifest(videoId)
@@ -108,7 +129,7 @@ class StreamCacheManager {
       debugPrint('[StreamCacheManager] Fast direct stream extraction failed for $videoId: $e');
     }
 
-    // Attempt 2 (Android): Embedded yt-dlp URL resolution via method channel fallback
+    // Attempt 3 (Android): Embedded yt-dlp URL resolution via method channel fallback
     if (YoutubeService.isEmbeddedYtDlpSupported) {
       try {
         const channel = MethodChannel('peerm/ytdlp');
@@ -127,7 +148,7 @@ class StreamCacheManager {
       }
     }
 
-    // Attempt 3 (Desktop): Desktop yt-dlp -g fallback
+    // Attempt 4 (Desktop): Desktop yt-dlp -g fallback
     try {
       final bin = await YoutubeService.ytDlpPath();
       if (bin != null) {
@@ -168,7 +189,40 @@ class StreamCacheManager {
         }
       }
 
-      // Method 1: Android embedded yt-dlp engine (Immune to YouTube bot checks & rate limits)
+      // Method 1: Fast direct native HTTP download from Innertube player (~1-2s)
+      try {
+        final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
+        if (streamInfo != null && streamInfo.url.startsWith('http')) {
+          final ext = streamInfo.container;
+          final target = File(p.join(dir.path, '$videoId.$ext'));
+          final tempFile = File(p.join(dir.path, '$videoId.tmp.$ext'));
+          if (await tempFile.exists()) await tempFile.delete();
+
+          final client = HttpClient();
+          final req = await client.getUrl(Uri.parse(streamInfo.url));
+          req.headers.set(
+            'User-Agent',
+            'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
+          );
+          req.headers.set('Referer', 'https://music.youtube.com/');
+          final resp = await req.close().timeout(const Duration(seconds: 15));
+
+          if (resp.statusCode == 200 || resp.statusCode == 206) {
+            final sink = tempFile.openWrite();
+            await resp.pipe(sink);
+            if (await tempFile.exists() && (await tempFile.length()) > 50000) {
+              if (await target.exists()) await target.delete();
+              await tempFile.rename(target.path);
+              unawaited(enforceCacheQuota());
+              return target;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[StreamCacheManager] Direct Innertube cache download failed for $videoId: $e');
+      }
+
+      // Method 2: Android embedded yt-dlp engine fallback
       if (YoutubeService.isEmbeddedYtDlpSupported) {
         try {
           const channel = MethodChannel('peerm/ytdlp');
@@ -205,7 +259,7 @@ class StreamCacheManager {
         }
       }
 
-      // Method 2: Desktop yt-dlp engine
+      // Method 3: Desktop yt-dlp engine fallback
       try {
         final bin = await YoutubeService.ytDlpPath();
         if (bin != null) {

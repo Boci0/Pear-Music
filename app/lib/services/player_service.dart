@@ -403,26 +403,27 @@ class PlayerService extends ChangeNotifier {
           );
           _consecutiveStreamFailures = 0;
         } else {
-          // Step 2: Resolve stream URL (fast ~3-5s on Android via embedded yt-dlp)
-          final streamUri = await StreamCacheManager.resolveStreamUri(videoId);
+          // Step 2: Route through localhost Audio Proxy (zero-403, real-time chunk streaming)
+          final proxyUri = await StreamCacheManager.getStreamProxyUri(videoId);
           if (token != _playRequestToken) return;
 
-          if (streamUri != null) {
-            await _player.setAudioSource(
-              AudioSource.uri(
-                streamUri,
-                headers: const {
-                  'User-Agent':
-                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                },
-                tag: mediaTag,
-              ),
-            );
-            _consecutiveStreamFailures = 0;
-            // Download in background for future instant playback
-            unawaited(StreamCacheManager.ensureStreamCached(videoId));
-          } else {
-            // Step 3: Full download as last resort
+          bool playSuccess = false;
+          if (proxyUri != null) {
+            try {
+              await _player.setAudioSource(
+                AudioSource.uri(proxyUri, tag: mediaTag),
+              );
+              playSuccess = true;
+              _consecutiveStreamFailures = 0;
+              // Cache on disk in background for future instant playback
+              unawaited(StreamCacheManager.ensureStreamCached(videoId));
+            } catch (e) {
+              debugPrint('[PlayerService] Proxy playback error for $videoId: $e');
+            }
+          }
+
+          if (!playSuccess) {
+            // Step 3: Direct native download/file cache fallback
             final downloaded = await StreamCacheManager.ensureStreamCached(videoId);
             if (token != _playRequestToken) return;
 
