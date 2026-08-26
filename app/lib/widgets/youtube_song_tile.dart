@@ -175,6 +175,12 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     final controller = context.read<AppController>();
 
     return ListTile(
+      tileColor: widget.isCurrent
+          ? (theme.brightness == Brightness.dark
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+              : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
+          : null,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       leading: Stack(
         alignment: Alignment.center,
         children: [

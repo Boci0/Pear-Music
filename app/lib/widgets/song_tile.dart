@@ -143,6 +143,12 @@ class SongTile extends StatelessWidget {
 
     return ListTile(
       selected: isSelected,
+      tileColor: isCurrent
+          ? (theme.brightness == Brightness.dark
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+              : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
+          : null,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       leading: Row(
         mainAxisSize: MainAxisSize.min,

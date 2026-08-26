@@ -176,6 +176,7 @@ class _PeerTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final controller = context.watch<AppController>();
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
@@ -207,6 +208,23 @@ class _PeerTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(peer.online ? 'Online · connected' : 'Offline'),
+                if (peer.online) ...[
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: controller.isPeerUnencrypted(peer.deviceId)
+                        ? 'Relay traffic unencrypted (fallback mode)'
+                        : 'End-to-End Encrypted (AES-256-GCM / X25519)',
+                    child: Icon(
+                      controller.isPeerUnencrypted(peer.deviceId)
+                          ? Icons.lock_open
+                          : Icons.lock,
+                      size: 13,
+                      color: controller.isPeerUnencrypted(peer.deviceId)
+                          ? Colors.amber
+                          : Colors.green,
+                    ),
+                  ),
+                ],
               ],
             ),
             trailing: IconButton(

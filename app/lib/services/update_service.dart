@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '2.0.8';
+  static const String currentVersion = '2.0.9';
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 

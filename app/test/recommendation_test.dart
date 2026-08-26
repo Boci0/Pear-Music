@@ -87,6 +87,22 @@ void main() {
       expect(candidates, contains('Battleplan Obliteration'));
     });
 
+    test('generateSearchCandidates cleans corrupted mojibake titles with Latin prefixes', () {
+      final corruptedSong = Song(
+        id: '124',
+        title: 'Arknights OST - Battleplan Obliteration \uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD',
+        fileName: 'track.mp4',
+        size: 1000,
+        checksum: '124',
+        addedAt: DateTime.now(),
+      );
+
+      final candidates = RecommendationService.generateSearchCandidates(corruptedSong);
+      expect(candidates, isNotEmpty);
+      expect(candidates.first, equals('Arknights OST - Battleplan Obliteration'));
+      expect(candidates, contains('Battleplan Obliteration'));
+    });
+
     test('resolveSeedVideoId extracts ID from song id or fileName directly', () async {
       final directSong = Song(
         id: 'stream_abc12345678',

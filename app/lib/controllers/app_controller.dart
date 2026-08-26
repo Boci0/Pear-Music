@@ -101,6 +101,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final List<PeerDevice> _pairedDevices = [];
   List<PeerDevice> get pairedDevices => List.unmodifiable(_pairedDevices);
 
+  /// Check whether a peer connection is currently in unencrypted fallback mode.
+  bool isPeerUnencrypted(String peerId) => signaling.isPlaintextPeer(peerId);
+
   /// Reliable sync channels to each peer (relayed through the server).
   final Map<String, RelayDataChannel> _relayChannels = {};
 

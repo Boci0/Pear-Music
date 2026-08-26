@@ -230,6 +230,12 @@ class _SongRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
+      tileColor: isCurrent
+          ? (theme.brightness == Brightness.dark
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+              : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
+          : null,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       leading: Icon(
         isCurrent ? Icons.graphic_eq : Icons.audiotrack,
         color: isCurrent

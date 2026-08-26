@@ -122,15 +122,36 @@ class RecommendationService {
     final candidates = <String>[];
 
     var base = song.title
-        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
-        .replaceAll(RegExp(r'\([^)]*\)'), '')
+        .replaceAll('\uFFFD', ' ')
+        .replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
         .replaceAll(RegExp(r'【[^】]*】'), '')
         .replaceAll(RegExp(r'「[^」]*」'), '')
-        .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|ogg|webm|aac|opus)$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'（[^）]*）'), '')
+        .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|ogg|webm|aac|opus|mp4)$', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'^\d+[\s\.\-_]+'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
     if (base.isNotEmpty) {
+      // Extract clean Latin/alphanumeric prefix if followed by mojibake/corrupted unicode
+      final latinPrefixMatch = RegExp(r"^([A-Za-z0-9\s\-_:',\.]+?)(?=\s*[^\x20-\x7E]|$)").firstMatch(base);
+      if (latinPrefixMatch != null) {
+        final latinPrefix = latinPrefixMatch.group(1)?.trim();
+        if (latinPrefix != null && latinPrefix.length >= 4 && latinPrefix.contains(RegExp(r'[A-Za-z]{3,}'))) {
+          candidates.add(latinPrefix);
+          if (latinPrefix.contains(' - ')) {
+            final parts = latinPrefix.split(' - ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+            if (parts.length >= 2) {
+              candidates.add('${parts[1]} ${parts[0]}');
+              candidates.add(parts[1]);
+              candidates.add(parts[0]);
+            }
+          }
+        }
+      }
+
       // 1. Pipe and slash segment extraction
       final segments = <String>[];
       if (base.contains('|')) {
@@ -142,12 +163,19 @@ class RecommendationService {
       }
 
       for (final seg in segments) {
+        final cleanSegMatch = RegExp(r"^([A-Za-z0-9\s\-_:',\.]+?)(?=\s*[^\x20-\x7E]|$)").firstMatch(seg);
+        if (cleanSegMatch != null) {
+          final p = cleanSegMatch.group(1)?.trim();
+          if (p != null && p.isNotEmpty && p.length >= 4) candidates.add(p);
+        }
+
         candidates.add(seg);
         if (seg.contains(' - ')) {
           final parts = seg.split(' - ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
           if (parts.length >= 2) {
             candidates.add('${parts[1]} ${parts[0]}');
             candidates.add(parts[1]);
+            candidates.add(parts[0]);
           }
         }
       }
@@ -161,7 +189,7 @@ class RecommendationService {
     final unique = <String>[];
     for (final c in candidates) {
       final key = c.toLowerCase().trim();
-      if (key.isNotEmpty && seen.add(key)) {
+      if (key.isNotEmpty && key.length >= 2 && seen.add(key)) {
         unique.add(c);
       }
     }
