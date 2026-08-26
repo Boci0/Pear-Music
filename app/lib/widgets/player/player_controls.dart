@@ -162,28 +162,30 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                   if (!widget.player.isNextTrackReady &&
                       widget.player.hasNextTrack &&
                       widget.player.isPreloadingUpcoming)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 8,
-                          height: 8,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Theme.of(context).colorScheme.primary,
+                    RepaintBoundary(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 8,
+                            height: 8,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Theme.of(context).colorScheme.primary,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Buffering next...',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontSize: 10,
-                              ),
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          Text(
+                            'Buffering next...',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontSize: 10,
+                                ),
+                          ),
+                        ],
+                      ),
                     ),
                 ],
               ),

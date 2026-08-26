@@ -246,9 +246,13 @@ class StreamProxyService {
       await request.response.addStream(upstreamResp);
       await request.response.close();
       return true;
-    } catch (_) {
+    } on SocketException catch (_) {
       // Client closed connection during track change or seek (normal lifecycle)
       return true;
+    } catch (e) {
+      debugPrint('[StreamProxyService] _proxyRemoteUrl error for $videoId: $e');
+      StreamCacheManager.invalidateStreamUrl(videoId);
+      return false;
     }
   }
 
