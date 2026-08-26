@@ -2,27 +2,67 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'signaling_service.dart';
 
+/// Channel state compatibility enum.
+enum RTCDataChannelState {
+  RTCDataChannelConnecting,
+  RTCDataChannelOpen,
+  RTCDataChannelClosing,
+  RTCDataChannelClosed,
+}
+
+/// Channel message representation for sync transport.
+class RTCDataChannelMessage {
+  final String? _text;
+  final Uint8List? _binary;
+  final bool isBinary;
+
+  RTCDataChannelMessage(String text)
+      : _text = text,
+        _binary = null,
+        isBinary = false;
+
+  RTCDataChannelMessage.fromBinary(Uint8List binary)
+      : _text = null,
+        _binary = binary,
+        isBinary = true;
+
+  String get text => _text ?? '';
+  Uint8List get binary => _binary ?? Uint8List(0);
+}
+
+typedef RTCDataChannelMessageCallback = void Function(RTCDataChannelMessage message);
+typedef RTCDataChannelStateCallback = void Function(RTCDataChannelState state);
+
+/// Abstract data channel interface.
+abstract class RTCDataChannel {
+  RTCDataChannelMessageCallback? onMessage;
+  RTCDataChannelStateCallback? onDataChannelState;
+  void Function(int currentAmount)? onBufferedAmountLow;
+  int? bufferedAmountLowThreshold;
+  RTCDataChannelState? get state;
+  int? get id;
+  String? get label;
+  int? get bufferedAmount;
+  Future<void> send(RTCDataChannelMessage message);
+  Future<void> close();
+}
+
 /// A reliable file-sync transport that routes through the signaling server's
-/// WebSocket connection instead of WebRTC.
-///
-/// It presents the same [RTCDataChannel] interface the [SyncService] already
-/// uses, so the sync engine is unchanged. This is the fallback that keeps
-/// Pear Music working on networks where WebRTC is unstable (e.g. phone hotspots).
-///
-/// Control messages travel as JSON text; binary chunks are sent as raw binary
-/// WebSocket frames (no base64 → ~33% less bandwidth) with server acks for
-/// backpressure (see [SignalingService.sendRelayBinary]). Sends are strictly
-/// serialized per channel so a control message can never overtake a chunk and
-/// `file_done` always arrives after the last chunk of its file.
+/// WebSocket connection with end-to-end encryption.
 class RelayDataChannel extends RTCDataChannel {
   RelayDataChannel({required this.peerId, required this.signaling});
 
   final String peerId;
   final SignalingService signaling;
+
+  @override
+  void Function(int currentAmount)? onBufferedAmountLow;
+
+  @override
+  int? bufferedAmountLowThreshold;
 
   // FIFO of send tasks: preserves ordering (hello -> chunks -> file_done).
   final List<Future<void> Function()> _queue = [];

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -117,17 +117,61 @@ class RecommendationService {
 
   static final Map<String, String> _seedVideoIdCache = {};
 
-  /// Cleans a song title or filename for accurate online searching.
-  static String cleanSongQuery(Song song) {
-    var query = song.title
+  /// Generates prioritized search query candidates from a song's title and metadata.
+  static List<String> generateSearchCandidates(Song song) {
+    final candidates = <String>[];
+
+    var base = song.title
         .replaceAll(RegExp(r'\[[^\]]*\]'), '')
         .replaceAll(RegExp(r'\([^)]*\)'), '')
+        .replaceAll(RegExp(r'【[^】]*】'), '')
+        .replaceAll(RegExp(r'「[^」]*」'), '')
         .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|ogg|webm|aac|opus)$', caseSensitive: false), '')
         .replaceAll(RegExp(r'^\d+[\s\.\-_]+'), '')
-        .replaceAll(RegExp(r'[_]+'), ' ')
         .trim();
-    if (query.isEmpty) query = song.title.trim();
-    return query;
+
+    if (base.isNotEmpty) {
+      // 1. Pipe and slash segment extraction
+      final segments = <String>[];
+      if (base.contains('|')) {
+        segments.addAll(base.split('|').map((s) => s.trim()).where((s) => s.isNotEmpty));
+      } else if (base.contains('//')) {
+        segments.addAll(base.split('//').map((s) => s.trim()).where((s) => s.isNotEmpty));
+      } else {
+        segments.add(base);
+      }
+
+      for (final seg in segments) {
+        candidates.add(seg);
+        if (seg.contains(' - ')) {
+          final parts = seg.split(' - ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+          if (parts.length >= 2) {
+            candidates.add('${parts[1]} ${parts[0]}');
+            candidates.add(parts[1]);
+          }
+        }
+      }
+
+      // 2. Cleaned base without special punctuation
+      final cleanedBase = base.replaceAll(RegExp(r'[|_/\\~]+'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+      candidates.add(cleanedBase);
+    }
+
+    final seen = <String>{};
+    final unique = <String>[];
+    for (final c in candidates) {
+      final key = c.toLowerCase().trim();
+      if (key.isNotEmpty && seen.add(key)) {
+        unique.add(c);
+      }
+    }
+    if (unique.isEmpty) unique.add(song.title.trim());
+    return unique;
+  }
+
+  /// Cleans a song title or filename for accurate online searching.
+  static String cleanSongQuery(Song song) {
+    return generateSearchCandidates(song).first;
   }
 
   /// Resolves the YouTube video ID for a given [Song], querying search if necessary.
@@ -137,34 +181,36 @@ class RecommendationService {
       return directId;
     }
 
-    final query = cleanSongQuery(song);
-    final cacheKey = query.toLowerCase();
-    if (_seedVideoIdCache.containsKey(cacheKey)) {
-      return _seedVideoIdCache[cacheKey];
-    }
-
-    // Step 1: Direct Innertube Music Search
-    try {
-      final innertubeResults = await searchInnertubeSongs(query, limit: 1);
-      if (innertubeResults.isNotEmpty) {
-        final id = innertubeResults.first.videoId;
-        _seedVideoIdCache[cacheKey] = id;
-        return id;
+    final candidates = generateSearchCandidates(song);
+    for (final query in candidates) {
+      final cacheKey = query.toLowerCase();
+      if (_seedVideoIdCache.containsKey(cacheKey)) {
+        return _seedVideoIdCache[cacheKey];
       }
-    } catch (e) {
-      debugPrint('[RecommendationService] Innertube seed search error: $e');
-    }
 
-    // Step 2: YouTubeSearchService fallback
-    try {
-      final results = await YouTubeSearchService.search(query, limit: 1);
-      if (results.isNotEmpty) {
-        final id = results.first.videoId;
-        _seedVideoIdCache[cacheKey] = id;
-        return id;
+      // Step 1: Direct Innertube Music Search
+      try {
+        final innertubeResults = await searchInnertubeSongs(query, limit: 1);
+        if (innertubeResults.isNotEmpty) {
+          final id = innertubeResults.first.videoId;
+          _seedVideoIdCache[cacheKey] = id;
+          return id;
+        }
+      } catch (e) {
+        debugPrint('[RecommendationService] Innertube seed search error for "$query": $e');
       }
-    } catch (e) {
-      debugPrint('[RecommendationService] Search seed resolve failed: $e');
+
+      // Step 2: YouTubeSearchService fallback
+      try {
+        final results = await YouTubeSearchService.search(query, limit: 1);
+        if (results.isNotEmpty) {
+          final id = results.first.videoId;
+          _seedVideoIdCache[cacheKey] = id;
+          return id;
+        }
+      } catch (e) {
+        debugPrint('[RecommendationService] Search seed resolve failed for "$query": $e');
+      }
     }
 
     return null;
@@ -471,7 +517,7 @@ class RecommendationService {
     Set<String>? excludeVideoIds,
   }) async {
     try {
-      final cleanTitle = cleanSongQuery(song);
+      final candidates = generateSearchCandidates(song);
       final seen = <String>{
         ...?excludeVideoIds,
         ..._sessionPlayedVideoIds,
@@ -479,34 +525,40 @@ class RecommendationService {
       };
       final items = <RecommendationItem>[];
 
-      // Strategy A: Innertube Music search for "$cleanTitle"
-      final innertubeMatches = await searchInnertubeSongs(cleanTitle, limit: 20);
-      for (final r in innertubeMatches) {
-        if (seen.contains(r.videoId)) continue;
-        seen.add(r.videoId);
-        items.add(r);
+      for (final query in candidates) {
+        // Strategy A: Innertube Music search for "$query"
+        final innertubeMatches = await searchInnertubeSongs(query, limit: 20);
+        for (final r in innertubeMatches) {
+          if (seen.contains(r.videoId)) continue;
+          seen.add(r.videoId);
+          items.add(r);
+        }
+
+        if (items.length >= 10) break;
+
+        // Strategy B: YouTubeSearchService for "$query mix"
+        final results = await YouTubeSearchService.search('$query mix', limit: 20);
+        for (final r in results) {
+          if (seen.contains(r.videoId)) continue;
+          seen.add(r.videoId);
+          items.add(
+            RecommendationItem(
+              videoId: r.videoId,
+              title: r.title,
+              artist: r.author,
+              duration: r.duration,
+              thumbnailUrl: r.thumbnailUrl,
+            ),
+          );
+        }
+
+        if (items.length >= 5) break;
       }
 
-      if (items.length >= 5) {
+      if (items.isNotEmpty) {
         return RecommendationBatch(items: items);
       }
-
-      // Strategy B: YouTubeSearchService for "$cleanTitle"
-      final results = await YouTubeSearchService.search('$cleanTitle mix', limit: 20);
-      for (final r in results) {
-        if (seen.contains(r.videoId)) continue;
-        seen.add(r.videoId);
-        items.add(
-          RecommendationItem(
-            videoId: r.videoId,
-            title: r.title,
-            artist: r.author,
-            duration: r.duration,
-            thumbnailUrl: r.thumbnailUrl,
-          ),
-        );
-      }
-      return RecommendationBatch(items: items);
+      return const RecommendationBatch(items: []);
     } catch (e) {
       debugPrint('[RecommendationService] Fallback search error: $e');
       return const RecommendationBatch(items: []);

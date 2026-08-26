@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:peerm_app/services/relay_data_channel.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,6 +18,18 @@ class _FakeChannel extends RTCDataChannel {
   _FakeChannel();
 
   RTCDataChannel? otherSide;
+
+  @override
+  RTCDataChannelMessageCallback? onMessage;
+
+  @override
+  RTCDataChannelStateCallback? onDataChannelState;
+
+  @override
+  void Function(int currentAmount)? onBufferedAmountLow;
+
+  @override
+  int? bufferedAmountLowThreshold;
 
   @override
   RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
@@ -44,23 +56,10 @@ class _FakeChannel extends RTCDataChannel {
 /// lost relayed chunk — e.g. a dropped relay_ack or a mis-routed frame) and
 /// forwards everything after. Used to prove a failed finalize self-heals via a
 /// re-request.
-class _DropOnceChannel extends RTCDataChannel {
+class _DropOnceChannel extends _FakeChannel {
   _DropOnceChannel();
 
-  RTCDataChannel? otherSide;
   bool _dropNextBinary = true;
-
-  @override
-  RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
-
-  @override
-  int? get id => 1;
-
-  @override
-  String? get label => 'peerm';
-
-  @override
-  int? get bufferedAmount => 0;
 
   @override
   Future<void> send(RTCDataChannelMessage message) async {
@@ -71,9 +70,6 @@ class _DropOnceChannel extends RTCDataChannel {
     }
     otherSide?.onMessage?.call(message);
   }
-
-  @override
-  Future<void> close() async {}
 }
 
 /// A fake channel that flips one payload byte in the FIRST binary frame it
@@ -82,23 +78,10 @@ class _DropOnceChannel extends RTCDataChannel {
 /// by the size check). Forwards everything after untouched. Used to prove
 /// the receiving side verifies the actual checksum of what it downloaded,
 /// not just its length.
-class _CorruptOnceChannel extends RTCDataChannel {
+class _CorruptOnceChannel extends _FakeChannel {
   _CorruptOnceChannel();
 
-  RTCDataChannel? otherSide;
   bool _corruptNextBinary = true;
-
-  @override
-  RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
-
-  @override
-  int? get id => 1;
-
-  @override
-  String? get label => 'peerm';
-
-  @override
-  int? get bufferedAmount => 0;
 
   @override
   Future<void> send(RTCDataChannelMessage message) async {
@@ -115,9 +98,6 @@ class _CorruptOnceChannel extends RTCDataChannel {
     }
     otherSide?.onMessage?.call(message);
   }
-
-  @override
-  Future<void> close() async {}
 }
 
 void main() {

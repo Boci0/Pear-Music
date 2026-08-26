@@ -71,6 +71,22 @@ void main() {
       expect(recs.first.title, contains('Queen'));
     });
 
+    test('generateSearchCandidates extracts primary title from complex multi-language OST titles', () {
+      final song = Song(
+        id: '123',
+        title: 'Arknights OST - Battleplan Obliteration | アークナイツ/明日方舟 危機契約#12 殲滅作戦',
+        fileName: 'track.mp3',
+        size: 1000,
+        checksum: '123',
+        addedAt: DateTime.now(),
+      );
+
+      final candidates = RecommendationService.generateSearchCandidates(song);
+      expect(candidates, isNotEmpty);
+      expect(candidates.first, equals('Arknights OST - Battleplan Obliteration'));
+      expect(candidates, contains('Battleplan Obliteration'));
+    });
+
     test('resolveSeedVideoId extracts ID from song id or fileName directly', () async {
       final directSong = Song(
         id: 'stream_abc12345678',

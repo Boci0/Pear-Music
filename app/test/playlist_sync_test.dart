@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:peerm_app/services/relay_data_channel.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,6 +15,18 @@ class _FakeChannel extends RTCDataChannel {
   _FakeChannel();
 
   _FakeChannel? otherSide;
+
+  @override
+  RTCDataChannelMessageCallback? onMessage;
+
+  @override
+  RTCDataChannelStateCallback? onDataChannelState;
+
+  @override
+  void Function(int currentAmount)? onBufferedAmountLow;
+
+  @override
+  int? bufferedAmountLowThreshold;
 
   @override
   RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
