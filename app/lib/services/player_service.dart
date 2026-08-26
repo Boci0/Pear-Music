@@ -50,6 +50,7 @@ class PlayerService extends ChangeNotifier {
   DateTime _lastInteraction = DateTime.now();
   bool _isAdvancing = false;
   int _consecutiveStreamFailures = 0;
+  bool _isPreloadingUpcoming = false;
 
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
@@ -74,6 +75,16 @@ class PlayerService extends ChangeNotifier {
   double get volume => _player.volume;
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
+
+  bool get isPreloadingUpcoming => _isPreloadingUpcoming || _isLoadingRecommendations;
+
+  bool get isNextTrackReady {
+    if (_queueIndex < 0 || _queueIndex + 1 >= _queue.length) return false;
+    final nextSong = _queue[_queueIndex + 1];
+    if (nextSong.sourceDeviceId != 'stream') return true;
+    final videoId = nextSong.id.replaceFirst('stream_', '');
+    return StreamCacheManager.isStreamCachedSync(videoId);
+  }
 
   bool get isSleepTimerActive => _sleepTimer != null || _sleepTimerEndOfSong;
   Duration? get sleepTimerRemaining => _sleepTimerEndTime != null
@@ -394,35 +405,62 @@ class PlayerService extends ChangeNotifier {
           artUri: effectiveArtUri,
         );
 
-        // Step 1: Instant local cache check (0 ms)
-        var audioFile = await StreamCacheManager.getCachedFile(videoId);
+        // Step 1: Check instant local cache (0 ms)
+        final cachedFile = await StreamCacheManager.getCachedFile(videoId);
         if (token != _playRequestToken) return;
 
-        // Step 2: Progressive file preparation (~150-200ms)
-        audioFile ??= await StreamCacheManager.prepareStreamFile(videoId);
-        if (token != _playRequestToken) return;
-
-        if (audioFile != null && await audioFile.exists()) {
+        if (cachedFile != null) {
           await _player.setAudioSource(
-            AudioSource.file(audioFile.path, tag: mediaTag),
+            AudioSource.file(cachedFile.path, tag: mediaTag),
           );
           _consecutiveStreamFailures = 0;
-          // Lookahead cache upcoming tracks in background
           _preloadUpcomingStreams();
         } else {
-          // Circuit breaker: stop after 3 consecutive failures
-          _consecutiveStreamFailures++;
-          debugPrint(
-            '[PlayerService] Stream failed for ${song.title} '
-            '(failure $_consecutiveStreamFailures/3)',
-          );
-          if (_consecutiveStreamFailures >= 3) {
-            debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
-            return;
+          // Step 2: Route through loopback audio proxy
+          final proxyUri = await StreamCacheManager.getStreamProxyUri(videoId);
+          if (token != _playRequestToken) return;
+
+          bool playSuccess = false;
+          if (proxyUri != null) {
+            try {
+              await _player.setAudioSource(
+                AudioSource.uri(proxyUri, tag: mediaTag),
+              );
+              playSuccess = true;
+              _consecutiveStreamFailures = 0;
+              // Pre-cache full audio in background for offline use
+              unawaited(StreamCacheManager.ensureStreamCached(videoId));
+              _preloadUpcomingStreams();
+            } catch (e) {
+              debugPrint('[PlayerService] Stream proxy error for $videoId: $e');
+            }
           }
-          // Skip to next track (keep _isAdvancing true to block processingState races)
-          unawaited(next());
-          return;
+
+          if (!playSuccess) {
+            // Step 3: Complete file download fallback
+            final downloaded = await StreamCacheManager.ensureStreamCached(videoId);
+            if (token != _playRequestToken) return;
+
+            if (downloaded != null && await downloaded.exists()) {
+              await _player.setAudioSource(
+                AudioSource.file(downloaded.path, tag: mediaTag),
+              );
+              _consecutiveStreamFailures = 0;
+              _preloadUpcomingStreams();
+            } else {
+              _consecutiveStreamFailures++;
+              debugPrint(
+                '[PlayerService] Stream failed for ${song.title} '
+                '(failure $_consecutiveStreamFailures/3)',
+              );
+              if (_consecutiveStreamFailures >= 3) {
+                debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
+                return;
+              }
+              unawaited(next());
+              return;
+            }
+          }
         }
       } else {
         // Local song: play directly from local file
@@ -473,8 +511,13 @@ class PlayerService extends ChangeNotifier {
       }
     }
     if (upcomingVideoIds.isNotEmpty) {
+      _isPreloadingUpcoming = true;
+      notifyListeners();
       unawaited(StreamCacheManager.preloadStreamUrls(upcomingVideoIds));
-      unawaited(StreamCacheManager.preloadUpcomingTracks(upcomingVideoIds));
+      StreamCacheManager.preloadUpcomingTracks(upcomingVideoIds).whenComplete(() {
+        _isPreloadingUpcoming = false;
+        notifyListeners();
+      });
     }
   }
 

@@ -34,24 +34,35 @@ class PlayerBar extends StatelessWidget {
 
     return Material(
       color: barColor,
-      child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          PageRouteBuilder(
-            transitionDuration: const Duration(milliseconds: 150),
-            reverseTransitionDuration: const Duration(milliseconds: 150),
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const PlayerScreen(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) =>
-                    FadeTransition(opacity: animation, child: child),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            children: [
-              _Thumb(song: song),
-              const SizedBox(width: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (player.isPreloadingUpcoming)
+            LinearProgressIndicator(
+              minHeight: 2,
+              backgroundColor: Colors.transparent,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                control.withOpacity(0.7),
+              ),
+            ),
+          InkWell(
+            onTap: () => Navigator.of(context).push(
+              PageRouteBuilder(
+                transitionDuration: const Duration(milliseconds: 150),
+                reverseTransitionDuration: const Duration(milliseconds: 150),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const PlayerScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) =>
+                        FadeTransition(opacity: animation, child: child),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                children: [
+                  _Thumb(song: song),
+                  const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -92,7 +103,9 @@ class PlayerBar extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ],
+  ),
+);
   }
 }
 

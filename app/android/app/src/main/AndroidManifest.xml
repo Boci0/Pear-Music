@@ -3,6 +3,8 @@
     <!-- Pear Music: P2P sync + playback need the network. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <!-- just_audio_background: media notification / background playback. -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -23,12 +25,8 @@
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
         android:usesCleartextTraffic="true">
-        <!-- android:name must be AudioServiceActivity so audio_service can host
-             the playback notification. (Temporary: reverted from .MainActivity to
-             isolate the black-screen cause; MainActivity + YtDlpChannel will be
-             registered via the plugin mechanism instead.) -->
         <activity
-            android:name="com.ryanheise.audioservice.AudioServiceActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

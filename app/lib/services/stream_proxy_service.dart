@@ -73,17 +73,17 @@ class StreamProxyService {
       }
 
       // Step 2: Resolve stream URL via Innertube Player Service
-      final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
+      var streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
       if (streamInfo != null && streamInfo.url.startsWith('http')) {
-        await _proxyRemoteUrl(request, streamInfo.url, videoId, streamInfo);
-        return;
+        final success = await _proxyRemoteUrl(request, streamInfo.url, videoId, streamInfo);
+        if (success) return;
       }
 
       // Step 3: Fallback stream URI resolution
       final fallbackUri = await StreamCacheManager.resolveStreamUri(videoId);
       if (fallbackUri != null) {
-        await _proxyRemoteUrl(request, fallbackUri.toString(), videoId, null);
-        return;
+        final success = await _proxyRemoteUrl(request, fallbackUri.toString(), videoId, null);
+        if (success) return;
       }
 
       try {
@@ -153,7 +153,7 @@ class StreamProxyService {
     }
   }
 
-  static Future<void> _proxyRemoteUrl(
+  static Future<bool> _proxyRemoteUrl(
     HttpRequest request,
     String targetUrl,
     String videoId,
@@ -178,6 +178,10 @@ class StreamProxyService {
 
       final upstreamResp = await upstreamReq.close().timeout(const Duration(seconds: 8));
       var statusCode = upstreamResp.statusCode;
+      if (statusCode == HttpStatus.forbidden || statusCode == HttpStatus.unauthorized) {
+        return false;
+      }
+
       final totalLength = streamInfo?.contentLength ?? upstreamResp.contentLength;
 
       // Normalize HTTP 200 with Range header into HTTP 206 Partial Content for ExoPlayer
@@ -223,13 +227,15 @@ class StreamProxyService {
 
       if (isHead) {
         await request.response.close();
-        return;
+        return true;
       }
 
       await request.response.addStream(upstreamResp);
       await request.response.close();
+      return true;
     } catch (_) {
       // Client closed connection during track change or seek (normal lifecycle)
+      return true;
     }
   }
 

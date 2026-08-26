@@ -150,6 +150,30 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                     _fmt(Duration(milliseconds: clampedValue.round())),
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
+                  if (widget.player.isPreloadingUpcoming)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 8,
+                          height: 8,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Buffering next...',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 10,
+                              ),
+                        ),
+                      ],
+                    ),
                   Text(
                     _fmt(widget.duration),
                     style: Theme.of(context).textTheme.labelSmall,

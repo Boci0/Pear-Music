@@ -184,7 +184,13 @@ class SignalingServer {
     if (_running) return;
     _loadState();
     lanIp = await _resolveLanIp();
-    _server = await HttpServer.bind(host, port);
+    try {
+      _server = await HttpServer.bind(host, port);
+    } catch (e) {
+      _log('[signaling] Failed to bind $host:$port ($e), falling back to ephemeral port');
+      _server = await HttpServer.bind(host, 0);
+    }
+    final actualPort = _server!.port;
     _server!.listen(_handleHttp);
     _codeExpiryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       final now = DateTime.now();
@@ -204,8 +210,8 @@ class SignalingServer {
     _gcStalePairings();
     _gcTimer = Timer.periodic(gcPeriod, (_) => _gcStalePairings());
     _running = true;
-    _log('Pear Music signaling server listening on $host:$port (ws)');
-    _log('  ws://localhost:$port   (other devices: ws://${lanIp ?? host}:$port)');
+    _log('Pear Music signaling server listening on $host:$actualPort (ws)');
+    _log('  ws://localhost:$actualPort   (other devices: ws://${lanIp ?? host}:$actualPort)');
     if (stateFile != null) _log('  persistent state: ${stateFile!.path}');
     _startMulticast();
   }

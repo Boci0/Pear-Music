@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -40,6 +40,12 @@ class StreamCacheManager {
 
   static final Map<String, ({String url, DateTime expiresAt})> _streamUrlCache = {};
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
+  static final Set<String> _cachedVideoIds = {};
+
+  /// Synchronous memory check whether a track is fully cached on disk.
+  static bool isStreamCachedSync(String videoId) {
+    return _cachedVideoIds.contains(videoId);
+  }
 
   /// Quick cache-only check: returns the cached file if it exists, null otherwise.
   /// Does NOT trigger any network requests or downloads.
@@ -48,6 +54,7 @@ class StreamCacheManager {
     for (final ext in ['m4a', 'mp4', 'webm']) {
       final f = File(p.join(dir.path, '$videoId.$ext'));
       if (await f.exists() && (await f.length()) > 50000) {
+        _cachedVideoIds.add(videoId);
         return f;
       }
     }
@@ -89,112 +96,6 @@ class StreamCacheManager {
         await ensureStreamCached(id);
       } catch (_) {}
     }
-  }
-
-  /// Prepares an audio file for [videoId] and returns a playable [File] as soon as
-  /// the initial audio buffer (~64 KB, ~200ms) arrives, while downloading the remainder
-  /// in the background for 100% offline playback.
-  static Future<File?> prepareStreamFile(String videoId) async {
-    final cached = await getCachedFile(videoId);
-    if (cached != null) return cached;
-
-    // Single-flight deduplication
-    if (_inFlightDownloads.containsKey(videoId)) {
-      return await _inFlightDownloads[videoId]!.future;
-    }
-
-    final completer = Completer<File?>();
-    _inFlightDownloads[videoId] = completer;
-
-    try {
-      final dir = await getCacheDirectory();
-
-      // Progressive Innertube chunk stream download (~150ms resolve + progressive write)
-      final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
-      if (streamInfo != null && streamInfo.url.startsWith('http')) {
-        final ext = streamInfo.container;
-        final targetFile = File(p.join(dir.path, '$videoId.$ext'));
-        final tempFile = File(p.join(dir.path, '$videoId.tmp.$ext'));
-        if (await tempFile.exists()) {
-          try {
-            await tempFile.delete();
-          } catch (_) {}
-        }
-
-        final client = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 5)
-          ..idleTimeout = const Duration(seconds: 10);
-        final req = await client.getUrl(Uri.parse(streamInfo.url));
-        req.headers.set(
-          'User-Agent',
-          'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
-        );
-        req.headers.set('Referer', 'https://music.youtube.com/');
-        final resp = await req.close().timeout(const Duration(seconds: 15));
-
-        if (resp.statusCode == 200 || resp.statusCode == 206) {
-          final sink = tempFile.openWrite();
-          int written = 0;
-          bool completedEarly = false;
-
-          resp.listen(
-            (chunk) {
-              sink.add(chunk);
-              written += chunk.length;
-              if (!completedEarly && written >= 64 * 1024) {
-                completedEarly = true;
-                if (!completer.isCompleted) {
-                  completer.complete(tempFile);
-                }
-              }
-            },
-            onDone: () async {
-              try {
-                await sink.flush();
-                await sink.close();
-                if (await tempFile.exists() && (await tempFile.length()) > 50000) {
-                  if (await targetFile.exists()) {
-                    try {
-                      await targetFile.delete();
-                    } catch (_) {}
-                  }
-                  await tempFile.rename(targetFile.path);
-                  unawaited(enforceCacheQuota());
-                }
-              } catch (_) {}
-              if (!completer.isCompleted) {
-                completer.complete(targetFile);
-              }
-            },
-            onError: (e) async {
-              try {
-                await sink.close();
-              } catch (_) {}
-              if (!completer.isCompleted) {
-                completer.complete(null);
-              }
-            },
-            cancelOnError: true,
-          );
-
-          // Wait for initial playable chunk or full stream
-          final result = await completer.future;
-          if (result != null) {
-            return result;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[StreamCacheManager] prepareStreamFile error for $videoId: $e');
-    } finally {
-      if (!completer.isCompleted) {
-        completer.complete(null);
-      }
-      _inFlightDownloads.remove(videoId);
-    }
-
-    // Fallback: full download via ensureStreamCached
-    return await ensureStreamCached(videoId);
   }
 
   /// Returns the localhost stream proxy URI for [videoId] to prevent 403 errors.
@@ -346,6 +247,7 @@ class StreamCacheManager {
                 } catch (_) {}
               }
               await tempFile.rename(target.path);
+              _cachedVideoIds.add(videoId);
               unawaited(enforceCacheQuota());
               completer.complete(target);
               return target;
@@ -381,10 +283,12 @@ class StreamCacheManager {
                 } catch (_) {}
               }
               await f.rename(target.path);
+              _cachedVideoIds.add(videoId);
               try {
                 await outDir.delete(recursive: true);
               } catch (_) {}
               unawaited(enforceCacheQuota());
+              completer.complete(target);
               return target;
             }
           }
@@ -421,7 +325,9 @@ class StreamCacheManager {
               } catch (_) {}
             }
             await fallbackPart.rename(fallbackTarget.path);
+            _cachedVideoIds.add(videoId);
             unawaited(enforceCacheQuota());
+            completer.complete(fallbackTarget);
             return fallbackTarget;
           }
         }
@@ -429,7 +335,7 @@ class StreamCacheManager {
         debugPrint('[StreamCacheManager] yt-dlp fallback failed: $e');
       }
 
-      // Method 3: Direct HTTP stream pipe fallback
+      // Method 4: Direct HTTP stream pipe fallback
       try {
         final manifest = await _client.videos.streamsClient
             .getManifest(videoId)
@@ -465,6 +371,7 @@ class StreamCacheManager {
               } catch (_) {}
             }
             await partFile.rename(targetFile.path);
+            _cachedVideoIds.add(videoId);
             unawaited(enforceCacheQuota());
             completer.complete(targetFile);
             return targetFile;
