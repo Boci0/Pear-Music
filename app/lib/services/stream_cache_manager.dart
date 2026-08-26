@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,27 +10,27 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
 import 'innertube_player_service.dart';
 import 'library_service.dart';
-import 'stream_proxy_service.dart';
 import 'youtube_service.dart';
 
-/// Manages ephemeral stream downloads and LRU cache eviction so continuous radio
-/// playback does not fill disk storage.
+/// Manages ephemeral radio stream downloads and LRU cache eviction so continuous radio
+/// playback operates entirely from local disk files without filling storage.
 class StreamCacheManager {
-  static const int maxCacheBytes = 500 * 1024 * 1024; // 500 MB cap
-  static const int targetEvictionBytes = 400 * 1024 * 1024; // prune to 400 MB
-  static const int minFreeDiskBytes = 1024 * 1024 * 1024; // 1 GB safety floor
+  static const int maxCacheBytes = 60 * 1024 * 1024; // 60 MB cap (~18-20 songs)
+  static const int targetEvictionBytes = 40 * 1024 * 1024; // prune to 40 MB
+  static const int maxTrackCount = 15;
+  static const int minFreeDiskBytes = 512 * 1024 * 1024; // 512 MB safety floor
 
   static Directory? _cacheDir;
   static YoutubeExplode? _yt;
   static YoutubeExplode get _client => _yt ??= YoutubeExplode();
 
-  /// Gets or creates the stream cache directory in temporary storage.
+  /// Gets or creates the radio stream cache directory in temporary storage.
   static Future<Directory> getCacheDirectory() async {
     if (_cacheDir != null && await _cacheDir!.exists()) {
       return _cacheDir!;
     }
     final temp = await getTemporaryDirectory();
-    final dir = Directory(p.join(temp.path, 'peerm_stream_cache'));
+    final dir = Directory(p.join(temp.path, 'peerm_radio_cache'));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -38,9 +38,9 @@ class StreamCacheManager {
     return dir;
   }
 
-  static final Map<String, ({String url, DateTime expiresAt})> _streamUrlCache = {};
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
+  static int _slidingWindowSequence = 0;
 
   /// Synchronous memory check whether a track is fully cached on disk.
   static bool isStreamCachedSync(String videoId) {
@@ -50,12 +50,6 @@ class StreamCacheManager {
   /// Returns the in-flight download future if this track is currently being cached.
   static Future<File?>? getInFlightDownload(String videoId) {
     return _inFlightDownloads[videoId]?.future;
-  }
-
-  /// Invalidate cached stream URL for a given video ID
-  static void invalidateStreamUrl(String videoId) {
-    _streamUrlCache.remove(videoId);
-    InnertubePlayerService.invalidateCache(videoId);
   }
 
   /// Quick cache-only check: returns the cached file if it exists, null otherwise.
@@ -72,150 +66,31 @@ class StreamCacheManager {
     return null;
   }
 
-  /// Checks whether a valid (unexpired) stream URL is already in the memory cache.
-  static bool isStreamUrlCached(String videoId) {
-    final entry = _streamUrlCache[videoId];
-    if (entry == null) return false;
-    if (DateTime.now().isAfter(entry.expiresAt)) {
-      _streamUrlCache.remove(videoId);
-      return false;
-    }
-    return true;
-  }
-
-  /// Pre-resolves stream URLs for upcoming tracks in the background to ensure
-  /// zero-delay skipping.
-  static Future<void> preloadStreamUrls(List<String> videoIds) async {
-    for (final id in videoIds) {
-      if (id.isEmpty) continue;
-      final cached = await getCachedFile(id);
-      if (cached != null) continue;
-      if (isStreamUrlCached(id)) continue;
-      // Pre-resolve asynchronously in parallel
-      unawaited(resolveStreamUri(id));
-    }
-  }
-
-  /// Sequentially pre-downloads upcoming tracks into the local cache file system.
-  static Future<void> preloadUpcomingTracks(
+  /// Sequentially pre-downloads a sliding window of upcoming tracks (+1, +2, +3)
+  /// in the background using a single-queue worker.
+  static void preloadSlidingWindow(
     List<String> videoIds, {
     void Function(String videoId)? onTrackCached,
-  }) async {
-    for (final id in videoIds) {
-      if (id.isEmpty) continue;
-      final cached = await getCachedFile(id);
-      if (cached != null) {
-        onTrackCached?.call(id);
-        continue;
-      }
-      // Pre-download sequentially in background
-      try {
-        final downloaded = await ensureStreamCached(id);
-        if (downloaded != null) {
+  }) {
+    final seq = ++_slidingWindowSequence;
+    unawaited(() async {
+      for (final id in videoIds.take(3)) {
+        if (seq != _slidingWindowSequence) break;
+        if (id.isEmpty) continue;
+        final cached = await getCachedFile(id);
+        if (cached != null) {
           onTrackCached?.call(id);
+          continue;
         }
-      } catch (_) {}
-    }
-  }
-
-  /// Returns the localhost stream proxy URI for [videoId] to prevent 403 errors.
-  static Future<Uri?> getStreamProxyUri(String videoId) async {
-    return await StreamProxyService.getStreamProxyUri(videoId);
-  }
-
-  /// Resolves the best audio-only stream URI for a given [videoId].
-  /// Uses ultra-fast direct Innertube player resolution first (~150ms), falling back
-  /// to youtube_explode and platform yt-dlp engines if needed.
-  static Future<Uri?> resolveStreamUri(String videoId) async {
-    final cachedEntry = _streamUrlCache[videoId];
-    if (cachedEntry != null) {
-      if (DateTime.now().isBefore(cachedEntry.expiresAt)) {
-        return Uri.tryParse(cachedEntry.url);
-      }
-      _streamUrlCache.remove(videoId);
-    }
-
-    // Attempt 1: Fast direct Innertube player resolution (~150ms, unscrambled mobile audio)
-    try {
-      final innertubeStream = await InnertubePlayerService.resolveAudioStream(videoId);
-      if (innertubeStream != null && innertubeStream.url.startsWith('http')) {
-        _streamUrlCache[videoId] = (
-          url: innertubeStream.url,
-          expiresAt: DateTime.now().add(const Duration(hours: 2)),
-        );
-        return Uri.tryParse(innertubeStream.url);
-      }
-    } catch (e) {
-      debugPrint('[StreamCacheManager] Innertube player resolution failed for $videoId: $e');
-    }
-
-    // Attempt 2: Direct stream extraction via youtube_explode (~200-500ms)
-    try {
-      final manifest = await _client.videos.streamsClient
-          .getManifest(videoId)
-          .timeout(const Duration(seconds: 4));
-      final mp4s = manifest.audioOnly
-          .where((s) => s.container.name.toLowerCase() == 'mp4')
-          .toList();
-      final audioOnly = mp4s.isNotEmpty
-          ? mp4s.withHighestBitrate()
-          : manifest.audioOnly.withHighestBitrate();
-      final urlStr = audioOnly.url.toString();
-      _streamUrlCache[videoId] = (
-        url: urlStr,
-        expiresAt: DateTime.now().add(const Duration(hours: 2)),
-      );
-      return audioOnly.url;
-    } catch (e) {
-      debugPrint('[StreamCacheManager] Fast direct stream extraction failed for $videoId: $e');
-    }
-
-    // Attempt 3 (Android): Embedded yt-dlp URL resolution via method channel fallback
-    if (YoutubeService.isEmbeddedYtDlpSupported) {
-      try {
-        const channel = MethodChannel('peerm/ytdlp');
-        final url = await channel.invokeMethod<String>('getStreamUrl', {
-          'url': 'https://www.youtube.com/watch?v=$videoId',
-        }).timeout(const Duration(seconds: 10));
-        if (url != null && url.startsWith('http')) {
-          _streamUrlCache[videoId] = (
-            url: url,
-            expiresAt: DateTime.now().add(const Duration(hours: 2)),
-          );
-          return Uri.parse(url);
-        }
-      } catch (e) {
-        debugPrint('[StreamCacheManager] Embedded yt-dlp URL resolve failed: $e');
-      }
-    }
-
-    // Attempt 4 (Desktop): Desktop yt-dlp -g fallback
-    try {
-      final bin = await YoutubeService.ytDlpPath();
-      if (bin != null) {
-        final res = await Process.run(bin, [
-          '-g',
-          '-f',
-          'bestaudio/best',
-          '--no-playlist',
-          '--no-warnings',
-          'https://www.youtube.com/watch?v=$videoId',
-        ]).timeout(const Duration(seconds: 8));
-        if (res.exitCode == 0) {
-          final line = res.stdout.toString().trim().split(RegExp(r'[\r\n]+')).first;
-          if (line.startsWith('http')) {
-            _streamUrlCache[videoId] = (
-              url: line,
-              expiresAt: DateTime.now().add(const Duration(hours: 2)),
-            );
-            return Uri.parse(line);
+        try {
+          final file = await ensureStreamCached(id);
+          if (seq != _slidingWindowSequence) break;
+          if (file != null) {
+            onTrackCached?.call(id);
           }
-        }
+        } catch (_) {}
       }
-    } catch (e) {
-      debugPrint('[StreamCacheManager] yt-dlp fallback error: $e');
-    }
-    return null;
+    }());
   }
 
   /// Ensures the audio stream for [videoId] is downloaded into the local cache.
@@ -224,7 +99,7 @@ class StreamCacheManager {
     final existing = await getCachedFile(videoId);
     if (existing != null) return existing;
 
-    // Single-flight deduplication to avoid socket starvation and temp file collisions
+    // Single-flight deduplication to avoid duplicate downloads
     if (_inFlightDownloads.containsKey(videoId)) {
       return await _inFlightDownloads[videoId]!.future;
     }
@@ -248,7 +123,9 @@ class StreamCacheManager {
             } catch (_) {}
           }
 
-          final client = HttpClient();
+          final client = HttpClient()
+            ..connectionTimeout = const Duration(seconds: 5)
+            ..idleTimeout = const Duration(seconds: 10);
           final req = await client.getUrl(Uri.parse(streamInfo.url));
           req.headers.set(
             'User-Agent',
@@ -336,7 +213,7 @@ class StreamCacheManager {
             '-o',
             fallbackPart.path,
             'https://www.youtube.com/watch?v=$videoId',
-          ]).timeout(const Duration(seconds: 12));
+          ]).timeout(const Duration(seconds: 15));
 
           if (res.exitCode == 0 && await fallbackPart.exists() && (await fallbackPart.length()) > 50000) {
             if (await fallbackTarget.exists()) {
@@ -355,7 +232,7 @@ class StreamCacheManager {
         debugPrint('[StreamCacheManager] yt-dlp fallback failed: $e');
       }
 
-      // Method 4: Direct HTTP stream pipe fallback
+      // Method 4: Direct HTTP stream pipe fallback via YoutubeExplode
       try {
         final manifest = await _client.videos.streamsClient
             .getManifest(videoId)
@@ -398,7 +275,7 @@ class StreamCacheManager {
           }
         }
       } catch (e) {
-        debugPrint('[StreamCacheManager] direct stream download failed: $e');
+        debugPrint('[StreamCacheManager] Direct stream download fallback failed: $e');
       }
     } catch (e) {
       debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');
@@ -411,20 +288,8 @@ class StreamCacheManager {
     return null;
   }
 
-  /// Checks if available free space is safe for stream caching.
-  static Future<bool> isStorageSafe() async {
-    try {
-      final dir = await getCacheDirectory();
-      final stat = await dir.stat();
-      // On Windows/Android, directory exists check is baseline safe
-      return stat.type != FileSystemEntityType.notFound;
-    } catch (_) {
-      return true;
-    }
-  }
-
-  /// Trims stream cache directory to remain strictly under the [maxCacheBytes] quota
-  /// and purges stale temporary download artifacts.
+  /// Trims stream cache directory to remain strictly under the [maxCacheBytes] and
+  /// [maxTrackCount] quota, and purges stale temporary download artifacts.
   static Future<void> enforceCacheQuota() async {
     try {
       final dir = await getCacheDirectory();
@@ -438,9 +303,9 @@ class StreamCacheManager {
         final stat = await f.stat();
         final name = p.basename(f.path);
 
-        // Delete dangling temp files older than 2 minutes
-        if ((name.contains('.tmp.') || name.contains('.part.')) &&
-            now.difference(stat.modified) > const Duration(minutes: 2)) {
+        // Delete dangling temp files older than 1 minute
+        if ((name.contains('.tmp.') || name.contains('.part.') || name.startsWith('tmp_')) &&
+            now.difference(stat.modified) > const Duration(minutes: 1)) {
           try {
             await f.delete();
           } catch (_) {}
@@ -451,7 +316,7 @@ class StreamCacheManager {
         totalSize += stat.size;
       }
 
-      if (totalSize <= maxCacheBytes) return;
+      if (totalSize <= maxCacheBytes && fileStats.length <= maxTrackCount) return;
 
       // Sort by last accessed / modified (oldest first)
       final validFiles = fileStats.keys.toList()
@@ -462,9 +327,11 @@ class StreamCacheManager {
         });
 
       for (final f in validFiles) {
-        if (totalSize <= targetEvictionBytes) break;
+        if (totalSize <= targetEvictionBytes && validFiles.length <= maxTrackCount) break;
         final size = fileStats[f]?.size ?? 0;
         try {
+          final vId = p.basenameWithoutExtension(f.path);
+          _cachedVideoIds.remove(vId);
           await f.delete();
           totalSize -= size;
         } catch (_) {}
@@ -508,6 +375,5 @@ class StreamCacheManager {
   static void dispose() {
     _yt?.close();
     _yt = null;
-    StreamProxyService.stop();
   }
 }

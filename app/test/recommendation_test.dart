@@ -87,13 +87,9 @@ void main() {
 
   group('StreamCacheManager', () {
     test('quota constants are bounded and safe', () {
-      expect(StreamCacheManager.maxCacheBytes, equals(500 * 1024 * 1024));
-      expect(StreamCacheManager.targetEvictionBytes, equals(400 * 1024 * 1024));
-      expect(StreamCacheManager.minFreeDiskBytes, equals(1024 * 1024 * 1024));
-    });
-
-    test('isStreamUrlCached returns false for unseen video IDs', () {
-      expect(StreamCacheManager.isStreamUrlCached('unseen_video_123'), isFalse);
+      expect(StreamCacheManager.maxCacheBytes, equals(60 * 1024 * 1024));
+      expect(StreamCacheManager.targetEvictionBytes, equals(40 * 1024 * 1024));
+      expect(StreamCacheManager.maxTrackCount, equals(15));
     });
   });
 }

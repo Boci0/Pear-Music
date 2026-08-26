@@ -13,7 +13,6 @@ import 'identity_service.dart';
 import 'library_service.dart';
 import 'recommendation_service.dart';
 import 'stream_cache_manager.dart';
-import 'youtube_search_service.dart';
 
 /// How the queue advances when a track ends or the user skips.
 enum LoopSetting { off, all, one }
@@ -399,72 +398,26 @@ class PlayerService extends ChangeNotifier {
           artUri: effectiveArtUri,
         );
 
-        // Step 1: Check instant local cache (0 ms)
-        var cachedFile = await StreamCacheManager.getCachedFile(videoId);
+        final cachedFile = await StreamCacheManager.ensureStreamCached(videoId);
         if (token != _playRequestToken) return;
 
-        if (cachedFile == null) {
-          final inFlight = StreamCacheManager.getInFlightDownload(videoId);
-          if (inFlight != null) {
-            try {
-              cachedFile = await inFlight.timeout(const Duration(seconds: 4));
-            } catch (_) {}
-            if (token != _playRequestToken) return;
-          }
-        }
-
-        if (cachedFile != null) {
+        if (cachedFile != null && await cachedFile.exists()) {
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
           _consecutiveStreamFailures = 0;
-          _preloadUpcomingStreams();
         } else {
-          // Step 2: Route through loopback audio proxy
-          final proxyUri = await StreamCacheManager.getStreamProxyUri(videoId);
-          if (token != _playRequestToken) return;
-
-          bool playSuccess = false;
-          if (proxyUri != null) {
-            try {
-              await _player.setAudioSource(
-                AudioSource.uri(proxyUri, tag: mediaTag),
-              );
-              playSuccess = true;
-              _consecutiveStreamFailures = 0;
-              // Pre-cache full audio in background for offline use
-              unawaited(StreamCacheManager.ensureStreamCached(videoId));
-              _preloadUpcomingStreams();
-            } catch (e) {
-              debugPrint('[PlayerService] Stream proxy error for $videoId: $e');
-            }
+          _consecutiveStreamFailures++;
+          debugPrint(
+            '[PlayerService] Stream failed for ${song.title} '
+            '(failure $_consecutiveStreamFailures/3)',
+          );
+          if (_consecutiveStreamFailures >= 3) {
+            debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
+            return;
           }
-
-          if (!playSuccess) {
-            // Step 3: Complete file download fallback
-            final downloaded = await StreamCacheManager.ensureStreamCached(videoId);
-            if (token != _playRequestToken) return;
-
-            if (downloaded != null && await downloaded.exists()) {
-              await _player.setAudioSource(
-                AudioSource.file(downloaded.path, tag: mediaTag),
-              );
-              _consecutiveStreamFailures = 0;
-              _preloadUpcomingStreams();
-            } else {
-              _consecutiveStreamFailures++;
-              debugPrint(
-                '[PlayerService] Stream failed for ${song.title} '
-                '(failure $_consecutiveStreamFailures/3)',
-              );
-              if (_consecutiveStreamFailures >= 3) {
-                debugPrint('[PlayerService] Circuit breaker tripped, halting playback');
-                return;
-              }
-              unawaited(next());
-              return;
-            }
-          }
+          unawaited(next());
+          return;
         }
       } else {
         // Local song: play directly from local file
@@ -496,11 +449,11 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  /// Speculatively pre-resolves stream URLs and pre-caches upcoming tracks to disk.
+  /// Speculatively pre-caches a sliding window of upcoming tracks (+1, +2, +3).
   void _preloadUpcomingStreams() {
     if (_queueIndex < 0 || _queue.isEmpty) return;
     final upcomingVideoIds = <String>[];
-    for (int offset = 1; offset <= 25; offset++) {
+    for (int offset = 1; offset <= 3; offset++) {
       final idx = _queueIndex + offset;
       if (idx < _queue.length) {
         final s = _queue[idx];
@@ -513,21 +466,24 @@ class PlayerService extends ChangeNotifier {
       }
     }
     if (upcomingVideoIds.isNotEmpty) {
-      _isPreloadingUpcoming = true;
-      notifyListeners();
-      unawaited(StreamCacheManager.preloadStreamUrls(upcomingVideoIds));
       final nextTrackId = upcomingVideoIds.first;
-      StreamCacheManager.preloadUpcomingTracks(
+      final isNextAlreadyCached = StreamCacheManager.isStreamCachedSync(nextTrackId);
+      if (!isNextAlreadyCached) {
+        _isPreloadingUpcoming = true;
+        notifyListeners();
+      }
+      StreamCacheManager.preloadSlidingWindow(
         upcomingVideoIds,
         onTrackCached: (vId) {
           if (vId == nextTrackId) {
+            _isPreloadingUpcoming = false;
             notifyListeners();
           }
         },
-      ).whenComplete(() {
-        _isPreloadingUpcoming = false;
-        notifyListeners();
-      });
+      );
+    } else {
+      _isPreloadingUpcoming = false;
+      notifyListeners();
     }
   }
 

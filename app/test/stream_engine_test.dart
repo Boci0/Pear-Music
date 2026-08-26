@@ -1,6 +1,6 @@
 ﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/innertube_player_service.dart';
-import 'package:peerm_app/services/stream_proxy_service.dart';
+import 'package:peerm_app/services/stream_cache_manager.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -26,18 +26,14 @@ void main() {
     });
   });
 
-  group('StreamProxyService Tests', () {
-    tearDownAll(() async {
-      await StreamProxyService.stop();
+  group('StreamCacheManager Tests', () {
+    test('isStreamCachedSync returns false for unseen video IDs', () {
+      expect(StreamCacheManager.isStreamCachedSync('unseen_12345'), isFalse);
     });
 
-    test('getStreamProxyUri generates a valid loopback URI', () async {
-      final uri = await StreamProxyService.getStreamProxyUri('dQw4w9WgXcQ');
-      expect(uri, isNotNull);
-      expect(uri!.scheme, 'http');
-      expect(uri.host, '127.0.0.1');
-      expect(uri.path, '/stream/dQw4w9WgXcQ');
-      expect(uri.port, isPositive);
+    test('cache quota constraints are bounded', () {
+      expect(StreamCacheManager.maxCacheBytes, equals(60 * 1024 * 1024));
+      expect(StreamCacheManager.maxTrackCount, equals(15));
     });
   });
 }
