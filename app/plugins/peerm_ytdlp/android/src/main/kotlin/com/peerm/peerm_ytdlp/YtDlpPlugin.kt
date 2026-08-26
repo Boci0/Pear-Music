@@ -93,6 +93,16 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 }
                 startDownload(ctx, url, outputDir, processId, outputTemplate, result)
             }
+            "downloadAudioFast" -> {
+                val url = call.argument<String>("url")
+                val outputPath = call.argument<String>("outputPath")
+                val processId = call.argument<String>("processId")
+                if (url == null || outputPath == null || processId == null) {
+                    result.error("bad_args", "url/outputPath/processId required", null)
+                    return
+                }
+                startAudioFastDownload(ctx, url, outputPath, processId, result)
+            }
             "getStreamUrl" -> {
                 val url = call.argument<String>("url")
                 if (url == null) {
@@ -467,6 +477,61 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 sendEvent(mapOf("done" to true))
                 mainHandler.post {
                     result.success(mapOf("ok" to true, "exitCode" to response.exitCode))
+                }
+            } catch (e: Exception) {
+                mainHandler.post { result.error("download_failed", e.message, null) }
+            } finally {
+                executors.remove(processId)?.shutdown()
+            }
+        }
+    }
+
+    private fun startAudioFastDownload(
+        ctx: Context,
+        url: String,
+        outputPath: String,
+        processId: String,
+        result: MethodChannel.Result,
+    ) {
+        val executor = Executors.newSingleThreadExecutor()
+        executors[processId] = executor
+        executor.execute {
+            try {
+                ensureInit(ctx)
+                fun makeAudioReq(useExtractorArgs: Boolean): YoutubeDLRequest {
+                    val req = YoutubeDLRequest(url)
+                    req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/ba/best")
+                    req.addOption("-o", outputPath)
+                    req.addOption("--no-playlist")
+                    req.addOption("--no-part")
+                    req.addOption("--no-mtime")
+                    req.addOption("--no-warnings")
+                    req.addOption("--force-ipv4")
+                    req.addOption("--no-check-certificates")
+                    req.addOption("--concurrent-fragments", "4")
+                    req.addOption("--buffer-size", "16k")
+                    if (useExtractorArgs) {
+                        req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
+                    }
+                    return req
+                }
+
+                val response = try {
+                    YoutubeDL.getInstance().execute(makeAudioReq(true), processId)
+                } catch (firstErr: Exception) {
+                    android.util.Log.w(TAG, "Fast audio download attempt 1 failed: ${firstErr.message}, trying without extra args...")
+                    YoutubeDL.getInstance().execute(makeAudioReq(false), processId)
+                }
+
+                val outFile = File(outputPath)
+                if (outFile.exists() && outFile.length() > 50000) {
+                    mainHandler.post {
+                        result.success(mapOf("ok" to true, "path" to outputPath, "size" to outFile.length()))
+                    }
+                } else {
+                    mainHandler.post {
+                        result.error("file_missing", "Downloaded audio file missing or empty", null)
+                    }
                 }
             } catch (e: Exception) {
                 mainHandler.post { result.error("download_failed", e.message, null) }

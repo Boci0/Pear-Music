@@ -58,13 +58,24 @@ class PlayerTransport extends StatelessWidget {
             ),
             IconButton(
               iconSize: 72,
-              icon: Icon(
-                player.playing
-                    ? Icons.pause_circle_filled
-                    : Icons.play_circle_filled,
-                color: scheme.primary,
-              ),
-              onPressed: () => controller.togglePlayback(),
+              icon: player.isLoadingTrack
+                  ? SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3.5,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(scheme.primary),
+                      ),
+                    )
+                  : Icon(
+                      player.playing
+                          ? Icons.pause_circle_filled
+                          : Icons.play_circle_filled,
+                      color: scheme.primary,
+                    ),
+              onPressed:
+                  player.isLoadingTrack ? null : () => controller.togglePlayback(),
             ),
             IconButton(
               iconSize: 44,

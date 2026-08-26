@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
 import 'innertube_player_service.dart';
@@ -13,15 +12,13 @@ import 'library_service.dart';
 import 'youtube_service.dart';
 
 /// High-speed ephemeral radio cache manager.
-/// Streams audio directly into local disk files in < 1.5 seconds.
+/// Streams audio directly into local disk files using optimized audio-only extractors.
 class StreamCacheManager {
   static const int maxCacheBytes = 60 * 1024 * 1024; // 60 MB cap (~18-20 songs)
   static const int targetEvictionBytes = 40 * 1024 * 1024; // prune to 40 MB
   static const int maxTrackCount = 15;
 
   static Directory? _cacheDir;
-  static YoutubeExplode? _yt;
-  static YoutubeExplode get _client => _yt ??= YoutubeExplode();
 
   /// Gets or creates the radio stream cache directory in temporary storage.
   static Future<Directory> getCacheDirectory() async {
@@ -92,7 +89,7 @@ class StreamCacheManager {
   }
 
   /// Ensures the audio stream for [videoId] is downloaded into the local cache.
-  /// Uses direct high-speed HTTP chunk streaming (~1.2s download time).
+  /// Uses optimized audio-only extraction (~1.5-2.5s download time).
   static Future<File?> ensureStreamCached(String videoId) async {
     final existing = await getCachedFile(videoId);
     if (existing != null) return existing;
@@ -107,43 +104,74 @@ class StreamCacheManager {
 
     try {
       final dir = await getCacheDirectory();
+      final targetFile = File(p.join(dir.path, '$videoId.m4a'));
+      final tempPart = File(p.join(dir.path, '$videoId.part.m4a'));
 
-      // Method 1: YoutubeExplode fast direct audio stream pipe (~1s)
-      try {
-        final manifest = await _client.videos.streamsClient
-            .getManifest(videoId)
-            .timeout(const Duration(seconds: 5));
-        final audioStreams = manifest.audioOnly;
-        if (audioStreams.isNotEmpty) {
-          final mp4s = audioStreams
-              .where((s) => s.container.name.toLowerCase() == 'mp4')
-              .toList();
-          final audio = mp4s.isNotEmpty
-              ? mp4s.withHighestBitrate()
-              : audioStreams.withHighestBitrate();
-          final ext = audio.container.name.toLowerCase() == 'webm' ? 'webm' : 'm4a';
-          final targetFile = File(p.join(dir.path, '$videoId.$ext'));
-          final partFile = File(p.join(dir.path, '$videoId.part.$ext'));
+      if (await tempPart.exists()) {
+        try {
+          await tempPart.delete();
+        } catch (_) {}
+      }
 
-          if (await partFile.exists()) {
-            try {
-              await partFile.delete();
-            } catch (_) {}
-          }
+      // Method 1: Android native embedded yt-dlp fast audio download (~2s)
+      if (YoutubeService.isEmbeddedYtDlpSupported) {
+        try {
+          const channel = MethodChannel('peerm/ytdlp');
+          final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
+          final res = await channel.invokeMethod('downloadAudioFast', {
+            'url': 'https://www.youtube.com/watch?v=$videoId',
+            'outputPath': tempPart.path,
+            'processId': processId,
+          }).timeout(const Duration(seconds: 10));
 
-          final stream = _client.videos.streamsClient.get(audio);
-          final sink = partFile.openWrite();
-          await stream.pipe(sink);
-          await sink.flush();
-          await sink.close();
-
-          if (await partFile.exists() && (await partFile.length()) > 50000) {
+          if (await tempPart.exists() && (await tempPart.length()) > 50000) {
             if (await targetFile.exists()) {
               try {
                 await targetFile.delete();
               } catch (_) {}
             }
-            await partFile.rename(targetFile.path);
+            await tempPart.rename(targetFile.path);
+            _cachedVideoIds.add(videoId);
+            unawaited(enforceCacheQuota());
+            completer.complete(targetFile);
+            return targetFile;
+          }
+        } catch (e) {
+          debugPrint('[StreamCacheManager] Android downloadAudioFast failed for $videoId: $e');
+        }
+      }
+
+      // Method 2: Desktop local yt-dlp fast audio download (~1.5s)
+      try {
+        final bin = await YoutubeService.ytDlpPath();
+        if (bin != null) {
+          final res = await Process.run(bin, [
+            '-f',
+            'bestaudio[ext=m4a]/bestaudio/ba/best',
+            '-o',
+            tempPart.path,
+            '--no-playlist',
+            '--no-part',
+            '--no-mtime',
+            '--no-warnings',
+            '--no-check-certificates',
+            '--force-ipv4',
+            '--concurrent-fragments',
+            '4',
+            '--buffer-size',
+            '16k',
+            '--extractor-args',
+            'youtube:player_client=android,web,mweb',
+            'https://www.youtube.com/watch?v=$videoId',
+          ]).timeout(const Duration(seconds: 10));
+
+          if (res.exitCode == 0 && await tempPart.exists() && (await tempPart.length()) > 50000) {
+            if (await targetFile.exists()) {
+              try {
+                await targetFile.delete();
+              } catch (_) {}
+            }
+            await tempPart.rename(targetFile.path);
             _cachedVideoIds.add(videoId);
             unawaited(enforceCacheQuota());
             completer.complete(targetFile);
@@ -151,22 +179,13 @@ class StreamCacheManager {
           }
         }
       } catch (e) {
-        debugPrint('[StreamCacheManager] YoutubeExplode stream pipe failed for $videoId: $e');
+        debugPrint('[StreamCacheManager] Desktop yt-dlp fast audio failed for $videoId: $e');
       }
 
-      // Method 2: Innertube Player Service fast direct HTTP pipe (~1s)
+      // Method 3: Innertube direct HTTP stream pipe fallback
       try {
         final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
         if (streamInfo != null && streamInfo.url.startsWith('http')) {
-          final ext = streamInfo.container;
-          final target = File(p.join(dir.path, '$videoId.$ext'));
-          final tempFile = File(p.join(dir.path, '$videoId.tmp.$ext'));
-          if (await tempFile.exists()) {
-            try {
-              await tempFile.delete();
-            } catch (_) {}
-          }
-
           final client = HttpClient()
             ..connectionTimeout = const Duration(seconds: 4)
             ..idleTimeout = const Duration(seconds: 8);
@@ -179,123 +198,24 @@ class StreamCacheManager {
           final resp = await req.close().timeout(const Duration(seconds: 8));
 
           if (resp.statusCode == 200 || resp.statusCode == 206) {
-            final sink = tempFile.openWrite();
+            final sink = tempPart.openWrite();
             await resp.pipe(sink);
-            if (await tempFile.exists() && (await tempFile.length()) > 50000) {
-              if (await target.exists()) {
+            if (await tempPart.exists() && (await tempPart.length()) > 50000) {
+              if (await targetFile.exists()) {
                 try {
-                  await target.delete();
+                  await targetFile.delete();
                 } catch (_) {}
               }
-              await tempFile.rename(target.path);
+              await tempPart.rename(targetFile.path);
               _cachedVideoIds.add(videoId);
               unawaited(enforceCacheQuota());
-              completer.complete(target);
-              return target;
+              completer.complete(targetFile);
+              return targetFile;
             }
           }
         }
       } catch (e) {
-        debugPrint('[StreamCacheManager] Innertube HTTP pipe failed for $videoId: $e');
-      }
-
-      // Method 3: Android yt-dlp fast getStreamUrl extraction -> HTTP pipe (~2s)
-      if (YoutubeService.isEmbeddedYtDlpSupported) {
-        try {
-          const channel = MethodChannel('peerm/ytdlp');
-          final rawUrl = await channel.invokeMethod<String>('getStreamUrl', {
-            'url': 'https://www.youtube.com/watch?v=$videoId',
-          }).timeout(const Duration(seconds: 6));
-
-          if (rawUrl != null && rawUrl.startsWith('http')) {
-            final target = File(p.join(dir.path, '$videoId.m4a'));
-            final tempFile = File(p.join(dir.path, '$videoId.tmp.m4a'));
-            if (await tempFile.exists()) {
-              try {
-                await tempFile.delete();
-              } catch (_) {}
-            }
-
-            final client = HttpClient()
-              ..connectionTimeout = const Duration(seconds: 4)
-              ..idleTimeout = const Duration(seconds: 8);
-            final req = await client.getUrl(Uri.parse(rawUrl));
-            final resp = await req.close().timeout(const Duration(seconds: 8));
-
-            if (resp.statusCode == 200 || resp.statusCode == 206) {
-              final sink = tempFile.openWrite();
-              await resp.pipe(sink);
-              if (await tempFile.exists() && (await tempFile.length()) > 50000) {
-                if (await target.exists()) {
-                  try {
-                    await target.delete();
-                  } catch (_) {}
-                }
-                await tempFile.rename(target.path);
-                _cachedVideoIds.add(videoId);
-                unawaited(enforceCacheQuota());
-                completer.complete(target);
-                return target;
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('[StreamCacheManager] Android getStreamUrl pipe failed: $e');
-        }
-      }
-
-      // Method 4: Desktop yt-dlp direct stream URL extraction -> HTTP pipe
-      try {
-        final bin = await YoutubeService.ytDlpPath();
-        if (bin != null) {
-          final res = await Process.run(bin, [
-            '-g',
-            '-f',
-            'bestaudio[ext=m4a]/bestaudio/best',
-            '--no-playlist',
-            '--no-warnings',
-            '--no-check-certificates',
-            'https://www.youtube.com/watch?v=$videoId',
-          ]).timeout(const Duration(seconds: 6));
-
-          if (res.exitCode == 0) {
-            final rawUrl = res.stdout.toString().trim().split(RegExp(r'[\r\n]+')).first;
-            if (rawUrl.startsWith('http')) {
-              final target = File(p.join(dir.path, '$videoId.m4a'));
-              final tempFile = File(p.join(dir.path, '$videoId.tmp.m4a'));
-              if (await tempFile.exists()) {
-                try {
-                  await tempFile.delete();
-                } catch (_) {}
-              }
-
-              final client = HttpClient()
-                ..connectionTimeout = const Duration(seconds: 4)
-                ..idleTimeout = const Duration(seconds: 8);
-              final req = await client.getUrl(Uri.parse(rawUrl));
-              final resp = await req.close().timeout(const Duration(seconds: 8));
-
-              if (resp.statusCode == 200 || resp.statusCode == 206) {
-                final sink = tempFile.openWrite();
-                await resp.pipe(sink);
-                if (await tempFile.exists() && (await tempFile.length()) > 50000) {
-                  if (await target.exists()) {
-                    try {
-                      await target.delete();
-                    } catch (_) {}
-                  }
-                  await tempFile.rename(target.path);
-                  _cachedVideoIds.add(videoId);
-                  unawaited(enforceCacheQuota());
-                  completer.complete(target);
-                  return target;
-                }
-              }
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('[StreamCacheManager] Desktop yt-dlp stream extraction failed: $e');
+        debugPrint('[StreamCacheManager] Innertube fallback failed for $videoId: $e');
       }
     } catch (e) {
       debugPrint('[StreamCacheManager] ensureStreamCached error for $videoId: $e');
@@ -392,8 +312,5 @@ class StreamCacheManager {
   }
 
   /// Clean up resources on shutdown.
-  static void dispose() {
-    _yt?.close();
-    _yt = null;
-  }
+  static void dispose() {}
 }

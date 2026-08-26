@@ -48,6 +48,7 @@ class PlayerService extends ChangeNotifier {
   bool _isLoadingRecommendations = false;
   DateTime _lastInteraction = DateTime.now();
   bool _isAdvancing = false;
+  bool _isLoadingTrack = false;
   int _consecutiveStreamFailures = 0;
   bool _isPreloadingUpcoming = false;
 
@@ -74,6 +75,7 @@ class PlayerService extends ChangeNotifier {
   double get volume => _player.volume;
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
+  bool get isLoadingTrack => _isLoadingTrack;
 
   bool get isPreloadingUpcoming => _isPreloadingUpcoming || _isLoadingRecommendations;
 
@@ -342,6 +344,7 @@ class PlayerService extends ChangeNotifier {
     RecommendationService.markPlayed(song.id);
     final token = ++_playRequestToken;
     _isAdvancing = true;
+    _isLoadingTrack = true;
 
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
@@ -365,6 +368,14 @@ class PlayerService extends ChangeNotifier {
     currentSong = song;
     notifyListeners();
 
+    // STOP previous audio immediately so there is zero bleed
+    try {
+      if (_player.playing) {
+        await _player.stop();
+      }
+    } catch (_) {}
+    if (token != _playRequestToken) return;
+
     // Speculatively pre-resolve and cache upcoming queue streams
     _preloadUpcomingStreams();
 
@@ -373,15 +384,10 @@ class PlayerService extends ChangeNotifier {
       unawaited(fetchAndAppendRecommendations());
     }
 
-    // The library's files have no embedded cover art, so use the generated
-    // default artwork. Without artUri the media notification renders the app
-    // launcher icon as a big placeholder instead of a proper album thumbnail.
     final artUri = await ArtworkService.defaultArtworkUri();
     if (token != _playRequestToken) return;
 
     try {
-      // Load a SINGLE source (not the whole playlist) so advancing works on
-      // every backend; our Dart queue drives next/previous/loop/shuffle.
       await _player.setLoopMode(LoopMode.off);
       if (token != _playRequestToken) return;
 
@@ -397,11 +403,6 @@ class PlayerService extends ChangeNotifier {
           album: 'Pear Radio',
           artUri: effectiveArtUri,
         );
-
-        final isAlreadyCached = StreamCacheManager.isStreamCachedSync(videoId);
-        if (!isAlreadyCached && _player.playing) {
-          await _player.pause();
-        }
 
         final cachedFile = await StreamCacheManager.ensureStreamCached(videoId);
         if (token != _playRequestToken) return;
@@ -442,6 +443,7 @@ class PlayerService extends ChangeNotifier {
       }
 
       if (token != _playRequestToken) return;
+      _isLoadingTrack = false;
       await _player.play();
       _preloadUpcomingStreams();
     } catch (e) {
@@ -450,6 +452,7 @@ class PlayerService extends ChangeNotifier {
       unawaited(next());
     } finally {
       _isAdvancing = false;
+      _isLoadingTrack = false;
       notifyListeners();
     }
   }
