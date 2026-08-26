@@ -34,80 +34,63 @@ class PlayerBar extends StatelessWidget {
 
     return Material(
       color: barColor,
-      child: Stack(
-        children: [
-          InkWell(
-            onTap: () => Navigator.of(context).push(
-              PageRouteBuilder(
-                transitionDuration: const Duration(milliseconds: 150),
-                reverseTransitionDuration: const Duration(milliseconds: 150),
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    const PlayerScreen(),
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) =>
-                        FadeTransition(opacity: animation, child: child),
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Row(
-                children: [
-                  _Thumb(song: song),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        Text(
-                          'Playing on this device',
-                          style: theme.textTheme.labelSmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.skip_previous, color: control),
-                    onPressed: () => controller.previousTrack(),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      player.playing
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_filled,
-                      size: 36,
-                      color: control,
-                    ),
-                    onPressed: () => controller.togglePlayback(),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.skip_next, color: control),
-                    onPressed: () => controller.nextTrack(),
-                  ),
-                ],
-              ),
-            ),
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 150),
+            reverseTransitionDuration: const Duration(milliseconds: 150),
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const PlayerScreen(),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) =>
+                    FadeTransition(opacity: animation, child: child),
           ),
-          if (player.isPreloadingUpcoming)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: LinearProgressIndicator(
-                minHeight: 2,
-                backgroundColor: Colors.transparent,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  control.withValues(alpha: 0.7),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              _Thumb(song: song),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    Text(
+                      'Playing on this device',
+                      style: theme.textTheme.labelSmall,
+                    ),
+                  ],
                 ),
               ),
-            ),
-        ],
+              IconButton(
+                icon: Icon(Icons.skip_previous, color: control),
+                onPressed: () => controller.previousTrack(),
+              ),
+              IconButton(
+                icon: Icon(
+                  player.playing
+                      ? Icons.pause_circle_filled
+                      : Icons.play_circle_filled,
+                  size: 36,
+                  color: control,
+                ),
+                onPressed: () => controller.togglePlayback(),
+              ),
+              IconButton(
+                icon: Icon(Icons.skip_next, color: control),
+                onPressed: () => controller.nextTrack(),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

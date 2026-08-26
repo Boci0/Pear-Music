@@ -78,8 +78,10 @@ class PlayerService extends ChangeNotifier {
 
   bool get isPreloadingUpcoming => _isPreloadingUpcoming || _isLoadingRecommendations;
 
+  bool get hasNextTrack => _queueIndex >= 0 && _queueIndex + 1 < _queue.length;
+
   bool get isNextTrackReady {
-    if (_queueIndex < 0 || _queueIndex + 1 >= _queue.length) return false;
+    if (!hasNextTrack) return true;
     final nextSong = _queue[_queueIndex + 1];
     if (nextSong.sourceDeviceId != 'stream') return true;
     final videoId = nextSong.id.replaceFirst('stream_', '');
@@ -342,14 +344,6 @@ class PlayerService extends ChangeNotifier {
     final token = ++_playRequestToken;
     _isAdvancing = true;
 
-    // Immediately pause previous player playback to reset any ProcessingState.completed
-    // and eliminate re-entrant skip storms while buffering the new track.
-    try {
-      if (_player.playing) {
-        await _player.pause();
-      }
-    } catch (_) {}
-
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
     // play shows the notification; the prompt does not delay playback.
@@ -497,9 +491,7 @@ class PlayerService extends ChangeNotifier {
       if (token != _playRequestToken) return;
       unawaited(next());
     } finally {
-      if (token == _playRequestToken) {
-        _isAdvancing = false;
-      }
+      _isAdvancing = false;
       notifyListeners();
     }
   }
@@ -524,9 +516,14 @@ class PlayerService extends ChangeNotifier {
       _isPreloadingUpcoming = true;
       notifyListeners();
       unawaited(StreamCacheManager.preloadStreamUrls(upcomingVideoIds));
+      final nextTrackId = upcomingVideoIds.first;
       StreamCacheManager.preloadUpcomingTracks(
         upcomingVideoIds,
-        onTrackCached: (_) => notifyListeners(),
+        onTrackCached: (vId) {
+          if (vId == nextTrackId) {
+            notifyListeners();
+          }
+        },
       ).whenComplete(() {
         _isPreloadingUpcoming = false;
         notifyListeners();

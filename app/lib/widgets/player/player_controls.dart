@@ -143,14 +143,25 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  Text(
-                    _fmt(Duration(milliseconds: clampedValue.round())),
-                    style: Theme.of(context).textTheme.labelSmall,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _fmt(Duration(milliseconds: clampedValue.round())),
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      Text(
+                        _fmt(widget.duration),
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
                   ),
-                  if (widget.player.isPreloadingUpcoming)
+                  if (!widget.player.isNextTrackReady &&
+                      widget.player.hasNextTrack &&
+                      widget.player.isPreloadingUpcoming)
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -174,10 +185,6 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                         ),
                       ],
                     ),
-                  Text(
-                    _fmt(widget.duration),
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
                 ],
               ),
             ),
