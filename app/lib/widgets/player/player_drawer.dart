@@ -215,6 +215,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
               ),
               subtitle: isStream
                   ? Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -234,18 +235,22 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         ),
                         if (StreamCacheManager.isStreamCachedSync(
                             song.id.replaceFirst('stream_', ''))) ...[
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 5),
                           Icon(
                             Icons.check_circle_outline_rounded,
-                            size: 12,
+                            size: 11,
                             color: scheme.primary,
                           ),
-                          const SizedBox(width: 3),
-                          Text(
-                            'Buffered',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: scheme.primary,
+                          const SizedBox(width: 2),
+                          Flexible(
+                            child: Text(
+                              'Buffered',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: scheme.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -257,7 +262,11 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                 children: [
                   if (isStream)
                     IconButton(
-                      icon: const Icon(Icons.download_rounded, size: 20),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 30, minHeight: 30),
+                      icon: const Icon(Icons.download_rounded, size: 18),
                       tooltip: 'Save to library',
                       onPressed: () {
                         final appCtrl = context.read<AppController>();
@@ -265,6 +274,10 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                       },
                     ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     icon: const Icon(Icons.close_rounded, size: 18),
                     tooltip: 'Remove from queue',
                     onPressed: () => controller.removeFromQueue(i),
@@ -272,7 +285,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   ReorderableDragStartListener(
                     index: i,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.only(left: 4, right: 2),
                       child: Icon(
                         Icons.drag_handle_rounded,
                         size: 20,

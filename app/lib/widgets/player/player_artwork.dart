@@ -26,25 +26,20 @@ class PlayerArtwork extends StatelessWidget {
     final radius = BorderRadius.circular(16);
     final shadowColor = (accent ?? scheme.primary).withValues(alpha: 0.35);
 
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: [
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 36,
-            spreadRadius: 2,
-            offset: const Offset(0, 14),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    return RepaintBoundary(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          boxShadow: [
+            BoxShadow(
+              color: shadowColor,
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
       child: ClipRRect(
         borderRadius: radius,
         child: networkUrl != null && networkUrl!.isNotEmpty
@@ -65,6 +60,7 @@ class PlayerArtwork extends StatelessWidget {
                     gaplessPlayback: true,
                   )
                 : _placeholder(scheme),
+        ),
       ),
     );
   }
