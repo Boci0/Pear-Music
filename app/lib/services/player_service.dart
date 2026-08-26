@@ -398,6 +398,11 @@ class PlayerService extends ChangeNotifier {
           artUri: effectiveArtUri,
         );
 
+        final isAlreadyCached = StreamCacheManager.isStreamCachedSync(videoId);
+        if (!isAlreadyCached && _player.playing) {
+          await _player.pause();
+        }
+
         final cachedFile = await StreamCacheManager.ensureStreamCached(videoId);
         if (token != _playRequestToken) return;
 
