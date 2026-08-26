@@ -1,36 +1,66 @@
 # -----------------------------------------------
-# Compiled release artifacts - upload to GitHub
-# Releases instead of committing to source control
+# Secrets, credentials & environment files
+# -----------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+*.p12
+*.pfx
+key.properties
+local.properties
+google-services.json
+GoogleService-Info.plist
+*.credentials
+credentials.json
+state.json
+
+# -----------------------------------------------
+# Compiled release artifacts
 # -----------------------------------------------
 dist/
 release/
 release_assets/
 *.zip
 *.apk
+*.aab
 *.exe
+*.msi
+*.dmg
+*.tar.gz
 
 # -----------------------------------------------
-# Flutter / Dart
+# Flutter / Dart / Gradle
 # -----------------------------------------------
-app/.dart_tool/
-app/.flutter-plugins
-app/.flutter-plugins-dependencies
-app/.packages
-app/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+.gradle/
+**/.gradle/
 app/pubspec.lock
 app/windows/flutter/generated_*
 
 # -----------------------------------------------
 # Node.js (signaling server)
 # -----------------------------------------------
-server/node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # -----------------------------------------------
-# OS / editor noise
+# OS / editor / logs
 # -----------------------------------------------
 .DS_Store
 Thumbs.db
 *.swp
+*.log
 .idea/
 .vscode/
 tool/Output/
+

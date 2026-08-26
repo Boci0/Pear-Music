@@ -489,6 +489,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     val req = YoutubeDLRequest(url)
                     req.addOption("-g")
                     req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                    req.addOption("--no-playlist")
                     req.addOption("--no-warnings")
                     req.addOption("--no-check-certificates")
                     req.addOption("--force-ipv4")

@@ -36,7 +36,7 @@ class StreamCacheManager {
     return dir;
   }
 
-  static final Map<String, String> _streamUrlCache = {};
+  static final Map<String, ({String url, DateTime expiresAt})> _streamUrlCache = {};
 
   /// Quick cache-only check: returns the cached file if it exists, null otherwise.
   /// Does NOT trigger any network requests or downloads.
@@ -51,34 +51,47 @@ class StreamCacheManager {
     return null;
   }
 
+  /// Checks whether a valid (unexpired) stream URL is already in the memory cache.
+  static bool isStreamUrlCached(String videoId) {
+    final entry = _streamUrlCache[videoId];
+    if (entry == null) return false;
+    if (DateTime.now().isAfter(entry.expiresAt)) {
+      _streamUrlCache.remove(videoId);
+      return false;
+    }
+    return true;
+  }
+
+  /// Pre-resolves stream URLs for upcoming tracks in the background to ensure
+  /// zero-delay skipping.
+  static Future<void> preloadStreamUrls(List<String> videoIds) async {
+    for (final id in videoIds) {
+      if (id.isEmpty) continue;
+      final cached = await getCachedFile(id);
+      if (cached != null) continue;
+      if (isStreamUrlCached(id)) continue;
+      // Pre-resolve asynchronously without blocking
+      unawaited(resolveStreamUri(id));
+    }
+  }
+
   /// Resolves the best audio-only stream URI for a given [videoId].
-  /// On Android, uses the embedded yt-dlp engine first (immune to rate limits).
+  /// Uses ultra-fast direct manifest extraction first (~200-500ms), falling back
+  /// to platform yt-dlp engines if needed.
   static Future<Uri?> resolveStreamUri(String videoId) async {
-    if (_streamUrlCache.containsKey(videoId)) {
-      return Uri.tryParse(_streamUrlCache[videoId]!);
-    }
-
-    // Attempt 1 (Android): Embedded yt-dlp URL resolution via method channel (~3-5s)
-    if (YoutubeService.isEmbeddedYtDlpSupported) {
-      try {
-        const channel = MethodChannel('peerm/ytdlp');
-        final url = await channel.invokeMethod<String>('getStreamUrl', {
-          'url': 'https://www.youtube.com/watch?v=$videoId',
-        }).timeout(const Duration(seconds: 12));
-        if (url != null && url.startsWith('http')) {
-          _streamUrlCache[videoId] = url;
-          return Uri.parse(url);
-        }
-      } catch (e) {
-        debugPrint('[StreamCacheManager] embedded yt-dlp URL resolve failed: $e');
+    final cachedEntry = _streamUrlCache[videoId];
+    if (cachedEntry != null) {
+      if (DateTime.now().isBefore(cachedEntry.expiresAt)) {
+        return Uri.tryParse(cachedEntry.url);
       }
+      _streamUrlCache.remove(videoId);
     }
 
-    // Attempt 2: youtube_explode resolution (prefer MP4/AAC for ExoPlayer)
+    // Attempt 1: Fast direct stream extraction via youtube_explode (~200-500ms)
     try {
       final manifest = await _client.videos.streamsClient
           .getManifest(videoId)
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 4));
       final mp4s = manifest.audioOnly
           .where((s) => s.container.name.toLowerCase() == 'mp4')
           .toList();
@@ -86,13 +99,35 @@ class StreamCacheManager {
           ? mp4s.withHighestBitrate()
           : manifest.audioOnly.withHighestBitrate();
       final urlStr = audioOnly.url.toString();
-      _streamUrlCache[videoId] = urlStr;
+      _streamUrlCache[videoId] = (
+        url: urlStr,
+        expiresAt: DateTime.now().add(const Duration(hours: 2)),
+      );
       return audioOnly.url;
     } catch (e) {
-      debugPrint('[StreamCacheManager] youtube_explode failed: $e');
+      debugPrint('[StreamCacheManager] Fast direct stream extraction failed for $videoId: $e');
     }
 
-    // Attempt 3: Desktop yt-dlp -g fallback
+    // Attempt 2 (Android): Embedded yt-dlp URL resolution via method channel fallback
+    if (YoutubeService.isEmbeddedYtDlpSupported) {
+      try {
+        const channel = MethodChannel('peerm/ytdlp');
+        final url = await channel.invokeMethod<String>('getStreamUrl', {
+          'url': 'https://www.youtube.com/watch?v=$videoId',
+        }).timeout(const Duration(seconds: 10));
+        if (url != null && url.startsWith('http')) {
+          _streamUrlCache[videoId] = (
+            url: url,
+            expiresAt: DateTime.now().add(const Duration(hours: 2)),
+          );
+          return Uri.parse(url);
+        }
+      } catch (e) {
+        debugPrint('[StreamCacheManager] Embedded yt-dlp URL resolve failed: $e');
+      }
+    }
+
+    // Attempt 3 (Desktop): Desktop yt-dlp -g fallback
     try {
       final bin = await YoutubeService.ytDlpPath();
       if (bin != null) {
@@ -100,12 +135,17 @@ class StreamCacheManager {
           '-g',
           '-f',
           'bestaudio/best',
+          '--no-playlist',
+          '--no-warnings',
           'https://www.youtube.com/watch?v=$videoId',
-        ]).timeout(const Duration(seconds: 6));
+        ]).timeout(const Duration(seconds: 8));
         if (res.exitCode == 0) {
-          final line = res.stdout.toString().trim().split(RegExp(r'\\r?\n')).first;
+          final line = res.stdout.toString().trim().split(RegExp(r'[\r\n]+')).first;
           if (line.startsWith('http')) {
-            _streamUrlCache[videoId] = line;
+            _streamUrlCache[videoId] = (
+              url: line,
+              expiresAt: DateTime.now().add(const Duration(hours: 2)),
+            );
             return Uri.parse(line);
           }
         }

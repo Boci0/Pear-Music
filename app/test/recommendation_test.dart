@@ -70,6 +70,19 @@ void main() {
       expect(recs, isNotEmpty);
       expect(recs.first.title, contains('Queen'));
     });
+
+    test('resolveSeedVideoId extracts ID from song id or fileName directly', () async {
+      final directSong = Song(
+        id: 'stream_abc12345678',
+        title: 'Test Song',
+        fileName: 'Test Song [abc12345678].m4a',
+        size: 1000,
+        checksum: 'stream_abc12345678',
+        addedAt: DateTime.now(),
+      );
+      final id = await RecommendationService.resolveSeedVideoId(directSong);
+      expect(id, equals('abc12345678'));
+    });
   });
 
   group('StreamCacheManager', () {
@@ -77,6 +90,10 @@ void main() {
       expect(StreamCacheManager.maxCacheBytes, equals(500 * 1024 * 1024));
       expect(StreamCacheManager.targetEvictionBytes, equals(400 * 1024 * 1024));
       expect(StreamCacheManager.minFreeDiskBytes, equals(1024 * 1024 * 1024));
+    });
+
+    test('isStreamUrlCached returns false for unseen video IDs', () {
+      expect(StreamCacheManager.isStreamUrlCached('unseen_video_123'), isFalse);
     });
   });
 }

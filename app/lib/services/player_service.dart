@@ -360,18 +360,8 @@ class PlayerService extends ChangeNotifier {
     currentSong = song;
     notifyListeners();
 
-    // Pre-cache the next 2 upcoming queued stream tracks in background
-    if (_queueIndex >= 0) {
-      for (int offset = 1; offset <= 2; offset++) {
-        if (_queueIndex + offset < _queue.length) {
-          final nextSong = _queue[_queueIndex + offset];
-          if (nextSong.sourceDeviceId == 'stream') {
-            final nextVideoId = nextSong.id.replaceFirst('stream_', '');
-            unawaited(StreamCacheManager.ensureStreamCached(nextVideoId));
-          }
-        }
-      }
-    }
+    // Speculatively pre-resolve and cache upcoming queue streams
+    _preloadUpcomingStreams();
 
     // Trigger pre-fetch if we are within 3 songs of the queue end and autoplay is on
     if (_autoplay && _queueIndex >= _queue.length - 3 && !_isLoadingRecommendations) {
@@ -489,6 +479,29 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
+  /// Speculatively pre-resolves stream URLs and pre-caches the nearest track.
+  void _preloadUpcomingStreams() {
+    if (_queueIndex < 0 || _queue.isEmpty) return;
+    final upcomingVideoIds = <String>[];
+    for (int offset = 1; offset <= 3; offset++) {
+      final idx = _queueIndex + offset;
+      if (idx < _queue.length) {
+        final s = _queue[idx];
+        if (s.sourceDeviceId == 'stream') {
+          final vId = s.id.replaceFirst('stream_', '');
+          if (vId.isNotEmpty) {
+            upcomingVideoIds.add(vId);
+          }
+        }
+      }
+    }
+    if (upcomingVideoIds.isNotEmpty) {
+      unawaited(StreamCacheManager.preloadStreamUrls(upcomingVideoIds));
+      // Pre-cache nearest upcoming stream audio file in background
+      unawaited(StreamCacheManager.ensureStreamCached(upcomingVideoIds.first));
+    }
+  }
+
   /// Updates the current queue without restarting playback. Adjusts the active
   /// index to keep tracking [currentSong] in the updated list.
   void updateQueue(
@@ -514,6 +527,7 @@ class PlayerService extends ChangeNotifier {
     } else {
       _queueIndex = -1;
     }
+    _preloadUpcomingStreams();
     notifyListeners();
   }
 
@@ -570,7 +584,11 @@ class PlayerService extends ChangeNotifier {
       if (_autoplay && currentSong != null) {
         final appended = await fetchAndAppendRecommendations();
         if (appended && _queueIndex + 1 < _queue.length) {
-          await playSong(_queue[_queueIndex + 1], queue: _queue);
+          final target = _queue[_queueIndex + 1];
+          _queueIndex = _queueIndex + 1;
+          currentSong = target;
+          notifyListeners();
+          await playSong(target, queue: _queue);
           return;
         }
       }
@@ -581,7 +599,13 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await playSong(_queue[nextIndex], queue: _queue);
+    // Optimistically update UI immediately to eliminate skip perceived delay
+    final nextTrack = _queue[nextIndex];
+    _queueIndex = nextIndex;
+    currentSong = nextTrack;
+    notifyListeners();
+
+    await playSong(nextTrack, queue: _queue);
   }
 
   Future<void> previous() async {
@@ -602,7 +626,13 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await playSong(_queue[prev], queue: _queue);
+    // Optimistically update UI immediately
+    final prevTrack = _queue[prev];
+    _queueIndex = prev;
+    currentSong = prevTrack;
+    notifyListeners();
+
+    await playSong(prevTrack, queue: _queue);
   }
 
   Future<void> toggleLoop() {
