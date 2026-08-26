@@ -196,6 +196,7 @@ class PlayerService extends ChangeNotifier {
     // Pre-render the default album art (if it isn't cached yet) so the first
     // play starts instantly and the notification already has artwork.
     ArtworkService.warmUp();
+    unawaited(StreamCacheManager.warmUp());
 
     // Never let the underlying player loop by itself: loop modes are
     // implemented in Dart (single-source loads). This is also what fixes the

@@ -38,6 +38,30 @@ class StreamCacheManager {
   static final Set<String> _cachedVideoIds = {};
   static int _slidingWindowSequence = 0;
 
+  /// Pre-scans existing cache files on app launch for instantaneous lookup.
+  static Future<void> warmUp() async {
+    try {
+      final dir = await getCacheDirectory();
+      final files = await dir.list().where((e) => e is File).cast<File>().toList();
+      for (final f in files) {
+        final name = p.basename(f.path);
+        if (name.contains('.tmp.') || name.contains('.part.') || name.startsWith('tmp_')) {
+          try {
+            await f.delete();
+          } catch (_) {}
+          continue;
+        }
+        if (await f.length() > 50000) {
+          final id = p.basenameWithoutExtension(name);
+          _cachedVideoIds.add(id);
+        }
+      }
+      unawaited(enforceCacheQuota());
+    } catch (e) {
+      debugPrint('[StreamCacheManager] warmUp error: $e');
+    }
+  }
+
   /// Synchronous memory check whether a track is fully cached on disk.
   static bool isStreamCachedSync(String videoId) {
     return _cachedVideoIds.contains(videoId);
@@ -160,6 +184,8 @@ class StreamCacheManager {
             '4',
             '--buffer-size',
             '16k',
+            '--http-chunk-size',
+            '10M',
             '--extractor-args',
             'youtube:player_client=android,web,mweb',
             'https://www.youtube.com/watch?v=$videoId',

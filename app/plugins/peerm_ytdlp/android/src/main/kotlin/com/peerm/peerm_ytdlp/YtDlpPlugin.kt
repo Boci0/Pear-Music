@@ -510,6 +510,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-check-certificates")
                     req.addOption("--concurrent-fragments", "4")
                     req.addOption("--buffer-size", "16k")
+                    req.addOption("--http-chunk-size", "10M")
                     if (useExtractorArgs) {
                         req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
                     }
