@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
+import '../../services/player_service.dart';
 
 /// Large album artwork container with rounded corners and ambient accent glow.
 class PlayerArtwork extends StatelessWidget {
@@ -121,15 +122,19 @@ class PlayerSongInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
+    final player = context.watch<PlayerService>();
     final isFav = controller.isFavorite(song.id);
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isStream = song.sourceDeviceId == 'stream';
+    final route = player.currentRouteType;
 
     return Column(
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (song.sourceDeviceId == 'stream')
+            if (isStream)
               IconButton(
                 icon: Icon(
                   Icons.download_rounded,
@@ -168,18 +173,77 @@ class PlayerSongInfo extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 4),
-        Text(
-          song.sourceDeviceId == 'stream'
-              ? 'Radio Stream'
-              : song.sourceDeviceId == null
-                  ? 'Added on this device'
-                  : 'Shared',
-          style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-        ),
+        const SizedBox(height: 6),
+        if (isStream)
+          _buildStreamRouteBadge(route, scheme)
+        else
+          Text(
+            song.sourceDeviceId == null
+                ? 'Added on this device'
+                : 'Shared from peer',
+            style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+          ),
       ],
     );
   }
+
+  Widget _buildStreamRouteBadge(StreamRouteType route, ColorScheme scheme) {
+    final (label, icon, color, bg) = switch (route) {
+      StreamRouteType.cached => (
+          'Cached (0ms)',
+          Icons.offline_pin_rounded,
+          const Color(0xFF81C784),
+          const Color(0xFF1B2E1D),
+        ),
+      StreamRouteType.direct => (
+          'Direct Stream',
+          Icons.bolt_rounded,
+          scheme.primary,
+          scheme.primary.withValues(alpha: 0.15),
+        ),
+      StreamRouteType.fallback => (
+          'Fallback Stream',
+          Icons.alt_route_rounded,
+          const Color(0xFFFFB74D),
+          const Color(0xFF332412),
+        ),
+      StreamRouteType.local => (
+          'Local Stream',
+          Icons.music_note_rounded,
+          scheme.onSurfaceVariant,
+          scheme.surfaceContainerHighest,
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withValues(alpha: 0.35),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+

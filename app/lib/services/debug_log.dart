@@ -19,6 +19,20 @@ class DebugLog {
   static bool _initTried = false;
   static Future<void>? _pending;
   static final List<String> _buffer = [];
+  static final StreamController<String> _liveController = StreamController<String>.broadcast();
+  static final List<String> _recentLogs = [];
+  static const int _maxRecentLogs = 120;
+
+  /// Stream of live diagnostic log lines.
+  static Stream<String> get stream => _liveController.stream;
+
+  /// In-memory ring buffer of recent diagnostic messages.
+  static List<String> get recentLogs => List.unmodifiable(_recentLogs);
+
+  /// Clears recent in-memory logs.
+  static void clearRecent() {
+    _recentLogs.clear();
+  }
 
   /// Cap before rotation. On overflow the OLDEST half is dropped so recent
   /// evidence always survives.
@@ -48,17 +62,30 @@ class DebugLog {
 
   /// Append one line. Safe to call from anywhere; failures are swallowed.
   static void write(String line) {
+    final now = DateTime.now();
+    final timeStr =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}.${(now.millisecond ~/ 100)}';
+    final formattedLine = '[$timeStr] $line';
+
+    if (_recentLogs.length >= _maxRecentLogs) {
+      _recentLogs.removeAt(0);
+    }
+    _recentLogs.add(formattedLine);
+    if (_liveController.hasListener) {
+      _liveController.add(formattedLine);
+    }
+
     _ensureInit();
     final f = _file;
     if (f == null) {
       // Not initialised yet (async): buffer briefly, drop if init fails.
-      if (_buffer.length < 200) _buffer.add(line);
+      if (_buffer.length < 200) _buffer.add(formattedLine);
       return;
     }
     final out = _pending ?? Future<void>.value();
     _pending = out.then((_) async {
       try {
-        await f.writeAsString('$line\n',
+        await f.writeAsString('$formattedLine\n',
             mode: FileMode.append, flush: false);
       } catch (_) {}
     });

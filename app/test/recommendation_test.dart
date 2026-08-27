@@ -103,6 +103,20 @@ void main() {
       expect(candidates, contains('Battleplan Obliteration'));
     });
 
+    test('normalizeVideoIds cleans stream prefixes and filenames into raw 11-char IDs', () {
+      final input = [
+        'stream_dQw4w9WgXcQ',
+        'Rick Astley - Never Gonna Give You Up [dQw4w9WgXcQ].m4a',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        'dQw4w9WgXcQ',
+        'stream_abcdefghijk',
+      ];
+      final normalized = RecommendationService.normalizeVideoIds(input);
+      expect(normalized, contains('dQw4w9WgXcQ'));
+      expect(normalized, contains('abcdefghijk'));
+      expect(normalized.length, equals(2));
+    });
+
     test('resolveSeedVideoId extracts ID from song id or fileName directly', () async {
       final directSong = Song(
         id: 'stream_abc12345678',
@@ -117,7 +131,7 @@ void main() {
     });
   });
 
-  group('StreamCacheManager', () {
+  group('StreamCacheManager & Diagnostics', () {
     test('quota constants are bounded and safe', () {
       expect(StreamCacheManager.maxCacheBytes, equals(150 * 1024 * 1024));
       expect(StreamCacheManager.targetEvictionBytes, equals(100 * 1024 * 1024));

@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song.dart';
 import 'artwork_service.dart';
+import 'debug_log.dart';
 import 'identity_service.dart';
 import 'innertube_player_service.dart';
 import 'library_service.dart';
@@ -17,6 +18,14 @@ import 'stream_cache_manager.dart';
 
 /// How the queue advances when a track ends or the user skips.
 enum LoopSetting { off, all, one }
+
+/// Route through which the active song is being served.
+enum StreamRouteType {
+  cached, // Local disk cache (0ms instant)
+  direct, // Primary Innertube direct stream
+  fallback, // Secondary Piped / yt-dlp fallback
+  local, // Local file
+}
 
 /// Audio playback using just_audio (ExoPlayer on Android, media_kit/mpv on
 /// Windows). `JustAudioMediaKit.ensureInitialized()` must be called once in
@@ -68,6 +77,9 @@ class PlayerService extends ChangeNotifier {
       _player = AudioPlayer();
     }
   }
+
+  StreamRouteType _currentRouteType = StreamRouteType.local;
+  StreamRouteType get currentRouteType => _currentRouteType;
 
   Song? get song => currentSong;
   Duration? get position => _player.position;
@@ -274,10 +286,10 @@ class PlayerService extends ChangeNotifier {
     currentSong = seedSong;
     notifyListeners();
 
-    // Trigger initial background fetch of recommended tracks (fetch 2 batches for a deep ~40-50 song queue)
+    // Trigger initial background fetch of recommended tracks
     unawaited(() async {
       final firstOk = await fetchAndAppendRecommendations();
-      if (firstOk && _queue.length < 35) {
+      if (firstOk && _queue.length < 25) {
         await fetchAndAppendRecommendations();
       }
     }());
@@ -292,8 +304,9 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final excludeIds = _queue.map((s) => s.id).toSet();
+      final excludeIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
       final seed = currentSong ?? _queue.last;
+      DebugLog.write('[radio] Fetching recommendations for seed "${seed.title}" (${excludeIds.length} excluded)');
 
       RecommendationBatch batch;
       if (_continuationToken != null) {
@@ -317,11 +330,28 @@ class PlayerService extends ChangeNotifier {
 
       if (batch.items.isNotEmpty) {
         _continuationToken = batch.continuationToken;
-        final newSongs = batch.items.map((item) => item.toSong()).toList();
-        _queue = [..._queue, ...newSongs];
-        _preloadUpcomingStreams();
-        notifyListeners();
-        return true;
+        final existingVideoIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
+        final existingTitles = _queue.map((s) => s.title.toLowerCase().trim()).toSet();
+
+        final newSongs = <Song>[];
+        for (final item in batch.items) {
+          if (existingVideoIds.contains(item.videoId)) continue;
+          final cleanSong = item.toSong();
+          final cleanTitle = cleanSong.title.toLowerCase().trim();
+          if (existingTitles.contains(cleanTitle)) continue;
+
+          existingVideoIds.add(item.videoId);
+          existingTitles.add(cleanTitle);
+          newSongs.add(cleanSong);
+        }
+
+        if (newSongs.isNotEmpty) {
+          _queue = [..._queue, ...newSongs];
+          _preloadUpcomingStreams();
+          DebugLog.write('[radio] Appended ${newSongs.length} unique tracks (queue size: ${_queue.length})');
+          notifyListeners();
+          return true;
+        }
       }
 
       // Offline / Empty fallback: pull from local library
@@ -332,12 +362,13 @@ class PlayerService extends ChangeNotifier {
       );
       if (offlineSongs.isNotEmpty) {
         _queue = [..._queue, ...offlineSongs];
+        DebugLog.write('[radio] Appended ${offlineSongs.length} offline library recommendations');
         notifyListeners();
         return true;
       }
       return false;
     } catch (e) {
-      debugPrint('[PlayerService] fetchAndAppendRecommendations error: $e');
+      DebugLog.write('[radio] fetchAndAppendRecommendations error: $e');
       return false;
     } finally {
       _isLoadingRecommendations = false;
@@ -406,7 +437,7 @@ class PlayerService extends ChangeNotifier {
       if (token != _playRequestToken) return;
 
       if (song.sourceDeviceId == 'stream') {
-        final videoId = song.id.replaceFirst('stream_', '');
+        final videoId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
         final mediaTag = MediaItem(
           id: song.id,
           title: song.title,
@@ -418,6 +449,8 @@ class PlayerService extends ChangeNotifier {
         if (token != _playRequestToken) return;
 
         if (cachedFile != null && await cachedFile.exists()) {
+          _currentRouteType = StreamRouteType.cached;
+          DebugLog.write('[player] Playing from DISK CACHE (0ms): ${song.title} [$videoId]');
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
@@ -446,9 +479,13 @@ class PlayerService extends ChangeNotifier {
           if (token != _playRequestToken) return;
 
           if (directStreamSource != null) {
+            _currentRouteType = StreamRouteType.direct;
+            DebugLog.write('[player] Playing DIRECT INNERTUBE STREAM: ${song.title} [$videoId]');
             await _player.setAudioSource(directStreamSource);
           } else {
             // Fallback: wait for disk cache download
+            _currentRouteType = StreamRouteType.fallback;
+            DebugLog.write('[player] Direct stream failed, falling back to cache resolver: ${song.title} [$videoId]');
             final downloadedFile =
                 await StreamCacheManager.ensureStreamCached(videoId);
             if (token != _playRequestToken) return;
@@ -459,13 +496,12 @@ class PlayerService extends ChangeNotifier {
               );
             } else {
               _consecutiveStreamFailures++;
-              debugPrint(
-                '[PlayerService] Stream failed for ${song.title} '
+              DebugLog.write(
+                '[player] Stream failed for ${song.title} '
                 '(failure $_consecutiveStreamFailures/3)',
               );
               if (_consecutiveStreamFailures >= 3) {
-                debugPrint(
-                    '[PlayerService] Circuit breaker tripped, halting playback');
+                DebugLog.write('[player] Circuit breaker tripped, halting playback');
                 _isAdvancing = false;
                 _isLoadingTrack = false;
                 await _player.pause();
@@ -479,6 +515,8 @@ class PlayerService extends ChangeNotifier {
         }
       } else {
         // Local song: play directly from local file
+        _currentRouteType = StreamRouteType.local;
+        DebugLog.write('[player] Playing LOCAL file: ${song.title}');
         final file = library.songFile(song);
         await _player.setAudioSource(
           AudioSource.file(
@@ -499,7 +537,7 @@ class PlayerService extends ChangeNotifier {
       _consecutiveStreamFailures = 0;
       _preloadUpcomingStreams();
     } catch (e) {
-      debugPrint('[PlayerService] playSong error: $e');
+      DebugLog.write('[player] playSong error: $e');
       if (token != _playRequestToken) return;
       _consecutiveStreamFailures++;
       if (_consecutiveStreamFailures >= 3) {
@@ -517,16 +555,16 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  /// Speculatively pre-caches a sliding window of upcoming tracks (+1, +2, +3).
+  /// Speculatively pre-caches a sliding window of upcoming tracks (+1, +2).
   void _preloadUpcomingStreams() {
     if (_queueIndex < 0 || _queue.isEmpty) return;
     final upcomingVideoIds = <String>[];
-    for (int offset = 1; offset <= 3; offset++) {
+    for (int offset = 1; offset <= 2; offset++) {
       final idx = _queueIndex + offset;
       if (idx < _queue.length) {
         final s = _queue[idx];
         if (s.sourceDeviceId == 'stream') {
-          final vId = s.id.replaceFirst('stream_', '');
+          final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
           if (vId.isNotEmpty) {
             upcomingVideoIds.add(vId);
           }

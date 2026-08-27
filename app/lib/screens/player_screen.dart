@@ -5,6 +5,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
+import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_drawer.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
@@ -88,6 +89,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       notificationPredicate: (_) => false,
       leading: const BackButton(),
       actions: [
+        IconButton(
+          tooltip: 'Diagnostics Console',
+          icon: const Icon(Icons.terminal_rounded),
+          onPressed: () => PlayerConsoleDialog.show(context),
+        ),
         SleepTimerButton(player: player),
         if (!isWide)
           IconButton(

@@ -263,11 +263,14 @@ class PlayerWideQueueView extends StatefulWidget {
 
 class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
   final ScrollController _scrollController = ScrollController();
+  String? _lastScrolledSongId;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollToCurrent(force: true);
+    });
   }
 
   @override
@@ -278,8 +281,11 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
     }
   }
 
-  void _scrollToCurrent() {
+  void _scrollToCurrent({bool force = false}) {
     if (!_scrollController.hasClients) return;
+    if (!force && _lastScrolledSongId == widget.currentSong.id) return;
+    _lastScrolledSongId = widget.currentSong.id;
+
     final queue = widget.player.queue;
     final idx = queue.indexWhere((s) => s.id == widget.currentSong.id);
     if (idx >= 0) {
@@ -340,7 +346,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
               final item = queue[i];
               final isCurrent = item.id == widget.currentSong.id;
               return Padding(
-                key: ValueKey('wide_queue_${item.id}'),
+                key: ValueKey('wide_queue_${item.id}_$i'),
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Material(
                   color: isCurrent

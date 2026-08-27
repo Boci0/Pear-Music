@@ -164,7 +164,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                 song.artwork != null && song.artwork!.startsWith('http');
 
             return ListTile(
-              key: ValueKey('drawer_queue_${song.id}'),
+              key: ValueKey('drawer_queue_${song.id}_$i'),
               dense: true,
               leading: isNetwork
                   ? ClipRRect(

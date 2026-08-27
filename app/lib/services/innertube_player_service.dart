@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'debug_log.dart';
+
 /// Represents a resolved audio stream format from YouTube Innertube.
 class InnertubeAudioStream {
   final String url;
@@ -39,6 +41,22 @@ class InnertubePlayerService {
   }
 
   static const List<Map<String, dynamic>> _clientContexts = [
+    {
+      'clientName': 'ANDROID_VR',
+      'clientVersion': '1.56.21',
+      'userAgent': 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; Oculus Quest 2)',
+      'referer': 'https://www.youtube.com/',
+      'endpoint': 'https://www.youtube.com/youtubei/v1/player',
+      'payload': {
+        'client': {
+          'clientName': 'ANDROID_VR',
+          'clientVersion': '1.56.21',
+          'androidSdkVersion': 32,
+          'hl': 'en',
+          'gl': 'US',
+        },
+      },
+    },
     {
       'clientName': 'ANDROID_MUSIC',
       'clientVersion': '6.42.52',
@@ -181,6 +199,7 @@ class InnertubePlayerService {
             stream: bestFormat,
             expiresAt: DateTime.now().add(const Duration(hours: 2)),
           );
+          DebugLog.write('[stream] Innertube direct resolution SUCCESS: $videoId (${bestFormat.bitrate ~/ 1000}kbps ${bestFormat.container}) via ${ctx['clientName']}');
           return bestFormat;
         }
       } catch (e) {
@@ -191,6 +210,7 @@ class InnertubePlayerService {
     // Method 2: Piped cloud API fallback (~200ms)
     for (final instance in _pipedInstances) {
       try {
+        DebugLog.write('[fallback] Resolving stream via Piped instance: $instance for $videoId');
         final uri = Uri.parse(instance + '/streams/' + videoId);
         final req = await _httpClient.getUrl(uri);
         req.headers.set('User-Agent', 'Mozilla/5.0');
@@ -215,6 +235,7 @@ class InnertubePlayerService {
                 stream: stream,
                 expiresAt: DateTime.now().add(const Duration(hours: 2)),
               );
+              DebugLog.write('[fallback] Piped stream resolution SUCCESS: $videoId (${stream.bitrate ~/ 1000}kbps)');
               return stream;
             }
           }

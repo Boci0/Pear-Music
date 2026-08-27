@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/song.dart';
+import 'debug_log.dart';
 import 'youtube_search_service.dart';
 
 /// Representation of a single recommended track from YouTube Music.
@@ -75,21 +76,35 @@ class RecommendationService {
   static final Map<String, RecommendationBatch> _radioCache = {};
   static const int _maxCacheSize = 25;
 
+  /// Normalizes any collection of song IDs or raw video IDs to 11-char video IDs.
+  static Set<String> normalizeVideoIds(Iterable<String> ids) {
+    final normalized = <String>{};
+    for (final id in ids) {
+      final clean = extractVideoId(id) ?? id;
+      if (clean.isNotEmpty) {
+        normalized.add(clean);
+      }
+    }
+    return normalized;
+  }
+
   /// Record a video ID or song ID as played in the current session so it won't be repeated.
   static void markPlayed(String id) {
-    final cleanId = _extractVideoId(id);
+    final cleanId = extractVideoId(id);
     if (cleanId != null) {
       _sessionPlayedVideoIds.add(cleanId);
+      DebugLog.write('[radio] Marked played videoId: $cleanId (session history: ${_sessionPlayedVideoIds.length})');
     }
   }
 
   /// Clears the session history.
   static void clearSessionHistory() {
     _sessionPlayedVideoIds.clear();
+    DebugLog.write('[radio] Cleared session history');
   }
 
   /// Tries to extract an 11-character YouTube video ID from a song ID, fileName, or title.
-  static String? _extractVideoId(String text) {
+  static String? extractVideoId(String text) {
     final m = RegExp(r'\[([a-zA-Z0-9_-]{11})\]').firstMatch(text);
     if (m != null) return m.group(1);
     if (text.startsWith('stream_')) {
@@ -207,7 +222,7 @@ class RecommendationService {
 
   /// Resolves the YouTube video ID for a given [Song], querying search if necessary.
   static Future<String?> resolveSeedVideoId(Song song) async {
-    final directId = _extractVideoId(song.id) ?? _extractVideoId(song.fileName);
+    final directId = extractVideoId(song.id) ?? extractVideoId(song.fileName);
     if (directId != null && directId.isNotEmpty) {
       return directId;
     }
@@ -326,6 +341,7 @@ class RecommendationService {
     String? playlistPrefix = 'RDAMVM',
     Set<String>? excludeVideoIds,
   }) async {
+    final normalizedExclude = normalizeVideoIds(excludeVideoIds ?? const {});
     final clientConfigs = [
       {
         'clientName': 'WEB_REMIX',
@@ -382,7 +398,7 @@ class RecommendationService {
 
         final rawItems = panel?['contents'] as List?;
         final items = <RecommendationItem>[];
-        final seen = <String>{...?excludeVideoIds, ..._sessionPlayedVideoIds, videoId};
+        final seen = <String>{...normalizedExclude, ..._sessionPlayedVideoIds, videoId};
 
         if (rawItems != null && rawItems.isNotEmpty) {
           for (final item in rawItems) {
@@ -612,6 +628,7 @@ class RecommendationService {
     String continuationToken, {
     Set<String>? excludeVideoIds,
   }) async {
+    final normalizedExclude = normalizeVideoIds(excludeVideoIds ?? const {});
     final clientConfigs = [
       {
         'clientName': 'WEB_REMIX',
@@ -652,7 +669,7 @@ class RecommendationService {
         final continuations = data['continuationContents']?['playlistPanelContinuation'];
         final rawItems = continuations?['contents'] as List?;
         final items = <RecommendationItem>[];
-        final seen = <String>{...?excludeVideoIds, ..._sessionPlayedVideoIds};
+        final seen = <String>{...normalizedExclude, ..._sessionPlayedVideoIds};
 
         if (rawItems != null && rawItems.isNotEmpty) {
           for (final item in rawItems) {

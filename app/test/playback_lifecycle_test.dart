@@ -69,16 +69,31 @@ void main() {
       expect(completedTokens, equals([3]));
     });
 
-    test('Sliding window preloading processes top 3 items sequentially', () async {
-      final requestedIds = <String>[];
-      final videoIds = ['vid_1', 'vid_2', 'vid_3', 'vid_4', 'vid_5'];
+    test('Sliding window preloading processes items sequentially with single worker cancellation', () async {
+      final cachedTracks = <String>[];
+      final dir = await StreamCacheManager.getCacheDirectory();
 
-      for (final id in videoIds.take(3)) {
-        requestedIds.add(id);
-      }
+      // Pre-seed a valid cached track file (> 50KB)
+      final dummyFile = File('${dir.path}/test_preloaded_1.m4a');
+      await dummyFile.writeAsBytes(List.filled(60000, 0));
 
-      expect(requestedIds, equals(['vid_1', 'vid_2', 'vid_3']));
-      expect(requestedIds.length, 3);
+      StreamCacheManager.preloadSlidingWindow(
+        ['test_preloaded_1'],
+        onTrackCached: (vId) {
+          cachedTracks.add(vId);
+        },
+      );
+
+      // Give worker microtask event loop turn to process
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      // Synchronous cache map should now know about preloaded track
+      expect(StreamCacheManager.isStreamCachedSync('test_preloaded_1'), isTrue);
+      expect(cachedTracks, contains('test_preloaded_1'));
+
+      // New sliding window should cancel preceding window sequence
+      StreamCacheManager.preloadSlidingWindow(['test_preloaded_3']);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     });
 
     test('RecommendationService prevents infinite duplicate loops', () {
@@ -111,3 +126,4 @@ void main() {
     });
   });
 }
+
