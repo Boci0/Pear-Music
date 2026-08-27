@@ -18,12 +18,12 @@
 ## Key Features
 
 * **End-to-End Encrypted Relay Sync**: Fast device-to-device audio file transfer via encrypted relays (AES-256-GCM / X25519). Files are never stored on external servers.
-* **Pear Radio & Smart Autoplay**: Stream recommended tracks based on your listening habits with a 3-track sliding window pre-buffer for zero-latency skipping.
+* **Pear Radio & Smart Autoplay**: Infinite stream recommendations based on your listening habits with a 4-track sliding window disk pre-buffer and visual cache indicators for zero-latency skipping.
 * **1-Click Save to Library**: Instantly promote any radio stream track into your permanent local library in 0 ms without re-downloading.
 * **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with ID3/Vorbis album artwork rendered on Android Lockscreen, Notification Shade, and Windows Media Transport Controls (SMTC).
 * **Automated In-App Updates**: Seamless version checks and 1-click in-app updates directly from GitHub releases.
 * **Fast Code & QR Pairing**: Connect devices in seconds using a 6-character pairing code or QR scan.
-* **Automatic Reconnect Catch-Up**: Offline devices pull missed tracks automatically upon reconnection.
+* **Live Diagnostics Console**: Integrated diagnostic log viewer and ring buffer for real-time monitoring of sync, relay, stream, and cache activity.
 * **Loudness Normalization**: Dynamic range enhancement to prevent jarring volume jumps between tracks.
 
 ---
