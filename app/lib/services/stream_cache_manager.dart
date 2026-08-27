@@ -201,7 +201,7 @@ class StreamCacheManager {
             'url': 'https://www.youtube.com/watch?v=$videoId',
             'outputPath': tempPart.path,
             'processId': processId,
-          }).timeout(const Duration(seconds: 25));
+          }).timeout(const Duration(seconds: 45));
 
           final len = await tempPart.exists() ? await tempPart.length() : 0;
           if (len > 50000) {

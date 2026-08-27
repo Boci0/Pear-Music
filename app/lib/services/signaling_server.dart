@@ -330,9 +330,13 @@ class SignalingServer {
       });
     } catch (_) {}
     _announceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      _sendAnnouncement();
+      try {
+        _sendAnnouncement();
+      } catch (_) {}
     });
-    _sendAnnouncement();
+    try {
+      _sendAnnouncement();
+    } catch (_) {}
   }
 
   void _sendAnnouncement() {

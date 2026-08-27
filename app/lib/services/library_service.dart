@@ -567,6 +567,22 @@ class LibraryService extends ChangeNotifier {
     final fileName = '$id$ext';
     await file.copy(p.join(_libraryDir!.path, fileName));
 
+    String? effectiveArtwork = artwork;
+    if (effectiveArtwork != null && (effectiveArtwork.startsWith('http://') || effectiveArtwork.startsWith('https://'))) {
+      try {
+        final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+        final req = await client.getUrl(Uri.parse(effectiveArtwork));
+        final resp = await req.close();
+        if (resp.statusCode == 200) {
+          final bytes = await resp.fold<List<int>>([], (p, e) => p..addAll(e));
+          if (bytes.isNotEmpty) {
+            effectiveArtwork = base64Encode(bytes);
+          }
+        }
+        client.close();
+      } catch (_) {}
+    }
+
     final song = Song(
       id: id,
       title: title.trim().isEmpty
@@ -576,7 +592,7 @@ class LibraryService extends ChangeNotifier {
       size: await file.length(),
       checksum: sum,
       sourceDeviceId: null,
-      artwork: artwork,
+      artwork: effectiveArtwork,
       addedAt: DateTime.now(),
     );
     _songs.add(song);
