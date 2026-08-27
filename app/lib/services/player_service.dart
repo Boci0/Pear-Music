@@ -228,7 +228,8 @@ class PlayerService extends ChangeNotifier {
     _subs.add(_player.playerStateStream.listen((_) => notifyListeners()));
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed && _queue.isNotEmpty && !_isAdvancing) {
+      if (state == ProcessingState.completed && _queue.isNotEmpty) {
+        DebugLog.write('[player] Track completed naturally; advancing next');
         if (_sleepTimerEndOfSong) {
           _sleepTimerEndOfSong = false;
           unawaited(pause(smooth: true));
@@ -294,7 +295,7 @@ class PlayerService extends ChangeNotifier {
       }
     }());
 
-    await playSong(seedSong, queue: _queue, sourceId: 'radio', sourceTitle: queueTitle);
+    await playSong(seedSong, sourceId: 'radio', sourceTitle: queueTitle);
   }
 
   /// Fetches the next batch of recommendations and appends them to [_queue].
@@ -396,11 +397,15 @@ class PlayerService extends ChangeNotifier {
     // play shows the notification; the prompt does not delay playback.
     _requestNotificationPermissionIfNeeded();
 
-    _queue = List<Song>.from(queue ?? library.songs);
+    if (queue != null) {
+      _queue = List<Song>.from(queue);
+    } else if (_queue.isEmpty) {
+      _queue = library.songs.isNotEmpty ? List<Song>.from(library.songs) : [song];
+    }
     if (sourceId != null) {
       queueSourceId = sourceId;
       queueTitle = sourceTitle;
-    } else if (queue == null) {
+    } else if (queue == null && queueSourceId == null) {
       queueSourceId = 'library';
       queueTitle = 'Library';
     }
@@ -693,6 +698,7 @@ class PlayerService extends ChangeNotifier {
     final nextTrack = _queue[nextIndex];
     _queueIndex = nextIndex;
     currentSong = nextTrack;
+    DebugLog.write('[player] Advancing to track ${_queueIndex + 1}/${_queue.length}: ${nextTrack.title}');
     notifyListeners();
 
     await playSong(nextTrack, queue: _queue);
