@@ -515,7 +515,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--retries", "3")
                     req.addOption("--fragment-retries", "3")
                     if (useExtractorArgs) {
-                        req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
+                        req.addOption("--extractor-args", "youtube:player_skip=configs,webpage;player_client=android,web,mweb")
                     }
                     return req
                 }
