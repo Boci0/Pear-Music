@@ -213,64 +213,35 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                       )
                     : null,
               ),
-              subtitle: isStream
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'Radio Stream',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: scheme.primary,
-                            ),
-                          ),
-                        ),
-                        if (StreamCacheManager.isStreamCachedSync(
-                            song.id.replaceFirst('stream_', ''))) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF81C784).withValues(alpha: 0.18),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: const Color(0xFF81C784).withValues(alpha: 0.4),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(
-                                  Icons.check_circle_rounded,
-                                  size: 10.5,
-                                  color: Color(0xFF81C784),
-                                ),
-                                SizedBox(width: 3),
-                                Text(
-                                  'Cached (0ms)',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF81C784),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    )
-                  : null,
+              subtitle: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isStream
+                        ? 'Radio Stream'
+                        : (song.sourceDeviceId == null ? 'Local track' : 'Shared'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isCurrent
+                          ? scheme.primary.withValues(alpha: 0.8)
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (isStream &&
+                      StreamCacheManager.isStreamCachedSync(
+                          song.id.replaceFirst('stream_', ''))) ...[
+                    const SizedBox(width: 6),
+                    const Tooltip(
+                      message: 'Cached (0ms)',
+                      child: Icon(
+                        Icons.check_circle_rounded,
+                        size: 13,
+                        color: Color(0xFF81C784),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
