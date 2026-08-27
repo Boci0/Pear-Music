@@ -245,12 +245,11 @@ class StreamCacheManager {
             '1',
             '--socket-timeout',
             '10',
-            '--retries',
-            '2',
+            '--no-cache-dir',
             '--extractor-args',
             'youtube:player_client=android,web',
             'https://www.youtube.com/watch?v=$videoId',
-          ]).timeout(const Duration(seconds: 15));
+          ]).timeout(const Duration(seconds: 25));
 
           final len = await tempPart.exists() ? await tempPart.length() : 0;
           if (res.exitCode == 0 && len > 50000) {

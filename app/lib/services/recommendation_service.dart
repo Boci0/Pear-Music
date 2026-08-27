@@ -382,7 +382,7 @@ class RecommendationService {
           payload['playlistId'] = '$playlistPrefix$videoId';
         }
 
-        request.write(jsonEncode(payload));
+        request.add(utf8.encode(jsonEncode(payload)));
         final response = await request.close().timeout(const Duration(seconds: 6));
         if (response.statusCode != 200) {
           continue;
@@ -491,7 +491,7 @@ class RecommendationService {
           'params': 'EgWKAQIIAWoKEAUQCRADEAQQBQ==', // Song filter
         };
 
-        request.write(jsonEncode(payload));
+        request.add(utf8.encode(jsonEncode(payload)));
         final response = await request.close().timeout(const Duration(seconds: 6));
         if (response.statusCode != 200) continue;
 
@@ -659,7 +659,7 @@ class RecommendationService {
           'continuation': continuationToken,
         });
 
-        request.write(body);
+        request.add(utf8.encode(body));
         final response = await request.close().timeout(const Duration(seconds: 6));
         if (response.statusCode != 200) continue;
 

@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'debug_log.dart';
 
-/// Represents a resolved audio stream format from YouTube Innertube.
+/// Representation of an audio stream resolved via Innertube.
 class InnertubeAudioStream {
   final String url;
   final int itag;
@@ -23,17 +23,20 @@ class InnertubeAudioStream {
     required this.contentLength,
     required this.container,
   });
+
+  bool get isHighQuality => bitrate >= 128000;
 }
 
-/// Service that queries YouTube's Innertube Player API using mobile and TV client contexts
-/// (ANDROID_MUSIC, IOS, ANDROID_VR, TVHTML5) and Piped fallback to extract direct,
+/// High-speed direct client for YouTube Music / Innertube API.
+/// Bypasses heavy process overhead and directly queries Android Innertube endpoints for
 /// unscrambled audio stream URLs.
 class InnertubePlayerService {
   static final HttpClient _httpClient = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 5)
-    ..idleTimeout = const Duration(seconds: 10);
+    ..connectionTimeout = const Duration(seconds: 3)
+    ..idleTimeout = const Duration(seconds: 6);
 
   static final Map<String, ({InnertubeAudioStream stream, DateTime expiresAt})> _streamCache = {};
+  static final Map<String, Completer<InnertubeAudioStream?>> _inFlightResolutions = {};
 
   /// Invalidate cached stream for a given video ID
   static void invalidateCache(String videoId) {
@@ -73,49 +76,6 @@ class InnertubePlayerService {
         },
       },
     },
-    {
-      'clientName': 'IOS',
-      'clientVersion': '19.29.1',
-      'userAgent': 'com.google.ios.youtube/19.29.1 (iPhone14,3; U; CPU iOS 17_5 like Mac OS X; en_US)',
-      'referer': 'https://www.youtube.com/',
-      'endpoint': 'https://www.youtube.com/youtubei/v1/player',
-      'payload': {
-        'client': {
-          'clientName': 'IOS',
-          'clientVersion': '19.29.1',
-          'deviceMake': 'Apple',
-          'deviceModel': 'iPhone14,3',
-          'osName': 'iOS',
-          'osVersion': '17.5.1.21F90',
-          'hl': 'en',
-          'gl': 'US',
-        },
-      },
-    },
-    {
-      'clientName': 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-      'clientVersion': '2.0',
-      'userAgent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1',
-      'referer': 'https://www.youtube.com/',
-      'endpoint': 'https://www.youtube.com/youtubei/v1/player',
-      'payload': {
-        'client': {
-          'clientName': 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-          'clientVersion': '2.0',
-          'hl': 'en',
-          'gl': 'US',
-        },
-        'thirdParty': {
-          'embedUrl': 'https://www.youtube.com',
-        },
-      },
-    },
-  ];
-
-  static const List<String> _pipedInstances = [
-    'https://pipedapi.kavin.rocks',
-    'https://api.piped.private.coffee',
-    'https://pipedapi.leptons.xyz',
   ];
 
   /// Resolves the highest quality audio stream for a given [videoId].
@@ -128,124 +88,105 @@ class InnertubePlayerService {
       _streamCache.remove(videoId);
     }
 
-    // Method 1: Multi-client Innertube Player API (~150-250ms direct unscrambled URLs)
-    for (final ctx in _clientContexts) {
-      try {
-        final endpoint = ctx['endpoint'] as String;
-        final userAgent = ctx['userAgent'] as String;
-        final referer = ctx['referer'] as String;
-        final clientContext = ctx['payload'] as Map<String, dynamic>;
-
-        final request = await _httpClient.postUrl(Uri.parse(endpoint));
-        request.headers.set('Content-Type', 'application/json');
-        request.headers.set('User-Agent', userAgent);
-        request.headers.set('Referer', referer);
-
-        final body = jsonEncode({
-          'context': clientContext,
-          'videoId': videoId,
-          'playbackContext': {
-            'contentPlaybackContext': {
-              'html5Preference': 'HTML5_PREF_WANTS',
-            }
-          }
-        });
-
-        request.write(body);
-        final response = await request.close().timeout(const Duration(seconds: 4));
-        if (response.statusCode != 200) continue;
-
-        final respText = await response.transform(utf8.decoder).join();
-        final data = jsonDecode(respText) as Map<String, dynamic>;
-
-        final playability = data['playabilityStatus']?['status'] as String?;
-        if (playability != null && playability != 'OK') {
-          continue;
-        }
-
-        final formats = data['streamingData']?['adaptiveFormats'] as List?;
-        if (formats == null || formats.isEmpty) continue;
-
-        InnertubeAudioStream? bestFormat;
-        for (final f in formats) {
-          final mime = f['mimeType'] as String? ?? '';
-          if (!mime.startsWith('audio/')) continue;
-          final rawUrl = f['url'] as String?;
-          if (rawUrl == null || rawUrl.isEmpty) continue; // Skip ciphered formats
-
-          final itag = f['itag'] as int? ?? 0;
-          final bitrate = f['bitrate'] as int? ?? 0;
-          final contentLength = int.tryParse(f['contentLength']?.toString() ?? '0') ?? 0;
-          final container = mime.contains('mp4') ? 'm4a' : 'webm';
-
-          final stream = InnertubeAudioStream(
-            url: rawUrl,
-            itag: itag,
-            mimeType: mime,
-            bitrate: bitrate,
-            contentLength: contentLength,
-            container: container,
-          );
-
-          if (bestFormat == null ||
-              (stream.container == 'm4a' && bestFormat.container != 'm4a') ||
-              (stream.container == bestFormat.container && stream.bitrate > bestFormat.bitrate)) {
-            bestFormat = stream;
-          }
-        }
-
-        if (bestFormat != null) {
-          _streamCache[videoId] = (
-            stream: bestFormat,
-            expiresAt: DateTime.now().add(const Duration(hours: 2)),
-          );
-          DebugLog.write('[stream] Innertube direct resolution SUCCESS: $videoId (${bestFormat.bitrate ~/ 1000}kbps ${bestFormat.container}) via ${ctx['clientName']}');
-          return bestFormat;
-        }
-      } catch (e) {
-        debugPrint('[InnertubePlayerService] client ' + (ctx['clientName'] as String) + ' failed: ' + e.toString());
-      }
+    if (_inFlightResolutions.containsKey(videoId)) {
+      return await _inFlightResolutions[videoId]!.future;
     }
 
-    // Method 2: Piped cloud API fallback (~200ms)
-    for (final instance in _pipedInstances) {
-      try {
-        DebugLog.write('[fallback] Resolving stream via Piped instance: $instance for $videoId');
-        final uri = Uri.parse(instance + '/streams/' + videoId);
-        final req = await _httpClient.getUrl(uri);
-        req.headers.set('User-Agent', 'Mozilla/5.0');
-        final resp = await req.close().timeout(const Duration(seconds: 4));
-        if (resp.statusCode == 200) {
-          final text = await resp.transform(utf8.decoder).join();
-          final data = jsonDecode(text) as Map<String, dynamic>;
-          final audioStreams = data['audioStreams'] as List?;
-          if (audioStreams != null && audioStreams.isNotEmpty) {
-            final first = audioStreams.first as Map<String, dynamic>;
-            final streamUrl = first['url'] as String?;
-            if (streamUrl != null && streamUrl.startsWith('http')) {
-              final stream = InnertubeAudioStream(
-                url: streamUrl,
-                itag: first['itag'] as int? ?? 140,
-                mimeType: first['mimeType'] as String? ?? 'audio/mp4',
-                bitrate: first['bitrate'] as int? ?? 128000,
-                contentLength: first['contentLength'] as int? ?? 0,
-                container: (first['format'] as String? ?? 'M4A').toLowerCase() == 'webm' ? 'webm' : 'm4a',
-              );
-              _streamCache[videoId] = (
-                stream: stream,
-                expiresAt: DateTime.now().add(const Duration(hours: 2)),
-              );
-              DebugLog.write('[fallback] Piped stream resolution SUCCESS: $videoId (${stream.bitrate ~/ 1000}kbps)');
-              return stream;
+    final completer = Completer<InnertubeAudioStream?>();
+    _inFlightResolutions[videoId] = completer;
+
+    try {
+      // Method 1: Fast direct Innertube Player API (~150-500ms direct unscrambled URLs)
+      for (final ctx in _clientContexts) {
+        try {
+          final endpoint = ctx['endpoint'] as String;
+          final userAgent = ctx['userAgent'] as String;
+          final referer = ctx['referer'] as String;
+          final clientContext = ctx['payload'] as Map<String, dynamic>;
+
+          final request = await _httpClient.postUrl(Uri.parse(endpoint));
+          request.headers.set('Content-Type', 'application/json');
+          request.headers.set('User-Agent', userAgent);
+          request.headers.set('Referer', referer);
+
+          final body = jsonEncode({
+            'context': clientContext,
+            'videoId': videoId,
+            'playbackContext': {
+              'contentPlaybackContext': {
+                'html5Preference': 'HTML5_PREF_WANTS',
+              }
+            }
+          });
+
+          request.add(utf8.encode(body));
+          final response = await request.close().timeout(const Duration(milliseconds: 2800));
+          if (response.statusCode != 200) continue;
+
+          final respText = await response.transform(utf8.decoder).join();
+          final data = jsonDecode(respText) as Map<String, dynamic>;
+
+          final playabilityStatus = data['playabilityStatus']?['status'] as String?;
+          if (playabilityStatus != 'OK') {
+            continue;
+          }
+
+          final streamingData = data['streamingData'] as Map<String, dynamic>?;
+          if (streamingData == null) continue;
+
+          final formats = (streamingData['adaptiveFormats'] as List<dynamic>? ?? [])
+              .cast<Map<String, dynamic>>();
+
+          InnertubeAudioStream? bestFormat;
+
+          for (final format in formats) {
+            final mime = format['mimeType'] as String? ?? '';
+            if (!mime.startsWith('audio/')) continue;
+
+            final rawUrl = format['url'] as String?;
+            if (rawUrl == null || rawUrl.isEmpty) continue;
+
+            final itag = format['itag'] as int? ?? 0;
+            final bitrate = format['bitrate'] as int? ?? 0;
+            final contentLength = int.tryParse(format['contentLength']?.toString() ?? '0') ?? 0;
+            final container = mime.contains('mp4') ? 'm4a' : 'webm';
+
+            final stream = InnertubeAudioStream(
+              url: rawUrl,
+              itag: itag,
+              mimeType: mime,
+              bitrate: bitrate,
+              contentLength: contentLength,
+              container: container,
+            );
+
+            if (bestFormat == null ||
+                (stream.container == 'm4a' && bestFormat.container != 'm4a') ||
+                (stream.container == bestFormat.container && stream.bitrate > bestFormat.bitrate)) {
+              bestFormat = stream;
             }
           }
-        }
-      } catch (e) {
-        debugPrint('[InnertubePlayerService] Piped fallback failed: ' + e.toString());
-      }
-    }
 
-    return null;
+          if (bestFormat != null) {
+            _streamCache[videoId] = (
+              stream: bestFormat,
+              expiresAt: DateTime.now().add(const Duration(hours: 2)),
+            );
+            DebugLog.write('[stream] Innertube direct resolution SUCCESS: $videoId (${bestFormat.bitrate ~/ 1000}kbps ${bestFormat.container}) via ${ctx['clientName']}');
+            completer.complete(bestFormat);
+            return bestFormat;
+          }
+        } catch (_) {}
+      }
+
+      completer.complete(null);
+      return null;
+    } catch (e) {
+      if (!completer.isCompleted) completer.complete(null);
+      return null;
+    } finally {
+      _inFlightResolutions.remove(videoId);
+    }
   }
 
   /// Checks if a stream URL is in cache and valid.
