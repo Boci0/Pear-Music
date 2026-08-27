@@ -8,6 +8,8 @@ import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/player_service.dart';
+import '../../services/recommendation_service.dart';
+import '../../services/stream_cache_manager.dart';
 import 'player_artwork.dart';
 import 'player_controls.dart';
 
@@ -439,17 +441,74 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                             )
                           : null,
                     ),
-                    subtitle: Text(
-                      item.sourceDeviceId == 'stream'
-                          ? 'Radio Stream'
-                          : item.sourceDeviceId == null
-                              ? 'Local track'
-                              : 'Shared',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isCurrent
-                                ? scheme.primary.withValues(alpha: 0.8)
-                                : scheme.onSurfaceVariant,
+                    subtitle: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (item.sourceDeviceId == 'stream') ...[
+                          Builder(
+                            builder: (context) {
+                              final vId = RecommendationService.extractVideoId(item.id) ??
+                                  item.id.replaceFirst('stream_', '');
+                              final isCached = StreamCacheManager.isStreamCachedSync(vId);
+                              if (isCached) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF81C784).withValues(alpha: 0.18),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(
+                                        Icons.check_circle_rounded,
+                                        size: 11,
+                                        color: Color(0xFF81C784),
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'Cached (0ms)',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF81C784),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: scheme.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Radio Stream',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: scheme.primary.withValues(alpha: 0.85),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
+                        ] else ...[
+                          Text(
+                            item.sourceDeviceId == null ? 'Local track' : 'Shared',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: isCurrent
+                                      ? scheme.primary.withValues(alpha: 0.8)
+                                      : scheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ],
+                      ],
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,

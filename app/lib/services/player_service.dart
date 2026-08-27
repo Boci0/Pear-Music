@@ -560,11 +560,11 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  /// Speculatively pre-caches a sliding window of upcoming tracks (+1, +2).
+  /// Speculatively pre-caches a sliding window of upcoming tracks (+1 to +4).
   void _preloadUpcomingStreams() {
     if (_queueIndex < 0 || _queue.isEmpty) return;
     final upcomingVideoIds = <String>[];
-    for (int offset = 1; offset <= 2; offset++) {
+    for (int offset = 1; offset <= 4; offset++) {
       final idx = _queueIndex + offset;
       if (idx < _queue.length) {
         final s = _queue[idx];

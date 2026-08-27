@@ -247,7 +247,7 @@ class StreamCacheManager {
             '10',
             '--no-cache-dir',
             '--extractor-args',
-            'youtube:player_client=android,web',
+            'youtube:player_skip=configs,webpage;player_client=android,web',
             'https://www.youtube.com/watch?v=$videoId',
           ]).timeout(const Duration(seconds: 25));
 

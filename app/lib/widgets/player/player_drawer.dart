@@ -235,22 +235,36 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         ),
                         if (StreamCacheManager.isStreamCachedSync(
                             song.id.replaceFirst('stream_', ''))) ...[
-                          const SizedBox(width: 5),
-                          Icon(
-                            Icons.check_circle_outline_rounded,
-                            size: 11,
-                            color: scheme.primary,
-                          ),
-                          const SizedBox(width: 2),
-                          Flexible(
-                            child: Text(
-                              'Buffered',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: scheme.primary,
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF81C784).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                                width: 0.8,
                               ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 10.5,
+                                  color: Color(0xFF81C784),
+                                ),
+                                SizedBox(width: 3),
+                                Text(
+                                  'Cached (0ms)',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF81C784),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
