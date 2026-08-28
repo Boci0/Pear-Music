@@ -21,7 +21,7 @@ class DebugLog {
   static final List<String> _buffer = [];
   static final StreamController<String> _liveController = StreamController<String>.broadcast();
   static final List<String> _recentLogs = [];
-  static const int _maxRecentLogs = 120;
+  static const int _maxRecentLogs = 80;
 
   /// Stream of live diagnostic log lines.
   static Stream<String> get stream => _liveController.stream;

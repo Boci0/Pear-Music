@@ -542,6 +542,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 mainHandler.post { result.error("download_failed", e.message, null) }
             } finally {
                 executors.remove(processId)?.shutdown()
+                System.gc()
             }
         }
     }
@@ -588,6 +589,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 mainHandler.post { result.error("resolve_failed", e.message, null) }
             } finally {
                 executor.shutdown()
+                System.gc()
             }
         }
     }
