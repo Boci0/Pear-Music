@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/debug_log.dart';
+import '../../services/stream_cache_manager.dart';
 
 /// Interactive live terminal diagnostics console for real-time stream inspection.
 class PlayerConsoleDialog extends StatefulWidget {
@@ -40,12 +44,37 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<String>? _sub;
+  Timer? _statsTimer;
   bool _autoScroll = true;
+
+  double _rssMb = 0.0;
+  int _cacheTrackCount = 0;
+  double _cacheMb = 0.0;
+  int _inFlightCount = 0;
+
+  void _updateStats() {
+    if (!mounted) return;
+    double rss = 0;
+    try {
+      if (!kIsWeb) {
+        rss = ProcessInfo.currentRss / (1024 * 1024);
+      }
+    } catch (_) {}
+    final stats = StreamCacheManager.getCacheStats();
+    setState(() {
+      _rssMb = rss;
+      _cacheTrackCount = stats.trackCount;
+      _cacheMb = stats.totalBytes / (1024 * 1024);
+      _inFlightCount = stats.inFlightCount;
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _logs.addAll(DebugLog.recentLogs);
+    _updateStats();
+    _statsTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) => _updateStats());
     _sub = DebugLog.stream.listen((line) {
       if (!mounted) return;
       setState(() {
@@ -72,6 +101,7 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
 
   @override
   void dispose() {
+    _statsTimer?.cancel();
     _sub?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -193,6 +223,39 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
               ],
             ),
           ),
+          // Live Resource Usage Bar (Lightweight O(1) in-memory stats, zero emojis)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF121824),
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                _buildStatItem(
+                  icon: Icons.memory_rounded,
+                  label: 'RAM: ${_rssMb.toStringAsFixed(1)} MB',
+                  color: const Color(0xFF81C784),
+                ),
+                _buildStatItem(
+                  icon: Icons.storage_rounded,
+                  label: 'Cache: $_cacheTrackCount tracks (${_cacheMb.toStringAsFixed(1)} MB)',
+                  color: const Color(0xFF64B5F6),
+                ),
+                _buildStatItem(
+                  icon: _inFlightCount > 0 ? Icons.downloading_rounded : Icons.check_circle_outline_rounded,
+                  label: 'Preload: ${_inFlightCount > 0 ? "Buffering $_inFlightCount" : "Idle"}',
+                  color: _inFlightCount > 0 ? const Color(0xFFFFB74D) : Colors.white60,
+                ),
+              ],
+            ),
+          ),
           // Console Output Area
           Expanded(
             child: Container(
@@ -233,6 +296,29 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'Consolas',
+          ),
+        ),
+      ],
     );
   }
 }

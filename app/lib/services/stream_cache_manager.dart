@@ -41,12 +41,23 @@ class StreamCacheManager {
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
   static final Lock _nativeDownloadLock = Lock();
   static int _slidingWindowSequence = 0;
+  static int _cachedTotalBytes = 0;
+
+  /// Returns live O(1) stats of cache size, track count, and active downloads.
+  static ({int trackCount, int totalBytes, int inFlightCount}) getCacheStats() {
+    return (
+      trackCount: _cachedVideoIds.length,
+      totalBytes: _cachedTotalBytes,
+      inFlightCount: _inFlightDownloads.length,
+    );
+  }
 
   /// Pre-scans existing cache files on app launch for instantaneous lookup.
   static Future<void> warmUp() async {
     try {
       final dir = await getCacheDirectory();
       final files = await dir.list().where((e) => e is File).cast<File>().toList();
+      int total = 0;
       for (final f in files) {
         final name = p.basename(f.path);
         if (name.contains('.tmp.') || name.contains('.part.') || name.startsWith('tmp_')) {
@@ -55,11 +66,14 @@ class StreamCacheManager {
           } catch (_) {}
           continue;
         }
-        if (await f.length() > 50000) {
+        final len = await f.length();
+        if (len > 50000) {
           final id = p.basenameWithoutExtension(name);
           _cachedVideoIds.add(id);
+          total += len;
         }
       }
+      _cachedTotalBytes = total;
       DebugLog.write('[cache] Warmed up ${_cachedVideoIds.length} tracks from disk cache');
       unawaited(enforceCacheQuota());
     } catch (e) {
@@ -175,6 +189,7 @@ class StreamCacheManager {
               }
               await tempPart.rename(targetFile.path);
               _cachedVideoIds.add(videoId);
+              _cachedTotalBytes += len;
               unawaited(enforceCacheQuota());
               stopwatch.stop();
               DebugLog.write(
@@ -226,6 +241,7 @@ class StreamCacheManager {
             }
             await tempPart.rename(targetFile.path);
             _cachedVideoIds.add(videoId);
+            _cachedTotalBytes += len;
             unawaited(enforceCacheQuota());
             stopwatch.stop();
             DebugLog.write(
@@ -295,6 +311,7 @@ class StreamCacheManager {
           _cachedVideoIds.remove(vId);
           await f.delete();
           totalSize -= size;
+          _cachedTotalBytes = (_cachedTotalBytes - size).clamp(0, 1 << 62);
         } catch (_) {}
       }
     } catch (e) {

@@ -175,7 +175,7 @@ class PlayerSongInfo extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         if (isStream)
-          _buildStreamRouteBadge(route, scheme)
+          _buildLoadTimeBadge(player.lastTrackLoadMs, route, scheme)
         else
           Text(
             song.sourceDeviceId == null
@@ -189,33 +189,28 @@ class PlayerSongInfo extends StatelessWidget {
     );
   }
 
-  Widget _buildStreamRouteBadge(StreamRouteType route, ColorScheme scheme) {
-    final (label, icon, color, bg) = switch (route) {
-      StreamRouteType.cached => (
-          'Cached',
-          Icons.offline_pin_rounded,
-          const Color(0xFF81C784),
-          const Color(0xFF1B2E1D),
-        ),
-      StreamRouteType.direct => (
-          'Direct Stream',
-          Icons.bolt_rounded,
-          scheme.primary,
-          scheme.primary.withValues(alpha: 0.15),
-        ),
-      StreamRouteType.fallback => (
-          'Fallback Stream',
-          Icons.alt_route_rounded,
-          const Color(0xFFFFB74D),
-          const Color(0xFF332412),
-        ),
-      StreamRouteType.local => (
-          'Local Stream',
-          Icons.music_note_rounded,
-          scheme.onSurfaceVariant,
-          scheme.surfaceContainerHighest,
-        ),
-    };
+  Widget _buildLoadTimeBadge(int loadMs, StreamRouteType route, ColorScheme scheme) {
+    final String label;
+    final IconData icon;
+    final Color color;
+    final Color bg;
+
+    if (route == StreamRouteType.cached || loadMs <= 30) {
+      label = '0 ms';
+      icon = Icons.bolt_rounded;
+      color = const Color(0xFF81C784);
+      bg = const Color(0xFF1B2E1D);
+    } else if (loadMs < 1000) {
+      label = '$loadMs ms';
+      icon = Icons.timer_outlined;
+      color = scheme.primary;
+      bg = scheme.primary.withValues(alpha: 0.15);
+    } else {
+      label = '${(loadMs / 1000).toStringAsFixed(1)} s';
+      icon = Icons.timer_outlined;
+      color = const Color(0xFFFFB74D);
+      bg = const Color(0xFF332412);
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),

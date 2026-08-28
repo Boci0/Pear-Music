@@ -80,6 +80,8 @@ class PlayerService extends ChangeNotifier {
 
   StreamRouteType _currentRouteType = StreamRouteType.local;
   StreamRouteType get currentRouteType => _currentRouteType;
+  int _lastTrackLoadMs = 0;
+  int get lastTrackLoadMs => _lastTrackLoadMs;
 
   Song? get song => currentSong;
   Duration? get position => _player.position;
@@ -437,6 +439,7 @@ class PlayerService extends ChangeNotifier {
     final effectiveArtUri = await ArtworkService.songArtworkUri(song);
     if (token != _playRequestToken) return;
 
+    final stopwatch = Stopwatch()..start();
     try {
       await _player.setLoopMode(LoopMode.off);
       if (token != _playRequestToken) return;
@@ -455,7 +458,8 @@ class PlayerService extends ChangeNotifier {
 
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
-          DebugLog.write('[player] Playing from DISK CACHE (0ms): ${song.title} [$videoId]');
+          _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+          DebugLog.write('[player] Playing from DISK CACHE (${_lastTrackLoadMs}ms): ${song.title} [$videoId]');
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
@@ -465,7 +469,8 @@ class PlayerService extends ChangeNotifier {
 
           if (streamUrl != null && streamUrl.startsWith('http')) {
             _currentRouteType = StreamRouteType.direct;
-            DebugLog.write('[player] Playing DIRECT STREAM: ${song.title} [$videoId]');
+            _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+            DebugLog.write('[player] Playing DIRECT STREAM (${_lastTrackLoadMs}ms): ${song.title} [$videoId]');
             await _player.setAudioSource(
               AudioSource.uri(
                 Uri.parse(streamUrl),
@@ -486,6 +491,8 @@ class PlayerService extends ChangeNotifier {
 
             if (downloadedFile != null && await downloadedFile.exists()) {
               _currentRouteType = StreamRouteType.cached;
+              _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+              DebugLog.write('[player] Playing from DOWNLOADED CACHE (${_lastTrackLoadMs}ms): ${song.title} [$videoId]');
               await _player.setAudioSource(
                 AudioSource.file(downloadedFile.path, tag: mediaTag),
               );
@@ -511,7 +518,8 @@ class PlayerService extends ChangeNotifier {
       } else {
         // Local song: play directly from local file
         _currentRouteType = StreamRouteType.local;
-        DebugLog.write('[player] Playing LOCAL file: ${song.title}');
+        _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+        DebugLog.write('[player] Playing LOCAL file (${_lastTrackLoadMs}ms): ${song.title}');
         final file = library.songFile(song);
         await _player.setAudioSource(
           AudioSource.file(
