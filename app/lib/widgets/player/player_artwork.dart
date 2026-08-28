@@ -192,7 +192,7 @@ class PlayerSongInfo extends StatelessWidget {
   Widget _buildStreamRouteBadge(StreamRouteType route, ColorScheme scheme) {
     final (label, icon, color, bg) = switch (route) {
       StreamRouteType.cached => (
-          'Cached (0ms)',
+          'Cached',
           Icons.offline_pin_rounded,
           const Color(0xFF81C784),
           const Color(0xFF1B2E1D),

@@ -142,15 +142,16 @@ class SongTile extends StatelessWidget {
     final fromPeer = song.sourceDeviceId != null;
     final isFav = controller.isFavorite(song.id);
 
-    return ListTile(
-      selected: isSelected,
-      tileColor: isCurrent
-          ? (theme.brightness == Brightness.dark
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-              : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
-          : null,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+    return RepaintBoundary(
+      child: ListTile(
+        selected: isSelected,
+        tileColor: isCurrent
+            ? (theme.brightness == Brightness.dark
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+                : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
+            : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       leading: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -237,8 +238,9 @@ class SongTile extends StatelessWidget {
         }
       },
       onLongPress: isSelecting ? null : (onLongPress ?? () => _showMenu(context)),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _Artwork extends StatelessWidget {

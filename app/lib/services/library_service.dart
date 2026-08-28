@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/playlist.dart';
 import '../models/song.dart';
+import 'youtube_service.dart';
 
 /// Owns the on-disk music library and its index.
 ///
@@ -576,7 +577,7 @@ class LibraryService extends ChangeNotifier {
         if (resp.statusCode == 200) {
           final bytes = await resp.fold<List<int>>([], (p, e) => p..addAll(e));
           if (bytes.isNotEmpty) {
-            effectiveArtwork = base64Encode(bytes);
+            effectiveArtwork = YoutubeService.downscaleToBase64(bytes) ?? base64Encode(bytes);
           }
         }
         client.close();

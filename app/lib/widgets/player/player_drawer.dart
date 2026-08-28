@@ -232,7 +232,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                           song.id.replaceFirst('stream_', ''))) ...[
                     const SizedBox(width: 6),
                     const Tooltip(
-                      message: 'Cached (0ms)',
+                      message: 'Cached',
                       child: Icon(
                         Icons.check_circle_rounded,
                         size: 13,

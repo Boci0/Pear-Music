@@ -497,6 +497,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         executors[processId] = executor
         executor.execute {
             try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
                 ensureInit(ctx)
                 fun makeAudioReq(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
@@ -508,10 +509,10 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-warnings")
                     req.addOption("--force-ipv4")
                     req.addOption("--no-check-certificates")
-                    req.addOption("--concurrent-fragments", "4")
+                    req.addOption("--concurrent-fragments", "1")
                     req.addOption("--buffer-size", "16k")
                     req.addOption("--http-chunk-size", "10M")
-                    req.addOption("--socket-timeout", "15")
+                    req.addOption("--socket-timeout", "20")
                     req.addOption("--retries", "3")
                     req.addOption("--fragment-retries", "3")
                     if (useExtractorArgs) {
