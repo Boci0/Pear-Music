@@ -572,19 +572,16 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  /// Speculatively pre-caches a sliding window of upcoming tracks (+1 to +4).
+  /// Speculatively pre-caches upcoming radio tracks along the current queue.
   void _preloadUpcomingStreams() {
     if (_queueIndex < 0 || _queue.isEmpty) return;
     final upcomingVideoIds = <String>[];
-    for (int offset = 1; offset <= 4; offset++) {
-      final idx = _queueIndex + offset;
-      if (idx < _queue.length) {
-        final s = _queue[idx];
-        if (s.sourceDeviceId == 'stream') {
-          final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-          if (vId.isNotEmpty) {
-            upcomingVideoIds.add(vId);
-          }
+    for (int idx = _queueIndex + 1; idx < _queue.length; idx++) {
+      final s = _queue[idx];
+      if (s.sourceDeviceId == 'stream') {
+        final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
+        if (vId.isNotEmpty) {
+          upcomingVideoIds.add(vId);
         }
       }
     }

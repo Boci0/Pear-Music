@@ -87,16 +87,15 @@ class StreamCacheManager {
     return null;
   }
 
-  /// Sequentially pre-downloads a sliding window of upcoming tracks (+1, +2)
-  /// in the background using a single-queue worker to avoid bandwidth contention.
+  /// Sequentially pre-downloads upcoming tracks along the current queue in the
+  /// background using a single-queue worker to avoid bandwidth contention.
   static void preloadSlidingWindow(
     List<String> videoIds, {
     void Function(String videoId)? onTrackCached,
   }) {
     final seq = ++_slidingWindowSequence;
     unawaited(() async {
-      // Limit preload strictly to next 2 upcoming tracks to conserve bandwidth
-      for (final id in videoIds.take(2)) {
+      for (final id in videoIds) {
         if (seq != _slidingWindowSequence) {
           DebugLog.write('[preload] Preload sequence aborted for $id');
           break;
