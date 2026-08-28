@@ -151,6 +151,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
         }
 
         return ListView.builder(
+          // Fixed extent (dense two-line ListTile): O(1) scroll geometry.
+          itemExtent: 64.0,
           itemCount: queue.length,
           itemBuilder: (context, i) {
             final song = queue[i];
@@ -171,7 +173,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         song.artwork!,
                         width: 36,
                         height: 36,
-                        cacheWidth: 72,
+                        cacheWidth: 96,
+                        cacheHeight: 96,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) =>
                             _iconPlaceholder(isCurrent, scheme),
@@ -192,7 +195,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                             bytes,
                             width: 36,
                             height: 36,
-                            cacheWidth: 72,
+                            cacheWidth: 96,
+                            cacheHeight: 96,
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) =>
                                 _iconPlaceholder(isCurrent, scheme),
@@ -426,6 +430,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           child: songs.isEmpty
               ? const Center(child: Text('No songs'))
               : ListView.builder(
+                  // Fixed extent (dense one-line ListTile): O(1) scroll geometry.
+                  itemExtent: 48.0,
                   itemCount: songs.length,
                   itemBuilder: (context, i) {
                     final s = songs[i];

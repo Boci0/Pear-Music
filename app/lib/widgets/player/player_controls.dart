@@ -131,36 +131,40 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         final maxMs = totalMs > 0 ? totalMs : 1.0;
         final clampedValue = currentMs.clamp(0.0, maxMs);
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Slider(
-              value: clampedValue,
-              max: maxMs,
-              onChangeStart: (ms) => setState(() => _dragMs = ms),
-              onChanged: (ms) => setState(() => _dragMs = ms),
-              onChangeEnd: (ms) {
-                widget.player.seek(Duration(milliseconds: ms.round()));
-                setState(() => _dragMs = null);
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _fmt(Duration(milliseconds: clampedValue.round())),
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                  Text(
-                    _fmt(widget.duration),
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                ],
+        // RepaintBoundary isolates the ticking slider and time-row repaints
+        // from the album art and background canvas layers.
+        return RepaintBoundary(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Slider(
+                value: clampedValue,
+                max: maxMs,
+                onChangeStart: (ms) => setState(() => _dragMs = ms),
+                onChanged: (ms) => setState(() => _dragMs = ms),
+                onChangeEnd: (ms) {
+                  widget.player.seek(Duration(milliseconds: ms.round()));
+                  setState(() => _dragMs = null);
+                },
               ),
-            ),
-          ],
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _fmt(Duration(milliseconds: clampedValue.round())),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    Text(
+                      _fmt(widget.duration),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
     );

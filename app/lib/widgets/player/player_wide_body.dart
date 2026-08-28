@@ -342,6 +342,9 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
           ),
           child: ListView.builder(
             controller: _scrollController,
+            // Fixed extent (dense two-line ListTile + 2px vertical padding):
+            // O(1) scroll geometry.
+            itemExtent: 68.0,
             itemCount: queue.length,
             itemBuilder: (context, i) {
               final item = queue[i];
@@ -392,7 +395,8 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                     item.artwork!,
                                     width: 36,
                                     height: 36,
-                                    cacheWidth: 72,
+                                    cacheWidth: 96,
+                                    cacheHeight: 96,
                                     fit: BoxFit.cover,
                                     gaplessPlayback: true,
                                     errorBuilder: (_, _, _) => Container(
@@ -412,7 +416,8 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                           bytes,
                                           width: 36,
                                           height: 36,
-                                          cacheWidth: 72,
+                                          cacheWidth: 96,
+                                          cacheHeight: 96,
                                           fit: BoxFit.cover,
                                           gaplessPlayback: true,
                                           errorBuilder: (_, _, _) => Container(
