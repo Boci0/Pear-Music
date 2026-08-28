@@ -366,6 +366,43 @@ class StreamCacheManager {
     }
   }
 
+  /// Fast-path extraction of direct CDN stream URL via embedded yt-dlp.
+  /// Resolves the stream URL so playback can start without waiting for the full file to download to disk.
+  static Future<String?> extractDirectStreamUrl(String videoId) async {
+    final url = 'https://www.youtube.com/watch?v=$videoId';
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        const channel = MethodChannel('peerm/ytdlp');
+        final res = await channel.invokeMethod<String>('getStreamUrl', {'url': url})
+            .timeout(const Duration(seconds: 10));
+        if (res != null && res.startsWith('http')) return res;
+      } catch (_) {}
+    } else if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      try {
+        final res = await Process.run(
+          'yt-dlp',
+          [
+            '-g',
+            '-f',
+            'bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio/ba/best',
+            '--no-playlist',
+            '--force-ipv4',
+            '--no-warnings',
+            url,
+          ],
+        ).timeout(const Duration(seconds: 7));
+        if (res.exitCode == 0) {
+          final out = res.stdout.toString().trim();
+          final lines = out.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.startsWith('http')).toList();
+          if (lines.isNotEmpty) {
+            return lines.first;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
   /// Clean up resources on shutdown.
   static void dispose() {}
 }

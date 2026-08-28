@@ -481,11 +481,23 @@ class PlayerService extends ChangeNotifier {
             }
           } catch (_) {}
 
+          if (directStreamSource == null) {
+            try {
+              final directUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
+              if (directUrl != null && directUrl.startsWith('http')) {
+                directStreamSource = AudioSource.uri(
+                  Uri.parse(directUrl),
+                  tag: mediaTag,
+                );
+              }
+            } catch (_) {}
+          }
+
           if (token != _playRequestToken) return;
 
           if (directStreamSource != null) {
             _currentRouteType = StreamRouteType.direct;
-            DebugLog.write('[player] Playing DIRECT INNERTUBE STREAM: ${song.title} [$videoId]');
+            DebugLog.write('[player] Playing DIRECT STREAM: ${song.title} [$videoId]');
             await _player.setAudioSource(directStreamSource);
           } else {
             // Fallback: wait for disk cache download

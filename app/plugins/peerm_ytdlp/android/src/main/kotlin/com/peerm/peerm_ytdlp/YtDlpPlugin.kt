@@ -554,6 +554,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         val executor = Executors.newSingleThreadExecutor()
         executor.execute {
             try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
                 ensureInit(ctx)
                 fun makeUrlReq(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
