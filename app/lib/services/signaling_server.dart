@@ -308,22 +308,26 @@ class SignalingServer {
         try {
           socket.joinMulticast(InternetAddress(multicastGroup));
         } catch (_) {}
-        socket.listen((event) {
-          if (event != RawSocketEvent.read) return;
-          final dg = socket.receive();
-          if (dg == null) return;
-          final msg = utf8.decode(dg.data, allowMalformed: true).trim();
-          if (msg.contains(_probeType)) {
-            try {
-              socket.send(
-                utf8.encode(jsonEncode(_helloJson())),
-                dg.address,
-                dg.port,
-              );
-              _log('[discover] answered probe from ${dg.address.address}');
-            } catch (_) {}
-          }
-        });
+        socket.listen(
+          (event) {
+            if (event != RawSocketEvent.read) return;
+            final dg = socket.receive();
+            if (dg == null) return;
+            final msg = utf8.decode(dg.data, allowMalformed: true).trim();
+            if (msg.contains(_probeType)) {
+              try {
+                socket.send(
+                  utf8.encode(jsonEncode(_helloJson())),
+                  dg.address,
+                  dg.port,
+                );
+                _log('[discover] answered probe from ${dg.address.address}');
+              } catch (_) {}
+            }
+          },
+          onError: (Object _) {},
+          cancelOnError: false,
+        );
         _log('[discover] multicast listening on $multicastGroup:$port');
       }).catchError((Object e) {
         _log('[discover] multicast unavailable: $e');

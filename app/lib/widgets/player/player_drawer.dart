@@ -243,45 +243,78 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (isUpcoming)
+                  if (isLocked)
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints:
-                          const BoxConstraints(minWidth: 30, minHeight: 30),
+                          const BoxConstraints(minWidth: 28, minHeight: 28),
                       icon: Icon(
-                        isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                        size: 18,
-                        color: isLocked
-                            ? scheme.primary
-                            : scheme.onSurfaceVariant.withValues(alpha: 0.45),
+                        Icons.lock_rounded,
+                        size: 16,
+                        color: scheme.primary,
                       ),
-                      tooltip: isLocked
-                          ? 'Locked in queue (preserved during reroll)'
-                          : 'Lock in queue',
+                      tooltip: 'Locked (tap to unlock)',
                       onPressed: () => player.toggleSongLock(song.id),
                     ),
-                  if (isStream)
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 30, minHeight: 30),
-                      icon: const Icon(Icons.download_rounded, size: 18),
-                      tooltip: 'Save to library',
-                      onPressed: () {
-                        final appCtrl = context.read<AppController>();
-                        appCtrl.saveStreamToLibrary(song);
-                      },
+                  PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.more_vert_rounded,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
                     ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                    tooltip: 'Remove from queue',
-                    onPressed: () => controller.removeFromQueue(i),
+                        const BoxConstraints(minWidth: 28, minHeight: 28),
+                    onSelected: (action) {
+                      if (action == 'lock') {
+                        player.toggleSongLock(song.id);
+                      } else if (action == 'save') {
+                        context.read<AppController>().saveStreamToLibrary(song);
+                      } else if (action == 'remove') {
+                        controller.removeFromQueue(i);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      if (isUpcoming)
+                        PopupMenuItem(
+                          value: 'lock',
+                          child: Row(
+                            children: [
+                              Icon(
+                                isLocked
+                                    ? Icons.lock_open_rounded
+                                    : Icons.lock_rounded,
+                                size: 18,
+                                color: isLocked ? null : scheme.primary,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(isLocked ? 'Unlock track' : 'Lock track'),
+                            ],
+                          ),
+                        ),
+                      if (isStream)
+                        const PopupMenuItem(
+                          value: 'save',
+                          child: Row(
+                            children: [
+                              Icon(Icons.download_rounded, size: 18),
+                              const SizedBox(width: 10),
+                              Text('Save to library'),
+                            ],
+                          ),
+                        ),
+                      const PopupMenuItem(
+                        value: 'remove',
+                        child: Row(
+                          children: [
+                            Icon(Icons.close_rounded, size: 18),
+                            const SizedBox(width: 10),
+                            Text('Remove from queue'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

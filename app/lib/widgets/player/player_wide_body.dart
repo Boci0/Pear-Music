@@ -476,32 +476,16 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (isUpcoming)
+                        if (isLocked)
                           IconButton(
                             iconSize: 18,
-                            tooltip: isLocked
-                                ? 'Locked in queue (preserved during reroll)'
-                                : 'Lock in queue',
+                            tooltip: 'Locked (tap to unlock)',
                             icon: Icon(
-                              isLocked
-                                  ? Icons.lock_rounded
-                                  : Icons.lock_open_rounded,
-                              color: isLocked
-                                  ? scheme.primary
-                                  : scheme.onSurfaceVariant.withValues(alpha: 0.45),
+                              Icons.lock_rounded,
+                              color: scheme.primary,
                             ),
                             onPressed: () =>
                                 widget.player.toggleSongLock(item.id),
-                          ),
-                        if (item.sourceDeviceId == 'stream')
-                          IconButton(
-                            iconSize: 18,
-                            tooltip: 'Save to library',
-                            icon: Icon(Icons.download_rounded,
-                                color: scheme.tertiary),
-                            onPressed: () => context
-                                .read<AppController>()
-                                .saveStreamToLibrary(item),
                           ),
                         if (isCurrent)
                           Container(
@@ -522,13 +506,68 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                               ),
                             ),
                           ),
-                        IconButton(
-                          iconSize: 18,
-                          tooltip: 'Remove from queue',
-                          icon: const Icon(Icons.close_rounded),
-                          onPressed: () => context
-                              .read<AppController>()
-                              .removeFromQueue(i),
+                        PopupMenuButton<String>(
+                          icon: Icon(
+                            Icons.more_vert_rounded,
+                            size: 18,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints:
+                              const BoxConstraints(minWidth: 28, minHeight: 28),
+                          onSelected: (action) {
+                            if (action == 'lock') {
+                              widget.player.toggleSongLock(item.id);
+                            } else if (action == 'save') {
+                              context
+                                  .read<AppController>()
+                                  .saveStreamToLibrary(item);
+                            } else if (action == 'remove') {
+                              context
+                                  .read<AppController>()
+                                  .removeFromQueue(i);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            if (isUpcoming)
+                              PopupMenuItem(
+                                value: 'lock',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      isLocked
+                                          ? Icons.lock_open_rounded
+                                          : Icons.lock_rounded,
+                                      size: 18,
+                                      color: isLocked ? null : scheme.primary,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(isLocked ? 'Unlock track' : 'Lock track'),
+                                  ],
+                                ),
+                              ),
+                            if (item.sourceDeviceId == 'stream')
+                              const PopupMenuItem(
+                                value: 'save',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.download_rounded, size: 18),
+                                    const SizedBox(width: 10),
+                                    Text('Save to library'),
+                                  ],
+                                ),
+                              ),
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.close_rounded, size: 18),
+                                  const SizedBox(width: 10),
+                                  Text('Remove from queue'),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
