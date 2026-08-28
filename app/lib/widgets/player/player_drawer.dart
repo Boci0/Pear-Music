@@ -73,6 +73,15 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   const Spacer(),
                   IconButton(
                     iconSize: 20,
+                    tooltip: 'Reroll seed (reroll upcoming recommendations)',
+                    icon: Icon(
+                      Icons.casino_outlined,
+                      color: scheme.primary,
+                    ),
+                    onPressed: () => player.rerollUpcomingQueue(),
+                  ),
+                  IconButton(
+                    iconSize: 20,
                     tooltip: player.autoplay
                         ? 'Autoplay ON (Similar tracks)'
                         : 'Autoplay OFF',
@@ -141,25 +150,14 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           );
         }
 
-        return ReorderableListView.builder(
-          buildDefaultDragHandles: false,
-          proxyDecorator: (child, index, animation) {
-            return Material(
-              elevation: 6,
-              color: scheme.surfaceContainerHigh,
-              shadowColor: Colors.black45,
-              borderRadius: BorderRadius.circular(10),
-              child: child,
-            );
-          },
-          onReorder: (oldIdx, newIdx) {
-            controller.reorderQueue(oldIdx, newIdx);
-          },
+        return ListView.builder(
           itemCount: queue.length,
           itemBuilder: (context, i) {
             final song = queue[i];
             final isCurrent = i == player.queueIndex;
             final isStream = song.sourceDeviceId == 'stream';
+            final isUpcoming = i > player.queueIndex;
+            final isLocked = player.isSongLocked(song.id);
             final isNetwork =
                 song.artwork != null && song.artwork!.startsWith('http');
 
@@ -245,6 +243,24 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (isUpcoming)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 30, minHeight: 30),
+                      icon: Icon(
+                        isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                        size: 18,
+                        color: isLocked
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant.withValues(alpha: 0.45),
+                      ),
+                      tooltip: isLocked
+                          ? 'Locked in queue (preserved during reroll)'
+                          : 'Lock in queue',
+                      onPressed: () => player.toggleSongLock(song.id),
+                    ),
                   if (isStream)
                     IconButton(
                       visualDensity: VisualDensity.compact,
@@ -266,17 +282,6 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     icon: const Icon(Icons.close_rounded, size: 18),
                     tooltip: 'Remove from queue',
                     onPressed: () => controller.removeFromQueue(i),
-                  ),
-                  ReorderableDragStartListener(
-                    index: i,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 4, right: 2),
-                      child: Icon(
-                        Icons.drag_handle_rounded,
-                        size: 20,
-                        color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
-                      ),
-                    ),
                   ),
                 ],
               ),

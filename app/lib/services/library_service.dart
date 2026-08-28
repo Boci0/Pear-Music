@@ -31,6 +31,13 @@ class LibraryService extends ChangeNotifier {
   final Set<String> _filesOnDisk = {};
   List<Song> get songs => List.unmodifiable(_songs);
 
+  @visibleForTesting
+  void setSongsForTesting(List<Song> songs) {
+    _songs.clear();
+    _songs.addAll(songs);
+    _rebuildIndexMaps();
+  }
+
   void _rebuildIndexMaps() {
     _songsById.clear();
     _checksums.clear();

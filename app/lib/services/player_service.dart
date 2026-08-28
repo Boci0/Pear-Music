@@ -52,6 +52,7 @@ class PlayerService extends ChangeNotifier {
   LoopSetting _loopMode = LoopSetting.off;
   bool _shuffle = false;
   bool _autoplay = true;
+  final Set<String> _lockedSongIds = {};
 
   String? _continuationToken;
   bool _isLoadingRecommendations = false;
@@ -114,6 +115,18 @@ class PlayerService extends ChangeNotifier {
   LoopSetting get loopMode => _loopMode;
   bool get shuffle => _shuffle;
   bool get autoplay => _autoplay;
+  Set<String> get lockedSongIds => Set.unmodifiable(_lockedSongIds);
+
+  bool isSongLocked(String songId) => _lockedSongIds.contains(songId);
+
+  void toggleSongLock(String songId) {
+    if (_lockedSongIds.contains(songId)) {
+      _lockedSongIds.remove(songId);
+    } else {
+      _lockedSongIds.add(songId);
+    }
+    notifyListeners();
+  }
 
   void setAutoplay(bool value) {
     if (_autoplay == value) return;
@@ -371,6 +384,80 @@ class PlayerService extends ChangeNotifier {
       return false;
     } catch (e) {
       DebugLog.write('[radio] fetchAndAppendRecommendations error: $e');
+      return false;
+    } finally {
+      _isLoadingRecommendations = false;
+      notifyListeners();
+    }
+  }
+
+  /// Rerolls upcoming recommendations in the queue (songs after current song).
+  /// Preserves any tracks explicitly marked as locked in the upcoming queue.
+  Future<bool> rerollUpcomingQueue() async {
+    if (currentSong == null || _queue.isEmpty) return false;
+    if (_isLoadingRecommendations) return false;
+    _isLoadingRecommendations = true;
+    notifyListeners();
+
+    try {
+      final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
+      final head = _queue.sublist(0, activeIndex + 1);
+      final upcoming = _queue.length > activeIndex + 1 ? _queue.sublist(activeIndex + 1) : <Song>[];
+      final lockedUpcoming = upcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
+
+      // Reset continuation token so we query fresh recommendations
+      _continuationToken = null;
+
+      final excludeIds = RecommendationService.normalizeVideoIds([
+        ...head.map((s) => s.id),
+        ...lockedUpcoming.map((s) => s.id),
+      ]);
+
+      final seed = currentSong ?? head.last;
+      DebugLog.write('[radio] Rerolling seed for "${seed.title}" (preserving ${lockedUpcoming.length} locked tracks)');
+
+      final batch = await RecommendationService.fetchRadio(
+        seed,
+        excludeVideoIds: excludeIds,
+      );
+
+      final freshSongs = <Song>[];
+      if (batch.items.isNotEmpty) {
+        _continuationToken = batch.continuationToken;
+        final existingVideoIds = Set<String>.from(excludeIds);
+        final existingTitles = [
+          ...head.map((s) => s.title.toLowerCase().trim()),
+          ...lockedUpcoming.map((s) => s.title.toLowerCase().trim()),
+        ].toSet();
+
+        for (final item in batch.items) {
+          if (existingVideoIds.contains(item.videoId)) continue;
+          final cleanSong = item.toSong();
+          final cleanTitle = cleanSong.title.toLowerCase().trim();
+          if (existingTitles.contains(cleanTitle)) continue;
+
+          existingVideoIds.add(item.videoId);
+          existingTitles.add(cleanTitle);
+          freshSongs.add(cleanSong);
+        }
+      }
+
+      if (freshSongs.isEmpty) {
+        final offline = RecommendationService.getOfflineRecommendations(
+          seed,
+          library.songs,
+          excludeSongIds: excludeIds,
+        );
+        freshSongs.addAll(offline);
+      }
+
+      _queue = [...head, ...lockedUpcoming, ...freshSongs];
+      _preloadUpcomingStreams();
+      DebugLog.write('[radio] Reroll complete: queue now has ${_queue.length} tracks (${lockedUpcoming.length} locked, ${freshSongs.length} new)');
+      notifyListeners();
+      return true;
+    } catch (e) {
+      DebugLog.write('[radio] Reroll failed: $e');
       return false;
     } finally {
       _isLoadingRecommendations = false;

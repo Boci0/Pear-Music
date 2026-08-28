@@ -171,6 +171,17 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                           if (_selectedTab == 0) ...[
                             IconButton(
                               iconSize: 18,
+                              tooltip:
+                                  'Reroll seed (reroll upcoming recommendations)',
+                              icon: Icon(
+                                Icons.casino_outlined,
+                                color: scheme.primary,
+                              ),
+                              onPressed: () =>
+                                  player.rerollUpcomingQueue(),
+                            ),
+                            IconButton(
+                              iconSize: 18,
                               tooltip: player.autoplay
                                   ? 'Autoplay ON (Similar tracks)'
                                   : 'Autoplay OFF',
@@ -329,24 +340,14 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
             highlightColor: Colors.transparent,
             splashColor: scheme.primary.withValues(alpha: 0.12),
           ),
-          child: ReorderableListView.builder(
-            buildDefaultDragHandles: false,
-            proxyDecorator: (child, index, animation) {
-              return Material(
-                elevation: 6,
-                color: scheme.surfaceContainerHigh,
-                shadowColor: Colors.black45,
-                borderRadius: BorderRadius.circular(12),
-                child: child,
-              );
-            },
-            scrollController: _scrollController,
-            onReorder: (oldIdx, newIdx) =>
-                context.read<AppController>().reorderQueue(oldIdx, newIdx),
+          child: ListView.builder(
+            controller: _scrollController,
             itemCount: queue.length,
             itemBuilder: (context, i) {
               final item = queue[i];
               final isCurrent = item.id == widget.currentSong.id;
+              final isUpcoming = i > widget.player.queueIndex;
+              final isLocked = widget.player.isSongLocked(item.id);
               return Padding(
                 key: ValueKey('wide_queue_${item.id}_$i'),
                 padding: const EdgeInsets.symmetric(vertical: 2),
@@ -475,6 +476,23 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (isUpcoming)
+                          IconButton(
+                            iconSize: 18,
+                            tooltip: isLocked
+                                ? 'Locked in queue (preserved during reroll)'
+                                : 'Lock in queue',
+                            icon: Icon(
+                              isLocked
+                                  ? Icons.lock_rounded
+                                  : Icons.lock_open_rounded,
+                              color: isLocked
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant.withValues(alpha: 0.45),
+                            ),
+                            onPressed: () =>
+                                widget.player.toggleSongLock(item.id),
+                          ),
                         if (item.sourceDeviceId == 'stream')
                           IconButton(
                             iconSize: 18,
@@ -511,17 +529,6 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                           onPressed: () => context
                               .read<AppController>()
                               .removeFromQueue(i),
-                        ),
-                        ReorderableDragStartListener(
-                          index: i,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Icon(
-                              Icons.drag_handle_rounded,
-                              size: 20,
-                              color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
-                            ),
-                          ),
                         ),
                       ],
                     ),

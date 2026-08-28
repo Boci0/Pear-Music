@@ -88,5 +88,62 @@ void main() {
       // When checking queue source, it is clearly identified as a playlist
       expect(player.queueSourceId?.startsWith('playlist:'), isTrue);
     });
+
+    test('toggleSongLock toggles locked status correctly', () {
+      expect(player.isSongLocked('b'), isFalse);
+      expect(player.lockedSongIds.contains('b'), isFalse);
+
+      player.toggleSongLock('b');
+      expect(player.isSongLocked('b'), isTrue);
+      expect(player.lockedSongIds.contains('b'), isTrue);
+
+      player.toggleSongLock('b');
+      expect(player.isSongLocked('b'), isFalse);
+      expect(player.lockedSongIds.contains('b'), isFalse);
+    });
+
+    test('rerollUpcomingQueue preserves previous, current, and locked songs while refreshing unlocked upcoming songs', () async {
+      final songD = Song(
+        id: 'd',
+        title: 'Delta',
+        fileName: 'd.mp3',
+        size: 400,
+        checksum: 'chk_d',
+        addedAt: DateTime(2026, 1, 4),
+      );
+      final songE = Song(
+        id: 'e',
+        title: 'Epsilon',
+        fileName: 'e.mp3',
+        size: 500,
+        checksum: 'chk_e',
+        addedAt: DateTime(2026, 1, 5),
+      );
+
+      // Queue: [A (past), B (current), C (unlocked upcoming), D (locked upcoming)]
+      player.updateQueue([songA, songB, songC, songD]);
+      player.currentSong = songB;
+      player.updateQueue([songA, songB, songC, songD]); // queueIndex is 1
+
+      // Add offline songs to library for offline recommendation fallback
+      library.setSongsForTesting([songA, songB, songC, songD, songE]);
+
+      // Lock song D
+      player.toggleSongLock('d');
+      expect(player.isSongLocked('d'), isTrue);
+
+      final ok = await player.rerollUpcomingQueue();
+      expect(ok, isTrue);
+
+      // Song A and B are preserved (past and current)
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'b');
+
+      // Locked song D is preserved in upcoming queue
+      expect(player.queue.any((s) => s.id == 'd'), isTrue);
+
+      // Unlocked song C was removed and replaced by fallback/fresh recommendations (songE)
+      expect(player.queue.any((s) => s.id == 'e'), isTrue);
+    });
   });
 }
