@@ -455,18 +455,19 @@ class PlayerService extends ChangeNotifier {
 
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
-          DebugLog.write('[player] Playing from LOCAL CACHE: ${song.title} [$videoId]');
+          DebugLog.write('[player] Playing from DISK CACHE (0ms): ${song.title} [$videoId]');
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
         } else {
-          // Pure In-Memory Direct Streaming (0 SSD writes)
+          // Fast-start direct stream while 2-track rolling buffer caches in background
+          unawaited(StreamCacheManager.ensureStreamCached(videoId));
           final streamUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
           if (token != _playRequestToken) return;
 
           if (streamUrl != null && streamUrl.startsWith('http')) {
             _currentRouteType = StreamRouteType.direct;
-            DebugLog.write('[player] Playing IN-MEMORY STREAM (0 SSD writes): ${song.title} [$videoId]');
+            DebugLog.write('[player] Playing DIRECT STREAM: ${song.title} [$videoId]');
             await _player.setAudioSource(
               AudioSource.uri(
                 Uri.parse(streamUrl),
@@ -479,21 +480,32 @@ class PlayerService extends ChangeNotifier {
               ),
             );
           } else {
-            _consecutiveStreamFailures++;
-            DebugLog.write(
-              '[player] Stream failed for ${song.title} '
-              '(failure $_consecutiveStreamFailures/3)',
-            );
-            if (_consecutiveStreamFailures >= 3) {
-              DebugLog.write('[player] Circuit breaker tripped, halting playback');
-              _isAdvancing = false;
-              _isLoadingTrack = false;
-              await _player.pause();
-              notifyListeners();
+            // Fallback: wait for cached file
+            final downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
+            if (token != _playRequestToken) return;
+
+            if (downloadedFile != null && await downloadedFile.exists()) {
+              _currentRouteType = StreamRouteType.cached;
+              await _player.setAudioSource(
+                AudioSource.file(downloadedFile.path, tag: mediaTag),
+              );
+            } else {
+              _consecutiveStreamFailures++;
+              DebugLog.write(
+                '[player] Stream failed for ${song.title} '
+                '(failure $_consecutiveStreamFailures/3)',
+              );
+              if (_consecutiveStreamFailures >= 3) {
+                DebugLog.write('[player] Circuit breaker tripped, halting playback');
+                _isAdvancing = false;
+                _isLoadingTrack = false;
+                await _player.pause();
+                notifyListeners();
+                return;
+              }
+              unawaited(next());
               return;
             }
-            unawaited(next());
-            return;
           }
         }
       } else {

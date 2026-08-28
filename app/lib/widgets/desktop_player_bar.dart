@@ -171,9 +171,11 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                                   ? Icons.pause_circle_filled
                                   : Icons.play_circle_filled,
                               size: 36,
-                              color: control,
+                              color: player.isLoadingTrack
+                                  ? control.withValues(alpha: 0.38)
+                                  : control,
                             ),
-                            onPressed: () => controller.togglePlayback(),
+                            onPressed: player.isLoadingTrack ? null : () => controller.togglePlayback(),
                           ),
                           const SizedBox(width: 4),
                           IconButton(

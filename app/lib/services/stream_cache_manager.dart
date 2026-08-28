@@ -37,6 +37,7 @@ class StreamCacheManager {
 
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
+  static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
   static int _slidingWindowSequence = 0;
 
   /// Pre-scans existing cache files on app launch for instantaneous lookup.
@@ -87,17 +88,15 @@ class StreamCacheManager {
     return null;
   }
 
-  static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
-
-  /// Sequentially pre-resolves direct stream URLs for upcoming tracks into RAM.
-  /// Keeps playback seamless and instant with ZERO SSD writes.
+  /// Sequentially pre-downloads a tight 2-track sliding window (+1, +2)
+  /// in the background using a single-queue worker to enable instant 0ms playback.
   static void preloadSlidingWindow(
     List<String> videoIds, {
     void Function(String videoId)? onTrackCached,
   }) {
     final seq = ++_slidingWindowSequence;
     unawaited(() async {
-      // Pre-resolve direct stream URLs for the immediate upcoming 2 tracks
+      // Strictly limit lookahead buffer to 2 tracks to minimize SSD writes (~6 MB max)
       for (final id in videoIds.take(2)) {
         if (seq != _slidingWindowSequence) {
           DebugLog.write('[preload] Preload sequence aborted for $id');
@@ -110,17 +109,12 @@ class StreamCacheManager {
           onTrackCached?.call(id);
           continue;
         }
-        final cachedUrl = _streamUrlMemoryCache[id];
-        if (cachedUrl != null && DateTime.now().isBefore(cachedUrl.expiresAt)) {
-          onTrackCached?.call(id);
-          continue;
-        }
         try {
-          DebugLog.write('[preload] Pre-resolving stream URL in RAM: $id');
-          final url = await extractDirectStreamUrl(id);
+          DebugLog.write('[preload] Buffering upcoming track: $id');
+          final file = await ensureStreamCached(id);
           if (seq != _slidingWindowSequence) break;
-          if (url != null) {
-            DebugLog.write('[preload] Pre-resolved stream URL ready in RAM: $id');
+          if (file != null) {
+            DebugLog.write('[preload] Buffered upcoming track ready on disk: $id');
             onTrackCached?.call(id);
           }
         } catch (_) {}
