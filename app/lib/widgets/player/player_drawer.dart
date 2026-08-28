@@ -173,6 +173,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         song.artwork!,
                         width: 36,
                         height: 36,
+                        cacheWidth: 72,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) =>
                             _iconPlaceholder(isCurrent, scheme),

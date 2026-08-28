@@ -48,6 +48,7 @@ class PlayerArtwork extends StatelessWidget {
                 networkUrl!,
                 width: size,
                 height: size,
+                cacheWidth: 384,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 errorBuilder: (_, _, _) => _placeholder(scheme),
@@ -57,6 +58,7 @@ class PlayerArtwork extends StatelessWidget {
                     artwork!,
                     width: size,
                     height: size,
+                    cacheWidth: 384,
                     fit: BoxFit.cover,
                     gaplessPlayback: true,
                   )

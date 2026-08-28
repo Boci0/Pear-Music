@@ -391,6 +391,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                     item.artwork!,
                                     width: 36,
                                     height: 36,
+                                    cacheWidth: 72,
                                     fit: BoxFit.cover,
                                     gaplessPlayback: true,
                                     errorBuilder: (_, _, _) => Container(
@@ -410,6 +411,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                           bytes,
                                           width: 36,
                                           height: 36,
+                                          cacheWidth: 72,
                                           fit: BoxFit.cover,
                                           gaplessPlayback: true,
                                           errorBuilder: (_, _, _) => Container(
