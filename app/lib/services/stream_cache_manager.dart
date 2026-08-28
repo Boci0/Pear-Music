@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
@@ -38,6 +39,7 @@ class StreamCacheManager {
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
+  static final Lock _nativeDownloadLock = Lock();
   static int _slidingWindowSequence = 0;
 
   /// Pre-scans existing cache files on app launch for instantaneous lookup.
@@ -151,34 +153,38 @@ class StreamCacheManager {
         } catch (_) {}
       }
 
-      // Method 2: Android native embedded yt-dlp fast audio download
+      // Method 2: Android native embedded yt-dlp fast audio download (serialized to prevent Python lock contention)
       if (YoutubeService.isEmbeddedYtDlpSupported) {
         try {
-          DebugLog.write('[fallback] Trying Android embedded yt-dlp: $videoId');
-          const channel = MethodChannel('peerm/ytdlp');
-          final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
-          final res = await channel.invokeMethod('downloadAudioFast', {
-            'url': 'https://www.youtube.com/watch?v=$videoId',
-            'outputPath': tempPart.path,
-            'processId': processId,
-          }).timeout(const Duration(seconds: 45));
+          await _nativeDownloadLock.synchronized(() async {
+            DebugLog.write('[fallback] Trying Android embedded yt-dlp: $videoId');
+            const channel = MethodChannel('peerm/ytdlp');
+            final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
+            await channel.invokeMethod('downloadAudioFast', {
+              'url': 'https://www.youtube.com/watch?v=$videoId',
+              'outputPath': tempPart.path,
+              'processId': processId,
+            }).timeout(const Duration(seconds: 45));
 
-          final len = await tempPart.exists() ? await tempPart.length() : 0;
-          if (len > 50000) {
-            if (await targetFile.exists()) {
-              try {
-                await targetFile.delete();
-              } catch (_) {}
+            final len = await tempPart.exists() ? await tempPart.length() : 0;
+            if (len > 50000) {
+              if (await targetFile.exists()) {
+                try {
+                  await targetFile.delete();
+                } catch (_) {}
+              }
+              await tempPart.rename(targetFile.path);
+              _cachedVideoIds.add(videoId);
+              unawaited(enforceCacheQuota());
+              stopwatch.stop();
+              DebugLog.write(
+                '[fallback] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
+              );
+              completer.complete(targetFile);
             }
-            await tempPart.rename(targetFile.path);
-            _cachedVideoIds.add(videoId);
-            unawaited(enforceCacheQuota());
-            stopwatch.stop();
-            DebugLog.write(
-              '[fallback] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
-            );
-            completer.complete(targetFile);
-            return targetFile;
+          });
+          if (completer.isCompleted) {
+            return await completer.future;
           }
         } catch (e) {
           DebugLog.write('[fallback] Android yt-dlp failed for $videoId: $e');

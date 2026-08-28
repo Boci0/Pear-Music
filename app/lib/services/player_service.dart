@@ -460,8 +460,6 @@ class PlayerService extends ChangeNotifier {
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
         } else {
-          // Fast-start direct stream while 2-track rolling buffer caches in background
-          unawaited(StreamCacheManager.ensureStreamCached(videoId));
           final streamUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
           if (token != _playRequestToken) return;
 
@@ -479,6 +477,8 @@ class PlayerService extends ChangeNotifier {
                 tag: mediaTag,
               ),
             );
+            // Asynchronously cache in background once playback has started
+            unawaited(StreamCacheManager.ensureStreamCached(videoId));
           } else {
             // Fallback: wait for cached file
             final downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
