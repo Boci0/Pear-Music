@@ -24,6 +24,10 @@ import 'services/youtube_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Clamp Flutter image cache to 25 MB to prevent high memory usage on mobile devices
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 25 * 1024 * 1024;
+  PaintingBinding.instance.imageCache.maximumSize = 80;
+
   // Mirror every debugPrint into a rotating peerm_debug.log file so release
   // builds (no console on Windows) can still be diagnosed in the field:
   // post-transfer lag, resend loops and reconnect churn all leave traces.

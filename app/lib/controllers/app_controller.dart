@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 import '../models/peer_device.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
+import '../services/artwork_palette.dart';
 import '../services/identity_service.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
@@ -446,6 +447,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         state == AppLifecycleState.hidden) {
       debugPrint('[app] app backgrounded: flushing pending saves & releasing idle workers');
       library.flushSaveIndex();
+      ArtworkPalette.compactMemory();
+      PaintingBinding.instance.imageCache.clearLiveImages();
       if (!player.playing && sync.transfers.isEmpty) {
         SignalingService.killCryptoWorker();
         LibraryService.killHashWorker();

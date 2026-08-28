@@ -142,6 +142,7 @@ class LibraryService extends ChangeNotifier {
         if (hadDuplicates) {
           await _saveIndex();
         }
+        _retroactiveRepairHttpArtworks();
       }
     } catch (_) {
       // Corrupt index - start fresh but keep any orphaned files.
@@ -568,21 +569,7 @@ class LibraryService extends ChangeNotifier {
     final fileName = '$id$ext';
     await file.copy(p.join(_libraryDir!.path, fileName));
 
-    String? effectiveArtwork = artwork;
-    if (effectiveArtwork != null && (effectiveArtwork.startsWith('http://') || effectiveArtwork.startsWith('https://'))) {
-      try {
-        final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
-        final req = await client.getUrl(Uri.parse(effectiveArtwork));
-        final resp = await req.close();
-        if (resp.statusCode == 200) {
-          final bytes = await resp.fold<List<int>>([], (p, e) => p..addAll(e));
-          if (bytes.isNotEmpty) {
-            effectiveArtwork = YoutubeService.downscaleToBase64(bytes) ?? base64Encode(bytes);
-          }
-        }
-        client.close();
-      } catch (_) {}
-    }
+    String? effectiveArtwork = await YoutubeService.downloadArtworkAsBase64(artwork);
 
     final song = Song(
       id: id,
@@ -593,7 +580,7 @@ class LibraryService extends ChangeNotifier {
       size: await file.length(),
       checksum: sum,
       sourceDeviceId: null,
-      artwork: effectiveArtwork,
+      artwork: effectiveArtwork ?? artwork,
       addedAt: DateTime.now(),
     );
     _songs.add(song);
@@ -602,6 +589,36 @@ class LibraryService extends ChangeNotifier {
     await _saveIndex();
     notifyListeners();
     return song;
+  }
+
+  /// Automatically fetches and embeds missing/online artwork for existing local library songs.
+  void _retroactiveRepairHttpArtworks() {
+    unawaited(() async {
+      bool changed = false;
+      for (var i = 0; i < _songs.length; i++) {
+        final s = _songs[i];
+        if (s.sourceDeviceId == null && s.artwork != null && s.artwork!.startsWith('http')) {
+          final base64Art = await YoutubeService.downloadArtworkAsBase64(s.artwork);
+          if (base64Art != null && base64Art.isNotEmpty) {
+            _songs[i] = Song(
+              id: s.id,
+              title: s.title,
+              fileName: s.fileName,
+              size: s.size,
+              checksum: s.checksum,
+              sourceDeviceId: s.sourceDeviceId,
+              artwork: base64Art,
+              addedAt: s.addedAt,
+            );
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        await _saveIndex();
+        notifyListeners();
+      }
+    }());
   }
 
   Future<void> removeSong(String id) async {

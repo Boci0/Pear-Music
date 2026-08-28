@@ -72,16 +72,24 @@ class ServerDiscovery {
       final probe = utf8.encode(jsonEncode({'type': 'peerm_probe'}));
       final group = InternetAddress(multicastGroup);
       for (var i = 0; i < 3; i++) {
-        bound.send(probe, group, port);
+        try {
+          bound.send(probe, group, port);
+        } catch (_) {}
         await Future.delayed(const Duration(milliseconds: 100));
       }
-      bound.listen((event) {
-        if (event != RawSocketEvent.read) return;
-        final dg = bound.receive();
-        if (dg == null) return;
-        final server = _parseHello(dg.data);
-        if (server != null) out[server.url] = server;
-      });
+      bound.listen(
+        (event) {
+          if (event != RawSocketEvent.read) return;
+          try {
+            final dg = bound.receive();
+            if (dg == null) return;
+            final server = _parseHello(dg.data);
+            if (server != null) out[server.url] = server;
+          } catch (_) {}
+        },
+        onError: (_) {},
+        cancelOnError: true,
+      );
       final deadline = DateTime.now().add(_multicastWait);
       while (DateTime.now().isBefore(deadline)) {
         await Future.delayed(const Duration(milliseconds: 100));

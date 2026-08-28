@@ -327,11 +327,15 @@ class StreamCacheManager {
       final cached = await getCachedFile(videoId);
 
       if (cached != null && await cached.exists()) {
+        final base64Art = await YoutubeService.downloadArtworkAsBase64(
+          streamSong.artwork,
+          videoId: videoId,
+        );
         // Fast 0 ms promotion from stream cache
         final song = await library.addScrapedFile(
           cached,
           title: streamSong.title,
-          artwork: streamSong.artwork,
+          artwork: base64Art ?? streamSong.artwork,
         );
         if (song != null) return song;
       }

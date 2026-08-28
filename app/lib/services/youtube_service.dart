@@ -562,4 +562,49 @@ class YoutubeService {
       return null;
     }
   }
+
+  /// Robust HTTP fetch of thumbnail bytes, downscaling and converting to persistent base64 JPEG.
+  static Future<String?> downloadArtworkAsBase64(
+    String? artworkUrl, {
+    String? videoId,
+    int size = 256,
+    int quality = 80,
+  }) async {
+    if (artworkUrl != null && !artworkUrl.startsWith('http')) {
+      return artworkUrl; // Already base64 encoded
+    }
+
+    final urls = <String>[
+      if (artworkUrl != null && artworkUrl.isNotEmpty) artworkUrl,
+      if (videoId != null && videoId.isNotEmpty) ...[
+        'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
+        'https://i.ytimg.com/vi/$videoId/mqdefault.jpg',
+      ],
+    ];
+
+    for (final u in urls) {
+      try {
+        final client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5)
+          ..autoUncompress = true;
+        final req = await client.getUrl(Uri.parse(u));
+        req.followRedirects = true;
+        req.maxRedirects = 5;
+        final resp = await req.close().timeout(const Duration(seconds: 5));
+        if (resp.statusCode == 200) {
+          final bytes = await resp.fold<List<int>>([], (p, e) => p..addAll(e));
+          client.close();
+          if (bytes.isNotEmpty) {
+            final downscaled = downscaleToBase64(bytes, size: size, quality: quality);
+            if (downscaled != null && downscaled.isNotEmpty) {
+              return downscaled;
+            }
+          }
+        } else {
+          client.close();
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
 }
