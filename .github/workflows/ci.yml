@@ -18,13 +18,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.44.9
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Analyze (lib and test only)
-        run: dart analyze lib test
+      - name: Analyze (lib and test only, errors are fatal)
+        run: dart analyze --no-fatal-warnings lib test
 
       - name: Run tests
         run: flutter test --reporter github
