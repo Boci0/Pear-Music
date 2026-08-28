@@ -366,7 +366,7 @@ class StreamCacheManager {
       try {
         const channel = MethodChannel('peerm/ytdlp');
         final res = await channel.invokeMethod<String>('getStreamUrl', {'url': url})
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(seconds: 15));
         if (res != null && res.startsWith('http')) {
           _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
             res,
@@ -388,12 +388,12 @@ class StreamCacheManager {
             '--no-warnings',
             '--no-check-certificates',
             '--extractor-args',
-            'youtube:player_client=android,web',
+            'youtube:player_skip=configs,webpage;player_client=android,web,mweb',
             '--socket-timeout',
-            '5',
+            '10',
             url,
           ],
-        ).timeout(const Duration(seconds: 6));
+        ).timeout(const Duration(seconds: 15));
         if (res.exitCode == 0) {
           final out = res.stdout.toString().trim();
           final lines = out.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.startsWith('http')).toList();

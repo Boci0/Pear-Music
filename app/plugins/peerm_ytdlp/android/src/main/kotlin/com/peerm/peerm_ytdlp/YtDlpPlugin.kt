@@ -560,13 +560,14 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 fun makeUrlReq(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-g")
-                    req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                    req.addOption("-f", "bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio[ext=m4a]/bestaudio/ba/best")
                     req.addOption("--no-playlist")
                     req.addOption("--no-warnings")
                     req.addOption("--no-check-certificates")
                     req.addOption("--force-ipv4")
+                    req.addOption("--socket-timeout", "10")
                     if (useExtractorArgs) {
-                        req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
+                        req.addOption("--extractor-args", "youtube:player_skip=configs,webpage;player_client=android,web,mweb")
                     }
                     return req
                 }
