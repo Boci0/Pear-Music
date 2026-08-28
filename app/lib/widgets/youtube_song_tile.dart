@@ -192,7 +192,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                     width: 48,
                     height: 48,
                     cacheWidth: 96,
-                    cacheHeight: 96,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
                       width: 48,

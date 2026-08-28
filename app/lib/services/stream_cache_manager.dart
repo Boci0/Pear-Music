@@ -151,48 +151,6 @@ class StreamCacheManager {
         } catch (_) {}
       }
 
-      // Method 1: High-speed Innertube direct HTTP stream pipe (~150-500ms)
-      try {
-        DebugLog.write('[stream] Resolving Innertube direct stream: $videoId');
-        final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
-        if (streamInfo != null && streamInfo.url.startsWith('http')) {
-          final client = HttpClient()
-            ..connectionTimeout = const Duration(seconds: 5)
-            ..idleTimeout = const Duration(seconds: 12);
-          final req = await client.getUrl(Uri.parse(streamInfo.url));
-          req.headers.set(
-            'User-Agent',
-            'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
-          );
-          req.headers.set('Referer', 'https://music.youtube.com/');
-          final resp = await req.close().timeout(const Duration(seconds: 12));
-
-          if (resp.statusCode == 200 || resp.statusCode == 206) {
-            final sink = tempPart.openWrite();
-            await resp.pipe(sink);
-            final len = await tempPart.exists() ? await tempPart.length() : 0;
-            if (len > 50000) {
-              if (await targetFile.exists()) {
-                try {
-                  await targetFile.delete();
-                } catch (_) {}
-              }
-              await tempPart.rename(targetFile.path);
-              _cachedVideoIds.add(videoId);
-              unawaited(enforceCacheQuota());
-              stopwatch.stop();
-              DebugLog.write(
-                '[stream] Innertube direct pipe cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
-              );
-              completer.complete(targetFile);
-              return targetFile;
-            }
-          }
-        }
-      } catch (e) {
-        DebugLog.write('[stream] Innertube direct pipe failed for $videoId: $e');
-      }
-
       // Method 2: Android native embedded yt-dlp fast audio download
       if (YoutubeService.isEmbeddedYtDlpSupported) {
         try {
@@ -368,7 +326,7 @@ class StreamCacheManager {
     }
   }
 
-  /// Fast-path extraction of direct CDN stream URL via embedded yt-dlp.
+  /// Fast-path extraction of direct CDN stream URL with in-memory caching.
   /// Resolves the stream URL so playback can stream directly in RAM with 0 SSD writes.
   static Future<String?> extractDirectStreamUrl(String videoId) async {
     final cached = _streamUrlMemoryCache[videoId];
@@ -376,23 +334,12 @@ class StreamCacheManager {
       return cached.url;
     }
 
-    try {
-      final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
-      if (streamInfo != null && streamInfo.url.startsWith('http')) {
-        _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-          streamInfo.url,
-          DateTime.now().add(const Duration(hours: 4)),
-        );
-        return streamInfo.url;
-      }
-    } catch (_) {}
-
     final url = 'https://www.youtube.com/watch?v=$videoId';
     if (!kIsWeb && Platform.isAndroid) {
       try {
         const channel = MethodChannel('peerm/ytdlp');
         final res = await channel.invokeMethod<String>('getStreamUrl', {'url': url})
-            .timeout(const Duration(seconds: 10));
+            .timeout(const Duration(seconds: 8));
         if (res != null && res.startsWith('http')) {
           _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
             res,
@@ -412,9 +359,14 @@ class StreamCacheManager {
             '--no-playlist',
             '--force-ipv4',
             '--no-warnings',
+            '--no-check-certificates',
+            '--extractor-args',
+            'youtube:player_client=android,web',
+            '--socket-timeout',
+            '5',
             url,
           ],
-        ).timeout(const Duration(seconds: 7));
+        ).timeout(const Duration(seconds: 6));
         if (res.exitCode == 0) {
           final out = res.stdout.toString().trim();
           final lines = out.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.startsWith('http')).toList();

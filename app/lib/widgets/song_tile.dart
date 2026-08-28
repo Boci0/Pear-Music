@@ -264,8 +264,7 @@ class _Artwork extends StatelessWidget {
               song.artwork!,
               width: 44,
               height: 44,
-              cacheWidth: 88,
-              cacheHeight: 88,
+              cacheWidth: 96,
               fit: BoxFit.cover,
               gaplessPlayback: true,
               errorBuilder: (_, _, _) => _placeholder(scheme),
@@ -283,10 +282,7 @@ class _Artwork extends StatelessWidget {
                   bytes,
                   width: 44,
                   height: 44,
-                  // Decode at ~2x display size instead of the full 256px JPEG:
-                  // much less RAM per tile in a long library list.
-                  cacheWidth: 88,
-                  cacheHeight: 88,
+                  cacheWidth: 96,
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   errorBuilder: (_, _, _) => _placeholder(scheme),

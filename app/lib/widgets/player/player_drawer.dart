@@ -194,7 +194,6 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                             width: 36,
                             height: 36,
                             cacheWidth: 72,
-                            cacheHeight: 72,
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) =>
                                 _iconPlaceholder(isCurrent, scheme),
