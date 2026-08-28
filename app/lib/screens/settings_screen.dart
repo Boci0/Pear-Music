@@ -1,203 +1,271 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
 
-/// Settings: device name and signaling server URL.
-class SettingsScreen extends StatefulWidget {
+/// Clean, decluttered settings screen organized by functional sections.
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
+  Future<void> _showEditDeviceNameDialog(
+    BuildContext context,
+    AppController controller,
+  ) async {
+    final textController = TextEditingController(text: controller.identity.deviceName);
+    final formKey = GlobalKey<FormState>();
 
-class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _nameController;
-  late final TextEditingController _serverController;
-  late final FocusNode _serverUrlFocus;
-  Timer? _serverUrlDebounce;
+    final updatedName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change device name'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: textController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Device name',
+              hintText: 'e.g. My Phone, Laptop',
+              border: OutlineInputBorder(),
+            ),
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) return 'Name cannot be empty';
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.pop(ctx, textController.text.trim());
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
 
-  @override
-  void initState() {
-    super.initState();
-    final identity = context.read<AppController>().identity;
-    _nameController = TextEditingController(text: identity.deviceName);
-    _serverController = TextEditingController(text: identity.serverUrl);
-    _serverUrlFocus = FocusNode()..addListener(_onServerUrlFocus);
-    // Auto-apply the server URL as the user edits it (debounced), so no one
-    // gets stuck because they forgot to tap "Connect".
-    _serverController.addListener(_onServerUrlChanged);
-  }
-
-  /// Select all when the URL field is focused, so typing *replaces* the old
-  /// value instead of mixing into "ws://localhost:8080".
-  void _onServerUrlFocus() {
-    if (_serverUrlFocus.hasFocus) {
-      _serverController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _serverController.text.length,
-      );
+    if (updatedName != null && updatedName.isNotEmpty) {
+      await controller.updateDeviceName(updatedName);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Device name updated')),
+        );
+      }
     }
   }
 
-  void _onServerUrlChanged() {
-    _serverUrlDebounce?.cancel();
-    _serverUrlDebounce = Timer(const Duration(milliseconds: 800), () {
-      if (!mounted) return;
-      final text = _serverController.text.trim();
-      final current = context.read<AppController>().identity.serverUrl;
-      if (text.isNotEmpty && text != current) {
-        context.read<AppController>().updateServerUrl(text);
+  Future<void> _showEditServerUrlDialog(
+    BuildContext context,
+    AppController controller,
+  ) async {
+    final textController = TextEditingController(text: controller.identity.serverUrl);
+    final formKey = GlobalKey<FormState>();
+
+    final updatedUrl = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Signaling server URL'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'All paired devices must point to the same signaling server URL.',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: textController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'WebSocket URL',
+                  hintText: 'ws://192.168.1.100:8080',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  final trimmed = v?.trim() ?? '';
+                  if (trimmed.isEmpty) return 'URL cannot be empty';
+                  if (!trimmed.startsWith('ws://') && !trimmed.startsWith('wss://')) {
+                    return 'URL must start with ws:// or wss://';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.pop(ctx, textController.text.trim());
+              }
+            },
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+
+    if (updatedUrl != null && updatedUrl.isNotEmpty) {
+      await controller.updateServerUrl(updatedUrl);
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Server URL saved & reconnecting…')),
+          const SnackBar(content: Text('Server URL updated; reconnecting...')),
         );
       }
-    });
+    }
   }
 
-  @override
-  void dispose() {
-    _serverUrlDebounce?.cancel();
-    _nameController.dispose();
-    _serverController.dispose();
-    _serverUrlFocus.dispose();
-    super.dispose();
+  Future<void> _confirmClearCache(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear streaming cache?'),
+        content: const Text(
+          'This removes all temporary radio and online streaming audio cache files from your device. Local songs in your library will not be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear cache'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      await StreamCacheManager.clearCache();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Streaming cache cleared')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
     final identity = controller.identity;
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
           _sectionTitle(context, 'This device'),
           Card(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Device name',
-                      helperText: 'Shown to other paired devices',
-                      border: OutlineInputBorder(),
-                    ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.devices_rounded),
+                  title: Text(identity.deviceName),
+                  subtitle: const Text('Tap to change device name'),
+                  trailing: const Icon(Icons.edit_outlined, size: 20),
+                  onTap: () => _showEditDeviceNameDialog(context, controller),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.fingerprint_rounded),
+                  title: const Text('Device ID'),
+                  subtitle: Text(
+                    identity.deviceId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        controller.updateDeviceName(_nameController.text);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Name updated')),
-                        );
-                      },
-                      icon: const Icon(Icons.check),
-                      label: const Text('Save name'),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    'Device ID: ${identity.deviceId}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                ],
-              ),
+                  trailing: const Icon(Icons.copy_rounded, size: 20),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: identity.deviceId));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Device ID copied to clipboard')),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
-          _sectionTitle(context, 'Connection'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _HostingStatus(),
-                  const Divider(height: 8),
-                  // Manual server URL is an advanced setting now — discovery
-                  // finds the host automatically in normal use.
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    title: const Text('Advanced: server settings'),
-                    childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
-                    children: [
-                      TextField(
-                        controller: _serverController,
-                        focusNode: _serverUrlFocus,
-                        decoration: const InputDecoration(
-                          labelText: 'Signaling server URL',
-                          helperText:
-                              'WebSocket URL (ws:// or wss://). All devices '
-                              'must point to the same server.',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            controller.updateServerUrl(_serverController.text);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Reconnecting to server…')),
-                            );
-                          },
-                          icon: const Icon(Icons.cloud_sync),
-                          label: const Text('Connect'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _sectionTitle(context, 'Audio & Playback'),
           Card(
-            child: SwitchListTile(
-              secondary: const Icon(Icons.equalizer_rounded),
-              title: const Text('Loudness Normalization'),
-              subtitle: const Text(
-                  'Equalize volume levels across tracks to prevent sudden volume jumps'),
-              value: identity.loudnessNormalization,
-              onChanged: (val) async {
-                await identity.setLoudnessNormalization(val);
-                await controller.player.setLoudnessNormalization(val);
-                setState(() {});
-              },
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.equalizer_rounded),
+                  title: const Text('Loudness Normalization'),
+                  subtitle: const Text('Equalize volume across tracks'),
+                  value: identity.loudnessNormalization,
+                  onChanged: (val) async {
+                    await identity.setLoudnessNormalization(val);
+                    await controller.player.setLoudnessNormalization(val);
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.cleaning_services_rounded),
+                  title: const Text('Clear streaming cache'),
+                  subtitle: const Text('Free disk space used by temporary streams'),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => _confirmClearCache(context),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
-          _sectionTitle(context, 'Download from links'),
+          const SizedBox(height: 20),
+          _sectionTitle(context, 'Network & Sync'),
           Card(
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: Text(
-                'Links are downloaded with yt-dlp: bundled on the phone, '
-                'and automatically downloaded on the PC if missing. Works for '
-                'YouTube and Spotify links.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    controller.isHostingServer ? Icons.dns_rounded : Icons.cloud_outlined,
+                    color: controller.isHostingServer ? theme.colorScheme.primary : null,
+                  ),
+                  title: const Text('Hosting Status'),
+                  subtitle: Text(
+                    controller.isHostingServer
+                        ? 'Hosting signaling server on port ${controller.server.boundPort}'
+                        : 'Connected to signaling host',
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.cloud_sync_rounded),
+                  title: const Text('Signaling Server'),
+                  subtitle: Text(
+                    identity.serverUrl,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 20),
+                  onTap: () => _showEditServerUrlDialog(context, controller),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _sectionTitle(context, 'About & Updates'),
           Card(
             child: Column(
@@ -205,105 +273,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.system_update_outlined),
                   title: const Text('Check for updates'),
-                  subtitle: const Text('Version ${UpdateService.currentVersion}'),
-                  trailing: const Icon(Icons.chevron_right),
+                  subtitle: Text('Version ${UpdateService.currentVersion}'),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
                   onTap: () => UpdateService.checkForUpdates(context, quiet: false),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.info_outline),
+                  leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('About Pear Music'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
                   onTap: () => showPearMusicAboutDialog(context),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Pear Music syncs music files between your paired devices over '
-                'your own server, and plays them locally on every device.\n\n'
-                '• Adding a song syncs it to every online paired device.\n'
-                '• Songs you add yourself stay in your library.\n'
-                '• Unpairing a device deletes the songs it received from you.\n'
-                '• You can use Pear Music without pairing at all. It works '
-                'as a local music player too.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      height: 1.5,
-                    ),
-              ),
-            ),
-          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
   Widget _sectionTitle(BuildContext context, String title) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.only(left: 4, bottom: 8),
         child: Text(
           title,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-      );
-}
-
-/// Shows whether THIS device is hosting the embedded signaling server, and —
-/// when it is — the address other devices should use to connect to it.
-class _HostingStatus extends StatelessWidget {
-  const _HostingStatus();
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = context.watch<AppController>();
-    final hosting = controller.isHostingServer;
-    final port = controller.server.boundPort;
-    final ip = controller.serverLanIp;
-    final scheme = Theme.of(context).colorScheme;
-    if (hosting) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.dns, size: 18, color: scheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SelectableText(
-                'This device is hosting the server.\n'
-                'Point other devices at: '
-                'ws://${ip ?? '<this-device-ip>'}:$port',
-                style: Theme.of(context).textTheme.bodySmall,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
               ),
-            ),
-          ],
         ),
       );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.cloud_off,
-              size: 18, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Not hosting on this device (port $port busy) — using the '
-              'server URL below.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
-

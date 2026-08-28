@@ -9,7 +9,6 @@ import 'package:synchronized/synchronized.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
-import 'innertube_player_service.dart';
 import 'library_service.dart';
 import 'youtube_service.dart';
 
@@ -409,6 +408,27 @@ class StreamCacheManager {
       } catch (_) {}
     }
     return null;
+  }
+
+  /// Purges all cached radio and streaming audio files and clears in-memory caches.
+  static Future<void> clearCache() async {
+    try {
+      final dir = await getCacheDirectory();
+      if (await dir.exists()) {
+        final entities = await dir.list().toList();
+        for (final entity in entities) {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+      _cachedVideoIds.clear();
+      _streamUrlMemoryCache.clear();
+      _cachedTotalBytes = 0;
+      DebugLog.write('[stream] Cleared all radio and streaming cache files');
+    } catch (e) {
+      DebugLog.write('[stream] clearCache error: $e');
+    }
   }
 
   /// Clean up resources on shutdown.
