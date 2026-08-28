@@ -37,7 +37,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
   void initState() {
     super.initState();
     // Default to Queue if playing radio or if queue has items
-    if (widget.player.queueSourceId == 'radio' || widget.player.queue.isNotEmpty) {
+    if (widget.player.queueSourceId == 'radio' ||
+        widget.player.queue.isNotEmpty) {
       _selectedTab = 0;
     } else {
       _selectedTab = 1;
@@ -67,17 +68,14 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   Text(
                     _selectedTab == 0 ? 'Playing Queue' : 'Library',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const Spacer(),
                   IconButton(
                     iconSize: 20,
                     tooltip: 'Reroll seed (reroll upcoming recommendations)',
-                    icon: Icon(
-                      Icons.casino_outlined,
-                      color: scheme.primary,
-                    ),
+                    icon: Icon(Icons.casino_outlined, color: scheme.primary),
                     onPressed: () => player.rerollUpcomingQueue(),
                   ),
                   IconButton(
@@ -144,16 +142,31 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
       listenable: player,
       builder: (context, _) {
         final queue = player.queue;
+        // Content-stable, duplicate-safe keys: element state survives
+        // reroll, removal and reorder.
+        final keys = <String>[];
+        final occurrences = <String, int>{};
+        for (final s in queue) {
+          final n = occurrences[s.id] ?? 0;
+          occurrences[s.id] = n + 1;
+          keys.add(n == 0 ? s.id : '${s.id}#${n + 1}');
+        }
         if (queue.isEmpty) {
-          return const Center(
-            child: Text('Queue is empty'),
-          );
+          return const Center(child: Text('Queue is empty'));
         }
 
         return ListView.builder(
           // Fixed extent (dense two-line ListTile): O(1) scroll geometry.
           itemExtent: 64.0,
           itemCount: queue.length,
+          findChildIndexCallback: (Key key) {
+            final valueKey = key as ValueKey<String>?;
+            if (valueKey == null) return null;
+            final index = keys.indexWhere(
+              (k) => 'drawer_queue_$k' == valueKey.value,
+            );
+            return index >= 0 ? index : null;
+          },
           itemBuilder: (context, i) {
             final song = queue[i];
             final isCurrent = i == player.queueIndex;
@@ -163,173 +176,186 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
             final isNetwork =
                 song.artwork != null && song.artwork!.startsWith('http');
 
-            return ListTile(
-              key: ValueKey('drawer_queue_${song.id}_$i'),
-              dense: true,
-              leading: isNetwork
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.network(
-                        song.artwork!,
-                        width: 36,
-                        height: 36,
-                        cacheWidth: 96,
-                        cacheHeight: 96,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) =>
-                            _iconPlaceholder(isCurrent, scheme),
-                      ),
-                    )
-                  : FutureBuilder<Uint8List?>(
-                      initialData: ArtworkPalette.bytes(song),
-                      future: ArtworkPalette.bytesAsync(song),
-                      builder: (context, snapshot) {
-                        final bytes =
-                            snapshot.data ?? ArtworkPalette.bytes(song);
-                        if (bytes == null || bytes.isEmpty) {
-                          return _iconPlaceholder(isCurrent, scheme);
-                        }
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: Image.memory(
-                            bytes,
-                            width: 36,
-                            height: 36,
-                            cacheWidth: 96,
-                            cacheHeight: 96,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                _iconPlaceholder(isCurrent, scheme),
-                          ),
-                        );
-                      },
-                    ),
-              title: Text(
-                song.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: isCurrent
-                    ? TextStyle(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.bold,
+            return RepaintBoundary(
+              // Per-row repaint isolation: artwork decode and lock changes do
+              // not repaint neighbouring rows.
+              key: ValueKey('drawer_queue_${keys[i]}'),
+              child: ListTile(
+                dense: true,
+                leading: isNetwork
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.network(
+                          song.artwork!,
+                          width: 36,
+                          height: 36,
+                          cacheWidth: 96,
+                          cacheHeight: 96,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              _iconPlaceholder(isCurrent, scheme),
+                        ),
                       )
-                    : null,
-              ),
-              subtitle: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    isStream
-                        ? 'Radio Stream'
-                        : (song.sourceDeviceId == null ? 'Local track' : 'Shared'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isCurrent
-                          ? scheme.primary.withValues(alpha: 0.8)
-                          : scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  if (isStream &&
-                      StreamCacheManager.isStreamCachedSync(
-                          song.id.replaceFirst('stream_', ''))) ...[
-                    const SizedBox(width: 6),
-                    const Tooltip(
-                      message: 'Cached',
-                      child: Icon(
-                        Icons.check_circle_rounded,
-                        size: 13,
-                        color: Color(0xFF81C784),
+                    : FutureBuilder<Uint8List?>(
+                        initialData: ArtworkPalette.bytes(song),
+                        future: ArtworkPalette.bytesAsync(song),
+                        builder: (context, snapshot) {
+                          final bytes =
+                              snapshot.data ?? ArtworkPalette.bytes(song);
+                          if (bytes == null || bytes.isEmpty) {
+                            return _iconPlaceholder(isCurrent, scheme);
+                          }
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.memory(
+                              bytes,
+                              width: 36,
+                              height: 36,
+                              cacheWidth: 96,
+                              cacheHeight: 96,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  _iconPlaceholder(isCurrent, scheme),
+                            ),
+                          );
+                        },
+                      ),
+                title: Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: isCurrent
+                      ? TextStyle(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.bold,
+                        )
+                      : null,
+                ),
+                subtitle: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isStream
+                          ? 'Radio Stream'
+                          : (song.sourceDeviceId == null
+                                ? 'Local track'
+                                : 'Shared'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isCurrent
+                            ? scheme.primary.withValues(alpha: 0.8)
+                            : scheme.onSurfaceVariant,
                       ),
                     ),
-                  ],
-                ],
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isLocked)
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 28, minHeight: 28),
-                      icon: Icon(
-                        Icons.lock_rounded,
-                        size: 16,
-                        color: scheme.primary,
-                      ),
-                      tooltip: 'Locked (tap to unlock)',
-                      onPressed: () => player.toggleSongLock(song.id),
-                    ),
-                  PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert_rounded,
-                      size: 18,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 28, minHeight: 28),
-                    onSelected: (action) {
-                      if (action == 'lock') {
-                        player.toggleSongLock(song.id);
-                      } else if (action == 'save') {
-                        context.read<AppController>().saveStreamToLibrary(song);
-                      } else if (action == 'remove') {
-                        controller.removeFromQueue(i);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      if (isUpcoming)
-                        PopupMenuItem(
-                          value: 'lock',
-                          child: Row(
-                            children: [
-                              Icon(
-                                isLocked
-                                    ? Icons.lock_open_rounded
-                                    : Icons.lock_rounded,
-                                size: 18,
-                                color: isLocked ? null : scheme.primary,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(isLocked ? 'Unlock track' : 'Lock track'),
-                            ],
-                          ),
-                        ),
-                      if (isStream)
-                        const PopupMenuItem(
-                          value: 'save',
-                          child: Row(
-                            children: [
-                              Icon(Icons.download_rounded, size: 18),
-                              const SizedBox(width: 10),
-                              Text('Save to library'),
-                            ],
-                          ),
-                        ),
-                      const PopupMenuItem(
-                        value: 'remove',
-                        child: Row(
-                          children: [
-                            Icon(Icons.close_rounded, size: 18),
-                            const SizedBox(width: 10),
-                            Text('Remove from queue'),
-                          ],
+                    if (isStream &&
+                        StreamCacheManager.isStreamCachedSync(
+                          song.id.replaceFirst('stream_', ''),
+                        )) ...[
+                      const SizedBox(width: 6),
+                      const Tooltip(
+                        message: 'Cached',
+                        child: Icon(
+                          Icons.check_circle_rounded,
+                          size: 13,
+                          color: Color(0xFF81C784),
                         ),
                       ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLocked)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 28,
+                          minHeight: 28,
+                        ),
+                        icon: Icon(
+                          Icons.lock_rounded,
+                          size: 16,
+                          color: scheme.primary,
+                        ),
+                        tooltip: 'Locked (tap to unlock)',
+                        onPressed: () => player.toggleSongLock(song.id),
+                      ),
+                    PopupMenuButton<String>(
+                      icon: Icon(
+                        Icons.more_vert_rounded,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 28,
+                      ),
+                      onSelected: (action) {
+                        if (action == 'lock') {
+                          player.toggleSongLock(song.id);
+                        } else if (action == 'save') {
+                          context.read<AppController>().saveStreamToLibrary(
+                            song,
+                          );
+                        } else if (action == 'remove') {
+                          controller.removeFromQueue(i);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        if (isUpcoming)
+                          PopupMenuItem(
+                            value: 'lock',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isLocked
+                                      ? Icons.lock_open_rounded
+                                      : Icons.lock_rounded,
+                                  size: 18,
+                                  color: isLocked ? null : scheme.primary,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(isLocked ? 'Unlock track' : 'Lock track'),
+                              ],
+                            ),
+                          ),
+                        if (isStream)
+                          const PopupMenuItem(
+                            value: 'save',
+                            child: Row(
+                              children: [
+                                Icon(Icons.download_rounded, size: 18),
+                                SizedBox(width: 10),
+                                Text('Save to library'),
+                              ],
+                            ),
+                          ),
+                        const PopupMenuItem(
+                          value: 'remove',
+                          child: Row(
+                            children: [
+                              Icon(Icons.close_rounded, size: 18),
+                              SizedBox(width: 10),
+                              Text('Remove from queue'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                onTap: () {
+                  player.playSong(
+                    song,
+                    queue: queue,
+                    sourceId: player.queueSourceId,
+                    sourceTitle: player.queueTitle,
+                  );
+                },
               ),
-              onTap: () {
-                player.playSong(
-                  song,
-                  queue: queue,
-                  sourceId: player.queueSourceId,
-                  sourceTitle: player.queueTitle,
-                );
-              },
             );
           },
         );
@@ -375,30 +401,37 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           height: 120,
           child: playlists.isEmpty
               ? const Center(
-                  child: Text('No playlists yet', style: TextStyle(fontSize: 12)),
+                  child: Text(
+                    'No playlists yet',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 )
               : ListView.builder(
                   itemCount: playlists.length,
                   itemBuilder: (context, i) {
                     final pl = playlists[i];
                     final selected = pl.id == widget.activePlaylistId;
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(
-                        Icons.playlist_play,
-                        color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                    return RepaintBoundary(
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          Icons.playlist_play,
+                          color: selected
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
+                        ),
+                        title: Text(
+                          pl.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text('${pl.songIds.length} songs'),
+                        selected: selected,
+                        onTap: () {
+                          widget.onActivePlaylistChanged(pl.id);
+                          controller.playPlaylist(pl);
+                        },
                       ),
-                      title: Text(
-                        pl.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text('${pl.songIds.length} songs'),
-                      selected: selected,
-                      onTap: () {
-                        widget.onActivePlaylistChanged(pl.id);
-                        controller.playPlaylist(pl);
-                      },
                     );
                   },
                 ),
@@ -436,35 +469,39 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   itemBuilder: (context, i) {
                     final s = songs[i];
                     final isCurrent = s.id == widget.currentSong.id;
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(
-                        isCurrent ? Icons.graphic_eq : Icons.music_note,
-                        color: isCurrent ? scheme.primary : scheme.onSurfaceVariant,
+                    return RepaintBoundary(
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          isCurrent ? Icons.graphic_eq : Icons.music_note,
+                          color: isCurrent
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
+                        ),
+                        title: Text(
+                          s.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: isCurrent
+                              ? TextStyle(
+                                  color: scheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                )
+                              : null,
+                        ),
+                        onTap: () {
+                          player.playSong(
+                            s,
+                            queue: songs,
+                            sourceId: playlist != null
+                                ? 'playlist:'
+                                : (player.queueSourceId == 'favorites'
+                                      ? 'favorites'
+                                      : 'library'),
+                            sourceTitle: sectionTitle,
+                          );
+                        },
                       ),
-                      title: Text(
-                        s.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: isCurrent
-                            ? TextStyle(
-                                color: scheme.primary,
-                                fontWeight: FontWeight.w600,
-                              )
-                            : null,
-                      ),
-                      onTap: () {
-                        player.playSong(
-                          s,
-                          queue: songs,
-                          sourceId: playlist != null
-                              ? 'playlist:'
-                              : (player.queueSourceId == 'favorites'
-                                  ? 'favorites'
-                                  : 'library'),
-                          sourceTitle: sectionTitle,
-                        );
-                      },
                     );
                   },
                 ),
@@ -504,7 +541,7 @@ Playlist? playlistById(AppController controller, String? id) {
 }
 
 List<Song> songsForPlaylist(AppController controller, Playlist playlist) => [
-      for (final id in playlist.songIds)
-        if (controller.library.findById(id) != null)
-          controller.library.findById(id)!,
-    ];
+  for (final id in playlist.songIds)
+    if (controller.library.findById(id) != null)
+      controller.library.findById(id)!,
+];

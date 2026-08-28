@@ -90,7 +90,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             ListTile(
               leading: const Icon(Icons.download),
               title: const Text('Download to Library only'),
-              subtitle: const Text('Save for offline listening without interrupting playback'),
+              subtitle: const Text(
+                'Save for offline listening without interrupting playback',
+              ),
               onTap: _isDownloading
                   ? null
                   : () {
@@ -142,7 +144,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
       if (res.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(res.error!), backgroundColor: Colors.redAccent),
+          SnackBar(
+            content: Text(res.error!),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       } else if (res.song != null) {
         if (autoPlay) {
@@ -177,8 +182,8 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     return ListTile(
       tileColor: widget.isCurrent
           ? (theme.brightness == Brightness.dark
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-              : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+                : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
           : null,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       leading: Stack(
@@ -192,6 +197,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                     width: 48,
                     height: 48,
                     cacheWidth: 96,
+                    cacheHeight: 96,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
                       width: 48,
@@ -266,7 +272,8 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             IconButton(
               icon: const Icon(Icons.download_for_offline_outlined),
               tooltip: 'Download & Play',
-              onPressed: () => _downloadAndPlay(context, controller, autoPlay: true),
+              onPressed: () =>
+                  _downloadAndPlay(context, controller, autoPlay: true),
             ),
           IconButton(
             icon: const Icon(Icons.more_vert),

@@ -25,7 +25,8 @@ class PlayerBar extends StatelessWidget {
     // the colour follows the music outside the full player.
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
-    final barColor = Color.lerp(
+    final barColor =
+        Color.lerp(
           theme.colorScheme.surfaceContainerHigh,
           ArtworkPalette.wash(accent, lightness: 0.14),
           0.45,
@@ -89,7 +90,9 @@ class PlayerBar extends StatelessWidget {
                         ? control.withValues(alpha: 0.38)
                         : control,
                   ),
-                  onPressed: player.isLoadingTrack ? null : () => controller.togglePlayback(),
+                  onPressed: player.isLoadingTrack
+                      ? null
+                      : () => controller.togglePlayback(),
                 ),
                 IconButton(
                   icon: Icon(Icons.skip_next, color: control),
@@ -112,12 +115,12 @@ class PlayerBar extends StatelessWidget {
             const PlayerScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
             FadeTransition(
-          opacity: CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          ),
-          child: child,
-        ),
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              ),
+              child: child,
+            ),
       ),
     );
   }
@@ -144,8 +147,11 @@ class _Thumb extends StatelessWidget {
           ],
         ),
       ),
-      child: Icon(Icons.music_note,
-          color: theme.colorScheme.onPrimaryContainer, size: 20),
+      child: Icon(
+        Icons.music_note,
+        color: theme.colorScheme.onPrimaryContainer,
+        size: 20,
+      ),
     );
 
     Widget imageWidget;
@@ -158,7 +164,8 @@ class _Thumb extends StatelessWidget {
           artwork,
           width: 40,
           height: 40,
-          cacheWidth: 80,
+          cacheWidth: 96,
+          cacheHeight: 96,
           fit: BoxFit.cover,
           gaplessPlayback: true,
           errorBuilder: (_, _, _) => placeholder,
@@ -175,7 +182,8 @@ class _Thumb extends StatelessWidget {
             bytes,
             width: 40,
             height: 40,
-            cacheWidth: 80,
+            cacheWidth: 96,
+            cacheHeight: 96,
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => placeholder,
@@ -186,10 +194,7 @@ class _Thumb extends StatelessWidget {
 
     return Hero(
       tag: 'player_artwork_${song.id}',
-      child: Material(
-        type: MaterialType.transparency,
-        child: imageWidget,
-      ),
+      child: Material(type: MaterialType.transparency, child: imageWidget),
     );
   }
 }

@@ -66,8 +66,9 @@ class PlayerTransport extends StatelessWidget {
                     ? scheme.primary.withValues(alpha: 0.38)
                     : scheme.primary,
               ),
-              onPressed:
-                  player.isLoadingTrack ? null : () => controller.togglePlayback(),
+              onPressed: player.isLoadingTrack
+                  ? null
+                  : () => controller.togglePlayback(),
             ),
             IconButton(
               iconSize: 44,
@@ -89,10 +90,10 @@ class PlayerTransport extends StatelessWidget {
         Text(
           stateLabel,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: loopActive || player.shuffle
-                    ? scheme.primary
-                    : scheme.onSurfaceVariant,
-              ),
+            color: loopActive || player.shuffle
+                ? scheme.primary
+                : scheme.onSurfaceVariant,
+          ),
         ),
       ],
     );
@@ -224,15 +225,18 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
           setState(() => _dragValue = next);
         }
       },
-      child: Slider(
-        value: value,
-        onChangeStart: (_) =>
-            setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
-        onChanged: (v) {
-          setState(() => _dragValue = v);
-          player.setVolume(v);
-        },
-        onChangeEnd: (_) => setState(() => _dragValue = null),
+      // RepaintBoundary keeps drag-tick repaints on the slider layer.
+      child: RepaintBoundary(
+        child: Slider(
+          value: value,
+          onChangeStart: (_) =>
+              setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
+          onChanged: (v) {
+            setState(() => _dragValue = v);
+            player.setVolume(v);
+          },
+          onChangeEnd: (_) => setState(() => _dragValue = null),
+        ),
       ),
     );
   }
