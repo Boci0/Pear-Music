@@ -19,7 +19,7 @@ import '../widgets/youtube_song_tile.dart';
 import 'playlists_screen.dart';
 
 /// Categories for search filtering.
-enum SearchFilter { all, library, youtube }
+enum SearchFilter { streaming, all, library }
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
@@ -33,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSelecting = false;
   bool _isSearching = false;
   bool _showOnlyFavorites = false;
-  SearchFilter _searchFilter = SearchFilter.all;
+  SearchFilter _searchFilter = SearchFilter.streaming;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = {};
@@ -300,6 +300,15 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 children: [
                   ChoiceChip(
+                    label: const Text('Streaming'),
+                    selected: _searchFilter == SearchFilter.streaming,
+                    onSelected: (_) {
+                      setState(() => _searchFilter = SearchFilter.streaming);
+                      _onSearchQueryChanged(_searchQuery);
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
                     label: const Text('All'),
                     selected: _searchFilter == SearchFilter.all,
                     onSelected: (_) {
@@ -312,15 +321,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: const Text('Library'),
                     selected: _searchFilter == SearchFilter.library,
                     onSelected: (_) => setState(() => _searchFilter = SearchFilter.library),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('YouTube'),
-                    selected: _searchFilter == SearchFilter.youtube,
-                    onSelected: (_) {
-                      setState(() => _searchFilter = SearchFilter.youtube);
-                      _onSearchQueryChanged(_searchQuery);
-                    },
                   ),
                 ],
               ),
@@ -359,7 +359,72 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-          if (_searchFilter != SearchFilter.youtube) ...[
+          if (_searchFilter != SearchFilter.library) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      'STREAMING / ONLINE (${_ytResults.length})',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    if (_isSearchingYt) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (_isSearchingYt && _ytResults.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (_ytResults.isEmpty && _searchQuery.trim().length >= 2)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'No online results found',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                ),
+              )
+            else if (_searchQuery.trim().length < 2)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'Type at least 2 characters to search streaming',
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                ),
+              )
+            else
+              SliverList.builder(
+                itemCount: _ytResults.length,
+                itemBuilder: (context, i) {
+                  final result = _ytResults[i];
+                  return YouTubeSongTile(
+                    key: ValueKey(result.videoId),
+                    result: result,
+                    isCurrent: controller.player.currentSong?.title == result.title,
+                  );
+                },
+              ),
+          ],
+          if (_searchFilter != SearchFilter.streaming) ...[
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -413,71 +478,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         });
                       },
                     ),
-                  );
-                },
-              ),
-          ],
-          if (_searchFilter != SearchFilter.library) ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                child: Row(
-                  children: [
-                    Text(
-                      'YOUTUBE / ONLINE (${_ytResults.length})',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    if (_isSearchingYt) ...[
-                      const SizedBox(width: 8),
-                      const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            if (_isSearchingYt && _ytResults.isEmpty)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (_ytResults.isEmpty && _searchQuery.trim().length >= 2)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Text(
-                    'No online results found',
-                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
-                  ),
-                ),
-              )
-            else if (_searchQuery.trim().length < 2)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Text(
-                    'Type at least 2 characters to search YouTube',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                  ),
-                ),
-              )
-            else
-              SliverList.builder(
-                itemCount: _ytResults.length,
-                itemBuilder: (context, i) {
-                  final result = _ytResults[i];
-                  return YouTubeSongTile(
-                    key: ValueKey(result.videoId),
-                    result: result,
-                    isCurrent: controller.player.currentSong?.title == result.title,
                   );
                 },
               ),
