@@ -455,79 +455,45 @@ class PlayerService extends ChangeNotifier {
 
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
-          DebugLog.write('[player] Playing from DISK CACHE (0ms): ${song.title} [$videoId]');
+          DebugLog.write('[player] Playing from LOCAL CACHE: ${song.title} [$videoId]');
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
         } else {
-          // Fast-path: Resolve direct stream URL for sub-300ms playback start
-          // while caching to disk in the background.
-          unawaited(StreamCacheManager.ensureStreamCached(videoId));
+          // Pure In-Memory Direct Streaming (0 SSD writes)
+          final streamUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
+          if (token != _playRequestToken) return;
 
-          AudioSource? directStreamSource;
-          try {
-            final streamInfo =
-                await InnertubePlayerService.resolveAudioStream(videoId);
-            if (streamInfo != null && streamInfo.url.startsWith('http')) {
-              directStreamSource = AudioSource.uri(
-                Uri.parse(streamInfo.url),
+          if (streamUrl != null && streamUrl.startsWith('http')) {
+            _currentRouteType = StreamRouteType.direct;
+            DebugLog.write('[player] Playing IN-MEMORY STREAM (0 SSD writes): ${song.title} [$videoId]');
+            await _player.setAudioSource(
+              AudioSource.uri(
+                Uri.parse(streamUrl),
                 headers: const {
                   'User-Agent':
                       'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
                   'Referer': 'https://music.youtube.com/',
                 },
                 tag: mediaTag,
-              );
-            }
-          } catch (_) {}
-
-          if (directStreamSource == null) {
-            try {
-              final directUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
-              if (directUrl != null && directUrl.startsWith('http')) {
-                directStreamSource = AudioSource.uri(
-                  Uri.parse(directUrl),
-                  tag: mediaTag,
-                );
-              }
-            } catch (_) {}
-          }
-
-          if (token != _playRequestToken) return;
-
-          if (directStreamSource != null) {
-            _currentRouteType = StreamRouteType.direct;
-            DebugLog.write('[player] Playing DIRECT STREAM: ${song.title} [$videoId]');
-            await _player.setAudioSource(directStreamSource);
+              ),
+            );
           } else {
-            // Fallback: wait for disk cache download
-            _currentRouteType = StreamRouteType.fallback;
-            DebugLog.write('[player] Direct stream failed, falling back to cache resolver: ${song.title} [$videoId]');
-            final downloadedFile =
-                await StreamCacheManager.ensureStreamCached(videoId);
-            if (token != _playRequestToken) return;
-
-            if (downloadedFile != null && await downloadedFile.exists()) {
-              await _player.setAudioSource(
-                AudioSource.file(downloadedFile.path, tag: mediaTag),
-              );
-            } else {
-              _consecutiveStreamFailures++;
-              DebugLog.write(
-                '[player] Stream failed for ${song.title} '
-                '(failure $_consecutiveStreamFailures/3)',
-              );
-              if (_consecutiveStreamFailures >= 3) {
-                DebugLog.write('[player] Circuit breaker tripped, halting playback');
-                _isAdvancing = false;
-                _isLoadingTrack = false;
-                await _player.pause();
-                notifyListeners();
-                return;
-              }
-              unawaited(next());
+            _consecutiveStreamFailures++;
+            DebugLog.write(
+              '[player] Stream failed for ${song.title} '
+              '(failure $_consecutiveStreamFailures/3)',
+            );
+            if (_consecutiveStreamFailures >= 3) {
+              DebugLog.write('[player] Circuit breaker tripped, halting playback');
+              _isAdvancing = false;
+              _isLoadingTrack = false;
+              await _player.pause();
+              notifyListeners();
               return;
             }
+            unawaited(next());
+            return;
           }
         }
       } else {

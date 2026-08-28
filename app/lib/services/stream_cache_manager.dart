@@ -87,31 +87,40 @@ class StreamCacheManager {
     return null;
   }
 
-  /// Sequentially pre-downloads upcoming tracks along the current queue in the
-  /// background using a single-queue worker to avoid bandwidth contention.
+  static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
+
+  /// Sequentially pre-resolves direct stream URLs for upcoming tracks into RAM.
+  /// Keeps playback seamless and instant with ZERO SSD writes.
   static void preloadSlidingWindow(
     List<String> videoIds, {
     void Function(String videoId)? onTrackCached,
   }) {
     final seq = ++_slidingWindowSequence;
     unawaited(() async {
-      for (final id in videoIds) {
+      // Pre-resolve direct stream URLs for the immediate upcoming 2 tracks
+      for (final id in videoIds.take(2)) {
         if (seq != _slidingWindowSequence) {
           DebugLog.write('[preload] Preload sequence aborted for $id');
           break;
         }
         if (id.isEmpty) continue;
-        final cached = await getCachedFile(id);
-        if (cached != null) {
+        final diskCached = await getCachedFile(id);
+        if (diskCached != null) {
+          _cachedVideoIds.add(id);
+          onTrackCached?.call(id);
+          continue;
+        }
+        final cachedUrl = _streamUrlMemoryCache[id];
+        if (cachedUrl != null && DateTime.now().isBefore(cachedUrl.expiresAt)) {
           onTrackCached?.call(id);
           continue;
         }
         try {
-          DebugLog.write('[preload] Buffering upcoming track: $id');
-          final file = await ensureStreamCached(id);
+          DebugLog.write('[preload] Pre-resolving stream URL in RAM: $id');
+          final url = await extractDirectStreamUrl(id);
           if (seq != _slidingWindowSequence) break;
-          if (file != null) {
-            DebugLog.write('[preload] Buffered upcoming track ready: $id');
+          if (url != null) {
+            DebugLog.write('[preload] Pre-resolved stream URL ready in RAM: $id');
             onTrackCached?.call(id);
           }
         } catch (_) {}
@@ -366,15 +375,37 @@ class StreamCacheManager {
   }
 
   /// Fast-path extraction of direct CDN stream URL via embedded yt-dlp.
-  /// Resolves the stream URL so playback can start without waiting for the full file to download to disk.
+  /// Resolves the stream URL so playback can stream directly in RAM with 0 SSD writes.
   static Future<String?> extractDirectStreamUrl(String videoId) async {
+    final cached = _streamUrlMemoryCache[videoId];
+    if (cached != null && DateTime.now().isBefore(cached.expiresAt)) {
+      return cached.url;
+    }
+
+    try {
+      final streamInfo = await InnertubePlayerService.resolveAudioStream(videoId);
+      if (streamInfo != null && streamInfo.url.startsWith('http')) {
+        _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+          streamInfo.url,
+          DateTime.now().add(const Duration(hours: 4)),
+        );
+        return streamInfo.url;
+      }
+    } catch (_) {}
+
     final url = 'https://www.youtube.com/watch?v=$videoId';
     if (!kIsWeb && Platform.isAndroid) {
       try {
         const channel = MethodChannel('peerm/ytdlp');
         final res = await channel.invokeMethod<String>('getStreamUrl', {'url': url})
             .timeout(const Duration(seconds: 10));
-        if (res != null && res.startsWith('http')) return res;
+        if (res != null && res.startsWith('http')) {
+          _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+            res,
+            DateTime.now().add(const Duration(hours: 4)),
+          );
+          return res;
+        }
       } catch (_) {}
     } else if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       try {
@@ -394,7 +425,12 @@ class StreamCacheManager {
           final out = res.stdout.toString().trim();
           final lines = out.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.startsWith('http')).toList();
           if (lines.isNotEmpty) {
-            return lines.first;
+            final streamUrl = lines.first;
+            _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+              streamUrl,
+              DateTime.now().add(const Duration(hours: 4)),
+            );
+            return streamUrl;
           }
         }
       } catch (_) {}
@@ -404,4 +440,11 @@ class StreamCacheManager {
 
   /// Clean up resources on shutdown.
   static void dispose() {}
+}
+
+class _CachedStreamUrl {
+  final String url;
+  final DateTime expiresAt;
+
+  const _CachedStreamUrl(this.url, this.expiresAt);
 }
