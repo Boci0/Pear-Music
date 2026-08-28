@@ -679,18 +679,22 @@ class _HomeScreenState extends State<HomeScreen> {
           itemBuilder: (_) => const [
             PopupMenuItem(
               value: 'local',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.folder_open),
-                title: Text('Add local audio files'),
+              child: Row(
+                children: [
+                  Icon(Icons.folder_open, size: 20),
+                  SizedBox(width: 12),
+                  Text('Add local audio files'),
+                ],
               ),
             ),
             PopupMenuItem(
               value: 'sync',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.sync),
-                title: Text('Force sync files'),
+              child: Row(
+                children: [
+                  Icon(Icons.sync, size: 20),
+                  SizedBox(width: 12),
+                  Text('Force sync files'),
+                ],
               ),
             ),
           ],
@@ -734,71 +738,84 @@ class _HomeScreenState extends State<HomeScreen> {
           itemBuilder: (_) => [
             PopupMenuItem(
               value: 'fav_toggle',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
-                  color: _showOnlyFavorites ? theme.colorScheme.primary : null,
-                ),
-                title: Text(_showOnlyFavorites ? 'Show all songs' : 'Show favorites only'),
+              child: Row(
+                children: [
+                  Icon(
+                    _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+                    color: _showOnlyFavorites ? theme.colorScheme.primary : null,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(_showOnlyFavorites ? 'Show all songs' : 'Show favorites only'),
+                ],
               ),
             ),
             const PopupMenuDivider(),
             PopupMenuItem(
               value: 'sort_date',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  controller.sortOption == SortOption.dateAdded
-                      ? Icons.check
-                      : Icons.calendar_today,
-                  size: 20,
-                ),
-                title: const Text('Sort: Date Added'),
+              child: Row(
+                children: [
+                  Icon(
+                    controller.sortOption == SortOption.dateAdded
+                        ? Icons.check
+                        : Icons.calendar_today,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Sort: Date Added'),
+                ],
               ),
             ),
             PopupMenuItem(
               value: 'sort_title',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  controller.sortOption == SortOption.title
-                      ? Icons.check
-                      : Icons.sort_by_alpha,
-                  size: 20,
-                ),
-                title: const Text('Sort: Title'),
+              child: Row(
+                children: [
+                  Icon(
+                    controller.sortOption == SortOption.title
+                        ? Icons.check
+                        : Icons.sort_by_alpha,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Sort: Title'),
+                ],
               ),
             ),
             PopupMenuItem(
               value: 'sort_size',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  controller.sortOption == SortOption.size
-                      ? Icons.check
-                      : Icons.data_usage,
-                  size: 20,
-                ),
-                title: const Text('Sort: File Size'),
+              child: Row(
+                children: [
+                  Icon(
+                    controller.sortOption == SortOption.size
+                        ? Icons.check
+                        : Icons.data_usage,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Sort: File Size'),
+                ],
               ),
             ),
             const PopupMenuDivider(),
             const PopupMenuItem(
               value: 'select',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.checklist),
-                title: Text('Select multiple songs'),
+              child: Row(
+                children: [
+                  Icon(Icons.checklist, size: 20),
+                  SizedBox(width: 12),
+                  Text('Select multiple songs'),
+                ],
               ),
             ),
             if (!_isDesktop && MediaQuery.sizeOf(context).width < 850) ...[
               const PopupMenuItem(
                 value: 'playlists',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.queue_music),
-                  title: Text('Playlists'),
+                child: Row(
+                  children: [
+                    Icon(Icons.queue_music, size: 20),
+                    SizedBox(width: 12),
+                    Text('Playlists'),
+                  ],
                 ),
               ),
             ],

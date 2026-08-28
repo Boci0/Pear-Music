@@ -257,11 +257,44 @@ class _Artwork extends StatelessWidget {
     // that scrolls into view janks scrolling on large libraries. The result
     // is cached per song, so this future resolves instantly after first load.
     final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
-    final Widget image = isNetwork
-        ? ClipRRect(
+    final Widget image;
+    if (isNetwork) {
+      image = ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          song.artwork!,
+          width: 44,
+          height: 44,
+          cacheWidth: 96,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _placeholder(scheme),
+        ),
+      );
+    } else if (initialBytes != null && initialBytes.isNotEmpty) {
+      image = ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.memory(
+          initialBytes,
+          width: 44,
+          height: 44,
+          cacheWidth: 96,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _placeholder(scheme),
+        ),
+      );
+    } else {
+      image = FutureBuilder<Uint8List?>(
+        initialData: initialBytes,
+        future: ArtworkPalette.bytesAsync(song),
+        builder: (context, snapshot) {
+          final bytes = snapshot.data ?? initialBytes;
+          if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
+          return ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Image.network(
-              song.artwork!,
+            child: Image.memory(
+              bytes,
               width: 44,
               height: 44,
               cacheWidth: 96,
@@ -269,27 +302,10 @@ class _Artwork extends StatelessWidget {
               gaplessPlayback: true,
               errorBuilder: (_, _, _) => _placeholder(scheme),
             ),
-          )
-        : FutureBuilder<Uint8List?>(
-            initialData: initialBytes,
-            future: ArtworkPalette.bytesAsync(song),
-            builder: (context, snapshot) {
-              final bytes = snapshot.data ?? initialBytes;
-              if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.memory(
-                  bytes,
-                  width: 44,
-                  height: 44,
-                  cacheWidth: 96,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, _, _) => _placeholder(scheme),
-                ),
-              );
-            },
           );
+        },
+      );
+    }
     if (!isCurrent) return image;
     final accent = ArtworkPalette.dominantSync(song);
     return Container(

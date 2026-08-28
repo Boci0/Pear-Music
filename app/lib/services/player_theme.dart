@@ -50,7 +50,8 @@ class PlayerTheme extends ChangeNotifier {
         },
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Color(0xFF121212),
+        scrolledUnderElevation: 0,
         elevation: 0,
       ),
       cardTheme: CardThemeData(
