@@ -22,11 +22,11 @@ import 'dart:typed_data';
 ///
 /// NOTE on backpressure: the Node server holds `relay_ack` while a target's
 /// outbound buffer is above a high-water mark. `dart:io` WebSocket does not
-/// expose `bufferedAmount`, so this port acks after forwarding each frame and
-/// relies on the client's existing per-chunk ack gating (one binary chunk in
-/// flight per sender) to bound memory. Fine for the local/LAN host the
-/// embedded server is for; the Node server keeps full backpressure for
-/// internet relays.
+/// expose `bufferedAmount`, so this port tracks bytes forwarded per target
+/// over a sliding window and HOLDS `relay_ack` (retrying on a short timer)
+/// while the target is saturated. Combined with the client's per-chunk ack
+/// gating (one binary chunk in flight per sender), memory stays bounded on
+/// both ends.
 class SignalingServer {
   SignalingServer({
     required this.port,
@@ -71,6 +71,14 @@ class SignalingServer {
   static const int controlMsgLimit = 500;
   static const Duration controlWindow = Duration(seconds: 10);
   static const int relayBytesBudget = 2 * 1024 * 1024 * 1024; // 2 GB
+  // Outbound relay pacing (the Dart-port analogue of the Node server's
+  // high-water bufferedAmount check): bytes forwarded to a single target
+  // within the sliding window. When a target is saturated, relay_ack for
+  // the sender is HELD and re-evaluated on a short timer, so the client's
+  // one-chunk-per-ack pacing keeps memory bounded on both sides.
+  static const int relayOutboundWindowBytes = 8 * 1024 * 1024;
+  static const Duration relayOutboundWindow = Duration(milliseconds: 500);
+  static const Duration relayAckRetryInterval = Duration(milliseconds: 60);
   static const String codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   static const int codeLength = 6;
   static const Duration codeTtl = Duration(minutes: 10);
@@ -125,10 +133,15 @@ class SignalingServer {
   final Map<String, _Conn> _devices = {}; // deviceId -> connection
   final Map<String, _Pairing> _pairingCodes = {}; // code -> host info
   final Map<String, String> _pendingBin = {}; // fromDeviceId -> toDeviceId
+  // Bytes recently forwarded per target deviceId (sliding window), used to
+  // hold relay_ack while a target's outbound path is saturated.
+  final Map<String, List<MapEntry<DateTime, int>>> _targetOutboundLog = {};
   final Map<String, int> _ipCounts = {}; // ip -> open connections
   final Map<String, _WindowCounter> _pairOps = {}; // per-device pair counter
-  final _WindowCounter _globalPairOps =
-      _WindowCounter(globalPairLimit, globalPairWindow);
+  final _WindowCounter _globalPairOps = _WindowCounter(
+    globalPairLimit,
+    globalPairWindow,
+  );
 
   // ---- Persisted state (survives app restarts) ----
   final Map<String, Set<String>> _persistedPairs = {};
@@ -187,14 +200,18 @@ class SignalingServer {
     try {
       _server = await HttpServer.bind(host, port);
     } catch (e) {
-      _log('[signaling] Failed to bind $host:$port ($e), falling back to ephemeral port');
+      _log(
+        '[signaling] Failed to bind $host:$port ($e), falling back to ephemeral port',
+      );
       _server = await HttpServer.bind(host, 0);
     }
     final actualPort = _server!.port;
     _server!.listen(_handleHttp);
     _codeExpiryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       final now = DateTime.now();
-      _pairingCodes.removeWhere((_, p) => now.difference(p.createdAt) > codeTtl);
+      _pairingCodes.removeWhere(
+        (_, p) => now.difference(p.createdAt) > codeTtl,
+      );
     });
     // Keep the advertised LAN IP fresh so a network change (new hotspot,
     // different Wi-Fi) is picked up without restarting the server.
@@ -211,7 +228,9 @@ class SignalingServer {
     _gcTimer = Timer.periodic(gcPeriod, (_) => _gcStalePairings());
     _running = true;
     _log('Pear Music signaling server listening on $host:$actualPort (ws)');
-    _log('  ws://localhost:$actualPort   (other devices: ws://${lanIp ?? host}:$actualPort)');
+    _log(
+      '  ws://localhost:$actualPort   (other devices: ws://${lanIp ?? host}:$actualPort)',
+    );
     if (stateFile != null) _log('  persistent state: ${stateFile!.path}');
     _startMulticast();
   }
@@ -259,12 +278,14 @@ class SignalingServer {
     final path = req.uri.path;
     if (path == '/' || path == '/health') {
       req.response.headers.contentType = ContentType.json;
-      req.response.write(jsonEncode({
-        'ok': true,
-        'service': 'pear-music-signaling',
-        'devices': _devices.length,
-        'time': DateTime.now().toIso8601String(),
-      }));
+      req.response.write(
+        jsonEncode({
+          'ok': true,
+          'service': 'pear-music-signaling',
+          'devices': _devices.length,
+          'time': DateTime.now().toIso8601String(),
+        }),
+      );
       await req.response.close();
     } else if (path == '/discover') {
       // LAN discovery endpoint (subnet-scan fallback + QR-less joiner finds
@@ -299,39 +320,39 @@ class SignalingServer {
     try {
       // reuseAddress only — reusePort is unsupported on Windows and would
       // surface as an unhandled socket error.
-      RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        port,
-        reuseAddress: true,
-      ).then((socket) {
-        _multicastSocket = socket;
-        try {
-          socket.joinMulticast(InternetAddress(multicastGroup));
-        } catch (_) {}
-        socket.listen(
-          (event) {
-            if (event != RawSocketEvent.read) return;
-            final dg = socket.receive();
-            if (dg == null) return;
-            final msg = utf8.decode(dg.data, allowMalformed: true).trim();
-            if (msg.contains(_probeType)) {
-              try {
-                socket.send(
-                  utf8.encode(jsonEncode(_helloJson())),
-                  dg.address,
-                  dg.port,
-                );
-                _log('[discover] answered probe from ${dg.address.address}');
-              } catch (_) {}
-            }
-          },
-          onError: (Object _) {},
-          cancelOnError: false,
-        );
-        _log('[discover] multicast listening on $multicastGroup:$port');
-      }).catchError((Object e) {
-        _log('[discover] multicast unavailable: $e');
-      });
+      RawDatagramSocket.bind(InternetAddress.anyIPv4, port, reuseAddress: true)
+          .then((socket) {
+            _multicastSocket = socket;
+            try {
+              socket.joinMulticast(InternetAddress(multicastGroup));
+            } catch (_) {}
+            socket.listen(
+              (event) {
+                if (event != RawSocketEvent.read) return;
+                final dg = socket.receive();
+                if (dg == null) return;
+                final msg = utf8.decode(dg.data, allowMalformed: true).trim();
+                if (msg.contains(_probeType)) {
+                  try {
+                    socket.send(
+                      utf8.encode(jsonEncode(_helloJson())),
+                      dg.address,
+                      dg.port,
+                    );
+                    _log(
+                      '[discover] answered probe from ${dg.address.address}',
+                    );
+                  } catch (_) {}
+                }
+              },
+              onError: (Object _) {},
+              cancelOnError: false,
+            );
+            _log('[discover] multicast listening on $multicastGroup:$port');
+          })
+          .catchError((Object e) {
+            _log('[discover] multicast unavailable: $e');
+          });
     } catch (_) {}
     _announceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       try {
@@ -410,8 +431,39 @@ class SignalingServer {
     return req.connectionInfo?.remoteAddress.address ?? 'unknown';
   }
 
+  /// Sends relay_ack to the sender once the target's outbound sliding
+  /// window has capacity. Mirrors the Node server behavior of holding
+  /// relay_ack while a target is congested: the sender's chunk pacing (one
+  /// in-flight chunk per ack) then bounds memory on both ends.
+  void _ackAfterTargetCapacity(_Conn sender, _Conn target, int bytes) {
+    final id = target.deviceId;
+    if (id == null) return;
+    final now = DateTime.now();
+    final log = _targetOutboundLog.putIfAbsent(id, () => []);
+    while (log.isNotEmpty &&
+        now.difference(log.first.key) > relayOutboundWindow) {
+      log.removeAt(0);
+    }
+    final inWindow = log.fold<int>(0, (sum, e) => sum + e.value);
+    if (inWindow + bytes <= relayOutboundWindowBytes) {
+      log.add(MapEntry(now, bytes));
+      sender.send({'type': 'relay_ack'});
+      return;
+    }
+    // Saturated: retry shortly. If either side disconnects meanwhile, the
+    // ack is dropped (the sender is gone or the transfer was aborted).
+    Timer(relayAckRetryInterval, () {
+      if (sender.ws.readyState == WebSocket.open &&
+          identical(_devices[target.deviceId], target)) {
+        _ackAfterTargetCapacity(sender, target, bytes);
+      }
+    });
+  }
+
   void _onDisconnect(_Conn conn) {
-    _log('[server] connection closed code=${conn.ws.closeCode} reason=${conn.ws.closeReason}');
+    _log(
+      '[server] connection closed code=${conn.ws.closeCode} reason=${conn.ws.closeReason}',
+    );
     final remaining = (_ipCounts[conn.ip] ?? 1) - 1;
     if (remaining <= 0) {
       _ipCounts.remove(conn.ip);
@@ -426,6 +478,7 @@ class SignalingServer {
       final name = conn.name;
       _log('[-] $name disconnected');
       _devices.remove(id);
+      _targetOutboundLog.remove(id);
     }
   }
 
@@ -437,7 +490,9 @@ class SignalingServer {
     // Binary frame = the body of a relayed chunk. Its route was announced by
     // the preceding {t:'bin'} relay marker from this device.
     if (data is! String) {
-      final bytes = data is Uint8List ? data : Uint8List.fromList(data as List<int>);
+      final bytes = data is Uint8List
+          ? data
+          : Uint8List.fromList(data as List<int>);
       if (bytes.length > maxPayload) {
         try {
           conn.ws.close(1009, 'message too big');
@@ -458,13 +513,18 @@ class SignalingServer {
         if (bytes.isNotEmpty && bytes[0] == 0x52 && bytes.length >= 3) {
           final toLen = (bytes[1] << 8) | bytes[2];
           if (bytes.length >= 3 + toLen) {
-            final to = utf8.decode(bytes.sublist(3, 3 + toLen), allowMalformed: true);
+            final to = utf8.decode(
+              bytes.sublist(3, 3 + toLen),
+              allowMalformed: true,
+            );
             final payload = bytes.sublist(3 + toLen);
             if (conn.pairings.contains(to)) {
               final target = _devices[to];
               if (target != null) {
                 final fromBytes = utf8.encode(id);
-                final out = Uint8List(1 + 2 + fromBytes.length + payload.length);
+                final out = Uint8List(
+                  1 + 2 + fromBytes.length + payload.length,
+                );
                 var off = 0;
                 out[off++] = 0x52;
                 out[off++] = (fromBytes.length >> 8) & 0xff;
@@ -473,7 +533,7 @@ class SignalingServer {
                 off += fromBytes.length;
                 out.setRange(off, off + payload.length, payload);
                 target.send(out);
-                conn.send({'type': 'relay_ack'});
+                _ackAfterTargetCapacity(conn, target, payload.length);
               }
             }
             return;
@@ -487,7 +547,7 @@ class SignalingServer {
             final target = _devices[to];
             if (target != null) {
               target.send(bytes);
-              conn.send({'type': 'relay_ack'});
+              _ackAfterTargetCapacity(conn, target, bytes.length);
             }
           }
         }
@@ -537,7 +597,8 @@ class SignalingServer {
         if (!_canDoPairOp(id)) {
           conn.send({
             'type': 'error',
-            'message': 'Too many pairing operations. Please wait a minute and try again.',
+            'message':
+                'Too many pairing operations. Please wait a minute and try again.',
           });
           return;
         }
@@ -557,88 +618,97 @@ class SignalingServer {
         break;
 
       // ---- Relay a message between paired devices ----
-      case 'signal': {
-        final id = conn.deviceId;
-        if (id == null) return;
-        final to = (msg['to'] as String? ?? '').trim();
-        if (!conn.pairings.contains(to)) return; // must be paired
-        final target = _devices[to];
-        if (target == null) return;
-        target.send({'type': 'signal', 'from': id, 'data': msg['data']});
-        break;
-      }
+      case 'signal':
+        {
+          final id = conn.deviceId;
+          if (id == null) return;
+          final to = (msg['to'] as String? ?? '').trim();
+          if (!conn.pairings.contains(to)) return; // must be paired
+          final target = _devices[to];
+          if (target == null) return;
+          target.send({'type': 'signal', 'from': id, 'data': msg['data']});
+          break;
+        }
 
       // ---- Relay file-sync data between paired devices ----
-      case 'relay': {
-        final id = conn.deviceId;
-        if (id == null) return;
-        final to = (msg['to'] as String? ?? '').trim();
-        if (!conn.pairings.contains(to)) return; // must be paired
-        final target = _devices[to];
-        if (target == null) return;
-        final data = msg['data'];
-        final t = (data is Map<String, dynamic>) ? data['t'] : null;
-        if (t == 'bin') {
-          final d = (data is Map<String, dynamic>) ? data['d'] : null;
-          if (d is String) {
-            // Legacy: a base64 chunk inside the JSON envelope.
-            target.send({'type': 'relay', 'from': id, 'data': data});
+      case 'relay':
+        {
+          final id = conn.deviceId;
+          if (id == null) return;
+          final to = (msg['to'] as String? ?? '').trim();
+          if (!conn.pairings.contains(to)) return; // must be paired
+          final target = _devices[to];
+          if (target == null) return;
+          final data = msg['data'];
+          final t = (data is Map<String, dynamic>) ? data['t'] : null;
+          if (t == 'bin') {
+            final d = (data is Map<String, dynamic>) ? data['d'] : null;
+            if (d is String) {
+              // Legacy: a base64 chunk inside the JSON envelope.
+              target.send({'type': 'relay', 'from': id, 'data': data});
+            } else {
+              // New: the chunk body follows as a raw binary frame. Tell the
+              // target which peer the frame is from, remember the route so the
+              // frame handler can forward the bytes unchanged, and PRESERVE the
+              // `e:1` encryption flag — the receiver must know to decrypt the
+              // frame. (This was dropped before, which broke sync once E2E
+              // encryption actually turned on.)
+              final e = (data is Map<String, dynamic>) ? data['e'] : null;
+              target.send({
+                'type': 'relay',
+                'from': id,
+                'data': {'t': 'bin', if (e == 1) 'e': 1},
+              });
+              _pendingBin[id] = to;
+            }
           } else {
-            // New: the chunk body follows as a raw binary frame. Tell the
-            // target which peer the frame is from, remember the route so the
-            // frame handler can forward the bytes unchanged, and PRESERVE the
-            // `e:1` encryption flag — the receiver must know to decrypt the
-            // frame. (This was dropped before, which broke sync once E2E
-            // encryption actually turned on.)
-            final e = (data is Map<String, dynamic>) ? data['e'] : null;
-            target.send({
-              'type': 'relay',
-              'from': id,
-              'data': {'t': 'bin', if (e == 1) 'e': 1},
-            });
-            _pendingBin[id] = to;
+            target.send({'type': 'relay', 'from': id, 'data': data});
+            if (t == 'text') {
+              _log('[relay] ${conn.name} -> ${target.name} (text)');
+            }
           }
-        } else {
-          target.send({'type': 'relay', 'from': id, 'data': data});
-          if (t == 'text') {
-            _log('[relay] ${conn.name} -> ${target.name} (text)');
-          }
+          break;
         }
-        break;
-      }
 
       // ---- Unpair ----
-      case 'unpair': {
-        final id = conn.deviceId;
-        if (id == null) return;
-        final peerId = (msg['peerId'] as String? ?? '').trim();
-        if (peerId.isEmpty) return;
-        // Remove the pairing regardless of whether THIS connection currently
-        // lists it — the client may be clearing a stale/phantom entry. The
-        // notify below makes sure the requesting client removes it locally
-        // even if the server had already lost the pairing.
-        final hadPairing = conn.pairings.contains(peerId) ||
-            (_persistedPairs[id]?.contains(peerId) ?? false);
-        _removePair(id, peerId);
-        final peer = _peerInfo(peerId);
-        conn.send({
-          'type': 'unpaired',
-          'peer': peer != null
-              ? {'deviceId': peer['deviceId'], 'deviceName': peer['deviceName']}
-              : {'deviceId': peerId},
-        });
-        final me = _peerInfo(id);
-        _devices[peerId]?.send({
-          'type': 'unpaired',
-          'peer': me != null
-              ? {'deviceId': me['deviceId'], 'deviceName': me['deviceName']}
-              : {'deviceId': id},
-        });
-        _log(hadPairing
-            ? '[unpair] ${conn.name} removed ${peer?['deviceName'] ?? peerId}'
-            : '[unpair] ${conn.name} cleared stale pairing ${peer?['deviceName'] ?? peerId}');
-        break;
-      }
+      case 'unpair':
+        {
+          final id = conn.deviceId;
+          if (id == null) return;
+          final peerId = (msg['peerId'] as String? ?? '').trim();
+          if (peerId.isEmpty) return;
+          // Remove the pairing regardless of whether THIS connection currently
+          // lists it — the client may be clearing a stale/phantom entry. The
+          // notify below makes sure the requesting client removes it locally
+          // even if the server had already lost the pairing.
+          final hadPairing =
+              conn.pairings.contains(peerId) ||
+              (_persistedPairs[id]?.contains(peerId) ?? false);
+          _removePair(id, peerId);
+          final peer = _peerInfo(peerId);
+          conn.send({
+            'type': 'unpaired',
+            'peer': peer != null
+                ? {
+                    'deviceId': peer['deviceId'],
+                    'deviceName': peer['deviceName'],
+                  }
+                : {'deviceId': peerId},
+          });
+          final me = _peerInfo(id);
+          _devices[peerId]?.send({
+            'type': 'unpaired',
+            'peer': me != null
+                ? {'deviceId': me['deviceId'], 'deviceName': me['deviceName']}
+                : {'deviceId': id},
+          });
+          _log(
+            hadPairing
+                ? '[unpair] ${conn.name} removed ${peer?['deviceName'] ?? peerId}'
+                : '[unpair] ${conn.name} cleared stale pairing ${peer?['deviceName'] ?? peerId}',
+          );
+          break;
+        }
 
       // ---- Ask for current state (e.g. after reconnect) ----
       case 'get_state':
@@ -653,7 +723,10 @@ class SignalingServer {
         break;
 
       default:
-        conn.send({'type': 'error', 'message': 'Unknown message type: ${msg['type']}'});
+        conn.send({
+          'type': 'error',
+          'message': 'Unknown message type: ${msg['type']}',
+        });
     }
   }
 
@@ -688,7 +761,9 @@ class SignalingServer {
     final isOwnDevice =
         advertiseDeviceId != null && advertiseDeviceId == id && isLoopback;
     if (isOwnDevice) {
-      _persistedSecrets[id] = givenSecret.isNotEmpty ? givenSecret : _randomSecret();
+      _persistedSecrets[id] = givenSecret.isNotEmpty
+          ? givenSecret
+          : _randomSecret();
       _saveState();
     } else {
       // Device-authentication secret: a wrong secret is rejected, an empty
@@ -708,7 +783,9 @@ class SignalingServer {
           _saveState();
         }
       } else {
-        _persistedSecrets[id] = givenSecret.isNotEmpty ? givenSecret : _randomSecret();
+        _persistedSecrets[id] = givenSecret.isNotEmpty
+            ? givenSecret
+            : _randomSecret();
         _saveState();
       }
     }
@@ -826,8 +903,10 @@ class SignalingServer {
     // are cleared immediately instead of silently dropping out of `state`.
     for (final peer in revokedPeers) {
       conn.send({'type': 'unpaired', 'peer': peer});
-      _log('[unpair] told ${conn.name} to drop stale pairing '
-          '${peer['deviceName']} (${peer['deviceId']}) — tombstoned');
+      _log(
+        '[unpair] told ${conn.name} to drop stale pairing '
+        '${peer['deviceName']} (${peer['deviceId']}) — tombstoned',
+      );
     }
     _sendState(conn);
     _notifyPresence(id);
@@ -840,25 +919,33 @@ class SignalingServer {
     if (!_canDoPairOp(id)) {
       conn.send({
         'type': 'error',
-        'message': 'Too many pairing attempts. Please wait a minute and try again.',
+        'message':
+            'Too many pairing attempts. Please wait a minute and try again.',
       });
       return;
     }
     if (!_globalPairOps.allow()) {
       conn.send({
         'type': 'error',
-        'message': 'Too many pairing attempts. Please wait a minute and try again.',
+        'message':
+            'Too many pairing attempts. Please wait a minute and try again.',
       });
       return;
     }
     final code = (msg['code'] as String? ?? '').trim().toUpperCase();
     if (!codeRe.hasMatch(code)) {
-      conn.send({'type': 'error', 'message': 'Invalid or expired pairing code.'});
+      conn.send({
+        'type': 'error',
+        'message': 'Invalid or expired pairing code.',
+      });
       return;
     }
     final pending = _pairingCodes[code];
     if (pending == null) {
-      conn.send({'type': 'error', 'message': 'Invalid or expired pairing code.'});
+      conn.send({
+        'type': 'error',
+        'message': 'Invalid or expired pairing code.',
+      });
       return;
     }
     if (pending.hostDeviceId == id) {
@@ -1007,11 +1094,15 @@ class SignalingServer {
 
   Map<String, dynamic>? _peerInfo(String id) {
     final d = _devices[id];
-    if (d != null) return {'deviceId': id, 'deviceName': d.name, 'online': d.online};
+    if (d != null) {
+      return {'deviceId': id, 'deviceName': d.name, 'online': d.online};
+    }
     // Offline but still paired (e.g. after a restart): use the last known
     // name so the pairing survives and the client keeps its shared songs.
     final name = _persistedNames[id];
-    if (name != null) return {'deviceId': id, 'deviceName': name, 'online': false};
+    if (name != null) {
+      return {'deviceId': id, 'deviceName': name, 'online': false};
+    }
     // A pairing we know about (restored after a host change) whose device
     // hasn't reconnected yet — keep it visible so a failover never looks like
     // an unpair (which would show '0 paired' on the client).
@@ -1040,13 +1131,19 @@ class SignalingServer {
           if (last == null) return true;
           return now.difference(last) <= offlineReportGrace;
         })
-        .map((p) => {
-              'deviceId': p['deviceId'],
-              'deviceName': p['deviceName'],
-              'online': p['online'],
-            })
+        .map(
+          (p) => {
+            'deviceId': p['deviceId'],
+            'deviceName': p['deviceName'],
+            'online': p['online'],
+          },
+        )
         .toList();
-    conn.send({'type': 'state', 'deviceId': conn.deviceId, 'pairings': pairings});
+    conn.send({
+      'type': 'state',
+      'deviceId': conn.deviceId,
+      'pairings': pairings,
+    });
   }
 
   void _notifyPresence(String deviceId) {
@@ -1079,19 +1176,21 @@ class SignalingServer {
           pairs.add([aId, bId]);
         }
       });
-      file.writeAsStringSync(jsonEncode({
-        'pairings': pairs,
-        'names': _persistedNames,
-        'secrets': _persistedSecrets,
-        'lastSeen': {
-          for (final e in _persistedLastSeen.entries)
-            e.key: e.value.toIso8601String(),
-        },
-        'tombstones': {
-          for (final e in _pairTombstones.entries)
-            e.key: e.value.toIso8601String(),
-        },
-      }));
+      file.writeAsStringSync(
+        jsonEncode({
+          'pairings': pairs,
+          'names': _persistedNames,
+          'secrets': _persistedSecrets,
+          'lastSeen': {
+            for (final e in _persistedLastSeen.entries)
+              e.key: e.value.toIso8601String(),
+          },
+          'tombstones': {
+            for (final e in _pairTombstones.entries)
+              e.key: e.value.toIso8601String(),
+          },
+        }),
+      );
     } catch (e) {
       _log('[persist] failed to save state: $e');
     }
@@ -1125,7 +1224,10 @@ class SignalingServer {
       final secrets = data['secrets'];
       if (secrets is Map) {
         secrets.forEach((id, secret) {
-          if (id is String && id.isNotEmpty && secret is String && secret.isNotEmpty) {
+          if (id is String &&
+              id.isNotEmpty &&
+              secret is String &&
+              secret.isNotEmpty) {
             _persistedSecrets[id] = secret;
           }
         });
@@ -1152,18 +1254,17 @@ class SignalingServer {
       // seed every known device from the file's mtime so nothing is instantly
       // treated as stale/gone on upgrade. This gives the ghost-cleanup grace a
       // fresh start for every existing device.
-      final known = <String>{
-        ..._persistedNames.keys,
-        ..._persistedPairs.keys,
-      };
+      final known = <String>{..._persistedNames.keys, ..._persistedPairs.keys};
       if (known.isNotEmpty) {
         final seed = file.lastModifiedSync();
         for (final id in known) {
           _persistedLastSeen.putIfAbsent(id, () => seed);
         }
       }
-      _log('[persist] loaded ${_persistedPairs.length} device(s) with pairings, '
-          '${_persistedSecrets.length} with secrets');
+      _log(
+        '[persist] loaded ${_persistedPairs.length} device(s) with pairings, '
+        '${_persistedSecrets.length} with secrets',
+      );
     } catch (e) {
       _log('[persist] failed to load state: $e');
     }
@@ -1230,8 +1331,10 @@ class _Conn {
   final WebSocket ws;
   final String ip;
   final Set<String> pairings = {};
-  final _WindowCounter controlLimiter =
-      _WindowCounter(SignalingServer.controlMsgLimit, SignalingServer.controlWindow);
+  final _WindowCounter controlLimiter = _WindowCounter(
+    SignalingServer.controlMsgLimit,
+    SignalingServer.controlWindow,
+  );
 
   String? deviceId;
   String name = 'Unnamed device';
