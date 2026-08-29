@@ -846,18 +846,19 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   // ---------- library ----------
 
   Future<void> addFilesFromPicker() async {
-    final result = await FilePicker.platform.pickFiles(
+    // file_picker v12: static FilePicker.pickFiles returns List<PlatformFile>,
+    // an empty list signals the user canceled (no FilePickerResult object).
+    final files = await FilePicker.pickFiles(
       type: FileType.audio,
       allowMultiple: true,
-      withData: false,
     );
-    if (result == null || result.files.isEmpty) return;
-    final files = result.files
+    if (files.isEmpty) return;
+    final picked = files
         .map((f) => File(f.path ?? ''))
         .where((f) => f.existsSync())
         .toList();
-    if (files.isEmpty) return;
-    final added = await library.addLocalFiles(files);
+    if (picked.isEmpty) return;
+    final added = await library.addLocalFiles(picked);
     for (final song in added) {
       unawaited(sync.broadcastSong(song));
     }
