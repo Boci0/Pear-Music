@@ -55,6 +55,14 @@ android {
             doNotStrip += "**/libffmpeg.zip.so"
             doNotStrip += "**/libpython.zip.so"
         }
+        resources {
+            excludes += "META-INF/proguard/androidx-*.pro"
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        disable += "MissingDimensionActivityCreator"
     }
 }
 
