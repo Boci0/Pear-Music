@@ -30,8 +30,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.Create(L"Pear Music", origin, size)) {
     return EXIT_FAILURE;
   }
-  // Open the window centred on the screen instead of the top-left corner.
-  window.CenterOnScreen();
+  // Centre on first launch (no saved window state); otherwise the restored
+  // position from the previous run is kept.
+  if (!window.RestoredBounds()) {
+    window.CenterOnScreen();
+  }
   window.SetQuitOnClose(true);
 
   ::MSG msg;

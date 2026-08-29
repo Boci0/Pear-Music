@@ -31,6 +31,7 @@ class PlayerDrawer extends StatefulWidget {
 }
 
 class _PlayerDrawerState extends State<PlayerDrawer> {
+  final ScrollController _drawerQueueController = ScrollController();
   int _selectedTab = 0; // 0 = Current Queue, 1 = Library & Playlists
 
   @override
@@ -43,6 +44,31 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
     } else {
       _selectedTab = 1;
     }
+  }
+
+  @override
+  void dispose() {
+    _drawerQueueController.dispose();
+    super.dispose();
+  }
+
+  /// Scrolls the queue list so the currently playing row is visible.
+  void _jumpToCurrentQueueRow() {
+    if (_selectedTab != 0) setState(() => _selectedTab = 0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_drawerQueueController.hasClients) return;
+      final idx = widget.player.queueIndex;
+      if (idx < 0) return;
+      final target = (idx * 64.0 - 80.0).clamp(
+        0.0,
+        _drawerQueueController.position.maxScrollExtent,
+      );
+      _drawerQueueController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   @override
@@ -72,6 +98,15 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     ),
                   ),
                   const Spacer(),
+                  IconButton(
+                    iconSize: 20,
+                    tooltip: 'Jump to current track',
+                    icon: Icon(
+                      Icons.center_focus_strong,
+                      color: scheme.primary,
+                    ),
+                    onPressed: _jumpToCurrentQueueRow,
+                  ),
                   IconButton(
                     iconSize: 20,
                     tooltip: 'Reroll seed (reroll upcoming recommendations)',
@@ -158,6 +193,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
         return ListView.builder(
           // Fixed extent (dense two-line ListTile): O(1) scroll geometry.
           itemExtent: 64.0,
+          controller: _drawerQueueController,
           itemCount: queue.length,
           findChildIndexCallback: (Key key) {
             final valueKey = key as ValueKey<String>?;

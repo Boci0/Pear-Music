@@ -15,7 +15,9 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     AppController controller,
   ) async {
-    final textController = TextEditingController(text: controller.identity.deviceName);
+    final textController = TextEditingController(
+      text: controller.identity.deviceName,
+    );
     final formKey = GlobalKey<FormState>();
 
     final updatedName = await showDialog<String>(
@@ -58,9 +60,9 @@ class SettingsScreen extends StatelessWidget {
     if (updatedName != null && updatedName.isNotEmpty) {
       await controller.updateDeviceName(updatedName);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device name updated')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Device name updated')));
       }
     }
   }
@@ -69,7 +71,9 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     AppController controller,
   ) async {
-    final textController = TextEditingController(text: controller.identity.serverUrl);
+    final textController = TextEditingController(
+      text: controller.identity.serverUrl,
+    );
     final formKey = GlobalKey<FormState>();
 
     final updatedUrl = await showDialog<String>(
@@ -98,7 +102,8 @@ class SettingsScreen extends StatelessWidget {
                 validator: (v) {
                   final trimmed = v?.trim() ?? '';
                   if (trimmed.isEmpty) return 'URL cannot be empty';
-                  if (!trimmed.startsWith('ws://') && !trimmed.startsWith('wss://')) {
+                  if (!trimmed.startsWith('ws://') &&
+                      !trimmed.startsWith('wss://')) {
                     return 'URL must start with ws:// or wss://';
                   }
                   return null;
@@ -200,7 +205,9 @@ class SettingsScreen extends StatelessWidget {
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: identity.deviceId));
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Device ID copied to clipboard')),
+                      const SnackBar(
+                        content: Text('Device ID copied to clipboard'),
+                      ),
                     );
                   },
                 ),
@@ -226,7 +233,9 @@ class SettingsScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.cleaning_services_rounded),
                   title: const Text('Clear streaming cache'),
-                  subtitle: const Text('Free disk space used by temporary streams'),
+                  subtitle: const Text(
+                    'Free disk space used by temporary streams',
+                  ),
                   trailing: const Icon(Icons.chevron_right, size: 20),
                   onTap: () => _confirmClearCache(context),
                 ),
@@ -240,8 +249,12 @@ class SettingsScreen extends StatelessWidget {
               children: [
                 ListTile(
                   leading: Icon(
-                    controller.isHostingServer ? Icons.dns_rounded : Icons.cloud_outlined,
-                    color: controller.isHostingServer ? theme.colorScheme.primary : null,
+                    controller.isHostingServer
+                        ? Icons.dns_rounded
+                        : Icons.cloud_outlined,
+                    color: controller.isHostingServer
+                        ? theme.colorScheme.primary
+                        : null,
                   ),
                   title: const Text('Hosting Status'),
                   subtitle: Text(
@@ -274,8 +287,28 @@ class SettingsScreen extends StatelessWidget {
                   leading: const Icon(Icons.system_update_outlined),
                   title: const Text('Check for updates'),
                   subtitle: Text('Version ${UpdateService.currentVersion}'),
-                  trailing: const Icon(Icons.chevron_right, size: 20),
-                  onTap: () => UpdateService.checkForUpdates(context, quiet: false),
+                  trailing: ValueListenableBuilder<bool>(
+                    valueListenable: UpdateService.updateAvailable,
+                    builder: (context, available, child) => Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (available) ...[
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.error,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        const Icon(Icons.chevron_right, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () =>
+                      UpdateService.checkForUpdates(context, quiet: false),
                 ),
                 const Divider(height: 1),
                 ListTile(
@@ -294,13 +327,13 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Widget _sectionTitle(BuildContext context, String title) => Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 8),
-        child: Text(
-          title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-      );
+    padding: const EdgeInsets.only(left: 4, bottom: 8),
+    child: Text(
+      title,
+      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+        color: Theme.of(context).colorScheme.primary,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
 }

@@ -62,7 +62,7 @@ void main() {
               child: MediaQuery(
                 data: MediaQuery.of(
                   context,
-                ).copyWith(textScaler: TextScaler.linear(0.4)),
+                ).copyWith(textScaler: TextScaler.linear(0.2)),
                 child: PlayerDrawer(
                   controller: controller,
                   player: player,

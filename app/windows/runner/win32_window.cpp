@@ -1,6 +1,7 @@
 #include "win32_window.h"
 
 #include <dwmapi.h>
+#include <fstream>
 #include <flutter_windows.h>
 
 #include "resource.h"
@@ -51,6 +52,64 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
     enable_non_client_dpi_scaling(hwnd);
   }
   FreeLibrary(user32_module);
+}
+
+// Saved window-state file: %APPDATA%\\com.peerm\\peerm_app\\window_state.txt.
+std::wstring SavedWindowStatePath() {
+  wchar_t appdata[MAX_PATH];
+  const DWORD len = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) {
+    return L"";
+  }
+  std::wstring dir = std::wstring(appdata) + L"\\com.peerm\\peerm_app";
+  CreateDirectoryW(dir.c_str(), nullptr);
+  return dir + L"\\window_state.txt";
+}
+
+// Persists the normal-position bounds and maximized flag on close. Failures
+// are silently ignored (state file is an optimization, never a requirement).
+void SaveWindowState(HWND hwnd) {
+  WINDOWPLACEMENT placement;
+  placement.length = sizeof(placement);
+  if (!GetWindowPlacement(hwnd, &placement)) {
+    return;
+  }
+  std::wofstream file(SavedWindowStatePath());
+  if (!file) {
+    return;
+  }
+  const RECT& rect = placement.rcNormalPosition;
+  const bool maximized = (placement.showCmd & SW_SHOWMAXIMIZED) != 0;
+  file << rect.left << L" " << rect.top << L" " << rect.right << L" "
+       << rect.bottom << L" " << (maximized ? 1 : 0);
+}
+
+// Loads the saved bounds. Returns false (use defaults) when missing, corrupt,
+// or parked fully off every monitor, so a stale position can never strand the
+// window off-screen.
+bool LoadSavedWindowState(long* left, long* top, long* right, long* bottom,
+                          bool* maximized) {
+  std::wifstream file(SavedWindowStatePath());
+  long l, t, r, b;
+  int max_flag = 0;
+  if (!(file >> l >> t >> r >> b >> max_flag)) {
+    return false;
+  }
+  if (r <= l || b <= t || l < -32000 || t < -32000 || r > 32000 ||
+      b > 32000) {
+    return false;
+  }
+  const POINT center = {static_cast<LONG>((l + r) / 2),
+                        static_cast<LONG>((t + b) / 2)};
+  if (MonitorFromPoint(center, MONITOR_DEFAULTTONULL) == nullptr) {
+    return false;
+  }
+  *left = l;
+  *top = t;
+  *right = r;
+  *bottom = b;
+  *maximized = max_flag != 0;
+  return true;
 }
 
 }  // namespace
@@ -134,11 +193,24 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
-  HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
-      nullptr, nullptr, GetModuleHandle(nullptr), this);
+  int px = Scale(origin.x, scale_factor);
+  int py = Scale(origin.y, scale_factor);
+  int pw = Scale(size.width, scale_factor);
+  int ph = Scale(size.height, scale_factor);
+  long sl, st, sr, sb;
+  bool max_flag = false;
+  if (LoadSavedWindowState(&sl, &st, &sr, &sb, &max_flag)) {
+    restored_bounds_ = true;
+    restore_maximized_ = max_flag;
+    px = static_cast<int>(sl);
+    py = static_cast<int>(st);
+    pw = static_cast<int>(sr - sl);
+    ph = static_cast<int>(sb - st);
+  }
+
+  HWND window = CreateWindow(window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+                             px, py, pw, ph, nullptr, nullptr,
+                             GetModuleHandle(nullptr), this);
 
   if (!window) {
     return false;
@@ -150,7 +222,8 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(window_handle_,
+                    restore_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
 }
 
 void Win32Window::CenterOnScreen() {
@@ -205,6 +278,9 @@ Win32Window::MessageHandler(HWND hwnd,
                             LPARAM const lparam) noexcept {
   switch (message) {
     case WM_DESTROY:
+      if (window_handle_) {
+        SaveWindowState(window_handle_);
+      }
       window_handle_ = nullptr;
       Destroy();
       if (quit_on_close_) {

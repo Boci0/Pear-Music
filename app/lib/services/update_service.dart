@@ -39,6 +39,10 @@ class UpdateInfo {
 
 class UpdateService {
   static const String currentVersion = '2.5.7';
+
+  /// Set whenever a release check completes, so the settings screen can
+  /// badge the update entry without another network round-trip.
+  static final ValueNotifier<bool> updateAvailable = ValueNotifier(false);
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -47,15 +51,19 @@ class UpdateService {
       final client = HttpClient();
       client.userAgent = 'PearMusicApp/$currentVersion';
       final request = await client.getUrl(Uri.parse(_releasesApiUrl));
-      final response = await request.close().timeout(const Duration(seconds: 8));
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
 
       if (response.statusCode == 200) {
         final body = await response.transform(utf8.decoder).join();
         final json = jsonDecode(body) as Map<String, dynamic>;
         final tagName = (json['tag_name'] as String? ?? '').trim();
-        final htmlUrl = (json['html_url'] as String? ??
+        final htmlUrl =
+            (json['html_url'] as String? ??
             'https://github.com/Boci0/Pear-Music/releases');
-        final bodyText = (json['body'] as String? ?? 'No release notes provided.').trim();
+        final bodyText =
+            (json['body'] as String? ?? 'No release notes provided.').trim();
 
         String? apkUrl;
         String? apkArm64Url;
@@ -69,9 +77,8 @@ class UpdateService {
         for (final asset in assets) {
           if (asset is Map<String, dynamic>) {
             final downloadUrl = asset['browser_download_url'] as String? ?? '';
-            final name =
-                (asset['name'] as String? ?? p.basename(downloadUrl))
-                    .toLowerCase();
+            final name = (asset['name'] as String? ?? p.basename(downloadUrl))
+                .toLowerCase();
             if (downloadUrl.endsWith('.apk')) {
               if (name.contains('arm64')) {
                 apkArm64Url = downloadUrl;
@@ -99,15 +106,22 @@ class UpdateService {
             final abis = await channel
                 .invokeMethod<List<dynamic>>('getSupportedAbis')
                 .timeout(const Duration(milliseconds: 600));
-            final abisList = abis?.map((e) => e.toString().toLowerCase()).toList() ?? [];
-            if (abisList.any((a) => a.contains('arm64')) && apkArm64Url != null) {
+            final abisList =
+                abis?.map((e) => e.toString().toLowerCase()).toList() ?? [];
+            if (abisList.any((a) => a.contains('arm64')) &&
+                apkArm64Url != null) {
               apkUrl = apkArm64Url;
-            } else if (abisList.any((a) => a.contains('v7') || a.contains('arm')) && apkArmv7Url != null) {
+            } else if (abisList.any(
+                  (a) => a.contains('v7') || a.contains('arm'),
+                ) &&
+                apkArmv7Url != null) {
               apkUrl = apkArmv7Url;
-            } else if (abisList.any((a) => a.contains('x86_64')) && apkX86Url != null) {
+            } else if (abisList.any((a) => a.contains('x86_64')) &&
+                apkX86Url != null) {
               apkUrl = apkX86Url;
             } else {
-              apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
+              apkUrl =
+                  apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
             }
           } catch (_) {
             apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
@@ -127,7 +141,7 @@ class UpdateService {
         final cleanLatest = _cleanVersion(tagName);
         final hasNewer = _isNewerVersion(currentVersion, cleanLatest);
 
-        return UpdateInfo(
+        final info = UpdateInfo(
           hasUpdate: hasNewer,
           currentVersion: currentVersion,
           latestVersion: cleanLatest.isEmpty ? currentVersion : cleanLatest,
@@ -138,6 +152,8 @@ class UpdateService {
           zipUrl: zipUrl,
           sha256ByName: sha256ByName,
         );
+        updateAvailable.value = info.hasUpdate;
+        return info;
       }
     } catch (e) {
       debugPrint('[UpdateService] Check failed: $e');
@@ -147,20 +163,24 @@ class UpdateService {
 
   /// Downloads and parses a `SHA256SUMS` / `checksums.txt` release asset into
   /// a filename -> digest map. Returns an empty map on any failure.
-  static Future<Map<String, String>> _fetchChecksumAsset(String? sumsUrl) async {
+  static Future<Map<String, String>> _fetchChecksumAsset(
+    String? sumsUrl,
+  ) async {
     final result = <String, String>{};
     if (sumsUrl == null || !sumsUrl.startsWith('https://')) return result;
     try {
       final client = HttpClient();
       client.userAgent = 'PearMusicApp/$currentVersion';
       final request = await client.getUrl(Uri.parse(sumsUrl));
-      final response =
-          await request.close().timeout(const Duration(seconds: 8));
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
       if (response.statusCode == 200) {
         final text = await response.transform(utf8.decoder).join();
         for (final line in const LineSplitter().convert(text)) {
-          final m = RegExp(r'^([0-9a-fA-F]{64})\s+\*?(.+)$')
-              .firstMatch(line.trim());
+          final m = RegExp(
+            r'^([0-9a-fA-F]{64})\s+\*?(.+)$',
+          ).firstMatch(line.trim());
           if (m != null) {
             final fileName = p.basename(m.group(2)!.trim());
             final hash = m.group(1)!.toLowerCase();
@@ -216,8 +236,14 @@ class UpdateService {
 
   static bool _isNewerVersion(String current, String latest) {
     if (latest.isEmpty) return false;
-    final currParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-    final lateParts = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final currParts = current
+        .split('.')
+        .map((e) => int.tryParse(e) ?? 0)
+        .toList();
+    final lateParts = latest
+        .split('.')
+        .map((e) => int.tryParse(e) ?? 0)
+        .toList();
 
     for (var i = 0; i < 3; i++) {
       final c = i < currParts.length ? currParts[i] : 0;
@@ -249,9 +275,7 @@ class UpdateService {
     if (info == null) {
       if (!quiet) {
         scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text('Could not reach GitHub Releases API.'),
-          ),
+          const SnackBar(content: Text('Could not reach GitHub Releases API.')),
         );
       }
       return;
@@ -340,7 +364,9 @@ class UpdateService {
         // Integrity gate: never extract/relaunch without a matching SHA-256.
         final expected = _findExpectedHash(info, p.basename(zipUrl));
         if (expected == null || expected.isEmpty) {
-          debugPrint('[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}');
+          debugPrint(
+            '[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}',
+          );
           await zipFile.delete();
           if (context.mounted) {
             await _showMissingHashDialog(context, info);
@@ -413,32 +439,30 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''');
 
         final currentPid = pid;
-        await Process.start(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-WindowStyle',
-            'Hidden',
-            '-File',
-            updaterScript.path,
-            '-AppPid',
-            '$currentPid',
-            '-ZipPath',
-            zipFile.path,
-            '-AppDir',
-            appDir,
-            '-ExePath',
-            exePath,
-          ],
-          mode: ProcessStartMode.inheritStdio,
-        );
+        await Process.start('powershell.exe', [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-WindowStyle',
+          'Hidden',
+          '-File',
+          updaterScript.path,
+          '-AppPid',
+          '$currentPid',
+          '-ZipPath',
+          zipFile.path,
+          '-AppDir',
+          appDir,
+          '-ExePath',
+          exePath,
+        ], mode: ProcessStartMode.inheritStdio);
 
         exit(0);
       } else {
         scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text('Download failed (HTTP ${response.statusCode})')),
+          SnackBar(
+            content: Text('Download failed (HTTP ${response.statusCode})'),
+          ),
         );
       }
     } catch (e) {
@@ -510,13 +534,15 @@ class _UpdateDialog extends StatelessWidget {
   const _UpdateDialog({required this.info});
 
   Future<void> _handleUpdate(BuildContext context) async {
-    if (defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null) {
+    if (defaultTargetPlatform == TargetPlatform.windows &&
+        info.zipUrl != null) {
       Navigator.pop(context);
       await UpdateService.downloadAndApplyWindowsZip(context, info);
       return;
     }
 
-    if (defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null) {
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        info.apkUrl != null) {
       Navigator.pop(context);
       await UpdateService.downloadAndInstallAndroidApk(context, info);
       return;
@@ -531,7 +557,10 @@ class _UpdateDialog extends StatelessWidget {
 
     try {
       final uri = Uri.parse(targetUrl);
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
       if (!launched) {
         final fallbackUri = Uri.parse(info.htmlUrl);
         await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
@@ -548,8 +577,10 @@ class _UpdateDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAndroidWithApk = defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null;
-    final isWindowsWithZip = defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null;
+    final isAndroidWithApk =
+        defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null;
+    final isWindowsWithZip =
+        defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null;
 
     String buttonLabel = 'Get Update';
     if (isAndroidWithApk) {
@@ -589,7 +620,9 @@ class _UpdateDialog extends StatelessWidget {
         ),
         FilledButton.icon(
           onPressed: () => _handleUpdate(context),
-          icon: Icon(isWindowsWithZip ? Icons.system_update : Icons.file_download),
+          icon: Icon(
+            isWindowsWithZip ? Icons.system_update : Icons.file_download,
+          ),
           label: Text(buttonLabel),
         ),
       ],

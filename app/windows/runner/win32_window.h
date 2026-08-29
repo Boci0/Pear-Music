@@ -59,6 +59,10 @@ class Win32Window {
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
+  // True when the previous run"s saved window bounds were restored instead
+  // of the default origin/size (used to skip auto-centering).
+  bool RestoredBounds() const { return restored_bounds_; }
+
  protected:
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
@@ -101,6 +105,10 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  // Saved window state from the previous run.
+  bool restored_bounds_ = false;
+  bool restore_maximized_ = false;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

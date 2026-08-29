@@ -277,6 +277,8 @@ class PlayerWideQueueView extends StatefulWidget {
 
 class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _filterController = TextEditingController();
+  String _filter = '';
   String? _lastScrolledSongId;
 
   @override
@@ -295,15 +297,34 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
     }
   }
 
+  bool _matchesFilter(Song s) {
+    final query = _filter.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return s.title.toLowerCase().contains(query);
+  }
+
+  /// Index of the current song within the FILTERED list (the list view's
+  /// coordinate space), or -1 when it is filtered out.
+  int _filteredIndexOfCurrent(List<Song> queue) {
+    var visibleIndex = -1;
+    for (final s in queue) {
+      if (!_matchesFilter(s)) continue;
+      visibleIndex++;
+      if (s.id == widget.currentSong.id) return visibleIndex;
+    }
+    return -1;
+  }
+
   void _scrollToCurrent({bool force = false}) {
     if (!_scrollController.hasClients) return;
     if (!force && _lastScrolledSongId == widget.currentSong.id) return;
     _lastScrolledSongId = widget.currentSong.id;
 
     final queue = widget.player.queue;
-    final idx = queue.indexWhere((s) => s.id == widget.currentSong.id);
+    final idx = _filteredIndexOfCurrent(queue);
     if (idx >= 0) {
-      final targetOffset = (idx * 56.0 - 80.0).clamp(
+      // Must match the list's itemExtent (dense two-line ListTile + padding).
+      final targetOffset = (idx * 68.0 - 80.0).clamp(
         0.0,
         _scrollController.position.maxScrollExtent,
       );
@@ -323,131 +344,152 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _filterController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: widget.player,
-      builder: (context, _) {
-        final queue = widget.player.queue;
-        // Content-stable, duplicate-safe keys: element state survives
-        // reroll, removal and reorder.
-        final keys = <String>[];
-        final occurrences = <String, int>{};
-        for (final item in queue) {
-          final n = occurrences[item.id] ?? 0;
-          occurrences[item.id] = n + 1;
-          keys.add(n == 0 ? item.id : '${item.id}#${n + 1}');
-        }
-        final scheme = widget.scheme;
-        if (queue.isEmpty) {
-          return const Center(child: Text('Queue is empty'));
-        }
-
-        return Theme(
-          data: Theme.of(context).copyWith(
-            hoverColor: scheme.primary.withValues(alpha: 0.08),
-            highlightColor: Colors.transparent,
-            splashColor: scheme.primary.withValues(alpha: 0.12),
-          ),
-          child: ListView.builder(
-            controller: _scrollController,
-            // Fixed extent (dense two-line ListTile + 2px vertical padding):
-            // O(1) scroll geometry.
-            itemExtent: 68.0,
-            itemCount: queue.length,
-            findChildIndexCallback: (Key key) {
-              final valueKey = key as ValueKey<String>?;
-              if (valueKey == null) return null;
-              final index = keys.indexWhere(
-                (k) => 'wide_queue_$k' == valueKey.value,
-              );
-              return index >= 0 ? index : null;
-            },
-            itemBuilder: (context, i) {
-              final item = queue[i];
-              final isCurrent = item.id == widget.currentSong.id;
-              final isUpcoming = i > widget.player.queueIndex;
-              final isLocked = widget.player.isSongLocked(item.id);
-              return RepaintBoundary(
-                // Per-row repaint isolation: artwork decode and lock changes
-                // do not repaint neighbouring rows.
-                key: ValueKey('wide_queue_${keys[i]}'),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Material(
-                    color: isCurrent
-                        ? scheme.primaryContainer.withValues(alpha: 0.35)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    clipBehavior: Clip.antiAlias,
-                    child: ListTile(
-                      dense: true,
-                      mouseCursor: SystemMouseCursors.click,
-                      hoverColor: scheme.primary.withValues(alpha: 0.08),
-                      splashColor: scheme.primary.withValues(alpha: 0.12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      leading: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 24,
-                            child: isCurrent
-                                ? Icon(
-                                    Icons.graphic_eq_rounded,
-                                    color: scheme.primary,
-                                    size: 18,
-                                  )
-                                : Text(
-                                    '${i + 1}',
-                                    style: TextStyle(
-                                      color: scheme.onSurfaceVariant.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _filterController,
+                  onChanged: (value) => setState(() => _filter = value),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Filter queue',
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    suffixIcon: _filter.isEmpty
+                        ? null
+                        : IconButton(
+                            iconSize: 18,
+                            tooltip: 'Clear filter',
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () {
+                              _filterController.clear();
+                              setState(() => _filter = '');
+                            },
                           ),
-                          const SizedBox(width: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: SizedBox(
-                              width: 36,
-                              height: 36,
-                              child:
-                                  item.artwork != null &&
-                                      item.artwork!.startsWith('http')
-                                  ? Image.network(
-                                      item.artwork!,
-                                      width: 36,
-                                      height: 36,
-                                      cacheWidth: 96,
-                                      cacheHeight: 96,
-                                      fit: BoxFit.cover,
-                                      gaplessPlayback: true,
-                                      errorBuilder: (_, _, _) => Container(
-                                        color: scheme.surfaceContainerHighest,
-                                        child: Icon(
-                                          Icons.music_note,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Jump to current track',
+                icon: const Icon(Icons.center_focus_strong),
+                onPressed: () => _scrollToCurrent(force: true),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListenableBuilder(
+            listenable: widget.player,
+            builder: (context, _) {
+              final queue = widget.player.queue;
+              // Filtered view: pairs of (original index, song) so queue
+              // mutations (remove) always target the real queue position.
+              final visible = <(int, Song)>[
+                for (var i2 = 0; i2 < queue.length; i2++)
+                  if (_matchesFilter(queue[i2])) (i2, queue[i2]),
+              ];
+              // Content-stable, duplicate-safe keys: element state survives
+              // reroll, removal and reorder.
+              final keys = <String>[];
+              final occurrences = <String, int>{};
+              for (final (_, item) in visible) {
+                final n = occurrences[item.id] ?? 0;
+                occurrences[item.id] = n + 1;
+                keys.add(n == 0 ? item.id : '${item.id}#${n + 1}');
+              }
+              final scheme = widget.scheme;
+              if (queue.isEmpty) {
+                return const Center(child: Text('Queue is empty'));
+              }
+              if (visible.isEmpty) {
+                return const Center(child: Text('No matches'));
+              }
+
+              return Theme(
+                data: Theme.of(context).copyWith(
+                  hoverColor: scheme.primary.withValues(alpha: 0.08),
+                  highlightColor: Colors.transparent,
+                  splashColor: scheme.primary.withValues(alpha: 0.12),
+                ),
+                child: ListView.builder(
+                  controller: _scrollController,
+                  // Fixed extent (dense two-line ListTile + 2px vertical
+                  // padding): O(1) scroll geometry.
+                  itemExtent: 68.0,
+                  itemCount: visible.length,
+                  findChildIndexCallback: (Key key) {
+                    final valueKey = key as ValueKey<String>?;
+                    if (valueKey == null) return null;
+                    final index = keys.indexWhere(
+                      (k) => 'wide_queue_$k' == valueKey.value,
+                    );
+                    return index >= 0 ? index : null;
+                  },
+                  itemBuilder: (context, i) {
+                    final (origIndex, item) = visible[i];
+                    final isCurrent = item.id == widget.currentSong.id;
+                    final isUpcoming = origIndex > widget.player.queueIndex;
+                    final isLocked = widget.player.isSongLocked(item.id);
+                    return RepaintBoundary(
+                      // Per-row repaint isolation: artwork decode and lock
+                      // changes do not repaint neighbouring rows.
+                      key: ValueKey('wide_queue_${keys[i]}'),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Material(
+                          color: isCurrent
+                              ? scheme.primaryContainer.withValues(alpha: 0.35)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            dense: true,
+                            mouseCursor: SystemMouseCursors.click,
+                            hoverColor: scheme.primary.withValues(alpha: 0.08),
+                            splashColor: scheme.primary.withValues(alpha: 0.12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            leading: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 24,
+                                  child: isCurrent
+                                      ? Icon(
+                                          Icons.graphic_eq_rounded,
+                                          color: scheme.primary,
                                           size: 18,
-                                          color: scheme.onSurfaceVariant,
+                                        )
+                                      : Text(
+                                          '${origIndex + 1}',
+                                          style: TextStyle(
+                                            color: scheme.onSurfaceVariant
+                                                .withValues(alpha: 0.6),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
-                                      ),
-                                    )
-                                  : FutureBuilder<Uint8List?>(
-                                      initialData: ArtworkPalette.bytes(item),
-                                      future: ArtworkPalette.bytesAsync(item),
-                                      builder: (context, snapshot) {
-                                        final bytes =
-                                            snapshot.data ??
-                                            ArtworkPalette.bytes(item);
-                                        if (bytes != null && bytes.isNotEmpty) {
-                                          return Image.memory(
-                                            bytes,
+                                ),
+                                const SizedBox(width: 8),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: SizedBox(
+                                    width: 36,
+                                    height: 36,
+                                    child:
+                                        item.artwork != null &&
+                                            item.artwork!.startsWith('http')
+                                        ? Image.network(
+                                            item.artwork!,
                                             width: 36,
                                             height: 36,
                                             cacheWidth: 96,
@@ -465,179 +507,227 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                                         scheme.onSurfaceVariant,
                                                   ),
                                                 ),
-                                          );
-                                        }
-                                        return Container(
-                                          color: scheme.surfaceContainerHighest,
-                                          child: Icon(
-                                            Icons.music_note,
-                                            size: 18,
-                                            color: scheme.onSurfaceVariant,
+                                          )
+                                        : FutureBuilder<Uint8List?>(
+                                            initialData: ArtworkPalette.bytes(
+                                              item,
+                                            ),
+                                            future: ArtworkPalette.bytesAsync(
+                                              item,
+                                            ),
+                                            builder: (context, snapshot) {
+                                              final bytes =
+                                                  snapshot.data ??
+                                                  ArtworkPalette.bytes(item);
+                                              if (bytes != null &&
+                                                  bytes.isNotEmpty) {
+                                                return Image.memory(
+                                                  bytes,
+                                                  width: 36,
+                                                  height: 36,
+                                                  cacheWidth: 96,
+                                                  cacheHeight: 96,
+                                                  fit: BoxFit.cover,
+                                                  gaplessPlayback: true,
+                                                  errorBuilder: (_, _, _) =>
+                                                      Container(
+                                                        color: scheme
+                                                            .surfaceContainerHighest,
+                                                        child: Icon(
+                                                          Icons.music_note,
+                                                          size: 18,
+                                                          color: scheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                      ),
+                                                );
+                                              }
+                                              return Container(
+                                                color: scheme
+                                                    .surfaceContainerHighest,
+                                                child: Icon(
+                                                  Icons.music_note,
+                                                  size: 18,
+                                                  color:
+                                                      scheme.onSurfaceVariant,
+                                                ),
+                                              );
+                                            },
                                           ),
-                                        );
-                                      },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            title: Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: isCurrent
+                                  ? TextStyle(
+                                      color: scheme.primary,
+                                      fontWeight: FontWeight.bold,
+                                    )
+                                  : null,
+                            ),
+                            subtitle: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  item.sourceDeviceId == 'stream'
+                                      ? 'Radio Stream'
+                                      : (item.sourceDeviceId == null
+                                            ? 'Local track'
+                                            : 'Shared'),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: isCurrent
+                                            ? scheme.primary.withValues(
+                                                alpha: 0.8,
+                                              )
+                                            : scheme.onSurfaceVariant,
+                                      ),
+                                ),
+                                if (item.sourceDeviceId == 'stream' &&
+                                    StreamCacheManager.isStreamCachedSync(
+                                      RecommendationService.extractVideoId(
+                                            item.id,
+                                          ) ??
+                                          item.id.replaceFirst('stream_', ''),
+                                    )) ...[
+                                  const SizedBox(width: 6),
+                                  const Tooltip(
+                                    message: 'Cached',
+                                    child: Icon(
+                                      Icons.check_circle_rounded,
+                                      size: 12,
+                                      color: Color(0xFF81C784),
                                     ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      title: Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: isCurrent
-                            ? TextStyle(
-                                color: scheme.primary,
-                                fontWeight: FontWeight.bold,
-                              )
-                            : null,
-                      ),
-                      subtitle: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            item.sourceDeviceId == 'stream'
-                                ? 'Radio Stream'
-                                : (item.sourceDeviceId == null
-                                      ? 'Local track'
-                                      : 'Shared'),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: isCurrent
-                                      ? scheme.primary.withValues(alpha: 0.8)
-                                      : scheme.onSurfaceVariant,
-                                ),
-                          ),
-                          if (item.sourceDeviceId == 'stream' &&
-                              StreamCacheManager.isStreamCachedSync(
-                                RecommendationService.extractVideoId(item.id) ??
-                                    item.id.replaceFirst('stream_', ''),
-                              )) ...[
-                            const SizedBox(width: 6),
-                            const Tooltip(
-                              message: 'Cached',
-                              child: Icon(
-                                Icons.check_circle_rounded,
-                                size: 12,
-                                color: Color(0xFF81C784),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isLocked)
-                            IconButton(
-                              iconSize: 18,
-                              tooltip: 'Locked (tap to unlock)',
-                              icon: Icon(
-                                Icons.lock_rounded,
-                                color: scheme.primary,
-                              ),
-                              onPressed: () =>
-                                  widget.player.toggleSongLock(item.id),
-                            ),
-                          if (isCurrent)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: scheme.primary,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'PLAYING',
-                                style: TextStyle(
-                                  color: scheme.onPrimary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          PopupMenuButton<String>(
-                            icon: Icon(
-                              Icons.more_vert_rounded,
-                              size: 18,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
-                            ),
-                            onSelected: (action) {
-                              if (action == 'lock') {
-                                widget.player.toggleSongLock(item.id);
-                              } else if (action == 'save') {
-                                context
-                                    .read<AppController>()
-                                    .saveStreamToLibrary(item);
-                              } else if (action == 'remove') {
-                                context.read<AppController>().removeFromQueue(
-                                  i,
-                                );
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              if (isUpcoming)
-                                PopupMenuItem(
-                                  value: 'lock',
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        isLocked
-                                            ? Icons.lock_open_rounded
-                                            : Icons.lock_rounded,
-                                        size: 18,
-                                        color: isLocked ? null : scheme.primary,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        isLocked
-                                            ? 'Unlock track'
-                                            : 'Lock track',
-                                      ),
-                                    ],
                                   ),
-                                ),
-                              if (item.sourceDeviceId == 'stream')
-                                const PopupMenuItem(
-                                  value: 'save',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.download_rounded, size: 18),
-                                      SizedBox(width: 10),
-                                      Text('Save to library'),
-                                    ],
+                                ],
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (isLocked)
+                                  IconButton(
+                                    iconSize: 18,
+                                    tooltip: 'Locked (tap to unlock)',
+                                    icon: Icon(
+                                      Icons.lock_rounded,
+                                      color: scheme.primary,
+                                    ),
+                                    onPressed: () =>
+                                        widget.player.toggleSongLock(item.id),
                                   ),
-                                ),
-                              const PopupMenuItem(
-                                value: 'remove',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.close_rounded, size: 18),
-                                    SizedBox(width: 10),
-                                    Text('Remove from queue'),
+                                if (isCurrent)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: scheme.primary,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'PLAYING',
+                                      style: TextStyle(
+                                        color: scheme.onPrimary,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                PopupMenuButton<String>(
+                                  icon: Icon(
+                                    Icons.more_vert_rounded,
+                                    size: 18,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  onSelected: (action) {
+                                    if (action == 'lock') {
+                                      widget.player.toggleSongLock(item.id);
+                                    } else if (action == 'save') {
+                                      context
+                                          .read<AppController>()
+                                          .saveStreamToLibrary(item);
+                                    } else if (action == 'remove') {
+                                      context
+                                          .read<AppController>()
+                                          .removeFromQueue(origIndex);
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    if (isUpcoming)
+                                      PopupMenuItem(
+                                        value: 'lock',
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              isLocked
+                                                  ? Icons.lock_open_rounded
+                                                  : Icons.lock_rounded,
+                                              size: 18,
+                                              color: isLocked
+                                                  ? null
+                                                  : scheme.primary,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Text(
+                                              isLocked
+                                                  ? 'Unlock track'
+                                                  : 'Lock track',
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    if (item.sourceDeviceId == 'stream')
+                                      const PopupMenuItem(
+                                        value: 'save',
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.download_rounded,
+                                              size: 18,
+                                            ),
+                                            SizedBox(width: 10),
+                                            Text('Save to library'),
+                                          ],
+                                        ),
+                                      ),
+                                    const PopupMenuItem(
+                                      value: 'remove',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.close_rounded, size: 18),
+                                          SizedBox(width: 10),
+                                          Text('Remove from queue'),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                            onTap: () =>
+                                widget.player.playSong(item, queue: queue),
                           ),
-                        ],
+                        ),
                       ),
-                      onTap: () => widget.player.playSong(item, queue: queue),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               );
             },
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
