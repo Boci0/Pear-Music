@@ -65,14 +65,8 @@ jobs:
         run: flutter test
         working-directory: app
 
-      - name: Build Android release APKs (verbose + Gradle info)
-        run: |
-          set -eux
-          # Run flutter build with verbose output to capture Flutter+Gradle logs.
-          flutter build apk --split-per-abi --release -v || true
-          # Run Gradle directly with --info and --stacktrace to surface AAR metadata checks.
-          cd android
-          ./gradlew assembleRelease --info --stacktrace
+      - name: Build Android release APKs
+        run: flutter build apk --split-per-abi --release
         working-directory: app
 
       - name: Stage Android artifacts
