@@ -40,7 +40,7 @@ dependencies:
   just_audio_media_kit: ^2.1.0
   media_kit: ^1.2.6
   media_kit_libs_windows_audio: ^1.0.9
-  file_picker: 10.0.0
+  file_picker: ^7.0.0
   path_provider: ^2.1.6
   path: ^1.9.1
   uuid: ^4.6.0
@@ -73,8 +73,9 @@ dev_dependencies:
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
+  # package. See that file for information about deactivating additional lint
+  # rules. See that file for information about deactivating additional lint
+  # rules activating additional ones.
   flutter_lints: ^6.0.0
 
 # Local, patched copy of just_audio_background that always shows the three
@@ -108,8 +109,8 @@ flutter:
 
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
+  # family key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors. For
   # example:
   # fonts:
   #   - family: Schyler
