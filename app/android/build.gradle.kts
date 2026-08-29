@@ -23,16 +23,11 @@ subprojects {
 // Prevents AAR metadata failures when a transitive dependency (e.g.
 // flutter_plugin_android_lifecycle) requires a higher compileSdk than
 // a plugin (e.g. file_picker) declares.
+// Uses plugins.withId instead of afterEvaluate to avoid "already evaluated" errors.
 subprojects {
-    afterEvaluate {
-        if (project.hasProperty("android")) {
-            val android = project.extensions.findByName("android")
-            if (android is com.android.build.gradle.BaseExtension) {
-                if (android.compileSdkVersion != "android-37") {
-                    android.compileSdkVersion(37)
-                }
-            }
-        }
+    plugins.withId("com.android.library") {
+        val android = extensions.getByName("android") as com.android.build.gradle.BaseExtension
+        android.compileSdkVersion(37)
     }
 }
 
