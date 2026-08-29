@@ -63,24 +63,24 @@ Set-Location $repoRoot
 Write-Step "Bumping version to $Version+$Build"
 
 $pubspecContent = Get-Content $pubspec -Raw
-$pubspecNew = $pubspecContent -replace '(?m)^version: \d+\.\d+\.\d+\+\d+', "version: $Version+$Build"
-if ($pubspecNew -eq $pubspecContent) {
+if (-not ($pubspecContent -match '(?m)^version: \d+\.\d+\.\d+\+\d+')) {
   throw "Version bump failed: no 'version:' line matched in $pubspec"
 }
+$pubspecNew = $pubspecContent -replace '(?m)^version: \d+\.\d+\.\d+\+\d+', "version: $Version+$Build"
 Set-Content $pubspec $pubspecNew -NoNewline
 
 $updateContent = Get-Content $updateService -Raw
-$updateNew = $updateContent -replace "static const String currentVersion = '[^']+';", "static const String currentVersion = '$Version';"
-if ($updateNew -eq $updateContent) {
+if (-not ($updateContent -match "static const String currentVersion = '[^']+';")) {
   throw "Version bump failed: currentVersion not matched in $updateService"
 }
+$updateNew = $updateContent -replace "static const String currentVersion = '[^']+';", "static const String currentVersion = '$Version';"
 Set-Content $updateService $updateNew -NoNewline
 
 $issContent = Get-Content $installerIss -Raw
-$issNew = $issContent -replace '#define MyAppVersion "[^"]+"', "#define MyAppVersion `"$Version`""
-if ($issNew -eq $issContent) {
+if (-not ($issContent -match '#define MyAppVersion "[^"]+"')) {
   throw "Version bump failed: MyAppVersion not matched in $installerIss"
 }
+$issNew = $issContent -replace '#define MyAppVersion "[^"]+"', "#define MyAppVersion `"$Version`""
 Set-Content $installerIss $issNew -NoNewline
 
 Assert-FileContains $pubspec "version: $Version+$Build"
