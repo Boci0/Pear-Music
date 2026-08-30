@@ -67,12 +67,12 @@ jobs:
 
       - name: Decode release keystore
         run: |
-          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > app/android/app/peerm-release.jks
+          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > android/app/peerm-release.jks
         working-directory: app
 
       - name: Generate key.properties
         run: |
-          cat <<EOF > app/android/key.properties
+          cat <<EOF > android/key.properties
           storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.RELEASE_KEY_PASSWORD }}
           keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}
@@ -131,3 +131,4 @@ jobs:
             PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
             --title "Pear Music ${TAG#v}" \
             --notes "Release build of ${TAG}. See commit history for changes."
+
