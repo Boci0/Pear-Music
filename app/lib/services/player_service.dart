@@ -59,6 +59,8 @@ class PlayerService extends ChangeNotifier {
   DateTime _lastInteraction = DateTime.now();
   bool _isAdvancing = false;
   bool _isLoadingTrack = false;
+  bool _isBufferingNext = false; // true while resolving next track's URL
+  String? _bufferingVideoId;    // which track is being resolved
   int _consecutiveStreamFailures = 0;
   bool _isPreloadingUpcoming = false;
 
@@ -91,6 +93,8 @@ class PlayerService extends ChangeNotifier {
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
   bool get isLoadingTrack => _isLoadingTrack;
+  bool get isBufferingNext => _isBufferingNext;
+  String? get bufferingVideoId => _bufferingVideoId;
 
   bool get isPreloadingUpcoming => _isPreloadingUpcoming || _isLoadingRecommendations;
 
@@ -550,7 +554,17 @@ class PlayerService extends ChangeNotifier {
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
         } else {
+          // Signal buffering state so the UI can show "loading next track..."
+          _isBufferingNext = true;
+          _bufferingVideoId = videoId;
+          notifyListeners();
+          final stopwatch = Stopwatch()..start();
+
           final streamUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
+
+          stopwatch.stop();
+          _isBufferingNext = false;
+          _bufferingVideoId = null;
           if (token != _playRequestToken) return;
 
           if (streamUrl != null && streamUrl.startsWith('http')) {
@@ -673,6 +687,15 @@ class PlayerService extends ChangeNotifier {
           }
         },
       );
+
+      // Proactively resolve CDN stream URLs in the background while the current
+      // track plays. This eliminates the 3–15s yt-dlp gap between tracks —
+      // by the time the current song ends, the next URL is already resolved.
+      for (final vId in upcomingVideoIds) {
+        if (!StreamCacheManager.isStreamCachedSync(vId)) {
+          StreamCacheManager.prefetchStreamUrl(vId);
+        }
+      }
     } else {
       _isPreloadingUpcoming = false;
       notifyListeners();

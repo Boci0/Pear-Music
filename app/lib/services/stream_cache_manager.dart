@@ -40,6 +40,10 @@ class StreamCacheManager {
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
   static final Lock _nativeDownloadLock = Lock();
   static int _slidingWindowSequence = 0;
+  // In-flight / completed direct stream URL resolutions, so a prefetch
+  // started while the previous track plays satisfies the next track's
+  // immediate look-up with 0ms of yt-dlp latency.
+  static final Map<String, Future<String?>> _streamUrlPrefetchCache = {};
   static int _cachedTotalBytes = 0;
 
   /// Returns live O(1) stats of cache size, track count, and active downloads.
@@ -354,12 +358,62 @@ class StreamCacheManager {
 
   /// Fast-path extraction of direct CDN stream URL with in-memory caching.
   /// Resolves the stream URL so playback can stream directly in RAM with 0 SSD writes.
+  ///
+  /// Checks the prefetch cache first — if a prefetch for [videoId] is in-flight
+  /// or already completed, that Future is awaited directly, eliminating yt-dlp
+  /// latency on the hot path.
   static Future<String?> extractDirectStreamUrl(String videoId) async {
+    // 1. Fast path: in-memory cache (already resolved)
     final cached = _streamUrlMemoryCache[videoId];
     if (cached != null && DateTime.now().isBefore(cached.expiresAt)) {
       return cached.url;
     }
 
+    // 2. Prefetch path: a background resolution is already running or done
+    final prefetchFuture = _streamUrlPrefetchCache[videoId];
+    if (prefetchFuture != null) {
+      return prefetchFuture;
+    }
+
+    // 3. Cold path: resolve now
+    return _resolveAndCacheStreamUrl(videoId);
+  }
+
+  /// Proactively resolves the stream URL for [videoId] in the background.
+  ///
+  /// Returns immediately. The resulting Future is stored in [_streamUrlPrefetchCache]
+  /// so a subsequent call to [extractDirectStreamUrl] will await the in-flight
+  /// resolution instead of starting a new yt-dlp process. This eliminates the
+  /// 3–15s gap between tracks when the next song's URL is resolved during the
+  /// current song's playback.
+  ///
+  /// Safe to call repeatedly — only one resolution runs per [videoId].
+  static void prefetchStreamUrl(String videoId) {
+    if (_streamUrlMemoryCache.containsKey(videoId)) return;
+    if (_streamUrlPrefetchCache.containsKey(videoId)) return;
+
+    final future = _resolveAndCacheStreamUrl(videoId);
+    _streamUrlPrefetchCache[videoId] = future;
+
+    // Clean up the prefetch entry once resolved (success or failure)
+    future.whenComplete(() {
+      // Keep the result in _streamUrlMemoryCache (set inside _resolveAndCacheStreamUrl).
+      // Remove from prefetch cache after a short delay so the memory cache has time
+      // to serve subsequent lookups without re-triggering extraction.
+      Future.delayed(const Duration(seconds: 30), () {
+        _streamUrlPrefetchCache.remove(videoId);
+      });
+    });
+  }
+
+  /// Core resolution logic — shared by [extractDirectStreamUrl] and [prefetchStreamUrl].
+  ///
+  /// Uses a fallback chain of yt-dlp invocations. The first attempt targets the
+  /// ideal format (m4a @ ≤128kbps, fastest extractor config). If that fails, a
+  /// second attempt falls back to any available audio format with relaxed
+  /// constraints. This maximizes the chance of a successful resolution while
+  /// keeping the fast path as fast as possible.
+  static Future<String?> _resolveAndCacheStreamUrl(String videoId) async {
     final url = 'https://www.youtube.com/watch?v=$videoId';
     if (!kIsWeb && Platform.isAndroid) {
       try {
@@ -375,37 +429,76 @@ class StreamCacheManager {
         }
       } catch (_) {}
     } else if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      try {
-        final res = await Process.run(
-          'yt-dlp',
-          [
-            '-g',
-            '-f',
-            'bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio/ba/best',
-            '--no-playlist',
-            '--force-ipv4',
-            '--no-warnings',
-            '--no-check-certificates',
-            '--extractor-args',
-            'youtube:player_skip=configs,webpage;player_client=android,web,mweb',
-            '--socket-timeout',
-            '10',
-            url,
-          ],
-        ).timeout(const Duration(seconds: 15));
-        if (res.exitCode == 0) {
-          final out = res.stdout.toString().trim();
-          final lines = out.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.startsWith('http')).toList();
-          if (lines.isNotEmpty) {
-            final streamUrl = lines.first;
-            _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-              streamUrl,
-              DateTime.now().add(const Duration(hours: 4)),
-            );
-            return streamUrl;
-          }
+      // Attempt 1: optimized format — m4a container, ≤128kbps, fast extractor
+      final result = await _runYtDlp(url, [
+        '-g',
+        '-f', 'bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio/ba/best',
+        '--no-playlist',
+        '--force-ipv4',
+        '--no-warnings',
+        '--no-check-certificates',
+        '--no-call-home',
+        '--quiet',
+        '--extractor-args', 'youtube:player_skip=configs,webpage,js;player_client=android,web,mweb;player_skip=dash,throttling',
+        '--socket-timeout', '10',
+        '--retries', '2',
+        '--fragment-retries', '2',
+      ]);
+
+      if (result != null) {
+        _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+          result,
+          DateTime.now().add(const Duration(hours: 4)),
+        );
+        return result;
+      }
+
+      // Attempt 2: relaxed fallback — any audio format, no container/bitrate preference
+      DebugLog.write('[stream] Primary format failed for $videoId, trying relaxed fallback...');
+      final fallback = await _runYtDlp(url, [
+        '-g',
+        '-f', 'bestaudio/ba/best',
+        '--no-playlist',
+        '--force-ipv4',
+        '--no-warnings',
+        '--no-check-certificates',
+        '--no-call-home',
+        '--quiet',
+        '--extractor-args', 'youtube:player_client=android,web',
+        '--socket-timeout', '15',
+      ]);
+
+      if (fallback != null) {
+        _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+          fallback,
+          DateTime.now().add(const Duration(hours: 4)),
+        );
+        DebugLog.write('[stream] Fallback succeeded for $videoId');
+        return fallback;
+      }
+    }
+    return null;
+  }
+
+  /// Runs a single yt-dlp invocation with the given arguments and returns the
+  /// first HTTP URL from stdout, or null on failure.
+  static Future<String?> _runYtDlp(String url, List<String> args) async {
+    try {
+      final res = await Process.run('yt-dlp', [...args, url])
+          .timeout(Duration(seconds: args.contains('--quiet') ? 20 : 15));
+      if (res.exitCode == 0) {
+        final out = res.stdout.toString().trim();
+        final lines = out
+            .split(RegExp(r'[\r\n]+'))
+            .map((l) => l.trim())
+            .where((l) => l.startsWith('http'))
+            .toList();
+        if (lines.isNotEmpty) {
+          return lines.first;
         }
-      } catch (_) {}
+      }
+    } catch (e) {
+      DebugLog.write('[stream] yt-dlp attempt failed: $e');
     }
     return null;
   }
@@ -424,6 +517,7 @@ class StreamCacheManager {
       }
       _cachedVideoIds.clear();
       _streamUrlMemoryCache.clear();
+      _streamUrlPrefetchCache.clear();
       _cachedTotalBytes = 0;
       DebugLog.write('[stream] Cleared all radio and streaming cache files');
     } catch (e) {
@@ -441,3 +535,4 @@ class _CachedStreamUrl {
 
   const _CachedStreamUrl(this.url, this.expiresAt);
 }
+
