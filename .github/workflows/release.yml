@@ -65,6 +65,21 @@ jobs:
         run: flutter test
         working-directory: app
 
+      - name: Decode release keystore
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > app/android/app/peerm-release.jks
+        working-directory: app
+
+      - name: Generate key.properties
+        run: |
+          cat <<EOF > app/android/key.properties
+          storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.RELEASE_KEY_PASSWORD }}
+          keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}
+          storeFile=app/peerm-release.jks
+          EOF
+        working-directory: app
+
       - name: Build Android release APKs
         run: flutter build apk --split-per-abi --release
         working-directory: app
