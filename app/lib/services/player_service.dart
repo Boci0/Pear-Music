@@ -491,6 +491,7 @@ class PlayerService extends ChangeNotifier {
     _lastInteraction = DateTime.now();
     RecommendationService.markPlayed(song.id);
     final token = ++_playRequestToken;
+    _preloadDebounceTimer?.cancel();
     _isAdvancing = true;
     _isLoadingTrack = true;
 
@@ -671,11 +672,13 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.resetFailureCounter();
   }
 
-  /// Kicks off a sequential background preload chain for all remaining stream
-  /// tracks in the queue, starting from _queueIndex + 1. Downloads one at a
-  /// time (window size = 1) and only advances to the next when the current
-  /// finishes. Cancelled automatically when playSong calls cancelPreload().
-  void _preloadUpcomingStreams() {
+  Timer? _preloadDebounceTimer;
+
+  /// Kicks off a debounced 1-track lookahead preloader for the next stream
+  /// track in the queue, starting from _queueIndex + 1. Waits 6 seconds
+  /// before initiating background download so rapid song skips consume 0 KB of data.
+  void _preloadUpcomingStreams({Duration delay = const Duration(seconds: 6)}) {
+    _preloadDebounceTimer?.cancel();
     if (_queueIndex < 0 || _queue.isEmpty) {
       DebugLog.write('[preload] Skipping preload: queueIdx=$_queueIndex queueLen=${_queue.length}');
       return;
@@ -696,21 +699,32 @@ class PlayerService extends ChangeNotifier {
     }
     final nextTrackId = upcomingVideoIds.first;
     final isNextCached = StreamCacheManager.isStreamCachedSync(nextTrackId);
-    DebugLog.write(
-      '[preload] Starting 1-track lookahead preloader: next=$nextTrackId cached=$isNextCached',
-    );
-    if (!isNextCached) {
+    if (isNextCached) {
+      DebugLog.write('[preload] Next track $nextTrackId already cached on disk');
+      _isPreloadingUpcoming = false;
+      notifyListeners();
+      return;
+    }
+
+    final token = _playRequestToken;
+    _preloadDebounceTimer = Timer(delay, () {
+      if (token != _playRequestToken) return;
+      if (!_player.playing && _queueIndex < 0) return;
+      DebugLog.write(
+        '[preload] Starting 1-track lookahead preloader: next=$nextTrackId',
+      );
       _isPreloadingUpcoming = true;
       notifyListeners();
-    }
-    // Strict 1-track lookahead window to prevent clogging internet bandwidth
-    final nextTrackWindow = upcomingVideoIds.take(1).toList();
-    StreamCacheManager.preloadSlidingWindow(nextTrackWindow, onTrackCached: (cachedId) {
-      DebugLog.write('[preload] onTrackCached: $cachedId');
-      if (cachedId == nextTrackId) {
-        _isPreloadingUpcoming = false;
-        notifyListeners();
-      }
+
+      // Strict 1-track lookahead window to prevent clogging internet bandwidth
+      final nextTrackWindow = upcomingVideoIds.take(1).toList();
+      StreamCacheManager.preloadSlidingWindow(nextTrackWindow, onTrackCached: (cachedId) {
+        DebugLog.write('[preload] onTrackCached: $cachedId');
+        if (cachedId == nextTrackId) {
+          _isPreloadingUpcoming = false;
+          notifyListeners();
+        }
+      });
     });
   }
 
@@ -999,6 +1013,7 @@ class PlayerService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _preloadDebounceTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
