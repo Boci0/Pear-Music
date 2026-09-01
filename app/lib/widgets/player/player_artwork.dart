@@ -5,16 +5,19 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
+import '../../services/artwork_palette.dart';
 import '../../services/player_service.dart';
 
 /// Large album artwork container with rounded corners and ambient accent glow.
 class PlayerArtwork extends StatelessWidget {
+  final Song? song;
   final Uint8List? artwork;
   final String? networkUrl;
   final double size;
   final Color? accent;
   const PlayerArtwork({
     super.key,
+    this.song,
     this.artwork,
     this.networkUrl,
     this.size = 240,
@@ -26,6 +29,55 @@ class PlayerArtwork extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final radius = BorderRadius.circular(16);
     final shadowColor = (accent ?? scheme.primary).withValues(alpha: 0.35);
+
+    final songArt = song?.artwork;
+    final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
+    final effectiveNetworkUrl = networkUrl ?? (isNetwork ? songArt : null);
+    final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song!) : null);
+
+    final Widget imageWidget;
+    if (effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty) {
+      imageWidget = Image.network(
+        effectiveNetworkUrl,
+        key: ValueKey('net_$effectiveNetworkUrl'),
+        width: size,
+        height: size,
+        cacheWidth: 384,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => _placeholder(scheme),
+      );
+    } else if (initialBytes != null && initialBytes.isNotEmpty) {
+      imageWidget = Image.memory(
+        initialBytes,
+        key: ValueKey('mem_${song?.id ?? initialBytes.hashCode}'),
+        width: size,
+        height: size,
+        cacheWidth: 384,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      );
+    } else if (song != null) {
+      imageWidget = FutureBuilder<Uint8List?>(
+        key: ValueKey('async_${song!.id}'),
+        future: ArtworkPalette.bytesAsync(song!),
+        initialData: initialBytes,
+        builder: (context, snapshot) {
+          final bytes = snapshot.data ?? initialBytes;
+          if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
+          return Image.memory(
+            bytes,
+            width: size,
+            height: size,
+            cacheWidth: 384,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          );
+        },
+      );
+    } else {
+      imageWidget = _placeholder(scheme);
+    }
 
     return RepaintBoundary(
       child: Container(
@@ -41,28 +93,9 @@ class PlayerArtwork extends StatelessWidget {
             ),
           ],
         ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: networkUrl != null && networkUrl!.isNotEmpty
-            ? Image.network(
-                networkUrl!,
-                width: size,
-                height: size,
-                cacheWidth: 384,
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                errorBuilder: (_, _, _) => _placeholder(scheme),
-              )
-            : artwork != null && artwork!.isNotEmpty
-                ? Image.memory(
-                    artwork!,
-                    width: size,
-                    height: size,
-                    cacheWidth: 384,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  )
-                : _placeholder(scheme),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: imageWidget,
         ),
       ),
     );
@@ -106,6 +139,8 @@ class PlayerArtworkHero extends StatelessWidget {
       child: Material(
         type: MaterialType.transparency,
         child: PlayerArtwork(
+          key: ValueKey('hero_art_${song.id}'),
+          song: song,
           artwork: isNetwork ? null : artwork,
           networkUrl: isNetwork ? song.artwork : null,
           size: size,

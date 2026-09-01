@@ -86,13 +86,11 @@ class PlayerBar extends StatelessWidget {
                         ? Icons.pause_circle_filled
                         : Icons.play_circle_filled,
                     size: 36,
-                    color: player.isLoadingTrack
+                    color: (player.isLoadingTrack && !player.playing)
                         ? control.withValues(alpha: 0.38)
                         : control,
                   ),
-                  onPressed: player.isLoadingTrack
-                      ? null
-                      : () => controller.togglePlayback(),
+                  onPressed: () => controller.togglePlayback(),
                 ),
                 IconButton(
                   icon: Icon(Icons.skip_next, color: control),

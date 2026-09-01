@@ -127,9 +127,18 @@ class StreamCacheManager {
     return null;
   }
 
+  static String? _activePreloadProcessId;
+
   /// Cancels any active background preload sequence immediately.
   static void cancelPreload() {
     _slidingWindowSequence++;
+    final activeId = _activePreloadProcessId;
+    if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
+      _activePreloadProcessId = null;
+      try {
+        const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
+      } catch (_) {}
+    }
     DebugLog.write('[preload] cancelPreload() called, new sequence=$_slidingWindowSequence');
   }
 
@@ -157,7 +166,7 @@ class StreamCacheManager {
         }
         try {
           DebugLog.write('[preload] Buffering upcoming track: $id');
-          final file = await ensureStreamCached(id);
+          final file = await ensureStreamCached(id, isPreload: true);
           if (seq != _slidingWindowSequence) break;
           if (file != null) {
             DebugLog.write('[preload] Buffered upcoming track ready on disk: $id');
@@ -170,7 +179,7 @@ class StreamCacheManager {
 
   /// Ensures the audio stream for [videoId] is downloaded into the local cache
   /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
-  static Future<File?> ensureStreamCached(String videoId) async {
+  static Future<File?> ensureStreamCached(String videoId, {bool isPreload = false}) async {
     final existing = await getCachedFile(videoId);
     if (existing != null) {
       DebugLog.write('[cache] Disk cache HIT for $videoId (0ms)');
@@ -193,35 +202,40 @@ class StreamCacheManager {
       // Android embedded yt-dlp
       if (YoutubeService.isEmbeddedYtDlpSupported) {
         final tempPart = File(p.join(dir.path, '$videoId.m4a'));
+        final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
+        if (isPreload) {
+          _activePreloadProcessId = processId;
+        }
         try {
-          await _nativeDownloadLock.synchronized(() async {
-            DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
-            const channel = MethodChannel('peerm/ytdlp');
-            final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
-            await channel.invokeMethod('downloadAudioFast', {
-              'url': 'https://www.youtube.com/watch?v=$videoId',
-              'outputPath': tempPart.path,
-              'processId': processId,
-            }).timeout(const Duration(seconds: 45));
+          DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
+          const channel = MethodChannel('peerm/ytdlp');
+          await channel.invokeMethod('downloadAudioFast', {
+            'url': 'https://www.youtube.com/watch?v=$videoId',
+            'outputPath': tempPart.path,
+            'processId': processId,
+          }).timeout(const Duration(seconds: 45));
 
-            final cached = await getCachedFile(videoId);
-            if (cached != null) {
-              final len = await cached.length();
-              _cachedVideoIds.add(videoId);
-              _cachedTotalBytes += len;
-              unawaited(enforceCacheQuota());
-              stopwatch.stop();
-              DebugLog.write(
-                '[cache] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
-              );
-              completer.complete(cached);
-            }
-          });
+          final cached = await getCachedFile(videoId);
+          if (cached != null) {
+            final len = await cached.length();
+            _cachedVideoIds.add(videoId);
+            _cachedTotalBytes += len;
+            unawaited(enforceCacheQuota());
+            stopwatch.stop();
+            DebugLog.write(
+              '[cache] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
+            );
+            completer.complete(cached);
+          }
           if (completer.isCompleted) {
             return await completer.future;
           }
         } catch (e) {
           DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
+        } finally {
+          if (isPreload && _activePreloadProcessId == processId) {
+            _activePreloadProcessId = null;
+          }
         }
       }
 
@@ -234,7 +248,7 @@ class StreamCacheManager {
           '--extractor-args',
           'youtube:player_client=android,ios,web',
           '-f',
-          'bestaudio[abr<=128][ext=m4a]/bestaudio/ba/best',
+          '140/251/250/249/bestaudio[ext=m4a][abr<=128]/bestaudio[ext=webm][abr<=128]/bestaudio[abr<=128]/ba[abr<=128]/ba/bestaudio',
           '-o',
           outputTemplate,
           '--no-playlist',

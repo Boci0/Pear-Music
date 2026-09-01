@@ -501,7 +501,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 ensureInit(ctx)
                 fun makeAudioReq(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
-                    req.addOption("-f", "bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio[ext=m4a]/bestaudio/ba/best")
+                    req.addOption("-f", "140/251/250/249/bestaudio[ext=m4a][abr<=128]/bestaudio[ext=webm][abr<=128]/bestaudio[abr<=128]/ba[abr<=128]/ba/bestaudio")
                     req.addOption("-o", outputPath)
                     req.addOption("--no-playlist")
                     req.addOption("--no-part")
@@ -512,11 +512,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--concurrent-fragments", "1")
                     req.addOption("--buffer-size", "16k")
                     req.addOption("--http-chunk-size", "10M")
-                    req.addOption("--socket-timeout", "20")
-                    req.addOption("--retries", "3")
-                    req.addOption("--fragment-retries", "3")
+                    req.addOption("--socket-timeout", "10")
+                    req.addOption("--retries", "2")
+                    req.addOption("--fragment-retries", "2")
                     if (useExtractorArgs) {
-                        req.addOption("--extractor-args", "youtube:player_skip=configs,webpage;player_client=android,web,mweb")
+                        req.addOption("--extractor-args", "youtube:player_client=android,ios,web")
                     }
                     return req
                 }

@@ -528,12 +528,15 @@ class PlayerService extends ChangeNotifier {
     );
     notifyListeners();
 
-    // Synchronously parse network artwork for streams or resolve local artwork
+    // Synchronously parse network artwork for streams or resolve local artwork with fast timeout
     final Uri effectiveArtUri;
     if (song.artwork != null && song.artwork!.startsWith('http')) {
       effectiveArtUri = Uri.tryParse(song.artwork!) ?? await ArtworkService.defaultArtworkUri();
     } else {
-      effectiveArtUri = await ArtworkService.songArtworkUri(song);
+      effectiveArtUri = await ArtworkService.songArtworkUri(song).timeout(
+        const Duration(milliseconds: 150),
+        onTimeout: () => ArtworkService.defaultArtworkUri(),
+      );
     }
     if (token != _playRequestToken) return;
 
@@ -694,14 +697,15 @@ class PlayerService extends ChangeNotifier {
     final nextTrackId = upcomingVideoIds.first;
     final isNextCached = StreamCacheManager.isStreamCachedSync(nextTrackId);
     DebugLog.write(
-      '[preload] Starting sequential preload chain: ${upcomingVideoIds.length} tracks, '
-      'next=$nextTrackId cached=$isNextCached',
+      '[preload] Starting 1-track lookahead preloader: next=$nextTrackId cached=$isNextCached',
     );
     if (!isNextCached) {
       _isPreloadingUpcoming = true;
       notifyListeners();
     }
-    StreamCacheManager.preloadSlidingWindow(upcomingVideoIds, onTrackCached: (cachedId) {
+    // Strict 1-track lookahead window to prevent clogging internet bandwidth
+    final nextTrackWindow = upcomingVideoIds.take(1).toList();
+    StreamCacheManager.preloadSlidingWindow(nextTrackWindow, onTrackCached: (cachedId) {
       DebugLog.write('[preload] onTrackCached: $cachedId');
       if (cachedId == nextTrackId) {
         _isPreloadingUpcoming = false;
