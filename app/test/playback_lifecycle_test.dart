@@ -35,8 +35,8 @@ void main() {
 
     test('enforceCacheQuota bounds cache to maxTrackCount and maxCacheBytes', () async {
       final dir = await StreamCacheManager.getCacheDirectory();
-      expect(StreamCacheManager.maxTrackCount, 50);
-      expect(StreamCacheManager.maxCacheBytes, 150 * 1024 * 1024);
+      expect(StreamCacheManager.maxTrackCount, 100);
+      expect(StreamCacheManager.maxCacheBytes, 500 * 1024 * 1024);
 
       final dummyOldTemp = File('${dir.path}/test_cleanup.tmp.m4a');
       await dummyOldTemp.writeAsString('test');

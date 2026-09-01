@@ -137,10 +137,10 @@ class SongTile extends StatelessWidget {
   @override
 
   Widget build(BuildContext context) {
-    final controller = context.watch<AppController>();
+    final isFav = context.select<AppController, bool>((c) => c.isFavorite(song.id));
+    final controller = context.read<AppController>();
     final theme = Theme.of(context);
     final fromPeer = song.sourceDeviceId != null;
-    final isFav = controller.isFavorite(song.id);
 
     return RepaintBoundary(
       child: ListTile(

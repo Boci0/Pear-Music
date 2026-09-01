@@ -10,8 +10,8 @@ void main() {
     });
 
     test('cache quota constraints are bounded', () {
-      expect(StreamCacheManager.maxCacheBytes, equals(150 * 1024 * 1024));
-      expect(StreamCacheManager.maxTrackCount, equals(50));
+      expect(StreamCacheManager.maxCacheBytes, equals(500 * 1024 * 1024));
+      expect(StreamCacheManager.maxTrackCount, equals(100));
     });
 
     test('clearCache resets in-memory tracking', () async {

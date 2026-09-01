@@ -267,33 +267,37 @@ class _DesktopSidebar extends StatelessWidget {
                       itemCount: playlists.length,
                       itemBuilder: (context, i) {
                         final pl = playlists[i];
-                        return ListTile(
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          leading: Icon(
-                            Icons.playlist_play,
-                            size: 18,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                          title: Text(
-                            pl.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontSize: 13,
+                        return Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            dense: true,
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                          ),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    PlaylistDetailScreen(playlistId: pl.id),
+                            leading: Icon(
+                              Icons.playlist_play,
+                              size: 18,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            title: Text(
+                              pl.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontSize: 13,
                               ),
-                            );
-                          },
+                            ),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => PlaylistDetailScreen(
+                                    playlistId: pl.id,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         );
                       },
                     ),

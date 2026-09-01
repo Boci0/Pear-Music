@@ -79,15 +79,26 @@ class YoutubeService {
       if (Platform.isWindows) {
         final r = await Process.run('where.exe', ['yt-dlp']);
         if (r.exitCode == 0) {
-          final first =
-              r.stdout.toString().trim().split(RegExp(r'\s+')).first;
-          if (first.isNotEmpty && File(first).existsSync()) return first;
+          final lines = r.stdout.toString().split(RegExp(r'[\r\n]+'));
+          for (final line in lines) {
+            final trimmed = line.trim();
+            if (trimmed.isNotEmpty && File(trimmed).existsSync()) return trimmed;
+          }
         }
         // winget installs a shim here even when PATH in this process is stale.
         final local = Platform.environment['LOCALAPPDATA'];
         if (local != null) {
           final shim = File('$local\\Microsoft\\WinGet\\Links\\yt-dlp.exe');
           if (shim.existsSync()) return shim.path;
+          for (final pyVer in ['Python312', 'Python311', 'Python310', 'Python313']) {
+            final pyBin = File('$local\\Programs\\Python\\$pyVer\\Scripts\\yt-dlp.exe');
+            if (pyBin.existsSync()) return pyBin.path;
+          }
+        }
+        final userProfile = Platform.environment['USERPROFILE'];
+        if (userProfile != null) {
+          final scoopBin = File('$userProfile\\scoop\\shims\\yt-dlp.exe');
+          if (scoopBin.existsSync()) return scoopBin.path;
         }
       } else {
         final r = await Process.run('which', ['yt-dlp']);

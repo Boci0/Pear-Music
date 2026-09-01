@@ -177,7 +177,7 @@ class PlayerSongInfo extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         if (isStream)
-          _buildLoadTimeBadge(player.lastTrackLoadMs, route, scheme)
+          _buildLoadTimeBadge(player.lastTrackLoadMs, route, player.isLoadingTrack, scheme)
         else
           Text(
             song.sourceDeviceId == null
@@ -191,14 +191,51 @@ class PlayerSongInfo extends StatelessWidget {
     );
   }
 
-  Widget _buildLoadTimeBadge(int loadMs, StreamRouteType route, ColorScheme scheme) {
+  Widget _buildLoadTimeBadge(int loadMs, StreamRouteType route, bool isLoading, ColorScheme scheme) {
+    if (isLoading || loadMs < 0) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        decoration: BoxDecoration(
+          color: scheme.primary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: scheme.primary.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              'Buffering...',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: scheme.primary,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final String label;
     final IconData icon;
     final Color color;
     final Color bg;
 
-    if (route == StreamRouteType.cached || loadMs <= 30) {
-      label = '0 ms';
+    if (route == StreamRouteType.cached) {
+      label = loadMs <= 0 ? '0 ms' : '$loadMs ms';
       icon = Icons.bolt_rounded;
       color = const Color(0xFF81C784);
       bg = const Color(0xFF1B2E1D);
@@ -209,20 +246,16 @@ class PlayerSongInfo extends StatelessWidget {
       bg = scheme.primary.withValues(alpha: 0.15);
     } else {
       label = '${(loadMs / 1000).toStringAsFixed(1)} s';
-      icon = Icons.timer_outlined;
+      icon = Icons.cloud_download_outlined;
       color = const Color(0xFFFFB74D);
-      bg = const Color(0xFF332412);
+      bg = const Color(0xFF332005);
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: color.withValues(alpha: 0.35),
-          width: 1,
-        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

@@ -247,6 +247,16 @@ class PlayerService extends ChangeNotifier {
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _queue.isNotEmpty) {
+        if (_isLoadingTrack || _isAdvancing) {
+          DebugLog.write('[player] Ignoring completed event while loading/advancing');
+          return;
+        }
+        final pos = _player.position;
+        final dur = _player.duration;
+        if (dur != null && dur > const Duration(seconds: 2) && pos < const Duration(seconds: 2)) {
+          DebugLog.write('[player] Ignoring premature completed state (pos: $pos, dur: $dur)');
+          return;
+        }
         DebugLog.write('[player] Track completed naturally; advancing next');
         if (_sleepTimerEndOfSong) {
           _sleepTimerEndOfSong = false;
@@ -508,18 +518,23 @@ class PlayerService extends ChangeNotifier {
       _queueIndex = 0;
     }
     currentSong = song;
+    _lastTrackLoadMs = -1;
+    _updateActiveQueueCacheProtection();
+    DebugLog.write(
+      '[player] === playSong START === token=$token '
+      'song="${song.title}" id=${song.id} source=${song.sourceDeviceId} '
+      'queueIdx=$_queueIndex queueLen=${_queue.length} '
+      'queueSource=$queueSourceId',
+    );
     notifyListeners();
 
-    // STOP previous audio immediately so there is zero bleed
-    try {
-      if (_player.playing) {
-        await _player.stop();
-      }
-    } catch (_) {}
-    if (token != _playRequestToken) return;
-
-
-    final effectiveArtUri = await ArtworkService.songArtworkUri(song);
+    // Synchronously parse network artwork for streams or resolve local artwork
+    final Uri effectiveArtUri;
+    if (song.artwork != null && song.artwork!.startsWith('http')) {
+      effectiveArtUri = Uri.tryParse(song.artwork!) ?? await ArtworkService.defaultArtworkUri();
+    } else {
+      effectiveArtUri = await ArtworkService.songArtworkUri(song);
+    }
     if (token != _playRequestToken) return;
 
     final stopwatch = Stopwatch()..start();
@@ -528,7 +543,10 @@ class PlayerService extends ChangeNotifier {
       if (token != _playRequestToken) return;
 
       if (song.sourceDeviceId == 'stream') {
+        DebugLog.write('[player] Stream path: cancelling any active preload');
+        StreamCacheManager.cancelPreload();
         final videoId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
+        DebugLog.write('[player] Resolved videoId=$videoId, checking disk cache...');
         final mediaTag = MediaItem(
           id: song.id,
           title: song.title,
@@ -542,77 +560,47 @@ class PlayerService extends ChangeNotifier {
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
           _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-          DebugLog.write('[player] Playing from DISK CACHE (${_lastTrackLoadMs}ms): ${song.title} [$videoId]');
+          DebugLog.write('[player] DISK CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${cachedFile.path}');
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
           _resetStreamFailureCounters();
         } else {
-          // Signal buffering state so the UI can show "loading next track..."
+          // Signal buffering state so the UI can show "Buffering..."
+          DebugLog.write('[player] DISK CACHE MISS for $videoId, downloading via ensureStreamCached...');
           _isBufferingNext = true;
           _bufferingVideoId = videoId;
           notifyListeners();
-          final stopwatch = Stopwatch()..start();
 
-          final streamUrl = await StreamCacheManager.extractDirectStreamUrl(videoId);
+          final downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
 
-          stopwatch.stop();
           _isBufferingNext = false;
           _bufferingVideoId = null;
-          if (token != _playRequestToken) return;
+          if (token != _playRequestToken) {
+            DebugLog.write('[player] Token stale after download ($token != $_playRequestToken), aborting');
+            return;
+          }
 
-          if (streamUrl != null && streamUrl.startsWith('http')) {
+          if (downloadedFile != null && await downloadedFile.exists()) {
             _currentRouteType = StreamRouteType.direct;
             _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-            DebugLog.write('[player] Playing DIRECT STREAM (${_lastTrackLoadMs}ms): ${song.title} [$videoId]');
+            DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             await _player.setAudioSource(
-              AudioSource.uri(
-                Uri.parse(streamUrl),
-                headers: const {
-                  'User-Agent':
-                      'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
-                  'Referer': 'https://music.youtube.com/',
-                },
-                tag: mediaTag,
-              ),
+              AudioSource.file(downloadedFile.path, tag: mediaTag),
             );
             _resetStreamFailureCounters();
-            // Asynchronously cache in background once playback has started
-            unawaited(StreamCacheManager.ensureStreamCached(videoId));
           } else {
-            // Fallback: wait for cached file
-            final downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
-            if (token != _playRequestToken) return;
-
-            if (downloadedFile != null && await downloadedFile.exists()) {
-              _currentRouteType = StreamRouteType.cached;
-              _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-              DebugLog.write('[player] Playing from DOWNLOADED CACHE (${_lastTrackLoadMs}ms): ${song.title} [$videoId]');
-              await _player.setAudioSource(
-                AudioSource.file(downloadedFile.path, tag: mediaTag),
-              );
-              _resetStreamFailureCounters();
-            } else {
-              _consecutiveStreamFailures++;
-              final fastFail = StreamCacheManager.isFastFailMode;
-              DebugLog.write(
-                '[player] Stream failed for ${song.title} '
-                '(failure $_consecutiveStreamFailures/3, fastFail=$fastFail)',
-              );
-              if (_consecutiveStreamFailures >= 3) {
-                DebugLog.write('[player] Circuit breaker tripped, halting playback. '
-                    'YouTube may be rate-limiting yt-dlp requests.');
-                _isAdvancing = false;
-                _isLoadingTrack = false;
-                await _player.pause();
-                notifyListeners();
-                return;
-              }
-              // Skip the failed track and try the next one immediately
-              DebugLog.write('[player] Skipping failed track, advancing to next...');
-              unawaited(next());
-              return;
-            }
+            _consecutiveStreamFailures++;
+            final fastFail = StreamCacheManager.isFastFailMode;
+            DebugLog.write(
+              '[player] Stream failed for ${song.title} '
+              '(failure $_consecutiveStreamFailures/3, fastFail=$fastFail)',
+            );
+            _isAdvancing = false;
+            _isLoadingTrack = false;
+            await _player.pause();
+            notifyListeners();
+            return;
           }
         }
       } else {
@@ -621,6 +609,13 @@ class PlayerService extends ChangeNotifier {
         _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
         DebugLog.write('[player] Playing LOCAL file (${_lastTrackLoadMs}ms): ${song.title}');
         final file = library.songFile(song);
+        if (!await file.exists()) {
+          DebugLog.write('[player] File missing on disk for ${song.title} (${file.path})');
+          _isLoadingTrack = false;
+          _isAdvancing = false;
+          notifyListeners();
+          return;
+        }
         await _player.setAudioSource(
           AudioSource.file(
             file.path,
@@ -634,27 +629,31 @@ class PlayerService extends ChangeNotifier {
         );
       }
 
-      if (token != _playRequestToken) return;
-      _isLoadingTrack = false;
-      await _player.play();
-      _consecutiveStreamFailures = 0;
-      _preloadUpcomingStreams();
-    } catch (e) {
-      DebugLog.write('[player] playSong error: $e');
-      if (token != _playRequestToken) return;
-      _consecutiveStreamFailures++;
-      if (_consecutiveStreamFailures >= 3) {
-        _isAdvancing = false;
-        _isLoadingTrack = false;
-        await _player.pause();
-        notifyListeners();
+      if (token != _playRequestToken) {
+        DebugLog.write('[player] Token stale before play() ($token != $_playRequestToken), aborting');
         return;
       }
-      unawaited(next());
-    } finally {
+      DebugLog.write('[player] Calling _player.play() for "${song.title}"');
+      await _player.play();
+      _isLoadingTrack = false;
+      _isAdvancing = false;
+      _consecutiveStreamFailures = 0;
+      DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
+      _preloadUpcomingStreams();
+    } catch (e) {
+      DebugLog.write('[player] playSong ERROR: $e');
+      if (token != _playRequestToken) return;
+      _consecutiveStreamFailures++;
       _isAdvancing = false;
       _isLoadingTrack = false;
+      await _player.pause();
       notifyListeners();
+    } finally {
+      if (token == _playRequestToken) {
+        _isAdvancing = false;
+        _isLoadingTrack = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -669,39 +668,46 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.resetFailureCounter();
   }
 
-  /// Speculatively pre-caches upcoming radio tracks along the current queue.
+  /// Kicks off a sequential background preload chain for all remaining stream
+  /// tracks in the queue, starting from _queueIndex + 1. Downloads one at a
+  /// time (window size = 1) and only advances to the next when the current
+  /// finishes. Cancelled automatically when playSong calls cancelPreload().
   void _preloadUpcomingStreams() {
-    if (_queueIndex < 0 || _queue.isEmpty) return;
+    if (_queueIndex < 0 || _queue.isEmpty) {
+      DebugLog.write('[preload] Skipping preload: queueIdx=$_queueIndex queueLen=${_queue.length}');
+      return;
+    }
     final upcomingVideoIds = <String>[];
     for (int idx = _queueIndex + 1; idx < _queue.length; idx++) {
       final s = _queue[idx];
       if (s.sourceDeviceId == 'stream') {
         final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-        if (vId.isNotEmpty) {
-          upcomingVideoIds.add(vId);
-        }
+        if (vId.isNotEmpty) upcomingVideoIds.add(vId);
       }
     }
-    if (upcomingVideoIds.isNotEmpty) {
-      final nextTrackId = upcomingVideoIds.first;
-      final isNextAlreadyCached = StreamCacheManager.isStreamCachedSync(nextTrackId);
-      if (!isNextAlreadyCached) {
-        _isPreloadingUpcoming = true;
-        notifyListeners();
-      }
-      StreamCacheManager.preloadSlidingWindow(
-        upcomingVideoIds,
-        onTrackCached: (vId) {
-          if (vId == nextTrackId) {
-            _isPreloadingUpcoming = false;
-            notifyListeners();
-          }
-        },
-      );
-    } else {
+    if (upcomingVideoIds.isEmpty) {
+      DebugLog.write('[preload] No upcoming stream tracks to preload');
       _isPreloadingUpcoming = false;
       notifyListeners();
+      return;
     }
+    final nextTrackId = upcomingVideoIds.first;
+    final isNextCached = StreamCacheManager.isStreamCachedSync(nextTrackId);
+    DebugLog.write(
+      '[preload] Starting sequential preload chain: ${upcomingVideoIds.length} tracks, '
+      'next=$nextTrackId cached=$isNextCached',
+    );
+    if (!isNextCached) {
+      _isPreloadingUpcoming = true;
+      notifyListeners();
+    }
+    StreamCacheManager.preloadSlidingWindow(upcomingVideoIds, onTrackCached: (cachedId) {
+      DebugLog.write('[preload] onTrackCached: $cachedId');
+      if (cachedId == nextTrackId) {
+        _isPreloadingUpcoming = false;
+        notifyListeners();
+      }
+    });
   }
 
   /// Updates the current queue without restarting playback. Adjusts the active
@@ -729,8 +735,20 @@ class PlayerService extends ChangeNotifier {
     } else {
       _queueIndex = -1;
     }
+    _updateActiveQueueCacheProtection();
     _preloadUpcomingStreams();
     notifyListeners();
+  }
+
+  void _updateActiveQueueCacheProtection() {
+    final vIds = <String>{};
+    for (final song in _queue) {
+      if (song.sourceDeviceId == 'stream') {
+        final vId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
+        if (vId.isNotEmpty) vIds.add(vId);
+      }
+    }
+    StreamCacheManager.setActiveQueueVideoIds(vIds);
   }
 
   Future<void> pause({bool smooth = true}) async {

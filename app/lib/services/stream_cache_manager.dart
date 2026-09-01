@@ -16,9 +16,15 @@ import 'youtube_service.dart';
 /// High-speed ephemeral radio cache manager.
 /// Streams audio directly into local disk files using optimized audio-only extractors.
 class StreamCacheManager {
-  static const int maxCacheBytes = 150 * 1024 * 1024; // 150 MB cap (~45-50 songs)
-  static const int targetEvictionBytes = 100 * 1024 * 1024; // prune to 100 MB
-  static const int maxTrackCount = 50;
+  static const int maxCacheBytes = 500 * 1024 * 1024; // 500 MB cap
+  static const int targetEvictionBytes = 400 * 1024 * 1024; // prune to 400 MB
+  static const int maxTrackCount = 100;
+
+  static Set<String> _activeQueueVideoIds = {};
+  /// Protects all tracks currently in the active queue from being evicted.
+  static void setActiveQueueVideoIds(Iterable<String> ids) {
+    _activeQueueVideoIds = ids.toSet();
+  }
 
   static Directory? _cacheDir;
 
@@ -106,17 +112,28 @@ class StreamCacheManager {
   /// Quick cache-only check: returns the cached file if it exists, null otherwise.
   static Future<File?> getCachedFile(String videoId) async {
     final dir = await getCacheDirectory();
-    for (final ext in ['m4a', 'mp4', 'webm']) {
+    for (final ext in ['m4a', 'mp4', 'webm', 'opus', 'ogg', 'mp3']) {
       final f = File(p.join(dir.path, '$videoId.$ext'));
       if (await f.exists() && (await f.length()) > 50000) {
         _cachedVideoIds.add(videoId);
         return f;
       }
     }
+    final bare = File(p.join(dir.path, videoId));
+    if (await bare.exists() && (await bare.length()) > 50000) {
+      _cachedVideoIds.add(videoId);
+      return bare;
+    }
     return null;
   }
 
-  /// Sequentially pre-downloads a tight 2-track sliding window (+1, +2)
+  /// Cancels any active background preload sequence immediately.
+  static void cancelPreload() {
+    _slidingWindowSequence++;
+    DebugLog.write('[preload] cancelPreload() called, new sequence=$_slidingWindowSequence');
+  }
+
+  /// Sequentially pre-downloads a tight 1-track lookahead window
   /// in the background using a single-queue worker to enable instant 0ms playback.
   static void preloadSlidingWindow(
     List<String> videoIds, {
@@ -151,8 +168,8 @@ class StreamCacheManager {
     }());
   }
 
-  /// Ensures the audio stream for [videoId] is downloaded into the local cache.
-  /// Prioritizes fast Innertube direct HTTP stream piping (<1s) over heavy yt-dlp process execution.
+  /// Ensures the audio stream for [videoId] is downloaded into the local cache
+  /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
   static Future<File?> ensureStreamCached(String videoId) async {
     final existing = await getCachedFile(videoId);
     if (existing != null) {
@@ -162,6 +179,7 @@ class StreamCacheManager {
 
     // Single-flight deduplication
     if (_inFlightDownloads.containsKey(videoId)) {
+      DebugLog.write('[cache] Joining in-flight download for $videoId');
       return await _inFlightDownloads[videoId]!.future;
     }
 
@@ -171,20 +189,13 @@ class StreamCacheManager {
 
     try {
       final dir = await getCacheDirectory();
-      final targetFile = File(p.join(dir.path, '$videoId.m4a'));
-      final tempPart = File(p.join(dir.path, '$videoId.part.m4a'));
 
-      if (await tempPart.exists()) {
-        try {
-          await tempPart.delete();
-        } catch (_) {}
-      }
-
-      // Method 2: Android native embedded yt-dlp fast audio download (serialized to prevent Python lock contention)
+      // Android embedded yt-dlp
       if (YoutubeService.isEmbeddedYtDlpSupported) {
+        final tempPart = File(p.join(dir.path, '$videoId.m4a'));
         try {
           await _nativeDownloadLock.synchronized(() async {
-            DebugLog.write('[fallback] Trying Android embedded yt-dlp: $videoId');
+            DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
             const channel = MethodChannel('peerm/ytdlp');
             final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
             await channel.invokeMethod('downloadAudioFast', {
@@ -193,82 +204,76 @@ class StreamCacheManager {
               'processId': processId,
             }).timeout(const Duration(seconds: 45));
 
-            final len = await tempPart.exists() ? await tempPart.length() : 0;
-            if (len > 50000) {
-              if (await targetFile.exists()) {
-                try {
-                  await targetFile.delete();
-                } catch (_) {}
-              }
-              await tempPart.rename(targetFile.path);
+            final cached = await getCachedFile(videoId);
+            if (cached != null) {
+              final len = await cached.length();
               _cachedVideoIds.add(videoId);
               _cachedTotalBytes += len;
               unawaited(enforceCacheQuota());
               stopwatch.stop();
               DebugLog.write(
-                '[fallback] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
+                '[cache] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
               );
-              completer.complete(targetFile);
+              completer.complete(cached);
             }
           });
           if (completer.isCompleted) {
             return await completer.future;
           }
         } catch (e) {
-          DebugLog.write('[fallback] Android yt-dlp failed for $videoId: $e');
+          DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
         }
       }
 
-      // Method 3: Desktop local yt-dlp fallback (single fragment, bounded sockets)
-      try {
-        final bin = await YoutubeService.ytDlpPath();
-        if (bin != null) {
-          DebugLog.write('[fallback] Spawning desktop yt-dlp fallback: $videoId');
-          final res = await Process.run(bin, [
-            '-f',
-            'bestaudio[abr<=128][ext=m4a]/bestaudio[abr<=128]/bestaudio[ext=m4a]/bestaudio/ba/best',
-            '-o',
-            tempPart.path,
-            '--no-playlist',
-            '--no-part',
-            '--no-mtime',
-            '--no-warnings',
-            '--no-check-certificates',
-            '--force-ipv4',
-            '--concurrent-fragments',
-            '1',
-            '--socket-timeout',
-            '10',
-            '--no-cache-dir',
-            '--extractor-args',
-            'youtube:player_skip=configs,webpage;player_client=android,web',
-            'https://www.youtube.com/watch?v=$videoId',
-          ]).timeout(const Duration(seconds: 25));
+      // Desktop yt-dlp engine with android/ios client extractor args
+      final bin = await YoutubeService.ytDlpPath();
+      if (bin != null) {
+        DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
+        final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
+        final res = await Process.run(bin, [
+          '--extractor-args',
+          'youtube:player_client=android,ios,web',
+          '-f',
+          'bestaudio[abr<=128][ext=m4a]/bestaudio/ba/best',
+          '-o',
+          outputTemplate,
+          '--no-playlist',
+          '--no-part',
+          '--no-mtime',
+          '--no-warnings',
+          '--no-check-certificates',
+          '--force-ipv4',
+          '--concurrent-fragments',
+          '1',
+          '--socket-timeout',
+          '10',
+          '--no-cache-dir',
+          'https://www.youtube.com/watch?v=$videoId',
+        ]).timeout(const Duration(seconds: 30));
 
-          final len = await tempPart.exists() ? await tempPart.length() : 0;
-          if (res.exitCode == 0 && len > 50000) {
-            if (await targetFile.exists()) {
-              try {
-                await targetFile.delete();
-              } catch (_) {}
-            }
-            await tempPart.rename(targetFile.path);
-            _cachedVideoIds.add(videoId);
-            _cachedTotalBytes += len;
-            unawaited(enforceCacheQuota());
-            stopwatch.stop();
-            DebugLog.write(
-              '[fallback] Desktop yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
-            );
-            completer.complete(targetFile);
-            return targetFile;
-          }
+        if (res.exitCode != 0) {
+          DebugLog.write('[cache] yt-dlp exit=${res.exitCode} stderr: ${(res.stderr as String).trim()}');
         }
-      } catch (e) {
-        DebugLog.write('[fallback] Desktop yt-dlp failed for $videoId: $e');
+
+        final cached = await getCachedFile(videoId);
+        if (cached != null) {
+          final len = await cached.length();
+          _cachedTotalBytes += len;
+          unawaited(enforceCacheQuota());
+          stopwatch.stop();
+          DebugLog.write(
+            '[cache] yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) at ${cached.path}',
+          );
+          completer.complete(cached);
+          return cached;
+        }
+      } else {
+        DebugLog.write('[cache] yt-dlp binary not found on desktop');
       }
+
+      DebugLog.write('[cache] Download failed for $videoId after ${stopwatch.elapsedMilliseconds}ms');
     } catch (e) {
-      DebugLog.write('[stream] ensureStreamCached error for $videoId: $e');
+      DebugLog.write('[cache] ensureStreamCached error for $videoId: $e');
     } finally {
       if (!completer.isCompleted) {
         completer.complete(null);
@@ -318,13 +323,16 @@ class StreamCacheManager {
 
       for (final f in validFiles) {
         if (totalSize <= targetEvictionBytes && validFiles.length <= maxTrackCount) break;
+        final vId = p.basenameWithoutExtension(f.path);
+        if (_activeQueueVideoIds.contains(vId)) continue;
+
         final size = fileStats[f]?.size ?? 0;
         try {
-          final vId = p.basenameWithoutExtension(f.path);
           _cachedVideoIds.remove(vId);
           await f.delete();
           totalSize -= size;
           _cachedTotalBytes = (_cachedTotalBytes - size).clamp(0, 1 << 62);
+          DebugLog.write('[cache] Evicted old unqueued track: $vId (${(size / 1024).round()} KB)');
         } catch (_) {}
       }
     } catch (e) {
@@ -433,7 +441,10 @@ class StreamCacheManager {
           .timeout(Duration(seconds: fastFail ? 3 : 5));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
-        final audioStream = audioStreams.withHighestBitrate();
+        final mp4Streams = audioStreams.where((s) => s.container == StreamContainer.mp4).toList();
+        final audioStream = mp4Streams.isNotEmpty
+            ? mp4Streams.withHighestBitrate()
+            : audioStreams.withHighestBitrate();
         final streamUrl = audioStream.url.toString();
         if (streamUrl.startsWith('http')) {
           _streamUrlMemoryCache[videoId] = _CachedStreamUrl(

@@ -133,9 +133,9 @@ void main() {
 
   group('StreamCacheManager & Diagnostics', () {
     test('quota constants are bounded and safe', () {
-      expect(StreamCacheManager.maxCacheBytes, equals(150 * 1024 * 1024));
-      expect(StreamCacheManager.targetEvictionBytes, equals(100 * 1024 * 1024));
-      expect(StreamCacheManager.maxTrackCount, equals(50));
+      expect(StreamCacheManager.maxCacheBytes, equals(500 * 1024 * 1024));
+      expect(StreamCacheManager.targetEvictionBytes, equals(400 * 1024 * 1024));
+      expect(StreamCacheManager.maxTrackCount, equals(100));
     });
   });
 }

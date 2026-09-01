@@ -180,112 +180,125 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     final theme = Theme.of(context);
     final controller = context.read<AppController>();
 
-    return ListTile(
-      tileColor: widget.isCurrent
-          ? (theme.brightness == Brightness.dark
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-                : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
-          : null,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      leading: Stack(
-        alignment: Alignment.center,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: widget.result.thumbnailUrl != null
-                ? Image.network(
-                    widget.result.thumbnailUrl!,
-                    width: 48,
-                    height: 48,
-                    cacheWidth: 96,
-                    cacheHeight: 96,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
+    return RepaintBoundary(
+      child: ListTile(
+        tileColor: widget.isCurrent
+            ? (theme.brightness == Brightness.dark
+                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+                  : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
+            : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        leading: Stack(
+          alignment: Alignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: widget.result.thumbnailUrl != null
+                  ? Image.network(
+                      widget.result.thumbnailUrl!,
+                      width: 48,
+                      height: 48,
+                      cacheWidth: 96,
+                      cacheHeight: 96,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        width: 48,
+                        height: 48,
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: const Icon(Icons.music_note),
+                      ),
+                    )
+                  : Container(
                       width: 48,
                       height: 48,
                       color: theme.colorScheme.surfaceContainerHighest,
                       child: const Icon(Icons.music_note),
                     ),
-                  )
-                : Container(
-                    width: 48,
-                    height: 48,
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.music_note),
-                  ),
-          ),
-          if (widget.isCurrent)
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Icon(Icons.equalizer, color: Colors.white, size: 24),
             ),
-        ],
-      ),
-      title: Text(
-        widget.result.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: widget.isCurrent ? FontWeight.bold : FontWeight.w500,
-          color: widget.isCurrent ? theme.colorScheme.primary : null,
-        ),
-      ),
-      subtitle: Row(
-        children: [
-          Flexible(
-            child: Text(
-              widget.result.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            widget.result.durationFormatted,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_isDownloading)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  value: _downloadProgress,
-                  strokeWidth: 2,
+            if (widget.isCurrent)
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(6),
+                  color: Colors.black.withValues(alpha: 0.4),
+                ),
+                child: const Icon(
+                  Icons.equalizer,
+                  color: Colors.white,
+                  size: 24,
                 ),
               ),
-            )
-          else
-            IconButton(
-              icon: Icon(
-                widget.isCurrent ? Icons.play_arrow : Icons.play_circle_outline,
-                color: widget.isCurrent ? theme.colorScheme.primary : null,
-              ),
-              tooltip: 'Stream song',
-              onPressed: () => _streamAndPlay(context, controller),
-            ),
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            tooltip: 'Song options',
-            onPressed: () => _showOptions(context, controller),
+          ],
+        ),
+        title: Text(
+          widget.result.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: widget.isCurrent ? FontWeight.bold : FontWeight.w500,
+            color: widget.isCurrent ? theme.colorScheme.primary : null,
           ),
-        ],
+        ),
+        subtitle: Row(
+          children: [
+            Icon(Icons.sensors_rounded,
+                size: 13, color: theme.colorScheme.tertiary),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                widget.result.author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (widget.result.durationFormatted != null) ...[
+              const SizedBox(width: 6),
+              Text(
+                '•  ${widget.result.durationFormatted!}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isDownloading)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    value: _downloadProgress,
+                    strokeWidth: 2,
+                  ),
+                ),
+              )
+            else
+              IconButton(
+                icon: Icon(
+                  widget.isCurrent ? Icons.play_arrow : Icons.play_circle_outline,
+                  color: widget.isCurrent ? theme.colorScheme.primary : null,
+                ),
+                tooltip: 'Stream song',
+                onPressed: () => _streamAndPlay(context, controller),
+              ),
+            IconButton(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'Song options',
+              onPressed: () => _showOptions(context, controller),
+            ),
+          ],
+        ),
+        onTap: () => _streamAndPlay(context, controller),
       ),
-      onTap: () => _streamAndPlay(context, controller),
     );
   }
 }

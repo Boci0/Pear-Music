@@ -412,8 +412,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               )
             else
-              SliverList.builder(
+              SliverFixedExtentList.builder(
+                itemExtent: 68.0,
                 itemCount: _ytResults.length,
+                findChildIndexCallback: (Key key) {
+                  final valueKey = key as ValueKey<String>?;
+                  if (valueKey == null) return null;
+                  final index = _ytResults.indexWhere((r) => r.videoId == valueKey.value);
+                  return index >= 0 ? index : null;
+                },
                 itemBuilder: (context, i) {
                   final result = _ytResults[i];
                   return YouTubeSongTile(

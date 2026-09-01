@@ -40,13 +40,9 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
     final isFav = controller.isFavorite(song.id);
 
     final duration = player.duration ?? Duration.zero;
-    final position = player.position ?? Duration.zero;
     final maxSec = duration.inMilliseconds > 0
         ? duration.inMilliseconds / 1000.0
         : 1.0;
-    final curSec =
-        _dragPositionSeconds ??
-        (position.inMilliseconds / 1000.0).clamp(0.0, maxSec);
 
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
@@ -207,86 +203,88 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
 
                 const SizedBox(height: 2),
 
-                // Progress Scrubber (StreamBuilder for zero CPU overhead)
-                StreamBuilder<Duration>(
-                  stream: player.positionStream,
-                  initialData: player.position ?? Duration.zero,
-                  builder: (context, posSnap) {
-                    final position = posSnap.data ?? Duration.zero;
-                    final curSec =
-                        _dragPositionSeconds ??
-                        (position.inMilliseconds / 1000.0).clamp(0.0, maxSec);
-                    return SizedBox(
-                      height: 24,
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 38,
-                            child: Text(
-                              _formatDuration(
-                                _dragPositionSeconds != null
-                                    ? Duration(
-                                        milliseconds:
-                                            (_dragPositionSeconds! * 1000)
-                                                .toInt(),
-                                      )
-                                    : position,
-                              ),
-                              textAlign: TextAlign.right,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontSize: 11,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 3.5,
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 5.5,
+                // Progress Scrubber (StreamBuilder + RepaintBoundary for zero CPU overhead)
+                RepaintBoundary(
+                  child: StreamBuilder<Duration>(
+                    stream: player.positionStream,
+                    initialData: player.position ?? Duration.zero,
+                    builder: (context, posSnap) {
+                      final position = posSnap.data ?? Duration.zero;
+                      final curSec =
+                          _dragPositionSeconds ??
+                          (position.inMilliseconds / 1000.0).clamp(0.0, maxSec);
+                      return SizedBox(
+                        height: 24,
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 38,
+                              child: Text(
+                                _formatDuration(
+                                  _dragPositionSeconds != null
+                                      ? Duration(
+                                          milliseconds:
+                                              (_dragPositionSeconds! * 1000)
+                                                  .toInt(),
+                                        )
+                                      : position,
                                 ),
-                                overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 10,
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontSize: 11,
+                                  color: scheme.onSurfaceVariant,
                                 ),
-                                activeTrackColor: control,
-                                inactiveTrackColor: scheme.outlineVariant
-                                    .withValues(alpha: 0.35),
-                                thumbColor: control,
-                              ),
-                              child: Slider(
-                                value: curSec.clamp(0.0, maxSec),
-                                min: 0.0,
-                                max: maxSec > 0 ? maxSec : 1.0,
-                                onChanged: (v) {
-                                  setState(() => _dragPositionSeconds = v);
-                                },
-                                onChangeEnd: (v) {
-                                  setState(() => _dragPositionSeconds = null);
-                                  player.seek(
-                                    Duration(milliseconds: (v * 1000).toInt()),
-                                  );
-                                },
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 38,
-                            child: Text(
-                              _formatDuration(duration),
-                              textAlign: TextAlign.left,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontSize: 11,
-                                color: scheme.onSurfaceVariant,
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  trackHeight: 3.5,
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 5.5,
+                                  ),
+                                  overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 10,
+                                  ),
+                                  activeTrackColor: control,
+                                  inactiveTrackColor: scheme.outlineVariant
+                                      .withValues(alpha: 0.35),
+                                  thumbColor: control,
+                                ),
+                                child: Slider(
+                                  value: curSec.clamp(0.0, maxSec),
+                                  min: 0.0,
+                                  max: maxSec > 0 ? maxSec : 1.0,
+                                  onChanged: (v) {
+                                    setState(() => _dragPositionSeconds = v);
+                                  },
+                                  onChangeEnd: (v) {
+                                    setState(() => _dragPositionSeconds = null);
+                                    player.seek(
+                                      Duration(milliseconds: (v * 1000).toInt()),
+                                    );
+                                  },
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 38,
+                              child: Text(
+                                _formatDuration(duration),
+                                textAlign: TextAlign.left,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontSize: 11,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
