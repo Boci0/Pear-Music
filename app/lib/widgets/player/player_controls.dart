@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -117,10 +119,14 @@ class PlayerSeekBar extends StatefulWidget {
 class _PlayerSeekBarState extends State<PlayerSeekBar> {
   /// Non-null while the user is dragging: the thumb position in ms.
   double? _dragMs;
+  bool _showRemaining = true;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final totalMs = widget.duration.inMilliseconds.toDouble();
+
     return StreamBuilder<Duration>(
       stream: widget.player.positionStream,
       initialData: widget.player.position ?? Duration.zero,
@@ -129,6 +135,10 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         final currentMs = _dragMs ?? pos.inMilliseconds.toDouble();
         final maxMs = totalMs > 0 ? totalMs : 1.0;
         final clampedValue = currentMs.clamp(0.0, maxMs);
+        final currentDuration = Duration(milliseconds: clampedValue.round());
+        final remainingDuration = widget.duration > currentDuration
+            ? widget.duration - currentDuration
+            : Duration.zero;
 
         // RepaintBoundary isolates the ticking slider and time-row repaints
         // from the album art and background canvas layers.
@@ -136,15 +146,30 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Slider(
-                value: clampedValue,
-                max: maxMs,
-                onChangeStart: (ms) => setState(() => _dragMs = ms),
-                onChanged: (ms) => setState(() => _dragMs = ms),
-                onChangeEnd: (ms) {
-                  widget.player.seek(Duration(milliseconds: ms.round()));
-                  setState(() => _dragMs = null);
-                },
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: _dragMs != null ? 6.0 : 4.0,
+                  trackShape: const RoundedRectSliderTrackShape(),
+                  activeTrackColor: colorScheme.primary,
+                  inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
+                  thumbColor: colorScheme.primary,
+                  thumbShape: RoundSliderThumbShape(
+                    enabledThumbRadius: _dragMs != null ? 8.0 : 5.0,
+                    elevation: _dragMs != null ? 4.0 : 1.0,
+                  ),
+                  overlayColor: colorScheme.primary.withValues(alpha: 0.15),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
+                ),
+                child: Slider(
+                  value: clampedValue,
+                  max: maxMs,
+                  onChangeStart: (ms) => setState(() => _dragMs = ms),
+                  onChanged: (ms) => setState(() => _dragMs = ms),
+                  onChangeEnd: (ms) {
+                    widget.player.seek(Duration(milliseconds: ms.round()));
+                    setState(() => _dragMs = null);
+                  },
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -152,12 +177,26 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      _fmt(Duration(milliseconds: clampedValue.round())),
-                      style: Theme.of(context).textTheme.labelSmall,
+                      _fmt(currentDuration),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                    Text(
-                      _fmt(widget.duration),
-                      style: Theme.of(context).textTheme.labelSmall,
+                    GestureDetector(
+                      onTap: () => setState(() => _showRemaining = !_showRemaining),
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        _showRemaining
+                            ? '-${_fmt(remainingDuration)}'
+                            : _fmt(widget.duration),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                   ],
                 ),

@@ -813,76 +813,86 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> next() async {
     _lastInteraction = DateTime.now();
-    if (_queue.isEmpty) return;
-    if (_loopMode == LoopSetting.one) {
-      await _replayCurrent();
-      return;
-    }
-    final nextIndex = _pickNextIndex();
-    if (nextIndex == null) {
-      // Check 2-hour inactivity guard
-      if (DateTime.now().difference(_lastInteraction) > const Duration(hours: 2)) {
-        debugPrint('[PlayerService] Autoplay paused due to 2-hour inactivity guard.');
+    if (_queue.isEmpty || _isAdvancing) return;
+    _isAdvancing = true;
+    try {
+      if (_loopMode == LoopSetting.one) {
+        await _replayCurrent();
+        return;
+      }
+      final nextIndex = _pickNextIndex();
+      if (nextIndex == null) {
+        // Check 2-hour inactivity guard
+        if (DateTime.now().difference(_lastInteraction) > const Duration(hours: 2)) {
+          debugPrint('[PlayerService] Autoplay paused due to 2-hour inactivity guard.');
+          await _player.pause();
+          await _player.seek(Duration.zero);
+          notifyListeners();
+          return;
+        }
+
+        // Autoplay: fetch next batch and continue
+        if (_autoplay && currentSong != null) {
+          final appended = await fetchAndAppendRecommendations();
+          if (appended && _queueIndex + 1 < _queue.length) {
+            final target = _queue[_queueIndex + 1];
+            _queueIndex = _queueIndex + 1;
+            currentSong = target;
+            notifyListeners();
+            await playSong(target, queue: _queue);
+            return;
+          }
+        }
+
+        // Loop off + end of queue: stop cleanly at the end.
         await _player.pause();
         await _player.seek(Duration.zero);
         notifyListeners();
         return;
       }
-
-      // Autoplay: fetch next batch and continue
-      if (_autoplay && currentSong != null) {
-        final appended = await fetchAndAppendRecommendations();
-        if (appended && _queueIndex + 1 < _queue.length) {
-          final target = _queue[_queueIndex + 1];
-          _queueIndex = _queueIndex + 1;
-          currentSong = target;
-          notifyListeners();
-          await playSong(target, queue: _queue);
-          return;
-        }
-      }
-
-      // Loop off + end of queue: stop at the end.
-      await _player.pause();
-      await _player.seek(Duration.zero);
+      // Optimistically update UI immediately to eliminate skip perceived delay
+      final nextTrack = _queue[nextIndex];
+      _queueIndex = nextIndex;
+      currentSong = nextTrack;
+      DebugLog.write('[player] Advancing to track ${_queueIndex + 1}/${_queue.length}: ${nextTrack.title}');
       notifyListeners();
-      return;
-    }
-    // Optimistically update UI immediately to eliminate skip perceived delay
-    final nextTrack = _queue[nextIndex];
-    _queueIndex = nextIndex;
-    currentSong = nextTrack;
-    DebugLog.write('[player] Advancing to track ${_queueIndex + 1}/${_queue.length}: ${nextTrack.title}');
-    notifyListeners();
 
-    await playSong(nextTrack, queue: _queue);
+      await playSong(nextTrack, queue: _queue);
+    } finally {
+      _isAdvancing = false;
+    }
   }
 
   Future<void> previous() async {
-    if (_queue.isEmpty) return;
-    if (_loopMode == LoopSetting.one) {
-      await _replayCurrent();
-      return;
-    }
-    // Restart the current track if we're more than 3s in.
-    if (_player.position > const Duration(seconds: 3)) {
-      await _player.seek(Duration.zero);
+    if (_queue.isEmpty || _isAdvancing) return;
+    _isAdvancing = true;
+    try {
+      if (_loopMode == LoopSetting.one) {
+        await _replayCurrent();
+        return;
+      }
+      // Restart the current track if we're more than 3s in.
+      if (_player.position > const Duration(seconds: 3)) {
+        await _player.seek(Duration.zero);
+        notifyListeners();
+        return;
+      }
+      final prev = _pickPreviousIndex();
+      if (prev == null) {
+        await _player.seek(Duration.zero);
+        notifyListeners();
+        return;
+      }
+      // Optimistically update UI immediately
+      final prevTrack = _queue[prev];
+      _queueIndex = prev;
+      currentSong = prevTrack;
       notifyListeners();
-      return;
-    }
-    final prev = _pickPreviousIndex();
-    if (prev == null) {
-      await _player.seek(Duration.zero);
-      notifyListeners();
-      return;
-    }
-    // Optimistically update UI immediately
-    final prevTrack = _queue[prev];
-    _queueIndex = prev;
-    currentSong = prevTrack;
-    notifyListeners();
 
-    await playSong(prevTrack, queue: _queue);
+      await playSong(prevTrack, queue: _queue);
+    } finally {
+      _isAdvancing = false;
+    }
   }
 
   Future<void> toggleLoop() {
