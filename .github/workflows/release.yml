@@ -130,5 +130,5 @@ jobs:
           gh release create "$TAG" \
             PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
             --title "Pear Music ${TAG#v}" \
-            --notes "Release build of ${TAG}. See commit history for changes."
+            --generate-notes
 

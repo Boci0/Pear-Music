@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import '../models/song.dart';
+
 /// Representation of a YouTube search track result.
 class YouTubeSearchResult {
   final String videoId;
@@ -25,6 +27,23 @@ class YouTubeSearchResult {
     final m = duration!.inMinutes;
     final s = (duration!.inSeconds % 60).toString().padLeft(2, '0');
     return '$m:$s';
+  }
+
+  /// Converts this search result into a playable [Song] stream model.
+  Song toSong({String sourceDeviceId = 'stream'}) {
+    final cleanTitle = author.isNotEmpty && !title.toLowerCase().contains(author.toLowerCase())
+        ? '$title - $author'
+        : title;
+    return Song(
+      id: 'stream_$videoId',
+      title: cleanTitle,
+      fileName: '$cleanTitle [$videoId].m4a',
+      size: (duration?.inSeconds ?? 200) * 16000,
+      checksum: 'stream_$videoId',
+      sourceDeviceId: sourceDeviceId,
+      artwork: thumbnailUrl,
+      addedAt: DateTime.now(),
+    );
   }
 }
 

@@ -419,7 +419,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   return YouTubeSongTile(
                     key: ValueKey(result.videoId),
                     result: result,
-                    isCurrent: controller.player.currentSong?.title == result.title,
+                    allResults: _ytResults,
+                    isCurrent: controller.player.currentSong?.id == 'stream_${result.videoId}' ||
+                        controller.player.currentSong?.title == result.title,
                   );
                 },
               ),

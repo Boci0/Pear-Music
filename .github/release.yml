@@ -1,0 +1,21 @@
+changelog:
+  categories:
+    - title: "Features & Improvements"
+      labels:
+        - "feature"
+        - "enhancement"
+    - title: "Bug Fixes"
+      labels:
+        - "bug"
+        - "fix"
+    - title: "Maintenance & Internal"
+      labels:
+        - "chore"
+        - "documentation"
+        - "dependencies"
+    - title: "Other Changes"
+      labels:
+        - "*"
+  exclude:
+    labels:
+      - "ignore-for-release"

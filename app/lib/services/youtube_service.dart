@@ -73,7 +73,6 @@ class YoutubeService {
   /// Locate a yt-dlp (or youtube-dl) executable. Checks PATH first, then the
   /// well-known winget shim folder (`%LOCALAPPDATA%\Microsoft\WinGet\Links`),
   /// and finally the app's local bin folder.
-  @visibleForTesting
   static Future<String?> ytDlpPath() async {
     if (kIsWeb) return null;
     try {

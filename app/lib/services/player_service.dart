@@ -553,6 +553,7 @@ class PlayerService extends ChangeNotifier {
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
           );
+          _resetStreamFailureCounters();
         } else {
           // Signal buffering state so the UI can show "loading next track..."
           _isBufferingNext = true;
@@ -582,6 +583,7 @@ class PlayerService extends ChangeNotifier {
                 tag: mediaTag,
               ),
             );
+            _resetStreamFailureCounters();
             // Asynchronously cache in background once playback has started
             unawaited(StreamCacheManager.ensureStreamCached(videoId));
           } else {
@@ -596,20 +598,25 @@ class PlayerService extends ChangeNotifier {
               await _player.setAudioSource(
                 AudioSource.file(downloadedFile.path, tag: mediaTag),
               );
+              _resetStreamFailureCounters();
             } else {
               _consecutiveStreamFailures++;
+              final fastFail = StreamCacheManager.isFastFailMode;
               DebugLog.write(
                 '[player] Stream failed for ${song.title} '
-                '(failure $_consecutiveStreamFailures/3)',
+                '(failure $_consecutiveStreamFailures/3, fastFail=$fastFail)',
               );
               if (_consecutiveStreamFailures >= 3) {
-                DebugLog.write('[player] Circuit breaker tripped, halting playback');
+                DebugLog.write('[player] Circuit breaker tripped, halting playback. '
+                    'YouTube may be rate-limiting yt-dlp requests.');
                 _isAdvancing = false;
                 _isLoadingTrack = false;
                 await _player.pause();
                 notifyListeners();
                 return;
               }
+              // Skip the failed track and try the next one immediately
+              DebugLog.write('[player] Skipping failed track, advancing to next...');
               unawaited(next());
               return;
             }
@@ -656,6 +663,17 @@ class PlayerService extends ChangeNotifier {
       _isLoadingTrack = false;
       notifyListeners();
     }
+  }
+
+  /// Resets both the player's consecutive-failure counter and the stream
+  /// cache's failure counter. Called after any successful playback to clear
+  /// fast-fail mode once YouTube rate-limiting subsides.
+  void _resetStreamFailureCounters() {
+    if (_consecutiveStreamFailures > 0 || StreamCacheManager.isFastFailMode) {
+      DebugLog.write('[player] Resetting stream failure counters (was $_consecutiveStreamFailures failures)');
+    }
+    _consecutiveStreamFailures = 0;
+    StreamCacheManager.resetFailureCounter();
   }
 
   /// Speculatively pre-caches upcoming radio tracks along the current queue.
