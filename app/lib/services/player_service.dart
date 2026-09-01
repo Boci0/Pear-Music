@@ -578,65 +578,37 @@ class PlayerService extends ChangeNotifier {
           _bufferingVideoId = videoId;
           notifyListeners();
 
-          // Step 1: Fast Direct Progressive Stream via In-Process Extractor (~200ms)
-          String? directStreamUrl;
-          try {
-            directStreamUrl = await StreamCacheManager.extractDirectStreamUrl(videoId).timeout(
-              const Duration(milliseconds: 2500),
-              onTimeout: () => null,
-            );
-          } catch (_) {}
+          DebugLog.write('[player] DISK CACHE MISS for $videoId, downloading via ensureStreamCached...');
+          final downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
 
-          if (token != _playRequestToken) return;
+          _isBufferingNext = false;
+          _bufferingVideoId = null;
+          if (token != _playRequestToken) {
+            DebugLog.write('[player] Token stale after download ($token != $_playRequestToken), aborting');
+            return;
+          }
 
-          if (directStreamUrl != null && directStreamUrl.startsWith('http')) {
+          if (downloadedFile != null && await downloadedFile.exists()) {
             _currentRouteType = StreamRouteType.direct;
             _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-            _isBufferingNext = false;
-            _bufferingVideoId = null;
             notifyListeners();
-            DebugLog.write('[player] DIRECT PROGRESSIVE STREAM (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]');
+            DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             await _player.setAudioSource(
-              AudioSource.uri(Uri.parse(directStreamUrl), tag: mediaTag),
+              AudioSource.file(downloadedFile.path, tag: mediaTag),
             );
             _resetStreamFailureCounters();
-
-            // Concurrently cache to disk in background so subsequent replays and seeking are 0ms
-            unawaited(StreamCacheManager.ensureStreamCached(videoId));
           } else {
-            // Step 2: Fallback to full file download if direct stream URL extraction failed
-            DebugLog.write('[player] Direct URL unavailable for $videoId, downloading via ensureStreamCached...');
-            final downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
-
-            _isBufferingNext = false;
-            _bufferingVideoId = null;
-            if (token != _playRequestToken) {
-              DebugLog.write('[player] Token stale after download ($token != $_playRequestToken), aborting');
-              return;
-            }
-
-            if (downloadedFile != null && await downloadedFile.exists()) {
-              _currentRouteType = StreamRouteType.direct;
-              _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-              notifyListeners();
-              DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
-              await _player.setAudioSource(
-                AudioSource.file(downloadedFile.path, tag: mediaTag),
-              );
-              _resetStreamFailureCounters();
-            } else {
-              _consecutiveStreamFailures++;
-              final fastFail = StreamCacheManager.isFastFailMode;
-              DebugLog.write(
-                '[player] Stream failed for ${song.title} '
-                '(failure $_consecutiveStreamFailures/3, fastFail=$fastFail)',
-              );
-              _isAdvancing = false;
-              _isLoadingTrack = false;
-              await _player.pause();
-              notifyListeners();
-              return;
-            }
+            _consecutiveStreamFailures++;
+            final fastFail = StreamCacheManager.isFastFailMode;
+            DebugLog.write(
+              '[player] Stream failed for ${song.title} '
+              '(failure $_consecutiveStreamFailures/3, fastFail=$fastFail)',
+            );
+            _isAdvancing = false;
+            _isLoadingTrack = false;
+            await _player.pause();
+            notifyListeners();
+            return;
           }
         }
       } else {
@@ -809,6 +781,8 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> pause({bool smooth = true}) async {
     _lastInteraction = DateTime.now();
+    _preloadDebounceTimer?.cancel();
+    StreamCacheManager.cancelPreload();
     if (!_player.playing) return;
     final originalVol = _player.volume;
     if (smooth && originalVol > 0.05) {
