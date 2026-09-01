@@ -810,20 +810,6 @@ class _PlayerAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
-    switch (name) {
-      case 'peerm_play':
-        await play();
-        return;
-      case 'peerm_pause':
-        await pause();
-        return;
-      case 'peerm_previous':
-        await skipToPrevious();
-        return;
-      case 'peerm_next':
-        await skipToNext();
-        return;
-    }
     final cb = JustAudioBackground.onCustomAction;
     if (cb != null) {
       await cb(name);
@@ -896,45 +882,11 @@ class _PlayerAudioHandler extends BaseAudioHandler
 
   /// Broadcasts the current state to all clients.
   void _broadcastState() {
-    // Google Play Music style transport row with repeat + shuffle added:
-    // repeat / previous / play-pause / next / shuffle. The compact (collapsed)
-    // notification shows previous / play-pause / next; repeat + shuffle are in
-    // the expanded row. `hasNext`/`hasPrevious` never hide buttons (tapping
-    // with no target is a no-op — see skipToNext/skipToPrevious).
-    //
-    // PeerM: ALL six buttons are CUSTOM actions (explicit broadcasts to
-    // MediaButtonReceiver) rather than media-session keycodes. The stock
-    // keycode scheme's BYPASS_PLAY = KEYCODE_MUTE is not routed to the media
-    // session on some devices, so the play button did nothing while pause
-    // worked. Custom actions go through the direct dispatch path (the same one
-    // repeat/shuffle use) and route to the standard onPlay/onPause/onSkip*
-    // channels natively. The drawables are our own full-bleed pear_* set so the
-    // whole row renders at a uniform size, and the repeat/shuffle ICONS change
-    // with the mode (off/all/one, on/off) so the state is visible.
     final controls = [
       _shuffleControlFor(_shuffleMode),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_previous',
-        label: 'Previous',
-        name: 'peerm_previous',
-      ),
-      if (_playing)
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_pause',
-          label: 'Pause',
-          name: 'peerm_pause',
-        )
-      else
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_play',
-          label: 'Play',
-          name: 'peerm_play',
-        ),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_next',
-        label: 'Next',
-        name: 'peerm_next',
-      ),
+      MediaControl.skipToPrevious,
+      if (_playing) MediaControl.pause else MediaControl.play,
+      MediaControl.skipToNext,
       _repeatControlFor(_repeatMode),
     ];
     playbackState.add(playbackState.nvalue!.copyWith(
