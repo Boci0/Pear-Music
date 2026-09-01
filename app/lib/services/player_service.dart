@@ -251,12 +251,6 @@ class PlayerService extends ChangeNotifier {
           DebugLog.write('[player] Ignoring completed event while loading/advancing');
           return;
         }
-        final pos = _player.position;
-        final dur = _player.duration;
-        if (dur != null && dur > const Duration(seconds: 2) && pos < const Duration(seconds: 2)) {
-          DebugLog.write('[player] Ignoring premature completed state (pos: $pos, dur: $dur)');
-          return;
-        }
         DebugLog.write('[player] Track completed naturally; advancing next');
         if (_sleepTimerEndOfSong) {
           _sleepTimerEndOfSong = false;
