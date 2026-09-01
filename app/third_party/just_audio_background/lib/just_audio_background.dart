@@ -81,6 +81,8 @@ class JustAudioBackground {
   // ---------------------------------------------------------------------
   static void Function()? onSkipToNext;
   static void Function()? onSkipToPrevious;
+  static void Function()? onPlay;
+  static void Function()? onPause;
   static Future<void> Function(AudioServiceRepeatMode mode)? onSetRepeatMode;
   static Future<void> Function(AudioServiceShuffleMode mode)? onSetShuffleMode;
   /// Hook for notification buttons that are custom actions (e.g.
@@ -719,6 +721,11 @@ class _PlayerAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> play() async {
+    final cb = JustAudioBackground.onPlay;
+    if (cb != null) {
+      cb();
+      return;
+    }
     if (_justAudioEvent.processingState == ProcessingStateMessage.completed) {
       await skipToQueueItem(0);
     }
@@ -732,6 +739,11 @@ class _PlayerAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> pause() async {
+    final cb = JustAudioBackground.onPause;
+    if (cb != null) {
+      cb();
+      return;
+    }
     _updatePosition();
     customEvent.add(_PlayingEvent(_playing = false));
     _broadcastState();
@@ -900,11 +912,11 @@ class _PlayerAudioHandler extends BaseAudioHandler
     // whole row renders at a uniform size, and the repeat/shuffle ICONS change
     // with the mode (off/all/one, on/off) so the state is visible.
     final controls = [
-      _repeatControlFor(_repeatMode),
+      _shuffleControlFor(_shuffleMode),
       MediaControl.skipToPrevious,
       if (_playing) MediaControl.pause else MediaControl.play,
       MediaControl.skipToNext,
-      _shuffleControlFor(_shuffleMode),
+      _repeatControlFor(_repeatMode),
     ];
     playbackState.add(playbackState.nvalue!.copyWith(
       controls: controls,

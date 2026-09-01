@@ -259,54 +259,64 @@ class _Artwork extends StatelessWidget {
     final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
     final Widget image;
     if (isNetwork) {
-      image = ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.network(
-          song.artwork!,
-          width: 44,
-          height: 44,
-          cacheWidth: 96,
-          cacheHeight: 96,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          errorBuilder: (_, _, _) => _placeholder(scheme),
+      image = RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(
+            song.artwork!,
+            key: ValueKey('tile_net_${song.id}'),
+            width: 44,
+            height: 44,
+            cacheWidth: 96,
+            cacheHeight: 96,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => _placeholder(scheme),
+          ),
         ),
       );
     } else if (initialBytes != null && initialBytes.isNotEmpty) {
-      image = ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.memory(
-          initialBytes,
-          width: 44,
-          height: 44,
-          cacheWidth: 96,
-          cacheHeight: 96,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          errorBuilder: (_, _, _) => _placeholder(scheme),
+      image = RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            initialBytes,
+            key: ValueKey('tile_mem_${song.id}'),
+            width: 44,
+            height: 44,
+            cacheWidth: 96,
+            cacheHeight: 96,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => _placeholder(scheme),
+          ),
         ),
       );
     } else {
-      image = FutureBuilder<Uint8List?>(
-        initialData: initialBytes,
-        future: ArtworkPalette.bytesAsync(song),
-        builder: (context, snapshot) {
-          final bytes = snapshot.data ?? initialBytes;
-          if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image.memory(
-              bytes,
-              width: 44,
-              height: 44,
-              cacheWidth: 96,
-              cacheHeight: 96,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              errorBuilder: (_, _, _) => _placeholder(scheme),
-            ),
-          );
-        },
+      image = RepaintBoundary(
+        child: FutureBuilder<Uint8List?>(
+          key: ValueKey('tile_async_${song.id}'),
+          initialData: initialBytes,
+          future: ArtworkPalette.bytesAsync(song),
+          builder: (context, snapshot) {
+            final bytes = snapshot.data ?? initialBytes;
+            if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.memory(
+                bytes,
+                key: ValueKey('tile_mem_${song.id}'),
+                width: 44,
+                height: 44,
+                cacheWidth: 96,
+                cacheHeight: 96,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => _placeholder(scheme),
+              ),
+            );
+          },
+        ),
       );
     }
     if (!isCurrent) return image;

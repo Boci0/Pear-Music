@@ -131,18 +131,16 @@ class ArtworkPalette {
     final art = song.artwork;
     if (art == null || art.isEmpty) return Future.value(null);
     final id = song.id;
-    // Sync cache hit: promote into the async cache too so both paths share.
+    final cachedFuture = _asyncBytesCache[id];
+    if (cachedFuture != null) {
+      return cachedFuture;
+    }
     final syncCached = _bytesCache[id];
     if (syncCached != null) {
-      _asyncBytesCache.remove(id);
-      _asyncBytesCache[id] = Future.value(syncCached);
+      final fut = Future.value(syncCached);
+      _asyncBytesCache[id] = fut;
       _trim(_asyncBytesCache, _maxAsyncBytesEntries);
-      return Future.value(syncCached);
-    }
-    final cached = _asyncBytesCache.remove(id);
-    if (cached != null) {
-      _asyncBytesCache[id] = cached; // re-insert -> most-recently-used end.
-      return cached;
+      return fut;
     }
     final future = compute(_decodeArtwork, art).then((decoded) {
       if (decoded != null) {

@@ -501,7 +501,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 ensureInit(ctx)
                 fun makeAudioReq(): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
-                    req.addOption("-f", "bestaudio/ba")
+                    req.addOption("-f", "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba")
                     req.addOption("-o", outputPath)
                     req.addOption("--no-playlist")
                     req.addOption("--no-part")
@@ -511,7 +511,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-check-certificates")
                     req.addOption("--concurrent-fragments", "1")
                     req.addOption("--buffer-size", "64k")
-                    req.addOption("--http-chunk-size", "10M")
                     req.addOption("--socket-timeout", "10")
                     req.addOption("--retries", "2")
                     req.addOption("--fragment-retries", "2")
