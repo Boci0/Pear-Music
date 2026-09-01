@@ -810,6 +810,20 @@ class _PlayerAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    switch (name) {
+      case 'peerm_play':
+        await play();
+        return;
+      case 'peerm_pause':
+        await pause();
+        return;
+      case 'peerm_previous':
+        await skipToPrevious();
+        return;
+      case 'peerm_next':
+        await skipToNext();
+        return;
+    }
     final cb = JustAudioBackground.onCustomAction;
     if (cb != null) {
       await cb(name);
@@ -899,9 +913,28 @@ class _PlayerAudioHandler extends BaseAudioHandler
     // with the mode (off/all/one, on/off) so the state is visible.
     final controls = [
       _shuffleControlFor(_shuffleMode),
-      MediaControl.skipToPrevious,
-      if (_playing) MediaControl.pause else MediaControl.play,
-      MediaControl.skipToNext,
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_previous',
+        label: 'Previous',
+        name: 'peerm_previous',
+      ),
+      if (_playing)
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_pause',
+          label: 'Pause',
+          name: 'peerm_pause',
+        )
+      else
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_play',
+          label: 'Play',
+          name: 'peerm_play',
+        ),
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_next',
+        label: 'Next',
+        name: 'peerm_next',
+      ),
       _repeatControlFor(_repeatMode),
     ];
     playbackState.add(playbackState.nvalue!.copyWith(
