@@ -3,17 +3,7 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-  <!-- Material skip_previous, scaled to the same 16x16 footprint as the rest
-       of the notification transport row. -->
-  <group
-      android:pivotX="12"
-      android:pivotY="12"
-      android:scaleX="1.333333"
-      android:scaleY="1.333333"
-      android:translateX="0"
-      android:translateY="0">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M6,6h2v12H6zm3.5,6l8.5,6V6z"/>
-  </group>
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M6,6h2v12H6zm3.5,6l8.5,6V6z"/>
 </vector>

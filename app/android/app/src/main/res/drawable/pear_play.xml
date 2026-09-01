@@ -3,17 +3,7 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-  <!-- Material play_arrow, scaled so the glyph fills the same 16x16 box as
-       the pear_repeat / pear_shuffle buttons (uniform notification row). -->
-  <group
-      android:pivotX="13.5"
-      android:pivotY="12"
-      android:scaleX="1.142857"
-      android:scaleY="1.142857"
-      android:translateX="-1.5"
-      android:translateY="0">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M8,5v14l11,-7z"/>
-  </group>
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M8,5v14l11,-7z"/>
 </vector>

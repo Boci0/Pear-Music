@@ -3,17 +3,7 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-  <!-- Material repeat, scaled down to the same 16x16 footprint as the other
-       notification transport buttons (uniform row). -->
-  <group
-      android:pivotX="12"
-      android:pivotY="12"
-      android:scaleX="0.8"
-      android:scaleY="0.8"
-      android:translateX="0"
-      android:translateY="0">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4z"/>
-  </group>
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4z"/>
 </vector>

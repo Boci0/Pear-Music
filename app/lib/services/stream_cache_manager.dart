@@ -128,13 +128,19 @@ class StreamCacheManager {
   }
 
   static String? _activePreloadProcessId;
+  static String? _activePreloadVideoId;
 
   /// Cancels any active background preload sequence immediately.
-  static void cancelPreload() {
+  static void cancelPreload({String? exceptVideoId}) {
     _slidingWindowSequence++;
     final activeId = _activePreloadProcessId;
+    if (exceptVideoId != null && _activePreloadVideoId == exceptVideoId) {
+      DebugLog.write('[preload] Preserving active in-flight download for $exceptVideoId');
+      return;
+    }
     if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
       _activePreloadProcessId = null;
+      _activePreloadVideoId = null;
       try {
         const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
       } catch (_) {}

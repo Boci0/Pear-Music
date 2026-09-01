@@ -541,9 +541,9 @@ class PlayerService extends ChangeNotifier {
       if (token != _playRequestToken) return;
 
       if (song.sourceDeviceId == 'stream') {
-        DebugLog.write('[player] Stream path: cancelling any active preload');
-        StreamCacheManager.cancelPreload();
         final videoId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
+        DebugLog.write('[player] Stream path: checking active preload for $videoId');
+        StreamCacheManager.cancelPreload(exceptVideoId: videoId);
         DebugLog.write('[player] Resolved videoId=$videoId, checking disk cache...');
         final mediaTag = MediaItem(
           id: song.id,

@@ -344,23 +344,32 @@ class RecommendationService {
     final normalizedExclude = normalizeVideoIds(excludeVideoIds ?? const {});
     final clientConfigs = [
       {
+        'endpoint': 'https://music.youtube.com/youtubei/v1/next',
         'clientName': 'WEB_REMIX',
         'clientVersion': '1.20260801.01.00',
         'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'referer': 'https://music.youtube.com/',
       },
       {
+        'endpoint': 'https://music.youtube.com/youtubei/v1/next',
         'clientName': 'ANDROID_MUSIC',
         'clientVersion': '6.42.52',
         'userAgent': 'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14)',
         'referer': 'https://music.youtube.com/',
+      },
+      {
+        'endpoint': 'https://www.youtube.com/youtubei/v1/next',
+        'clientName': 'WEB',
+        'clientVersion': '2.20260801.00.00',
+        'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'referer': 'https://www.youtube.com/',
       },
     ];
 
     for (final cfg in clientConfigs) {
       try {
         final request = await _httpClient.postUrl(
-          Uri.parse('https://music.youtube.com/youtubei/v1/next'),
+          Uri.parse(cfg['endpoint']!),
         );
         request.headers.set('Content-Type', 'application/json');
         request.headers.set('User-Agent', cfg['userAgent']!);
@@ -383,7 +392,7 @@ class RecommendationService {
         }
 
         request.add(utf8.encode(jsonEncode(payload)));
-        final response = await request.close().timeout(const Duration(seconds: 6));
+        final response = await request.close().timeout(const Duration(seconds: 3));
         if (response.statusCode != 200) {
           continue;
         }
