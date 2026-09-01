@@ -901,42 +901,25 @@ class _PlayerAudioHandler extends BaseAudioHandler
     // with the mode (off/all/one, on/off) so the state is visible.
     final controls = [
       _repeatControlFor(_repeatMode),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_previous',
-        label: 'Previous',
-        name: 'peerm_previous',
-      ),
-      if (_playing)
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_pause',
-          label: 'Pause',
-          name: 'peerm_pause',
-        )
-      else
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_play',
-          label: 'Play',
-          name: 'peerm_play',
-        ),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_next',
-        label: 'Next',
-        name: 'peerm_next',
-      ),
+      MediaControl.skipToPrevious,
+      if (_playing) MediaControl.pause else MediaControl.play,
+      MediaControl.skipToNext,
       _shuffleControlFor(_shuffleMode),
     ];
     playbackState.add(playbackState.nvalue!.copyWith(
       controls: controls,
-      // The transport buttons are now CUSTOM actions, so skip prev/next are
-      // not part of the controls' action bits anymore. List them here so the
-      // PlaybackState actions bitmap still advertises them (keeps the
-      // Android 13+ compact notification showing previous/next).
       systemActions: {
+        MediaAction.play,
+        MediaAction.pause,
+        MediaAction.playPause,
+        MediaAction.stop,
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
         MediaAction.skipToPrevious,
         MediaAction.skipToNext,
+        MediaAction.setRepeatMode,
+        MediaAction.setShuffleMode,
       },
       androidCompactActionIndices: [1, 2, 3],
       processingState: _justAudioEvent.errorCode != null

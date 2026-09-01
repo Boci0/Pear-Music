@@ -497,11 +497,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         executors[processId] = executor
         executor.execute {
             try {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT)
                 ensureInit(ctx)
-                fun makeAudioReq(useExtractorArgs: Boolean): YoutubeDLRequest {
+                fun makeAudioReq(): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
-                    req.addOption("-f", "140/251/250/249/bestaudio[ext=m4a][abr<=128]/bestaudio[ext=webm][abr<=128]/bestaudio[abr<=128]/ba[abr<=128]/ba/bestaudio")
+                    req.addOption("-f", "bestaudio/ba")
                     req.addOption("-o", outputPath)
                     req.addOption("--no-playlist")
                     req.addOption("--no-part")
@@ -510,23 +510,15 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--force-ipv4")
                     req.addOption("--no-check-certificates")
                     req.addOption("--concurrent-fragments", "1")
-                    req.addOption("--buffer-size", "16k")
+                    req.addOption("--buffer-size", "64k")
                     req.addOption("--http-chunk-size", "10M")
                     req.addOption("--socket-timeout", "10")
                     req.addOption("--retries", "2")
                     req.addOption("--fragment-retries", "2")
-                    if (useExtractorArgs) {
-                        req.addOption("--extractor-args", "youtube:player_client=android,ios,web")
-                    }
                     return req
                 }
 
-                val response = try {
-                    YoutubeDL.getInstance().execute(makeAudioReq(true), processId)
-                } catch (firstErr: Exception) {
-                    android.util.Log.w(TAG, "Fast audio download attempt 1 failed: ${firstErr.message}, trying without extra args...")
-                    YoutubeDL.getInstance().execute(makeAudioReq(false), processId)
-                }
+                val response = YoutubeDL.getInstance().execute(makeAudioReq(), processId)
 
                 val outFile = File(outputPath)
                 if (outFile.exists() && outFile.length() > 50000) {
