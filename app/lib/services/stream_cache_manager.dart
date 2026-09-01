@@ -438,6 +438,23 @@ class StreamCacheManager {
     });
   }
 
+  static void _saveToStreamUrlCache(String videoId, String url) {
+    if (_streamUrlMemoryCache.length > 100) {
+      final now = DateTime.now();
+      _streamUrlMemoryCache.removeWhere((_, cached) => now.isAfter(cached.expiresAt));
+      if (_streamUrlMemoryCache.length > 80) {
+        final keysToRemove = _streamUrlMemoryCache.keys.take(20).toList();
+        for (final k in keysToRemove) {
+          _streamUrlMemoryCache.remove(k);
+        }
+      }
+    }
+    _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+      url,
+      DateTime.now().add(const Duration(hours: 4)),
+    );
+  }
+
   /// Core resolution logic — shared by [extractDirectStreamUrl] and [prefetchStreamUrl].
   ///
   /// Tier 1: In-process direct HTTP stream extraction via YoutubeExplode (~150-300ms).
@@ -461,10 +478,7 @@ class StreamCacheManager {
             : audioStreams.withHighestBitrate();
         final streamUrl = audioStream.url.toString();
         if (streamUrl.startsWith('http')) {
-          _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-            streamUrl,
-            DateTime.now().add(const Duration(hours: 4)),
-          );
+          _saveToStreamUrlCache(videoId, streamUrl);
           _consecutiveFailures = 0;
           DebugLog.write('[stream] Fast in-process resolution succeeded for $videoId');
           return streamUrl;
@@ -482,10 +496,7 @@ class StreamCacheManager {
         final res = await channel.invokeMethod<String>('getStreamUrl', {'url': url})
             .timeout(Duration(seconds: fastFail ? 6 : 10));
         if (res != null && res.startsWith('http')) {
-          _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-            res,
-            DateTime.now().add(const Duration(hours: 4)),
-          );
+          _saveToStreamUrlCache(videoId, res);
           _consecutiveFailures = 0;
           return res;
         }
@@ -512,10 +523,7 @@ class StreamCacheManager {
       );
 
       if (result != null) {
-        _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-          result,
-          DateTime.now().add(const Duration(hours: 4)),
-        );
+        _saveToStreamUrlCache(videoId, result);
         _consecutiveFailures = 0;
         return result;
       }
@@ -540,10 +548,7 @@ class StreamCacheManager {
       );
 
       if (fallback != null) {
-        _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-          fallback,
-          DateTime.now().add(const Duration(hours: 4)),
-        );
+        _saveToStreamUrlCache(videoId, fallback);
         _consecutiveFailures = 0;
         DebugLog.write('[stream] Fallback succeeded for $videoId');
         return fallback;

@@ -7,6 +7,7 @@ import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/player_service.dart';
+import 'player_console_dialog.dart';
 
 /// Large album artwork container with rounded corners and ambient accent glow.
 class PlayerArtwork extends StatelessWidget {
@@ -214,103 +215,93 @@ class PlayerSongInfo extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        if (isStream)
-          _buildLoadTimeBadge(player.lastTrackLoadMs, route, player.isLoadingTrack, scheme)
-        else
-          Text(
-            song.sourceDeviceId == null
-                ? 'Added on this device'
-                : 'Shared from peer',
-            style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-          ),
+        _buildSourceInfo(context, isStream, route, player.isLoadingTrack, scheme, theme),
       ],
     );
   }
 
-  Widget _buildLoadTimeBadge(int loadMs, StreamRouteType route, bool isLoading, ColorScheme scheme) {
-    if (isLoading || loadMs < 0) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-        decoration: BoxDecoration(
-          color: scheme.primary.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: scheme.primary.withValues(alpha: 0.3),
-            width: 1,
+  Widget _buildSourceInfo(
+    BuildContext context,
+    bool isStream,
+    StreamRouteType route,
+    bool isLoading,
+    ColorScheme scheme,
+    ThemeData theme,
+  ) {
+    final Widget content;
+
+    if (isStream && isLoading) {
+      content = Row(
+        key: const ValueKey('source_buffering'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 8,
+            height: 8,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              color: scheme.primary,
+            ),
           ),
-        ),
+          const SizedBox(width: 6),
+          Text(
+            'Connecting to Pear Radio...',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+    } else if (isStream) {
+      content = GestureDetector(
+        key: const ValueKey('source_stream'),
+        onLongPress: () => PlayerConsoleDialog.show(context),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 10,
-              height: 10,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: scheme.primary,
-              ),
+            Icon(
+              Icons.radio_rounded,
+              size: 14,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
             ),
             const SizedBox(width: 5),
             Text(
-              'Buffering...',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: scheme.primary,
-                letterSpacing: 0.2,
+              'Pear Radio',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
               ),
             ),
           ],
         ),
       );
-    }
-
-    final String label;
-    final IconData icon;
-    final Color color;
-    final Color bg;
-
-    if (route == StreamRouteType.cached) {
-      label = loadMs <= 0 ? '0 ms' : '$loadMs ms';
-      icon = Icons.bolt_rounded;
-      color = const Color(0xFF81C784);
-      bg = const Color(0xFF1B2E1D);
-    } else if (loadMs < 1000) {
-      label = '$loadMs ms';
-      icon = Icons.timer_outlined;
-      color = scheme.primary;
-      bg = scheme.primary.withValues(alpha: 0.15);
     } else {
-      label = '${(loadMs / 1000).toStringAsFixed(1)} s';
-      icon = Icons.cloud_download_outlined;
-      color = const Color(0xFFFFB74D);
-      bg = const Color(0xFF332005);
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
+      final label = song.sourceDeviceId == null ? 'Local Library' : 'Shared from peer';
+      content = Row(
+        key: ValueKey('source_local_${song.id}'),
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
+          Icon(
+            song.sourceDeviceId == null ? Icons.folder_outlined : Icons.devices_rounded,
+            size: 14,
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+          ),
+          const SizedBox(width: 5),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: color,
-              letterSpacing: 0.2,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
             ),
           ),
         ],
-      ),
+      );
+    }
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: content,
     );
   }
 }

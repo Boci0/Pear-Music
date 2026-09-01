@@ -564,6 +564,9 @@ class PlayerService extends ChangeNotifier {
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
           _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+          _isBufferingNext = false;
+          _bufferingVideoId = null;
+          notifyListeners();
           DebugLog.write('[player] DISK CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${cachedFile.path}');
           await _player.setAudioSource(
             AudioSource.file(cachedFile.path, tag: mediaTag),
@@ -588,6 +591,7 @@ class PlayerService extends ChangeNotifier {
           if (downloadedFile != null && await downloadedFile.exists()) {
             _currentRouteType = StreamRouteType.direct;
             _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+            notifyListeners();
             DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             await _player.setAudioSource(
               AudioSource.file(downloadedFile.path, tag: mediaTag),
@@ -611,6 +615,9 @@ class PlayerService extends ChangeNotifier {
         // Local song: play directly from local file
         _currentRouteType = StreamRouteType.local;
         _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+        _isBufferingNext = false;
+        _bufferingVideoId = null;
+        notifyListeners();
         DebugLog.write('[player] Playing LOCAL file (${_lastTrackLoadMs}ms): ${song.title}');
         final file = library.songFile(song);
         if (!await file.exists()) {
@@ -642,6 +649,7 @@ class PlayerService extends ChangeNotifier {
       _isLoadingTrack = false;
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;
+      notifyListeners();
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
       _preloadUpcomingStreams();
     } catch (e) {
@@ -656,6 +664,8 @@ class PlayerService extends ChangeNotifier {
       if (token == _playRequestToken) {
         _isAdvancing = false;
         _isLoadingTrack = false;
+        _isBufferingNext = false;
+        _bufferingVideoId = null;
         notifyListeners();
       }
     }
