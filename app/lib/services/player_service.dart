@@ -262,9 +262,7 @@ class PlayerService extends ChangeNotifier {
     }));
 
     // Route the media notification's transport buttons to our own queue so
-    // play / pause / next / previous / repeat / shuffle work with the Dart-managed queue.
-    JustAudioBackground.onPlay = () => unawaited(resume());
-    JustAudioBackground.onPause = () => unawaited(pause(smooth: false));
+    // next / previous / repeat / shuffle work with the Dart-managed queue.
     JustAudioBackground.onSkipToNext = () => unawaited(next());
     JustAudioBackground.onSkipToPrevious = () => unawaited(previous());
     JustAudioBackground.onSetRepeatMode = (mode) async {

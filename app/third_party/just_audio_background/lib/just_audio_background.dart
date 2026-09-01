@@ -81,8 +81,6 @@ class JustAudioBackground {
   // ---------------------------------------------------------------------
   static void Function()? onSkipToNext;
   static void Function()? onSkipToPrevious;
-  static void Function()? onPlay;
-  static void Function()? onPause;
   static Future<void> Function(AudioServiceRepeatMode mode)? onSetRepeatMode;
   static Future<void> Function(AudioServiceShuffleMode mode)? onSetShuffleMode;
   /// Hook for notification buttons that are custom actions (e.g.
@@ -721,29 +719,17 @@ class _PlayerAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> play() async {
-    final cb = JustAudioBackground.onPlay;
-    if (cb != null) {
-      cb();
-      return;
-    }
     if (_justAudioEvent.processingState == ProcessingStateMessage.completed) {
       await skipToQueueItem(0);
     }
-    if (!_playing) {
-      _updatePosition();
-      customEvent.add(_PlayingEvent(_playing = true));
-      _broadcastState();
-      await (await _player).play(PlayRequest());
-    }
+    _updatePosition();
+    customEvent.add(_PlayingEvent(_playing = true));
+    _broadcastState();
+    await (await _player).play(PlayRequest());
   }
 
   @override
   Future<void> pause() async {
-    final cb = JustAudioBackground.onPause;
-    if (cb != null) {
-      cb();
-      return;
-    }
     _updatePosition();
     customEvent.add(_PlayingEvent(_playing = false));
     _broadcastState();
