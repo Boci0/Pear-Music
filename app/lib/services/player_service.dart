@@ -518,13 +518,6 @@ class PlayerService extends ChangeNotifier {
     } catch (_) {}
     if (token != _playRequestToken) return;
 
-    // Speculatively pre-resolve and cache upcoming queue streams
-    _preloadUpcomingStreams();
-
-    // Trigger proactive background pre-fetch when within 10 songs of the queue end
-    if (_autoplay && _queueIndex >= _queue.length - 10 && !_isLoadingRecommendations) {
-      unawaited(fetchAndAppendRecommendations());
-    }
 
     final effectiveArtUri = await ArtworkService.songArtworkUri(song);
     if (token != _playRequestToken) return;
@@ -705,15 +698,6 @@ class PlayerService extends ChangeNotifier {
           }
         },
       );
-
-      // Proactively resolve CDN stream URLs in the background while the current
-      // track plays. This eliminates the 3–15s yt-dlp gap between tracks —
-      // by the time the current song ends, the next URL is already resolved.
-      for (final vId in upcomingVideoIds) {
-        if (!StreamCacheManager.isStreamCachedSync(vId)) {
-          StreamCacheManager.prefetchStreamUrl(vId);
-        }
-      }
     } else {
       _isPreloadingUpcoming = false;
       notifyListeners();

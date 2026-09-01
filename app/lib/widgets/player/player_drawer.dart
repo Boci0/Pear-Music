@@ -52,25 +52,6 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
     super.dispose();
   }
 
-  /// Scrolls the queue list so the currently playing row is visible.
-  void _jumpToCurrentQueueRow() {
-    if (_selectedTab != 0) setState(() => _selectedTab = 0);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_drawerQueueController.hasClients) return;
-      final idx = widget.player.queueIndex;
-      if (idx < 0) return;
-      final target = (idx * 64.0 - 80.0).clamp(
-        0.0,
-        _drawerQueueController.position.maxScrollExtent,
-      );
-      _drawerQueueController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -98,15 +79,6 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     ),
                   ),
                   const Spacer(),
-                  IconButton(
-                    iconSize: 20,
-                    tooltip: 'Jump to current track',
-                    icon: Icon(
-                      Icons.center_focus_strong,
-                      color: scheme.primary,
-                    ),
-                    onPressed: _jumpToCurrentQueueRow,
-                  ),
                   IconButton(
                     iconSize: 20,
                     tooltip: 'Reroll seed (reroll upcoming recommendations)',

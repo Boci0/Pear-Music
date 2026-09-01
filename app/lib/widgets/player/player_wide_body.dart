@@ -277,8 +277,6 @@ class PlayerWideQueueView extends StatefulWidget {
 
 class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
   final ScrollController _scrollController = ScrollController();
-  final TextEditingController _filterController = TextEditingController();
-  String _filter = '';
   String? _lastScrolledSongId;
 
   @override
@@ -297,31 +295,13 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
     }
   }
 
-  bool _matchesFilter(Song s) {
-    final query = _filter.trim().toLowerCase();
-    if (query.isEmpty) return true;
-    return s.title.toLowerCase().contains(query);
-  }
-
-  /// Index of the current song within the FILTERED list (the list view's
-  /// coordinate space), or -1 when it is filtered out.
-  int _filteredIndexOfCurrent(List<Song> queue) {
-    var visibleIndex = -1;
-    for (final s in queue) {
-      if (!_matchesFilter(s)) continue;
-      visibleIndex++;
-      if (s.id == widget.currentSong.id) return visibleIndex;
-    }
-    return -1;
-  }
-
   void _scrollToCurrent({bool force = false}) {
     if (!_scrollController.hasClients) return;
     if (!force && _lastScrolledSongId == widget.currentSong.id) return;
     _lastScrolledSongId = widget.currentSong.id;
 
     final queue = widget.player.queue;
-    final idx = _filteredIndexOfCurrent(queue);
+    final idx = queue.indexWhere((s) => s.id == widget.currentSong.id);
     if (idx >= 0) {
       // Must match the list's itemExtent (dense two-line ListTile + padding).
       final targetOffset = (idx * 68.0 - 80.0).clamp(
@@ -344,101 +324,53 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
   @override
   void dispose() {
     _scrollController.dispose();
-    _filterController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _filterController,
-                  onChanged: (value) => setState(() => _filter = value),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Filter queue',
-                    prefixIcon: const Icon(Icons.search, size: 18),
-                    suffixIcon: _filter.isEmpty
-                        ? null
-                        : IconButton(
-                            iconSize: 18,
-                            tooltip: 'Clear filter',
-                            icon: const Icon(Icons.close_rounded),
-                            onPressed: () {
-                              _filterController.clear();
-                              setState(() => _filter = '');
-                            },
-                          ),
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Jump to current track',
-                icon: const Icon(Icons.center_focus_strong),
-                onPressed: () => _scrollToCurrent(force: true),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListenableBuilder(
-            listenable: widget.player,
-            builder: (context, _) {
-              final queue = widget.player.queue;
-              // Filtered view: pairs of (original index, song) so queue
-              // mutations (remove) always target the real queue position.
-              final visible = <(int, Song)>[
-                for (var i2 = 0; i2 < queue.length; i2++)
-                  if (_matchesFilter(queue[i2])) (i2, queue[i2]),
-              ];
-              // Content-stable, duplicate-safe keys: element state survives
-              // reroll, removal and reorder.
-              final keys = <String>[];
-              final occurrences = <String, int>{};
-              for (final (_, item) in visible) {
-                final n = occurrences[item.id] ?? 0;
-                occurrences[item.id] = n + 1;
-                keys.add(n == 0 ? item.id : '${item.id}#${n + 1}');
-              }
-              final scheme = widget.scheme;
-              if (queue.isEmpty) {
-                return const Center(child: Text('Queue is empty'));
-              }
-              if (visible.isEmpty) {
-                return const Center(child: Text('No matches'));
-              }
+    return ListenableBuilder(
+      listenable: widget.player,
+      builder: (context, _) {
+        final queue = widget.player.queue;
+        // Content-stable, duplicate-safe keys: element state survives
+        // reroll, removal and reorder.
+        final keys = <String>[];
+        final occurrences = <String, int>{};
+        for (final item in queue) {
+          final n = occurrences[item.id] ?? 0;
+          occurrences[item.id] = n + 1;
+          keys.add(n == 0 ? item.id : '${item.id}#${n + 1}');
+        }
+        final scheme = widget.scheme;
+        if (queue.isEmpty) {
+          return const Center(child: Text('Queue is empty'));
+        }
 
-              return Theme(
-                data: Theme.of(context).copyWith(
-                  hoverColor: scheme.primary.withValues(alpha: 0.08),
-                  highlightColor: Colors.transparent,
-                  splashColor: scheme.primary.withValues(alpha: 0.12),
-                ),
-                child: ListView.builder(
-                  controller: _scrollController,
-                  // Fixed extent (dense two-line ListTile + 2px vertical
-                  // padding): O(1) scroll geometry.
-                  itemExtent: 68.0,
-                  itemCount: visible.length,
-                  findChildIndexCallback: (Key key) {
-                    final valueKey = key as ValueKey<String>?;
-                    if (valueKey == null) return null;
-                    final index = keys.indexWhere(
-                      (k) => 'wide_queue_$k' == valueKey.value,
-                    );
-                    return index >= 0 ? index : null;
-                  },
-                  itemBuilder: (context, i) {
-                    final (origIndex, item) = visible[i];
-                    final isCurrent = item.id == widget.currentSong.id;
-                    final isUpcoming = origIndex > widget.player.queueIndex;
-                    final isLocked = widget.player.isSongLocked(item.id);
+        return Theme(
+          data: Theme.of(context).copyWith(
+            hoverColor: scheme.primary.withValues(alpha: 0.08),
+            highlightColor: Colors.transparent,
+            splashColor: scheme.primary.withValues(alpha: 0.12),
+          ),
+          child: ListView.builder(
+            controller: _scrollController,
+            // Fixed extent (dense two-line ListTile + 2px vertical padding): O(1) scroll geometry.
+            itemExtent: 68.0,
+            itemCount: queue.length,
+            findChildIndexCallback: (Key key) {
+              final valueKey = key as ValueKey<String>?;
+              if (valueKey == null) return null;
+              final index = keys.indexWhere(
+                (k) => 'wide_queue_$k' == valueKey.value,
+              );
+              return index >= 0 ? index : null;
+            },
+            itemBuilder: (context, i) {
+              final item = queue[i];
+              final isCurrent = item.id == widget.currentSong.id;
+              final isUpcoming = i > widget.player.queueIndex;
+              final isLocked = widget.player.isSongLocked(item.id);
                     return RepaintBoundary(
                       // Per-row repaint isolation: artwork decode and lock
                       // changes do not repaint neighbouring rows.
@@ -471,7 +403,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                           size: 18,
                                         )
                                       : Text(
-                                          '${origIndex + 1}',
+                                          '${i + 1}',
                                           style: TextStyle(
                                             color: scheme.onSurfaceVariant
                                                 .withValues(alpha: 0.6),
@@ -660,7 +592,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                     } else if (action == 'remove') {
                                       context
                                           .read<AppController>()
-                                          .removeFromQueue(origIndex);
+                                          .removeFromQueue(i);
                                     }
                                   },
                                   itemBuilder: (context) => [
@@ -725,10 +657,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                 ),
               );
             },
-          ),
-        ),
-      ],
-    );
+          );
   }
 }
 

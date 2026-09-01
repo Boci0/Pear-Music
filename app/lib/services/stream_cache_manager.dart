@@ -36,6 +36,9 @@ class StreamCacheManager {
     return dir;
   }
 
+  static YoutubeExplode? _ytExplode;
+  static YoutubeExplode get _yt => _ytExplode ??= YoutubeExplode();
+
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
@@ -121,8 +124,9 @@ class StreamCacheManager {
   }) {
     final seq = ++_slidingWindowSequence;
     unawaited(() async {
-      // Strictly limit lookahead buffer to 2 tracks to minimize SSD writes (~6 MB max)
-      for (final id in videoIds.take(2)) {
+      // Sequential single-track lookahead window: loads the next track, and only moves
+      // to the following one once the current target is fully cached.
+      for (final id in videoIds) {
         if (seq != _slidingWindowSequence) {
           DebugLog.write('[preload] Preload sequence aborted for $id');
           break;
@@ -424,27 +428,22 @@ class StreamCacheManager {
 
     // Tier 1: Fast in-process HTTP resolution via YoutubeExplode
     try {
-      final yt = YoutubeExplode();
-      try {
-        final manifest = await yt.videos.streamsClient
-            .getManifest(videoId)
-            .timeout(Duration(seconds: fastFail ? 3 : 5));
-        final audioStreams = manifest.audioOnly;
-        if (audioStreams.isNotEmpty) {
-          final audioStream = audioStreams.withHighestBitrate();
-          final streamUrl = audioStream.url.toString();
-          if (streamUrl.startsWith('http')) {
-            _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-              streamUrl,
-              DateTime.now().add(const Duration(hours: 4)),
-            );
-            _consecutiveFailures = 0;
-            DebugLog.write('[stream] Fast in-process resolution succeeded for $videoId');
-            return streamUrl;
-          }
+      final manifest = await _yt.videos.streamsClient
+          .getManifest(videoId)
+          .timeout(Duration(seconds: fastFail ? 3 : 5));
+      final audioStreams = manifest.audioOnly;
+      if (audioStreams.isNotEmpty) {
+        final audioStream = audioStreams.withHighestBitrate();
+        final streamUrl = audioStream.url.toString();
+        if (streamUrl.startsWith('http')) {
+          _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
+            streamUrl,
+            DateTime.now().add(const Duration(hours: 4)),
+          );
+          _consecutiveFailures = 0;
+          DebugLog.write('[stream] Fast in-process resolution succeeded for $videoId');
+          return streamUrl;
         }
-      } finally {
-        yt.close();
       }
     } catch (e) {
       DebugLog.write('[stream] In-process stream resolution skipped/failed for $videoId: $e');
@@ -593,7 +592,10 @@ class StreamCacheManager {
   }
 
   /// Clean up resources on shutdown.
-  static void dispose() {}
+  static void dispose() {
+    _ytExplode?.close();
+    _ytExplode = null;
+  }
 }
 
 class _CachedStreamUrl {

@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '2.6.0';
+  static const String currentVersion = '2.6.1';
 
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.
