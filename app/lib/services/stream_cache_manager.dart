@@ -239,16 +239,14 @@ class StreamCacheManager {
         }
       }
 
-      // Desktop yt-dlp engine with android/ios client extractor args
+      // Desktop yt-dlp engine with robust audio format selection
       final bin = await YoutubeService.ytDlpPath();
       if (bin != null) {
         DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
         final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
         final res = await Process.run(bin, [
-          '--extractor-args',
-          'youtube:player_client=android,ios,web',
           '-f',
-          '140/251/250/249/bestaudio[ext=m4a][abr<=128]/bestaudio[ext=webm][abr<=128]/bestaudio[abr<=128]/ba[abr<=128]/ba/bestaudio',
+          'bestaudio/ba',
           '-o',
           outputTemplate,
           '--no-playlist',
@@ -259,6 +257,10 @@ class StreamCacheManager {
           '--force-ipv4',
           '--concurrent-fragments',
           '1',
+          '--buffer-size',
+          '64k',
+          '--http-chunk-size',
+          '10M',
           '--socket-timeout',
           '10',
           '--no-cache-dir',

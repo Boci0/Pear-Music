@@ -227,7 +227,10 @@ void main() {
       () => libA.songs.any((s) => s.title == 'b-only'),
       timeout: const Duration(seconds: 10),
     );
-    expect(libA.songs.first.sourceDeviceId, 'device-B');
+    final receivedSong = libA.songs.firstWhere((s) => s.title == 'b-only');
+    expect(receivedSong.sourceDeviceId, 'device-B');
+    await syncA.idle;
+    await syncB.idle;
   });
 
   test('dedup: already-shared songs are not duplicated', () async {
