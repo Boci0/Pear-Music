@@ -888,10 +888,15 @@ class PlayerService extends ChangeNotifier {
       }
       return;
     }
+    if (_player.processingState == ProcessingState.completed) {
+      await _player.seek(Duration.zero);
+    }
+    await _player.setVolume(_userVolume);
     if (!_player.playing) {
       await _player.play();
-      notifyListeners();
     }
+    _publishNotificationState();
+    notifyListeners();
   }
 
   Future<void> toggle() async {
