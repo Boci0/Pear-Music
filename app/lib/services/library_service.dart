@@ -210,6 +210,9 @@ class LibraryService extends ChangeNotifier {
     _saveIndexDebounce = null;
     if (_indexFile == null) return;
     try {
+      if (!await _indexFile!.parent.exists()) {
+        await _indexFile!.parent.create(recursive: true);
+      }
       final jsonStr = await compute(_encodeSongsJson, _songs);
       await _indexFile!.writeAsString(jsonStr);
     } catch (e) {
@@ -261,13 +264,21 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<void> _savePlaylists() async {
-    await _playlistsFile!.writeAsString(jsonEncode({
-      'playlists': _playlists.map((pl) => pl.toJson()).toList(),
-      'deleted': {
-        for (final e in _deletedPlaylistsAt.entries)
-          e.key: e.value.toIso8601String(),
-      },
-    }));
+    if (_playlistsFile == null) return;
+    try {
+      if (!await _playlistsFile!.parent.exists()) {
+        await _playlistsFile!.parent.create(recursive: true);
+      }
+      await _playlistsFile!.writeAsString(jsonEncode({
+        'playlists': _playlists.map((pl) => pl.toJson()).toList(),
+        'deleted': {
+          for (final e in _deletedPlaylistsAt.entries)
+            e.key: e.value.toIso8601String(),
+        },
+      }));
+    } catch (e) {
+      debugPrint('[library] error saving playlists: $e');
+    }
   }
 
   /// Synchronously computes MD5 hash from disk in a background isolate.

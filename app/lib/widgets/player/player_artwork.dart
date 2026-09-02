@@ -59,6 +59,7 @@ class PlayerArtwork extends StatelessWidget {
         cacheHeight: 384,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        errorBuilder: (_, _, _) => _placeholder(scheme),
       );
     } else if (song != null) {
       imageWidget = FutureBuilder<Uint8List?>(
@@ -76,6 +77,7 @@ class PlayerArtwork extends StatelessWidget {
             cacheHeight: 384,
             fit: BoxFit.cover,
             gaplessPlayback: true,
+            errorBuilder: (_, _, _) => _placeholder(scheme),
           );
         },
       );
