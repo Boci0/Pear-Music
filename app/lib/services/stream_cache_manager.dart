@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -129,20 +130,29 @@ class StreamCacheManager {
 
   static String? _activePreloadProcessId;
   static String? _activePreloadVideoId;
+  static Process? _activePreloadDesktopProcess;
 
   /// Cancels any active background preload sequence immediately.
   static void cancelPreload({String? exceptVideoId}) {
     _slidingWindowSequence++;
-    final activeId = _activePreloadProcessId;
     if (exceptVideoId != null && _activePreloadVideoId == exceptVideoId) {
       DebugLog.write('[preload] Preserving active in-flight download for $exceptVideoId');
       return;
     }
+    final activeId = _activePreloadProcessId;
     if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
       _activePreloadProcessId = null;
       _activePreloadVideoId = null;
       try {
         const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
+      } catch (_) {}
+    }
+    final desktopProc = _activePreloadDesktopProcess;
+    if (desktopProc != null) {
+      _activePreloadDesktopProcess = null;
+      _activePreloadVideoId = null;
+      try {
+        desktopProc.kill();
       } catch (_) {}
     }
     DebugLog.write('[preload] cancelPreload() called, new sequence=$_slidingWindowSequence');
@@ -252,7 +262,7 @@ class StreamCacheManager {
       if (bin != null) {
         DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
         final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
-        final res = await Process.run(bin, [
+        final args = [
           '-f',
           'bestaudio/ba',
           '-o',
@@ -263,6 +273,8 @@ class StreamCacheManager {
           '--no-warnings',
           '--no-check-certificates',
           '--force-ipv4',
+          '--extractor-args',
+          'youtube:player_client=android,web',
           '--concurrent-fragments',
           '1',
           '--buffer-size',
@@ -270,13 +282,51 @@ class StreamCacheManager {
           '--http-chunk-size',
           '10M',
           '--socket-timeout',
-          '10',
+          '15',
+          '--retries',
+          '3',
           '--no-cache-dir',
           'https://www.youtube.com/watch?v=$videoId',
-        ]).timeout(const Duration(seconds: 30));
+        ];
 
-        if (res.exitCode != 0) {
-          DebugLog.write('[cache] yt-dlp exit=${res.exitCode} stderr: ${(res.stderr as String).trim()}');
+        final process = await Process.start(bin, args);
+        if (isPreload) {
+          _activePreloadDesktopProcess = process;
+          _activePreloadVideoId = videoId;
+        }
+
+        final timeoutDuration = isPreload
+            ? const Duration(seconds: 35)
+            : const Duration(seconds: 50);
+
+        final stderrBuffer = StringBuffer();
+        process.stderr.transform(utf8.decoder).listen((data) {
+          stderrBuffer.write(data);
+        });
+
+        int exitCode = -1;
+        try {
+          exitCode = await process.exitCode.timeout(timeoutDuration);
+        } on TimeoutException {
+          DebugLog.write(
+            '[cache] Desktop yt-dlp timed out for $videoId after ${timeoutDuration.inSeconds}s, killing process',
+          );
+          try {
+            process.kill();
+          } catch (_) {}
+          rethrow;
+        } finally {
+          if (isPreload && _activePreloadDesktopProcess == process) {
+            _activePreloadDesktopProcess = null;
+            _activePreloadVideoId = null;
+          }
+        }
+
+        if (exitCode != 0) {
+          final err = stderrBuffer.toString().trim();
+          if (err.isNotEmpty) {
+            DebugLog.write('[cache] yt-dlp exit=$exitCode stderr: $err');
+          }
         }
 
         final cached = await getCachedFile(videoId);
