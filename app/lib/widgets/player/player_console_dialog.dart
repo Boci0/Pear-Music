@@ -168,19 +168,23 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                     color: scheme.primary,
                   ),
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  'Diagnostics Console',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Consolas',
+                Expanded(
+                  child: Text(
+                    'Diagnostics Console',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Consolas',
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
-                const Spacer(),
                 IconButton(
                   iconSize: 18,
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   tooltip: _autoScroll ? 'Auto-scroll: ON' : 'Auto-scroll: OFF',
                   icon: Icon(
                     _autoScroll ? Icons.vertical_align_bottom : Icons.pause_circle_outline,
@@ -191,6 +195,8 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                 IconButton(
                   iconSize: 18,
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   tooltip: 'Copy logs',
                   icon: const Icon(Icons.copy_rounded, color: Colors.white70),
                   onPressed: () {
@@ -206,6 +212,8 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                 IconButton(
                   iconSize: 18,
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   tooltip: 'Clear view',
                   icon: const Icon(Icons.delete_sweep_rounded, color: Colors.white70),
                   onPressed: () {
@@ -216,6 +224,8 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                 IconButton(
                   iconSize: 18,
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   tooltip: 'Close',
                   icon: const Icon(Icons.close_rounded, color: Colors.white70),
                   onPressed: () => Navigator.of(context).pop(),

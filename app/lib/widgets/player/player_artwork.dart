@@ -215,7 +215,14 @@ class PlayerSongInfo extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        _buildSourceInfo(context, isStream, route, player.isLoadingTrack, scheme, theme),
+        _buildSourceInfo(
+          context,
+          isStream,
+          route,
+          player.isLoadingTrack && !player.playing,
+          scheme,
+          theme,
+        ),
       ],
     );
   }
@@ -224,13 +231,13 @@ class PlayerSongInfo extends StatelessWidget {
     BuildContext context,
     bool isStream,
     StreamRouteType route,
-    bool isLoading,
+    bool isConnecting,
     ColorScheme scheme,
     ThemeData theme,
   ) {
     final Widget content;
 
-    if (isStream && isLoading) {
+    if (isStream && isConnecting) {
       content = Row(
         key: const ValueKey('source_buffering'),
         mainAxisSize: MainAxisSize.min,

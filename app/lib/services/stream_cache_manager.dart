@@ -211,6 +211,7 @@ class StreamCacheManager {
         final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
         if (isPreload) {
           _activePreloadProcessId = processId;
+          _activePreloadVideoId = videoId;
         }
         try {
           DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
@@ -241,6 +242,7 @@ class StreamCacheManager {
         } finally {
           if (isPreload && _activePreloadProcessId == processId) {
             _activePreloadProcessId = null;
+            _activePreloadVideoId = null;
           }
         }
       }

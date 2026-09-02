@@ -72,21 +72,30 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     color: scheme.primary,
                   ),
                   const SizedBox(width: 10),
-                  Text(
-                    _selectedTab == 0 ? 'Playing Queue' : 'Library',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Text(
+                      _selectedTab == 0 ? 'Playing Queue' : 'Library',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                   ),
-                  const Spacer(),
                   IconButton(
                     iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     tooltip: 'Reroll seed (reroll upcoming recommendations)',
                     icon: Icon(Icons.casino_outlined, color: scheme.primary),
                     onPressed: () => player.rerollUpcomingQueue(),
                   ),
                   IconButton(
                     iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     tooltip: player.autoplay
                         ? 'Autoplay ON (Similar tracks)'
                         : 'Autoplay OFF',
@@ -99,6 +108,10 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     onPressed: () => player.setAutoplay(!player.autoplay),
                   ),
                   IconButton(
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
