@@ -40,11 +40,44 @@
 
 ## Quick Start (Build from Source)
 
+### Prerequisites
+
+* **Flutter SDK**: `^3.12.0` (Dart 3.x+)
+* **Windows Development**: Visual Studio 2022 with **Desktop development with C++** workload installed.
+* **Android Development**: Android Studio / SDK (Target API 34+, Java 17+).
+
+### 1. Clone & Fetch Dependencies
+
 ```bash
-cd app
+git clone https://github.com/Boci0/Pear-Music.git
+cd Pear-Music/app
 flutter pub get
-flutter run -d windows        # Windows
-flutter run -d <device_id>    # Android
+```
+
+### 2. Run in Development Mode
+
+```bash
+# Windows Desktop
+flutter run -d windows
+
+# Android Device / Emulator
+flutter run -d android
+```
+
+### 3. Run Automated Tests
+
+```bash
+flutter test
+```
+
+### 4. Build Production Release Binaries
+
+```bash
+# Android Split APKs (arm64-v8a, armeabi-v7a, x86_64)
+flutter build apk --split-per-abi --release
+
+# Windows Release Binary
+flutter build windows --release
 ```
 
 ---
