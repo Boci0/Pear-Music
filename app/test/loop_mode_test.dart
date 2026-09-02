@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
 
 /// Locks in the loop/shuffle behaviour the user asked for: the repeat button
@@ -9,11 +9,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late LibraryService library;
+  late PearAudioHandler handler;
   late PlayerService player;
 
   setUp(() {
     library = LibraryService();
-    player = PlayerService(library);
+    handler = PearAudioHandler();
+    player = PlayerService(library, audioHandler: handler);
   });
 
   test('toggleLoop cycles off -> all -> one -> off', () {
@@ -39,19 +41,19 @@ void main() {
     expect(player.loopMode, LoopSetting.off);
     expect(player.shuffle, isFalse);
 
-    await JustAudioBackground.onCustomAction?.call('peerm_repeat');
+    await handler.customAction('peerm_repeat');
     expect(player.loopMode, LoopSetting.all);
 
-    await JustAudioBackground.onCustomAction?.call('peerm_repeat');
+    await handler.customAction('peerm_repeat');
     expect(player.loopMode, LoopSetting.one);
 
-    await JustAudioBackground.onCustomAction?.call('peerm_repeat');
+    await handler.customAction('peerm_repeat');
     expect(player.loopMode, LoopSetting.off);
 
-    await JustAudioBackground.onCustomAction?.call('peerm_shuffle');
+    await handler.customAction('peerm_shuffle');
     expect(player.shuffle, isTrue);
 
-    await JustAudioBackground.onCustomAction?.call('peerm_shuffle');
+    await handler.customAction('peerm_shuffle');
     expect(player.shuffle, isFalse);
   });
 }

@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:cryptography_flutter/cryptography_flutter.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +14,7 @@ import 'screens/home_shell.dart';
 import 'services/debug_log.dart';
 import 'services/identity_service.dart';
 import 'services/library_service.dart';
+import 'services/pear_audio_handler.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
 import 'services/signaling_server.dart';
@@ -47,21 +48,19 @@ Future<void> main() async {
   JustAudioMediaKit.ensureInitialized();
 
   // On Android, host the media notification (play/pause + next/previous + lock
-  // screen) via just_audio_background. Windows stays on media_kit and gets no
-  // notification (it is a desktop app). The manifest already declares the
-  // AudioService / MediaButtonReceiver components.
+  // screen) via PearAudioHandler and audio_service. Windows stays on media_kit
+  // and gets no notification (it is a desktop app).
+  PearAudioHandler? audioHandler;
   if (Platform.isAndroid) {
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.peerm.peerm_app.channel.audio',
-      androidNotificationChannelName: 'Audio playback',
-      androidNotificationIcon: 'mipmap/ic_notification',
-      // NOT androidNotificationOngoing:true here — combined with
-      // androidStopForegroundOnPause:false, audio_service asserts
-      // ("!androidNotificationOngoing || androidStopForegroundOnPause") and the
-      // DEBUG build crashes to a black screen (assert is stripped in release,
-      // so the release APK hid this). The notification still stays visible
-      // while paused because the foreground service persists.
-      androidStopForegroundOnPause: false,
+    audioHandler = await AudioService.init(
+      builder: () => PearAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.peerm.peerm_app.channel.audio',
+        androidNotificationChannelName: 'Audio playback',
+        androidNotificationIcon: 'mipmap/ic_notification',
+        androidStopForegroundOnPause: false,
+        androidNotificationOngoing: false,
+      ),
     );
   }
 
@@ -90,7 +89,11 @@ Future<void> main() async {
   final library = LibraryService();
   final signaling = SignalingService(identity);
   final sync = SyncService(identity: identity, library: library);
-  final player = PlayerService(library, identity: identity);
+  final player = PlayerService(
+    library,
+    identity: identity,
+    audioHandler: audioHandler,
+  );
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());
 

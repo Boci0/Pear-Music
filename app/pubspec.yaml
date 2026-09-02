@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.8.8+6062
+version: 2.8.9+6063
 
 environment:
   sdk: ^3.12.2
@@ -49,7 +49,7 @@ dependencies:
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.2
   desktop_drop: ^0.7.1
-  just_audio_background: ^0.0.1-beta.17
+  audio_service: ^0.18.19
   permission_handler: ^13.0.0
   mobile_scanner: ^7.0.0
   # Bundled yt-dlp for the phone (youtubedl-android), rips reliably even when
@@ -78,14 +78,6 @@ dev_dependencies:
   # rules activating additional ones.
   flutter_lints: ^6.0.0
 
-# Local, patched copy of just_audio_background that always shows the three
-# Google Play Music style transport buttons (previous / play-pause / next) in
-# the media notification, without the stop button. See
-# third_party/just_audio_background/lib/just_audio_background.dart
-# (_broadcastState). Keep in sync with the version pinned above.
-dependency_overrides:
-  just_audio_background:
-    path: third_party/just_audio_background
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

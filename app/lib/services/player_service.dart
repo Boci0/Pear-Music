@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song.dart';
@@ -12,6 +12,7 @@ import 'artwork_service.dart';
 import 'debug_log.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
+import 'pear_audio_handler.dart';
 import 'recommendation_service.dart';
 import 'stream_cache_manager.dart';
 
@@ -70,15 +71,19 @@ class PlayerService extends ChangeNotifier {
   bool _sleepTimerEndOfSong = false;
 
   final List<StreamSubscription> _subs = [];
+  final PearAudioHandler? audioHandler;
 
-  PlayerService(this.library, {this.identity}) {
-    if (Platform.isAndroid) {
+  PlayerService(this.library, {this.identity, this.audioHandler, AudioPlayer? player}) {
+    if (player != null) {
+      _player = player;
+    } else if (Platform.isAndroid) {
       _loudnessEnhancer = AndroidLoudnessEnhancer();
       final pipeline = AudioPipeline(androidAudioEffects: [_loudnessEnhancer!]);
       _player = AudioPlayer(audioPipeline: pipeline);
     } else {
       _player = AudioPlayer();
     }
+    _initAudioHandler();
   }
 
   StreamRouteType _currentRouteType = StreamRouteType.local;
@@ -246,12 +251,19 @@ class PlayerService extends ChangeNotifier {
     // [positionStream] directly with a StreamBuilder instead (see PlayerScreen
     // seek bar). We still notify on everything that changes rarely: duration,
     // play/pause state and processing state.
-    _subs.add(_player.durationStream.listen((_) => notifyListeners()));
+    _subs.add(_player.durationStream.listen((_) {
+      _publishNotificationState();
+      notifyListeners();
+    }));
     _subs.add(_player.playerStateStream.listen((state) {
       if (state.playing && _isLoadingTrack) {
         _isLoadingTrack = false;
       }
+      _publishNotificationState();
       notifyListeners();
+    }));
+    _subs.add(_player.playbackEventStream.listen((_) {
+      _publishNotificationState();
     }));
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
@@ -270,12 +282,19 @@ class PlayerService extends ChangeNotifier {
         }
       }
     }));
+    _publishNotificationState();
+  }
 
-    // Route the media notification's transport buttons to our own queue so
-    // next / previous / repeat / shuffle work with the Dart-managed queue.
-    JustAudioBackground.onSkipToNext = () => unawaited(next());
-    JustAudioBackground.onSkipToPrevious = () => unawaited(previous());
-    JustAudioBackground.onSetRepeatMode = (mode) async {
+  void _initAudioHandler() {
+    final h = audioHandler;
+    if (h == null) return;
+
+    h.onPlay = () => resume();
+    h.onPause = () => pause(smooth: false);
+    h.onSkipToNext = () => next();
+    h.onSkipToPrevious = () => previous();
+    h.onSeek = (pos) => seek(pos);
+    h.onSetRepeatMode = (mode) async {
       _loopMode = switch (mode) {
         AudioServiceRepeatMode.one => LoopSetting.one,
         AudioServiceRepeatMode.all => LoopSetting.all,
@@ -284,13 +303,12 @@ class PlayerService extends ChangeNotifier {
       _publishNotificationState();
       notifyListeners();
     };
-    JustAudioBackground.onSetShuffleMode = (mode) async {
+    h.onSetShuffleMode = (mode) async {
       _shuffle = mode == AudioServiceShuffleMode.all;
       _publishNotificationState();
       notifyListeners();
     };
-    // Notification transport buttons use custom actions with direct action dispatch
-    JustAudioBackground.onCustomAction = (name) async {
+    h.onCustomAction = (name) async {
       switch (name) {
         case 'peerm_repeat':
           await toggleLoop();
@@ -312,7 +330,6 @@ class PlayerService extends ChangeNotifier {
           break;
       }
     };
-    _publishNotificationState();
   }
 
   /// Live playback position, throttled to ~250 ms so the seek bar updates
@@ -570,6 +587,11 @@ class PlayerService extends ChangeNotifier {
       );
     }
     if (token != _playRequestToken) return;
+    audioHandler?.updateSongMediaItem(
+      song,
+      duration: _player.duration,
+      artUri: effectiveArtUri,
+    );
 
     final stopwatch = Stopwatch()..start();
     try {
@@ -581,12 +603,6 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write('[player] Stream path: checking active preload for $videoId');
         StreamCacheManager.cancelPreload(exceptVideoId: videoId);
         DebugLog.write('[player] Resolved videoId=$videoId, checking disk cache...');
-        final mediaTag = MediaItem(
-          id: song.id,
-          title: song.title,
-          album: 'Pear Radio',
-          artUri: effectiveArtUri,
-        );
 
         final cachedFile = await StreamCacheManager.getCachedFile(videoId);
         if (token != _playRequestToken) return;
@@ -599,7 +615,7 @@ class PlayerService extends ChangeNotifier {
           notifyListeners();
           DebugLog.write('[player] DISK CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${cachedFile.path}');
           await _player.setAudioSource(
-            AudioSource.file(cachedFile.path, tag: mediaTag),
+            AudioSource.file(cachedFile.path),
           );
           _resetStreamFailureCounters();
         } else {
@@ -632,7 +648,7 @@ class PlayerService extends ChangeNotifier {
             notifyListeners();
             DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             await _player.setAudioSource(
-              AudioSource.file(downloadedFile.path, tag: mediaTag),
+              AudioSource.file(downloadedFile.path),
             );
             _resetStreamFailureCounters();
           } else {
@@ -675,15 +691,7 @@ class PlayerService extends ChangeNotifier {
           return;
         }
         await _player.setAudioSource(
-          AudioSource.file(
-            file.path,
-            tag: MediaItem(
-              id: song.id,
-              title: song.title,
-              album: 'Local Music',
-              artUri: effectiveArtUri,
-            ),
-          ),
+          AudioSource.file(file.path),
         );
       }
 
@@ -1041,17 +1049,18 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Keep the notification's repeat / shuffle icons in sync with our state.
+  /// Keep the notification's repeat / shuffle icons and playback state in sync with our state.
   void _publishNotificationState() {
-    final repeat = switch (_loopMode) {
-      LoopSetting.off => AudioServiceRepeatMode.none,
-      LoopSetting.all => AudioServiceRepeatMode.all,
-      LoopSetting.one => AudioServiceRepeatMode.one,
-    };
-    final shuffle =
-        _shuffle ? AudioServiceShuffleMode.all : AudioServiceShuffleMode.none;
-    JustAudioBackground.publishRepeatMode(repeat);
-    JustAudioBackground.publishShuffleMode(shuffle);
+    audioHandler?.updateState(
+      playing: _player.playing,
+      processingState: _player.processingState,
+      position: _player.position,
+      bufferedPosition: _player.bufferedPosition,
+      speed: _player.speed,
+      loopMode: _loopMode,
+      shuffle: _shuffle,
+      queueIndex: _queueIndex >= 0 ? _queueIndex : null,
+    );
   }
 
   Future<void> seek(Duration position) async {
