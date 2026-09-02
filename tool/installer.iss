@@ -1,6 +1,6 @@
 ; Inno Setup Script for Pear Music Windows Installer
 #define MyAppName "Pear Music"
-#define MyAppVersion "2.8.6"
+#define MyAppVersion "2.8.7"
 #define MyAppPublisher "Boci0"
 #define MyAppURL "https://github.com/Boci0/Pear-Music"
 #define MyAppExeName "peerm_app.exe"

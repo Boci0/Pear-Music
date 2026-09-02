@@ -230,6 +230,7 @@ class PlayerService extends ChangeNotifier {
     // play starts instantly and the notification already has artwork.
     ArtworkService.warmUp();
     unawaited(StreamCacheManager.warmUp());
+    unawaited(_requestNotificationPermissionIfNeeded());
 
     // Never let the underlying player loop by itself: loop modes are
     // implemented in Dart (single-source loads). This is also what fixes the
