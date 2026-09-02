@@ -6,6 +6,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
+import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 
 /// Full-width 3-section desktop player bar (Spotify / Apple Music style).
@@ -446,17 +447,28 @@ class _DesktopThumb extends StatelessWidget {
     );
     if (artwork == null || artwork.isEmpty) return placeholder;
     if (artwork.startsWith('http')) {
+      final optimized = ArtworkService.optimizeArtworkUrl(artwork);
       return ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.network(
-          artwork,
+          optimized,
           width: 48,
           height: 48,
-          cacheWidth: 96,
-          cacheHeight: 96,
+          cacheWidth: 128,
+          cacheHeight: 128,
           fit: BoxFit.cover,
+          alignment: Alignment.center,
           gaplessPlayback: true,
-          errorBuilder: (_, _, _) => placeholder,
+          errorBuilder: (_, _, _) => Image.network(
+            artwork,
+            width: 48,
+            height: 48,
+            cacheWidth: 128,
+            cacheHeight: 128,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            errorBuilder: (_, _, _) => placeholder,
+          ),
         ),
       );
     }

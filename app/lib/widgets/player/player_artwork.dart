@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
+import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import 'player_console_dialog.dart';
 
@@ -33,7 +34,10 @@ class PlayerArtwork extends StatelessWidget {
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
-    final effectiveNetworkUrl = networkUrl ?? (isNetwork ? songArt : null);
+    final rawNetworkUrl = networkUrl ?? (isNetwork ? songArt : null);
+    final effectiveNetworkUrl = rawNetworkUrl != null && rawNetworkUrl.isNotEmpty
+        ? ArtworkService.optimizeArtworkUrl(rawNetworkUrl)
+        : null;
     final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song!) : null);
 
     final Widget imageWidget;
@@ -43,11 +47,26 @@ class PlayerArtwork extends StatelessWidget {
         key: ValueKey('net_$effectiveNetworkUrl'),
         width: size,
         height: size,
-        cacheWidth: 384,
-        cacheHeight: 384,
+        cacheWidth: 512,
+        cacheHeight: 512,
         fit: BoxFit.cover,
+        alignment: Alignment.center,
         gaplessPlayback: true,
-        errorBuilder: (_, _, _) => _placeholder(scheme),
+        errorBuilder: (_, _, _) {
+          if (rawNetworkUrl != null && rawNetworkUrl != effectiveNetworkUrl) {
+            return Image.network(
+              rawNetworkUrl,
+              width: size,
+              height: size,
+              cacheWidth: 512,
+              cacheHeight: 512,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              errorBuilder: (_, _, _) => _placeholder(scheme),
+            );
+          }
+          return _placeholder(scheme);
+        },
       );
     } else if (initialBytes != null && initialBytes.isNotEmpty) {
       imageWidget = Image.memory(
@@ -55,9 +74,10 @@ class PlayerArtwork extends StatelessWidget {
         key: ValueKey('mem_${song?.id ?? initialBytes.hashCode}'),
         width: size,
         height: size,
-        cacheWidth: 384,
-        cacheHeight: 384,
+        cacheWidth: 512,
+        cacheHeight: 512,
         fit: BoxFit.cover,
+        alignment: Alignment.center,
         gaplessPlayback: true,
         errorBuilder: (_, _, _) => _placeholder(scheme),
       );
@@ -73,9 +93,10 @@ class PlayerArtwork extends StatelessWidget {
             bytes,
             width: size,
             height: size,
-            cacheWidth: 384,
-            cacheHeight: 384,
+            cacheWidth: 512,
+            cacheHeight: 512,
             fit: BoxFit.cover,
+            alignment: Alignment.center,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => _placeholder(scheme),
           );

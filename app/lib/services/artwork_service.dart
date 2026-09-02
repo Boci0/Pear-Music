@@ -21,11 +21,31 @@ class ArtworkService {
   /// everyone else gets the shared (already-resolved or in-flight) future.
   static Future<Uri> defaultArtworkUri() => _pending ??= _loadOrCreate();
 
+  /// Returns a bandwidth-efficient, high-resolution square artwork URL for YouTube / web sources.
+  static String optimizeArtworkUrl(String url) {
+    if (url.isEmpty) return url;
+    // 1. Google User Content (YouTube Music album thumbnails):
+    // Upgrades tiny/blurry =w60-h60 or =w120-h120 to crisp 544x544 square format with WebP compression
+    if (url.contains('googleusercontent.com') || url.contains('ggpht.com')) {
+      return url
+          .replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544-l90-rj')
+          .replaceAll(RegExp(r'=s\d+.*$'), '=s544-c');
+    }
+    // 2. YouTube Video Thumbnails:
+    if (url.contains('i.ytimg.com/vi/') || url.contains('img.youtube.com/vi/')) {
+      if (url.contains('hqdefault.jpg')) {
+        return url.replaceAll('hqdefault.jpg', 'sddefault.jpg');
+      }
+    }
+    return url;
+  }
+
   /// Resolves the best artwork [Uri] for a specific [song] for notification display.
   static Future<Uri> songArtworkUri(Song song) async {
     final art = song.artwork;
     if (art != null && art.startsWith('http')) {
-      final parsed = Uri.tryParse(art);
+      final optimized = optimizeArtworkUrl(art);
+      final parsed = Uri.tryParse(optimized) ?? Uri.tryParse(art);
       if (parsed != null) return parsed;
     }
 

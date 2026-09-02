@@ -18,6 +18,7 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> play() async {
+    playbackState.add(playbackState.value.copyWith(playing: true));
     if (onPlay != null) {
       await onPlay!();
     }
@@ -25,8 +26,28 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> pause() async {
+    playbackState.add(playbackState.value.copyWith(playing: false));
     if (onPause != null) {
       await onPause!();
+    }
+  }
+
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    switch (button) {
+      case MediaButton.media:
+        if (playbackState.valueOrNull?.playing == true) {
+          await pause();
+        } else {
+          await play();
+        }
+        break;
+      case MediaButton.next:
+        await skipToNext();
+        break;
+      case MediaButton.previous:
+        await skipToPrevious();
+        break;
     }
   }
 

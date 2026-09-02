@@ -74,15 +74,7 @@ class PlayerService extends ChangeNotifier {
   final PearAudioHandler? audioHandler;
 
   PlayerService(this.library, {this.identity, this.audioHandler, AudioPlayer? player}) {
-    if (player != null) {
-      _player = player;
-    } else if (Platform.isAndroid) {
-      _loudnessEnhancer = AndroidLoudnessEnhancer();
-      final pipeline = AudioPipeline(androidAudioEffects: [_loudnessEnhancer!]);
-      _player = AudioPlayer(audioPipeline: pipeline);
-    } else {
-      _player = AudioPlayer();
-    }
+    _player = player ?? AudioPlayer();
     _initAudioHandler();
   }
 
@@ -870,19 +862,14 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.setActiveQueueVideoIds(vIds);
   }
 
-  Future<void> pause({bool smooth = true}) async {
+  Future<void> pause({bool smooth = false}) async {
     _lastInteraction = DateTime.now();
     _preloadDebounceTimer?.cancel();
     StreamCacheManager.cancelPreload();
     if (!_player.playing) return;
-    final originalVol = _userVolume;
-    if (smooth && originalVol > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 90));
-      await _player.pause();
-      await _player.setVolume(originalVol);
-    } else {
-      await _player.pause();
-    }
+    await _player.pause();
+    await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
+    _publishNotificationState();
     notifyListeners();
   }
 
@@ -898,8 +885,13 @@ class PlayerService extends ChangeNotifier {
       await _player.seek(Duration.zero);
     }
     await _player.setVolume(_userVolume);
-    if (!_player.playing) {
+    try {
       await _player.play();
+    } catch (e) {
+      DebugLog.write('[player] resume failed ($e), reloading track: ${currentSong?.title}');
+      if (currentSong != null) {
+        await playSong(currentSong!);
+      }
     }
     _publishNotificationState();
     notifyListeners();
@@ -923,8 +915,7 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> next() async {
     _lastInteraction = DateTime.now();
-    if (_queue.isEmpty || _isAdvancing) return;
-    _isAdvancing = true;
+    if (_queue.isEmpty) return;
     try {
       if (_loopMode == LoopSetting.one) {
         await _replayCurrent();
@@ -968,42 +959,37 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
 
       await playSong(nextTrack, queue: _queue);
-    } finally {
-      _isAdvancing = false;
+    } catch (e) {
+      DebugLog.write('[player] next error: $e');
     }
   }
 
   Future<void> previous() async {
-    if (_queue.isEmpty || _isAdvancing) return;
-    _isAdvancing = true;
+    if (_queue.isEmpty) return;
     try {
       if (_loopMode == LoopSetting.one) {
         await _replayCurrent();
         return;
       }
-      // Restart the current track if we're more than 3s in.
-      if (_player.position > const Duration(seconds: 3)) {
-        await _player.seek(Duration.zero);
-        notifyListeners();
+      final pos = _player.position;
+      if (pos != null && pos > const Duration(seconds: 3)) {
+        await seek(Duration.zero);
         return;
       }
-      final prev = _pickPreviousIndex();
-      if (prev == null) {
-        await _player.seek(Duration.zero);
+      if (_queueIndex > 0 && _queueIndex - 1 < _queue.length) {
+        _queueIndex = _queueIndex - 1;
+        final prevTrack = _queue[_queueIndex];
+        currentSong = prevTrack;
         notifyListeners();
-        return;
+        await playSong(prevTrack, queue: _queue);
+      } else if (_queue.isNotEmpty) {
+        await seek(Duration.zero);
       }
-      // Optimistically update UI immediately
-      final prevTrack = _queue[prev];
-      _queueIndex = prev;
-      currentSong = prevTrack;
-      notifyListeners();
-
-      await playSong(prevTrack, queue: _queue);
-    } finally {
-      _isAdvancing = false;
+    } catch (e) {
+      DebugLog.write('[player] previous error: $e');
     }
   }
+
 
   Future<void> toggleLoop() {
     _loopMode = switch (_loopMode) {

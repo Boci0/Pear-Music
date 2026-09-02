@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/artwork_service.dart';
 import '../services/youtube_search_service.dart';
 
 /// A list tile representing a YouTube search result with instant streaming playback
@@ -53,17 +54,27 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 borderRadius: BorderRadius.circular(6),
                 child: widget.result.thumbnailUrl != null
                     ? Image.network(
-                        widget.result.thumbnailUrl!,
+                        ArtworkService.optimizeArtworkUrl(widget.result.thumbnailUrl!),
                         width: 48,
                         height: 48,
-                        cacheWidth: 96,
-                        cacheHeight: 96,
+                        cacheWidth: 100,
+                        cacheHeight: 100,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(
+                        alignment: Alignment.center,
+                        errorBuilder: (_, _, _) => Image.network(
+                          widget.result.thumbnailUrl!,
                           width: 48,
                           height: 48,
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          child: const Icon(Icons.music_note),
+                          cacheWidth: 100,
+                          cacheHeight: 100,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                          errorBuilder: (_, _, _) => Container(
+                            width: 48,
+                            height: 48,
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: const Icon(Icons.music_note),
+                          ),
                         ),
                       )
                     : Container(

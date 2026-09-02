@@ -5,6 +5,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
+import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 
 /// Compact now-playing bar shown above the navigation bar.
@@ -177,17 +178,28 @@ class _Thumb extends StatelessWidget {
     if (artwork == null || artwork.isEmpty) {
       imageWidget = placeholder;
     } else if (artwork.startsWith('http')) {
+      final optimized = ArtworkService.optimizeArtworkUrl(artwork);
       imageWidget = ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.network(
-          artwork,
+          optimized,
           width: 40,
           height: 40,
-          cacheWidth: 96,
-          cacheHeight: 96,
+          cacheWidth: 100,
+          cacheHeight: 100,
           fit: BoxFit.cover,
+          alignment: Alignment.center,
           gaplessPlayback: true,
-          errorBuilder: (_, _, _) => placeholder,
+          errorBuilder: (_, _, _) => Image.network(
+            artwork,
+            width: 40,
+            height: 40,
+            cacheWidth: 100,
+            cacheHeight: 100,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            errorBuilder: (_, _, _) => placeholder,
+          ),
         ),
       );
     } else {
