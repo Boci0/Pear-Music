@@ -31,10 +31,12 @@ class PlayerTransport extends StatelessWidget {
       LoopSetting.all => 'Repeat all (album)',
       LoopSetting.off => 'No repeat',
     };
-    final stateLabel = [
-      if (player.shuffle) 'Shuffle on',
-      loopLabel,
-    ].join(' · ');
+    final stateLabel = (player.isLoadingTrack && !player.playing)
+        ? 'Buffering track...'
+        : [
+            if (player.shuffle) 'Shuffle on',
+            loopLabel,
+          ].join(' · ');
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -58,17 +60,32 @@ class PlayerTransport extends StatelessWidget {
               icon: const Icon(Icons.skip_previous_rounded),
               onPressed: () => controller.previousTrack(),
             ),
-            IconButton(
-              iconSize: 72,
-              icon: Icon(
-                player.playing
-                    ? Icons.pause_circle_filled
-                    : Icons.play_circle_filled,
-                color: (player.isLoadingTrack && !player.playing)
-                    ? scheme.primary.withValues(alpha: 0.38)
-                    : scheme.primary,
+            SizedBox(
+              width: 72,
+              height: 72,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 72,
+                icon: (player.isLoadingTrack && !player.playing)
+                    ? Center(
+                        child: SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3.5,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      )
+                    : Icon(
+                        player.playing
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_filled,
+                        size: 72,
+                        color: scheme.primary,
+                      ),
+                onPressed: () => controller.togglePlayback(),
               ),
-              onPressed: () => controller.togglePlayback(),
             ),
             IconButton(
               iconSize: 44,
@@ -90,7 +107,7 @@ class PlayerTransport extends StatelessWidget {
         Text(
           stateLabel,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: loopActive || player.shuffle
+            color: (player.isLoadingTrack && !player.playing) || loopActive || player.shuffle
                 ? scheme.primary
                 : scheme.onSurfaceVariant,
           ),

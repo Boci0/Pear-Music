@@ -97,11 +97,15 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        player.queueTitle ?? 'Pear Music Library',
+                        (player.isLoadingTrack && !player.playing)
+                            ? 'Buffering track...'
+                            : (player.queueTitle ?? 'Pear Music Library'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                          color: (player.isLoadingTrack && !player.playing)
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -159,20 +163,36 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                         onPressed: () => controller.previousTrack(),
                       ),
                       const SizedBox(width: 4),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        tooltip: player.playing ? 'Pause' : 'Play',
-                        icon: Icon(
-                          player.playing
-                              ? Icons.pause_circle_filled
-                              : Icons.play_circle_filled,
-                          size: 36,
-                          color: (player.isLoadingTrack && !player.playing)
-                              ? control.withValues(alpha: 0.38)
-                              : control,
+                      SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          iconSize: 36,
+                          tooltip: (player.isLoadingTrack && !player.playing)
+                              ? 'Buffering track...'
+                              : (player.playing ? 'Pause' : 'Play'),
+                          icon: (player.isLoadingTrack && !player.playing)
+                              ? Center(
+                                  child: SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: control,
+                                    ),
+                                  ),
+                                )
+                              : Icon(
+                                  player.playing
+                                      ? Icons.pause_circle_filled
+                                      : Icons.play_circle_filled,
+                                  size: 36,
+                                  color: control,
+                                ),
+                          onPressed: () => controller.togglePlayback(),
                         ),
-                        onPressed: () => controller.togglePlayback(),
                       ),
                       const SizedBox(width: 4),
                       IconButton(

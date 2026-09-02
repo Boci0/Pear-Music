@@ -542,6 +542,12 @@ class PlayerService extends ChangeNotifier {
     _isAdvancing = true;
     _isLoadingTrack = true;
 
+    // Immediately pause existing playback so the previous track does not
+    // continue playing while the new track is resolving, downloading, or buffering.
+    if (_player.playing) {
+      unawaited(_player.pause());
+    }
+
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
     // play shows the notification; the prompt does not delay playback.

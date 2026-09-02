@@ -70,8 +70,14 @@ class PlayerBar extends StatelessWidget {
                         style: theme.textTheme.titleSmall,
                       ),
                       Text(
-                        'Playing on this device',
-                        style: theme.textTheme.labelSmall,
+                        (player.isLoadingTrack && !player.playing)
+                            ? 'Buffering track...'
+                            : 'Playing on this device',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: (player.isLoadingTrack && !player.playing)
+                              ? theme.colorScheme.primary
+                              : null,
+                        ),
                       ),
                     ],
                   ),
@@ -80,17 +86,32 @@ class PlayerBar extends StatelessWidget {
                   icon: Icon(Icons.skip_previous, color: control),
                   onPressed: () => controller.previousTrack(),
                 ),
-                IconButton(
-                  icon: Icon(
-                    player.playing
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_filled,
-                    size: 36,
-                    color: (player.isLoadingTrack && !player.playing)
-                        ? control.withValues(alpha: 0.38)
-                        : control,
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    iconSize: 36,
+                    icon: (player.isLoadingTrack && !player.playing)
+                        ? Center(
+                            child: SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: control,
+                              ),
+                            ),
+                          )
+                        : Icon(
+                            player.playing
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_filled,
+                            size: 36,
+                            color: control,
+                          ),
+                    onPressed: () => controller.togglePlayback(),
                   ),
-                  onPressed: () => controller.togglePlayback(),
                 ),
                 IconButton(
                   icon: Icon(Icons.skip_next, color: control),
