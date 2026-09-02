@@ -61,6 +61,8 @@
             android:exported="true" tools:ignore="Instantiatable">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON"/>
+                <action android:name="com.ryanheise.audioservice.intent.action.CUSTOM_ACTION"/>
+                <action android:name="com.ryanheise.audioservice.intent.action.ACTION_NOTIFICATION_DELETE"/>
             </intent-filter>
         </receiver>
         <!-- Don't delete the meta-data below.

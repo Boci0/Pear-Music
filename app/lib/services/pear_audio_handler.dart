@@ -99,9 +99,28 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
   }) {
     final controls = [
       _shuffleControl(shuffle),
-      MediaControl.skipToPrevious,
-      playing ? MediaControl.pause : MediaControl.play,
-      MediaControl.skipToNext,
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_previous',
+        label: 'Previous',
+        name: 'peerm_previous',
+      ),
+      if (playing)
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_pause',
+          label: 'Pause',
+          name: 'peerm_pause',
+        )
+      else
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_play',
+          label: 'Play',
+          name: 'peerm_play',
+        ),
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_next',
+        label: 'Next',
+        name: 'peerm_next',
+      ),
       _repeatControl(loopMode),
     ];
 
