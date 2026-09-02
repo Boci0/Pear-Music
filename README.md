@@ -49,6 +49,20 @@ flutter run -d <device_id>    # Android
 
 ---
 
+## Android Setup & Background Playback
+
+To ensure uninterrupted background playback and persistent media controls on Android (especially on Android 13+ and OEM skins such as Vivo OriginOS / FuntouchOS, Samsung One UI, or Xiaomi HyperOS):
+
+1. **Notification Permissions**:
+   * On first launch on Android 13+, accept the notification permission prompt so Pear Music can display media transport controls in the notification drawer and lockscreen.
+2. **Battery Optimization (Prevent Background Freezing)**:
+   * **Vivo / iQOO**: Navigate to **Settings -> Battery -> Background power consumption management -> Pear Music** and select **Allow high background power consumption**.
+   * **Samsung / Pixel / Xiaomi**: Open **App Info -> Battery** and set to **Unrestricted** (or "Don't restrict").
+3. **Quick Settings Media Player**:
+   * To keep the media player pinned in Quick Settings even when paused, enable **Settings -> Sound & Vibration -> Media -> Pin media player** (on supported Android versions).
+
+---
+
 ## License
 
 Pear Music is released under the [MIT License](LICENSE).
