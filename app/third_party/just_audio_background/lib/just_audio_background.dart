@@ -923,28 +923,9 @@ class _PlayerAudioHandler extends BaseAudioHandler
   void _broadcastState() {
     final controls = [
       _shuffleControlFor(_shuffleMode),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_previous',
-        label: 'Previous',
-        name: 'peerm_previous',
-      ),
-      if (_playing)
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_pause',
-          label: 'Pause',
-          name: 'peerm_pause',
-        )
-      else
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_play',
-          label: 'Play',
-          name: 'peerm_play',
-        ),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_next',
-        label: 'Next',
-        name: 'peerm_next',
-      ),
+      MediaControl.skipToPrevious,
+      if (_playing) MediaControl.pause else MediaControl.play,
+      MediaControl.skipToNext,
       _repeatControlFor(_repeatMode),
     ];
     playbackState.add(playbackState.nvalue!.copyWith(
