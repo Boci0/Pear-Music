@@ -194,31 +194,15 @@ class _SynthesizerPainter extends CustomPainter {
     final maxHeight = size.height;
     const minHeight = 3.5;
 
-    // Musical rhythm clocks derived directly from song playback position (BPM ~125):
-    // 480ms per beat, 960ms half-measure, 1920ms full measure.
-    final halfMeasureMs = songMs % 960.0;
+    // Musical beat tempo clock: 120 BPM = 500ms beat period, 2000ms 4-beat measure.
+    // Continuous harmonic waves guarantee fluid, cohesive motion with zero erratic twitching.
+    final beatRad = (songMs / 500.0) * math.pi * 2.0;
+    final halfBeatRad = (songMs / 250.0) * math.pi * 2.0;
+    final measureRad = (songMs / 2000.0) * math.pi * 2.0;
 
-    // Kick drum impact on beats 1 and 3 (downbeat): sharp attack, exponential decay
-    final kickPhase = (halfMeasureMs < 480.0 ? halfMeasureMs : halfMeasureMs - 480.0) / 480.0;
-    final kickImpact = isPlaying
-        ? math.pow(math.max(0.0, 1.0 - (kickPhase * 2.6)), 2.8).toDouble()
-        : 0.0;
-
-    // Snare / clap impact on beats 2 and 4 (backbeat): 240ms offset in a 480ms cycle
-    final snareOffsetMs = (songMs + 240.0) % 480.0;
-    final snarePhase = snareOffsetMs / 480.0;
-    final snareImpact = isPlaying
-        ? math.pow(math.max(0.0, 1.0 - (snarePhase * 2.8)), 2.2).toDouble()
-        : 0.0;
-
-    // Hi-hat groove on 16th notes (120ms): crisp rapid ticks
-    final hatPhase = (songMs % 120.0) / 120.0;
-    final hatImpact = isPlaying
-        ? math.pow(math.max(0.0, 1.0 - (hatPhase * 3.2)), 1.8).toDouble()
-        : 0.0;
-
-    // Organic chord swell across a 4-beat musical measure (1920ms)
-    final barWave = 0.5 + 0.5 * math.sin((songMs / 1920.0) * math.pi * 2.0);
+    // Smooth rhythmic envelope: soft rhythmic bounce that swells with the beat
+    final double beatSwell = isPlaying ? (0.5 + 0.5 * math.sin(beatRad)) : 0.0;
+    final double measureSwell = isPlaying ? (0.5 + 0.5 * math.sin(measureRad)) : 0.0;
 
     final activePaint = Paint()
       ..color = activeColor
@@ -238,28 +222,26 @@ class _SynthesizerPainter extends CustomPainter {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      // Spectrum analyzer weighting:
-      // Bass region: left 30%
-      // Mid-range / Vocals: center 40%
-      // Treble / Percussion: right 30%
-      final bassWeight = math.max(0.0, 1.0 - (normX / 0.35));
-      final midWeight = math.max(0.0, 1.0 - ((normX - 0.5).abs() / 0.3));
-      final trebleWeight = math.max(0.0, (normX - 0.6) / 0.4);
+      // Smooth traveling ripple wave across the frequency spectrum:
+      // Phased harmonically so waves travel smoothly from bass to treble.
+      final travelingWave1 = math.sin(beatRad - (normX * 2.5 * math.pi));
+      final travelingWave2 = math.cos(halfBeatRad + (normX * 1.5 * math.pi));
+      final bassPulse = math.sin(beatRad) * math.max(0.0, 1.0 - (normX * 2.2));
 
-      // Deterministic per-bar frequency resonance peak
-      final barResonance = 0.75 + 0.25 * math.sin(i * 1.85 + (songMs / 320.0));
-      final staticEq = 0.22 + 0.32 * math.pow(normX - 0.48, 2);
+      // Elegant baseline curve: gentle smiling EQ shape
+      final baseEq = 0.26 + (0.16 * math.sin(normX * math.pi));
 
       double heightRatio;
       if (isPlaying) {
-        final dynamicPulse = (kickImpact * bassWeight * 0.95) +
-            (snareImpact * midWeight * 0.75) +
-            (hatImpact * trebleWeight * 0.65) +
-            (barWave * 0.12);
-        heightRatio = (staticEq + (dynamicPulse * barResonance * (0.6 + (aura * 0.4))))
-            .clamp(0.10, 0.96);
+        // Combined organic motion with gentle damping (bounded between 0.18 and 0.82)
+        final motion = (travelingWave1 * 0.14) +
+            (travelingWave2 * 0.08) +
+            (bassPulse * 0.18 * beatSwell) +
+            (measureSwell * 0.08);
+        heightRatio = (baseEq + (motion * (0.65 + (aura * 0.35)))).clamp(0.18, 0.82);
       } else {
-        heightRatio = (staticEq * 0.7).clamp(0.12, 0.55);
+        // Calm resting baseline when paused
+        heightRatio = (baseEq * 0.70).clamp(0.15, 0.40);
       }
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
