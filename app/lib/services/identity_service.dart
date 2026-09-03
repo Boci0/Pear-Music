@@ -35,6 +35,7 @@ class IdentityService {
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
   static const _sortOptionKey = 'peerm_sort_option';
   static const _loudnessNormKey = 'peerm_loudness_normalization';
+  static const _synthesizerBarKey = 'peerm_synthesizer_bar';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -46,6 +47,7 @@ class IdentityService {
   late Set<String> _favoriteSongIds;
   late SortOption _sortOption;
   late bool _loudnessNormalization;
+  late bool _synthesizerBar;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -62,6 +64,7 @@ class IdentityService {
       orElse: () => SortOption.dateAdded,
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
+    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? false;
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -203,5 +206,12 @@ class IdentityService {
   Future<void> setLoudnessNormalization(bool value) async {
     _loudnessNormalization = value;
     await _prefs.setBool(_loudnessNormKey, value);
+  }
+
+  bool get synthesizerBar => _synthesizerBar;
+
+  Future<void> setSynthesizerBar(bool value) async {
+    _synthesizerBar = value;
+    await _prefs.setBool(_synthesizerBarKey, value);
   }
 }

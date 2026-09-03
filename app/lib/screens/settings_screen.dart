@@ -230,6 +230,16 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
                 const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.graphic_eq_rounded),
+                  title: const Text('Synthesizer Seek Bar'),
+                  subtitle: const Text('Beat-reactive spectrum bar chart on progress bar'),
+                  value: identity.synthesizerBar,
+                  onChanged: (val) async {
+                    await controller.updateSynthesizerBar(val);
+                  },
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.cleaning_services_rounded),
                   title: const Text('Clear streaming cache'),

@@ -38,17 +38,17 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
       duration: const Duration(milliseconds: 4000),
     );
 
-    // 1500ms fade controller with an interval curve so glow remains at 0
-    // for the first 600ms, then smoothly blooms into view.
+    // 1400ms growth bloom forward, 500ms smooth shrinking inward on pause
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1400),
+      reverseDuration: const Duration(milliseconds: 500),
     );
 
     _bloomAnimation = CurvedAnimation(
       parent: _fadeController,
-      curve: const Interval(0.40, 1.0, curve: Curves.easeInOutCubic),
-      reverseCurve: Curves.easeOut,
+      curve: Curves.easeInCubic,
+      reverseCurve: Curves.easeInQuad,
     );
 
     _wasPlaying = widget.player.playing;

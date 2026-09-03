@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../controllers/app_controller.dart';
 import '../../services/player_service.dart';
 import 'rhythm_pulse.dart';
+import 'visual_synthesizer_bar.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
 /// repeat controls.
@@ -71,7 +72,7 @@ class PlayerTransport extends StatelessWidget {
                   height: 72,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    boxShadow: (player.playing && aura > 0.005)
+                    boxShadow: (aura > 0.005)
                         ? [
                             BoxShadow(
                               color: scheme.primary.withValues(alpha: glowAlpha),
@@ -180,41 +181,56 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 ? widget.duration - currentDuration
                 : Duration.zero;
 
+            final appController = context.watch<AppController?>();
+            final useSynthesizer = appController?.identity.synthesizerBar ?? false;
+
             // RepaintBoundary isolates the ticking slider and time-row repaints
             // from the album art and background canvas layers.
             return RepaintBoundary(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: _dragMs != null ? 6.0 : 4.0,
-                      trackShape: const RoundedRectSliderTrackShape(),
-                      activeTrackColor: colorScheme.primary,
-                      inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
-                      thumbColor: colorScheme.primary,
-                      thumbShape: RoundSliderThumbShape(
-                        enabledThumbRadius: _dragMs != null ? 8.0 : (5.0 + (aura * 1.5)),
-                        elevation: _dragMs != null ? 4.0 : (1.0 + (aura * 3.0)),
+                  if (useSynthesizer)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      child: VisualSynthesizerBar(
+                        player: widget.player,
+                        currentPosition: currentDuration,
+                        totalDuration: widget.duration,
+                        aura: aura,
+                        onSeek: (duration) => widget.player.seek(duration),
                       ),
-                      overlayColor: colorScheme.primary.withValues(
-                        alpha: (0.10 + (aura * 0.16)).clamp(0.0, 1.0),
+                    )
+                  else
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: _dragMs != null ? 6.0 : 4.0,
+                        trackShape: const RoundedRectSliderTrackShape(),
+                        activeTrackColor: colorScheme.primary,
+                        inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
+                        thumbColor: colorScheme.primary,
+                        thumbShape: RoundSliderThumbShape(
+                          enabledThumbRadius: _dragMs != null ? 8.0 : (5.0 + (aura * 1.5)),
+                          elevation: _dragMs != null ? 4.0 : (1.0 + (aura * 3.0)),
+                        ),
+                        overlayColor: colorScheme.primary.withValues(
+                          alpha: (0.10 + (aura * 0.16)).clamp(0.0, 1.0),
+                        ),
+                        overlayShape: RoundSliderOverlayShape(
+                          overlayRadius: 14.0 + (aura * 5.0),
+                        ),
                       ),
-                      overlayShape: RoundSliderOverlayShape(
-                        overlayRadius: 14.0 + (aura * 5.0),
+                      child: Slider(
+                        value: clampedValue,
+                        max: maxMs,
+                        onChangeStart: (ms) => setState(() => _dragMs = ms),
+                        onChanged: (ms) => setState(() => _dragMs = ms),
+                        onChangeEnd: (ms) {
+                          widget.player.seek(Duration(milliseconds: ms.round()));
+                          setState(() => _dragMs = null);
+                        },
                       ),
                     ),
-                    child: Slider(
-                      value: clampedValue,
-                      max: maxMs,
-                      onChangeStart: (ms) => setState(() => _dragMs = ms),
-                      onChanged: (ms) => setState(() => _dragMs = ms),
-                      onChangeEnd: (ms) {
-                        widget.player.seek(Duration(milliseconds: ms.round()));
-                        setState(() => _dragMs = null);
-                      },
-                    ),
-                  ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(

@@ -1086,6 +1086,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> updateSynthesizerBar(bool val) async {
+    await identity.setSynthesizerBar(val);
+    notifyListeners();
+  }
+
   Future<void> updateServerUrl(String url) async {
     await identity.setServerUrl(url);
     sync.detachChannelAll();

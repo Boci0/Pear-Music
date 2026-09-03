@@ -256,14 +256,6 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
     }));
     _subs.add(_player.playbackEventStream.listen((event) {
-      if (event.processingState == ProcessingState.completed && _queue.isNotEmpty) {
-        if (_isLoadingTrack || _isAdvancing) {
-          _pendingNaturalAdvance = true;
-          DebugLog.write('[player] PlaybackEvent completed arrived while loading/advancing; flagged _pendingNaturalAdvance');
-        } else {
-          unawaited(next());
-        }
-      }
       _publishNotificationState();
     }));
     // Auto-advance (loop / shuffle aware) when a track finishes.
@@ -436,14 +428,6 @@ class PlayerService extends ChangeNotifier {
           DebugLog.write('[radio] Appended ${newSongs.length} unique tracks (queue size: ${_queue.length})');
           notifyListeners();
           completer.complete(true);
-
-          // If playback finished while recommendations were loading, auto-advance immediately
-          if (_player.processingState == ProcessingState.completed ||
-              (!_player.playing && _queueIndex == 0 && _queue.length > 1 && !_isAdvancing && !_isLoadingTrack)) {
-            DebugLog.write('[radio] Playback completed while recommendations were loading; auto-advancing to track 1');
-            unawaited(next());
-          }
-
           return true;
         }
       }
@@ -459,13 +443,6 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write('[radio] Appended ${offlineSongs.length} offline library recommendations');
         notifyListeners();
         completer.complete(true);
-
-        if (_player.processingState == ProcessingState.completed ||
-            (!_player.playing && _queueIndex == 0 && _queue.length > 1 && !_isAdvancing && !_isLoadingTrack)) {
-          DebugLog.write('[radio] Playback completed while recommendations were loading; auto-advancing to track 1');
-          unawaited(next());
-        }
-
         return true;
       }
       completer.complete(false);
@@ -612,6 +589,7 @@ class PlayerService extends ChangeNotifier {
       _queueIndex = 0;
     }
     currentSong = song;
+    _pendingNaturalAdvance = false;
     _lastTrackLoadMs = -1;
     _updateActiveQueueCacheProtection();
     DebugLog.write(
@@ -754,7 +732,7 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
       _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
-      if (_pendingNaturalAdvance || _player.processingState == ProcessingState.completed) {
+      if (_pendingNaturalAdvance) {
         _pendingNaturalAdvance = false;
         DebugLog.write('[player] Song reached completed state during/immediately after play setup; auto-advancing next');
         unawaited(next());
@@ -773,7 +751,7 @@ class PlayerService extends ChangeNotifier {
         _isLoadingTrack = false;
         _isBufferingNext = false;
         _bufferingVideoId = null;
-        if (_pendingNaturalAdvance || _player.processingState == ProcessingState.completed) {
+        if (_pendingNaturalAdvance) {
           _pendingNaturalAdvance = false;
           DebugLog.write('[player] Song in completed state during finally; auto-advancing next');
           unawaited(next());
@@ -973,7 +951,8 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> next() async {
     _lastInteraction = DateTime.now();
-    if (_queue.isEmpty) return;
+    if (_queue.isEmpty || _isAdvancing) return;
+    _isAdvancing = true;
     try {
       if (_loopMode == LoopSetting.one) {
         await _replayCurrent();
@@ -1019,11 +998,14 @@ class PlayerService extends ChangeNotifier {
       await playSong(nextTrack, queue: _queue);
     } catch (e) {
       DebugLog.write('[player] next error: $e');
+    } finally {
+      _isAdvancing = false;
     }
   }
 
   Future<void> previous() async {
-    if (_queue.isEmpty) return;
+    if (_queue.isEmpty || _isAdvancing) return;
+    _isAdvancing = true;
     try {
       if (_loopMode == LoopSetting.one) {
         await _replayCurrent();
@@ -1045,6 +1027,8 @@ class PlayerService extends ChangeNotifier {
       }
     } catch (e) {
       DebugLog.write('[player] previous error: $e');
+    } finally {
+      _isAdvancing = false;
     }
   }
 
