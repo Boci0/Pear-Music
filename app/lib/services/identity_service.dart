@@ -64,7 +64,7 @@ class IdentityService {
       orElse: () => SortOption.dateAdded,
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
-    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? false;
+    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);

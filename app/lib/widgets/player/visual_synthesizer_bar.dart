@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import '../../services/player_service.dart';
@@ -12,6 +12,8 @@ class VisualSynthesizerBar extends StatefulWidget {
   final Duration totalDuration;
   final double aura;
   final ValueChanged<Duration> onSeek;
+  final ValueChanged<double>? onDragUpdate;
+  final VoidCallback? onDragEnd;
 
   const VisualSynthesizerBar({
     super.key,
@@ -20,19 +22,55 @@ class VisualSynthesizerBar extends StatefulWidget {
     required this.totalDuration,
     required this.aura,
     required this.onSeek,
+    this.onDragUpdate,
+    this.onDragEnd,
   });
 
   @override
   State<VisualSynthesizerBar> createState() => _VisualSynthesizerBarState();
 }
 
-class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
+class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ticker;
   double? _dragFraction;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    if (widget.player.playing) {
+      _ticker.repeat();
+    }
+    widget.player.addListener(_onPlayerStateChanged);
+  }
+
+  void _onPlayerStateChanged() {
+    if (widget.player.playing) {
+      if (!_ticker.isAnimating) _ticker.repeat();
+    } else {
+      if (_ticker.isAnimating) _ticker.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.player.removeListener(_onPlayerStateChanged);
+    _ticker.dispose();
+    super.dispose();
+  }
 
   void _handleDragUpdate(Offset localPosition, double width) {
     if (width <= 0) return;
     final frac = (localPosition.dx / width).clamp(0.0, 1.0);
     setState(() => _dragFraction = frac);
+    final totalMs = widget.totalDuration.inMilliseconds.toDouble();
+    if (totalMs > 0) {
+      widget.onDragUpdate?.call(frac * totalMs);
+    }
   }
 
   void _handleDragEnd() {
@@ -44,6 +82,7 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
       }
       setState(() => _dragFraction = null);
     }
+    widget.onDragEnd?.call();
   }
 
   @override
@@ -64,24 +103,34 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
             onHorizontalDragStart: (details) => _handleDragUpdate(details.localPosition, width),
             onHorizontalDragUpdate: (details) => _handleDragUpdate(details.localPosition, width),
             onHorizontalDragEnd: (_) => _handleDragEnd(),
-            onHorizontalDragCancel: () => setState(() => _dragFraction = null),
+            onHorizontalDragCancel: () {
+              setState(() => _dragFraction = null);
+              widget.onDragEnd?.call();
+            },
             onTapDown: (details) {
               _handleDragUpdate(details.localPosition, width);
               _handleDragEnd();
             },
             child: SizedBox(
-              height: 38,
+              height: 44,
               width: double.infinity,
-              child: CustomPaint(
-                painter: _SynthesizerPainter(
-                  displayFraction: displayFraction,
-                  isPlaying: widget.player.playing,
-                  aura: widget.aura,
-                  posMs: currentMs,
-                  activeColor: colorScheme.primary,
-                  inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
-                  cursorColor: colorScheme.primary,
-                ),
+              child: AnimatedBuilder(
+                animation: _ticker,
+                builder: (context, _) {
+                  final nowMs = DateTime.now().millisecondsSinceEpoch.toDouble();
+                  return CustomPaint(
+                    painter: _SynthesizerPainter(
+                      displayFraction: displayFraction,
+                      isPlaying: widget.player.playing,
+                      aura: widget.aura,
+                      posMs: currentMs,
+                      timeMs: nowMs,
+                      activeColor: colorScheme.primary,
+                      inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
+                      cursorColor: colorScheme.primary,
+                    ),
+                  );
+                },
               ),
             ),
           );
@@ -96,6 +145,7 @@ class _SynthesizerPainter extends CustomPainter {
   final bool isPlaying;
   final double aura;
   final double posMs;
+  final double timeMs;
   final Color activeColor;
   final Color inactiveColor;
   final Color cursorColor;
@@ -107,6 +157,7 @@ class _SynthesizerPainter extends CustomPainter {
     required this.isPlaying,
     required this.aura,
     required this.posMs,
+    required this.timeMs,
     required this.activeColor,
     required this.inactiveColor,
     required this.cursorColor,
@@ -124,8 +175,8 @@ class _SynthesizerPainter extends CustomPainter {
     final minHeight = 4.0;
 
     // Rhythmic beat clock: 125 BPM fundamental beat (~480ms per beat)
-    final beatPhase = (posMs / 480.0) * math.pi * 2.0;
-    final halfBeat = (posMs / 240.0) * math.pi * 2.0;
+    final beatPhase = (timeMs / 480.0) * math.pi * 2.0;
+    final halfBeat = (timeMs / 240.0) * math.pi * 2.0;
     final double beatIntensity = isPlaying ? (0.65 + (0.35 * math.sin(beatPhase))) : 0.0;
 
     final activePaint = Paint()
@@ -155,7 +206,7 @@ class _SynthesizerPainter extends CustomPainter {
 
       final bassMod = math.sin(beatPhase + (normX * math.pi)) * bassWeight;
       final midMod = math.sin(halfBeat + (normX * 4.0 * math.pi)) * 0.4;
-      final trebleMod = math.cos((posMs / 160.0) * math.pi * 2.0 + (normX * 6.0)) * trebleWeight * 0.3;
+      final trebleMod = math.cos((timeMs / 160.0) * math.pi * 2.0 + (normX * 6.0)) * trebleWeight * 0.3;
 
       // Base static EQ curve (smiling curve: bass punch, clean mid dip, crisp highs)
       final staticEq = 0.28 + (0.35 * math.pow(normX - 0.45, 2));

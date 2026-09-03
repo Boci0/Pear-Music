@@ -155,9 +155,14 @@ class PlayerSeekBar extends StatefulWidget {
 }
 
 class _PlayerSeekBarState extends State<PlayerSeekBar> {
-  /// Non-null while the user is dragging: the thumb position in ms.
-  double? _dragMs;
+  final ValueNotifier<double?> _dragNotifier = ValueNotifier(null);
   bool _showRemaining = true;
+
+  @override
+  void dispose() {
+    _dragNotifier.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -173,13 +178,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
           initialData: widget.player.position ?? Duration.zero,
           builder: (context, snapshot) {
             final pos = snapshot.data ?? Duration.zero;
-            final currentMs = _dragMs ?? pos.inMilliseconds.toDouble();
             final maxMs = totalMs > 0 ? totalMs : 1.0;
-            final clampedValue = currentMs.clamp(0.0, maxMs);
-            final currentDuration = Duration(milliseconds: clampedValue.round());
-            final remainingDuration = widget.duration > currentDuration
-                ? widget.duration - currentDuration
-                : Duration.zero;
+            final baseMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
 
             final appController = context.watch<AppController?>();
             final useSynthesizer = appController?.identity.synthesizerBar ?? false;
@@ -192,74 +192,122 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 children: [
                   if (useSynthesizer)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                       child: VisualSynthesizerBar(
                         player: widget.player,
-                        currentPosition: currentDuration,
+                        currentPosition: pos,
                         totalDuration: widget.duration,
                         aura: aura,
                         onSeek: (duration) => widget.player.seek(duration),
+                        onDragUpdate: (ms) => _dragNotifier.value = ms,
+                        onDragEnd: () => _dragNotifier.value = null,
                       ),
                     )
                   else
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: _dragMs != null ? 6.0 : 4.0,
-                        trackShape: const RoundedRectSliderTrackShape(),
-                        activeTrackColor: colorScheme.primary,
-                        inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
-                        thumbColor: colorScheme.primary,
-                        thumbShape: RoundSliderThumbShape(
-                          enabledThumbRadius: _dragMs != null ? 8.0 : (5.0 + (aura * 1.5)),
-                          elevation: _dragMs != null ? 4.0 : (1.0 + (aura * 3.0)),
-                        ),
-                        overlayColor: colorScheme.primary.withValues(
-                          alpha: (0.10 + (aura * 0.16)).clamp(0.0, 1.0),
-                        ),
-                        overlayShape: RoundSliderOverlayShape(
-                          overlayRadius: 14.0 + (aura * 5.0),
-                        ),
-                      ),
-                      child: Slider(
-                        value: clampedValue,
-                        max: maxMs,
-                        onChangeStart: (ms) => setState(() => _dragMs = ms),
-                        onChanged: (ms) => setState(() => _dragMs = ms),
-                        onChangeEnd: (ms) {
-                          widget.player.seek(Duration(milliseconds: ms.round()));
-                          setState(() => _dragMs = null);
-                        },
-                      ),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _fmt(currentDuration),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                            color: colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () => setState(() => _showRemaining = !_showRemaining),
-                          behavior: HitTestBehavior.opaque,
-                          child: Text(
-                            _showRemaining
-                                ? '-${_fmt(remainingDuration)}'
-                                : _fmt(widget.duration),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                              color: colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w500,
+                    ValueListenableBuilder<double?>(
+                      valueListenable: _dragNotifier,
+                      builder: (context, dragMs, _) {
+                        final currentVal = (dragMs ?? baseMs).clamp(0.0, maxMs);
+                        return SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: dragMs != null ? 6.0 : 4.0,
+                            trackShape: const RoundedRectSliderTrackShape(),
+                            activeTrackColor: colorScheme.primary,
+                            inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
+                            thumbColor: colorScheme.primary,
+                            thumbShape: RoundSliderThumbShape(
+                              enabledThumbRadius: dragMs != null ? 8.0 : (5.0 + (aura * 1.5)),
+                              elevation: dragMs != null ? 4.0 : (1.0 + (aura * 3.0)),
+                            ),
+                            overlayColor: colorScheme.primary.withValues(
+                              alpha: (0.10 + (aura * 0.16)).clamp(0.0, 1.0),
+                            ),
+                            overlayShape: RoundSliderOverlayShape(
+                              overlayRadius: 14.0 + (aura * 5.0),
                             ),
                           ),
-                        ),
-                      ],
+                          child: Slider(
+                            value: currentVal,
+                            max: maxMs,
+                            onChangeStart: (ms) => _dragNotifier.value = ms,
+                            onChanged: (ms) => _dragNotifier.value = ms,
+                            onChangeEnd: (ms) {
+                              widget.player.seek(Duration(milliseconds: ms.round()));
+                              _dragNotifier.value = null;
+                            },
+                          ),
+                        );
+                      },
                     ),
+                  ValueListenableBuilder<double?>(
+                    valueListenable: _dragNotifier,
+                    builder: (context, dragMs, _) {
+                      final effectiveMs = (dragMs ?? pos.inMilliseconds.toDouble()).clamp(0.0, maxMs);
+                      final currentDuration = Duration(milliseconds: effectiveMs.round());
+                      final remainingDuration = widget.duration > currentDuration
+                          ? widget.duration - currentDuration
+                          : Duration.zero;
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _fmt(currentDuration),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                                color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                                fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                            if (appController != null)
+                              GestureDetector(
+                                onTap: () {
+                                  appController.updateSynthesizerBar(!useSynthesizer);
+                                },
+                                behavior: HitTestBehavior.opaque,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        useSynthesizer ? Icons.graphic_eq_rounded : Icons.linear_scale_rounded,
+                                        size: 13,
+                                        color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        useSynthesizer ? 'Visualizer' : 'Standard',
+                                        style: theme.textTheme.labelSmall?.copyWith(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            GestureDetector(
+                              onTap: () => setState(() => _showRemaining = !_showRemaining),
+                              behavior: HitTestBehavior.opaque,
+                              child: Text(
+                                _showRemaining
+                                    ? '-${_fmt(remainingDuration)}'
+                                    : _fmt(widget.duration),
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontFeatures: const [FontFeature.tabularFigures()],
+                                  color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                                  fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
