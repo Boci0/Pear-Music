@@ -871,9 +871,10 @@ class PlayerService extends ChangeNotifier {
     _lastInteraction = DateTime.now();
     _preloadDebounceTimer?.cancel();
     StreamCacheManager.cancelPreload();
-    if (!_player.playing) return;
-    await _player.pause();
-    await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
+    if (_player.playing) {
+      await _player.pause();
+      await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
+    }
     _publishNotificationState();
     notifyListeners();
   }

@@ -16,9 +16,52 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> Function(AudioServiceShuffleMode)? onSetShuffleMode;
   Future<void> Function(String name)? onCustomAction;
 
+  bool _lastShuffle = false;
+  LoopSetting _lastLoopMode = LoopSetting.off;
+
+  static List<MediaControl> _buildControls({
+    required bool playing,
+    required bool shuffle,
+    required LoopSetting loopMode,
+  }) {
+    return [
+      _shuffleControl(shuffle),
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_previous',
+        label: 'Previous',
+        name: 'peerm_previous',
+      ),
+      if (playing)
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_pause',
+          label: 'Pause',
+          name: 'peerm_pause',
+        )
+      else
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_play',
+          label: 'Play',
+          name: 'peerm_play',
+        ),
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_next',
+        label: 'Next',
+        name: 'peerm_next',
+      ),
+      _repeatControl(loopMode),
+    ];
+  }
+
   @override
   Future<void> play() async {
-    playbackState.add(playbackState.value.copyWith(playing: true));
+    playbackState.add(playbackState.value.copyWith(
+      playing: true,
+      controls: _buildControls(
+        playing: true,
+        shuffle: _lastShuffle,
+        loopMode: _lastLoopMode,
+      ),
+    ));
     if (onPlay != null) {
       await onPlay!();
     }
@@ -26,7 +69,14 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> pause() async {
-    playbackState.add(playbackState.value.copyWith(playing: false));
+    playbackState.add(playbackState.value.copyWith(
+      playing: false,
+      controls: _buildControls(
+        playing: false,
+        shuffle: _lastShuffle,
+        loopMode: _lastLoopMode,
+      ),
+    ));
     if (onPause != null) {
       await onPause!();
     }
@@ -88,6 +138,28 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    switch (name) {
+      case 'peerm_play':
+        playbackState.add(playbackState.value.copyWith(
+          playing: true,
+          controls: _buildControls(
+            playing: true,
+            shuffle: _lastShuffle,
+            loopMode: _lastLoopMode,
+          ),
+        ));
+        break;
+      case 'peerm_pause':
+        playbackState.add(playbackState.value.copyWith(
+          playing: false,
+          controls: _buildControls(
+            playing: false,
+            shuffle: _lastShuffle,
+            loopMode: _lastLoopMode,
+          ),
+        ));
+        break;
+    }
     if (onCustomAction != null) {
       await onCustomAction!(name);
       return;
@@ -119,13 +191,14 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
     required bool shuffle,
     int? queueIndex,
   }) {
-    final controls = [
-      _shuffleControl(shuffle),
-      MediaControl.skipToPrevious,
-      if (playing) MediaControl.pause else MediaControl.play,
-      MediaControl.skipToNext,
-      _repeatControl(loopMode),
-    ];
+    _lastShuffle = shuffle;
+    _lastLoopMode = loopMode;
+
+    final controls = _buildControls(
+      playing: playing,
+      shuffle: shuffle,
+      loopMode: loopMode,
+    );
 
     playbackState.add(PlaybackState(
       controls: controls,
