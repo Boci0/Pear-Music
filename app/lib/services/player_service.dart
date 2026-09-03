@@ -746,7 +746,7 @@ class PlayerService extends ChangeNotifier {
         return;
       }
       DebugLog.write('[player] Calling _player.play() for "${song.title}"');
-      await _player.play();
+      unawaited(_player.play());
       _isLoadingTrack = false;
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;

@@ -4,6 +4,8 @@ import '../../services/player_service.dart';
 
 /// Provides a smooth, continuous ambient breathing glow synchronized with playback.
 /// Operates on a calm 4-second harmonic cycle with zero physical bouncing or tempo clashing.
+/// Employs a state-guarded delayed bloom so that initial buffering or track setup
+/// never produces visual flicker or stutter.
 class RhythmPulseBuilder extends StatefulWidget {
   final PlayerService player;
   final Widget Function(BuildContext context, double aura, Widget? child) builder;
@@ -21,21 +23,40 @@ class RhythmPulseBuilder extends StatefulWidget {
 }
 
 class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with TickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final AnimationController _fadeController;
+  late final Animation<double> _bloomAnimation;
+  bool _wasPlaying = false;
 
   @override
   void initState() {
     super.initState();
     // 4000ms calm ambient cycle: continuous, smooth, organic
-    _controller = AnimationController(
+    _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 4000),
     );
 
+    // 1500ms fade controller with an interval curve so glow remains at 0
+    // for the first 600ms, then smoothly blooms into view.
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+
+    _bloomAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: const Interval(0.40, 1.0, curve: Curves.easeInOutCubic),
+      reverseCurve: Curves.easeOut,
+    );
+
+    _wasPlaying = widget.player.playing;
     widget.player.addListener(_onPlayerChanged);
-    if (widget.player.playing) {
-      _controller.repeat(reverse: true);
+
+    if (_wasPlaying) {
+      _pulseController.repeat(reverse: true);
+      _fadeController.forward();
     }
   }
 
@@ -50,37 +71,41 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
   }
 
   void _onPlayerChanged() {
-    if (widget.player.playing) {
-      if (!_controller.isAnimating) {
-        _controller.repeat(reverse: true);
+    final isPlaying = widget.player.playing;
+    // CRITICAL: Guard against incidental notifyListeners calls (duration ticks,
+    // preload status changes, volume updates). Only transition when playback actually toggles.
+    if (isPlaying == _wasPlaying) return;
+    _wasPlaying = isPlaying;
+
+    if (isPlaying) {
+      if (!_pulseController.isAnimating) {
+        _pulseController.repeat(reverse: true);
       }
+      _fadeController.forward();
     } else {
-      if (_controller.isAnimating) {
-        _controller.animateTo(
-          0.0,
-          duration: const Duration(milliseconds: 600),
-          curve: Curves.easeOut,
-        );
-      }
+      _fadeController.reverse();
     }
   }
 
   @override
   void dispose() {
     widget.player.removeListener(_onPlayerChanged);
-    _controller.dispose();
+    _pulseController.dispose();
+    _fadeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _controller,
+      animation: Listenable.merge([_pulseController, _fadeController]),
       builder: (context, child) {
-        // Smooth sine-smoothed aura between 0.0 and 1.0
-        final t = _controller.value;
-        final aura = (1.0 - math.cos(t * math.pi)) / 2.0;
-        return widget.builder(context, aura, widget.child);
+        // Continuous harmonic breathing pulse between 0.70 and 1.0
+        final t = _pulseController.value;
+        final pulse = 0.70 + (0.30 * ((1.0 - math.cos(t * math.pi)) / 2.0));
+        // Multiplied by the growth animation so it expands smoothly from exactly 0.0
+        final effectiveAura = pulse * _bloomAnimation.value;
+        return widget.builder(context, effectiveAura, widget.child);
       },
     );
   }

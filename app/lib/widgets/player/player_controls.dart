@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../services/player_service.dart';
+import 'rhythm_pulse.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
 /// repeat controls.
@@ -58,32 +59,53 @@ class PlayerTransport extends StatelessWidget {
               icon: const Icon(Icons.skip_previous_rounded),
               onPressed: () => controller.previousTrack(),
             ),
-            SizedBox(
-              width: 72,
-              height: 72,
-              child: IconButton(
-                padding: EdgeInsets.zero,
-                iconSize: 72,
-                icon: (player.isLoadingTrack && !player.playing)
-                    ? Center(
-                        child: SizedBox(
-                          width: 52,
-                          height: 52,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3.5,
+            RhythmPulseBuilder(
+              player: player,
+              builder: (context, aura, _) {
+                final glowRadius = aura * 28.0;
+                final glowSpread = aura * 4.0;
+                final glowAlpha = (aura * 0.42).clamp(0.0, 1.0);
+
+                return Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: (player.playing && aura > 0.005)
+                        ? [
+                            BoxShadow(
+                              color: scheme.primary.withValues(alpha: glowAlpha),
+                              blurRadius: glowRadius,
+                              spreadRadius: glowSpread,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    iconSize: 72,
+                    icon: (player.isLoadingTrack && !player.playing)
+                        ? Center(
+                            child: SizedBox(
+                              width: 52,
+                              height: 52,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 3.5,
+                                color: scheme.primary,
+                              ),
+                            ),
+                          )
+                        : Icon(
+                            player.playing
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_filled,
+                            size: 72,
                             color: scheme.primary,
                           ),
-                        ),
-                      )
-                    : Icon(
-                        player.playing
-                            ? Icons.pause_circle_filled
-                            : Icons.play_circle_filled,
-                        size: 72,
-                        color: scheme.primary,
-                      ),
-                onPressed: () => controller.togglePlayback(),
-              ),
+                    onPressed: () => controller.togglePlayback(),
+                  ),
+                );
+              },
             ),
             IconButton(
               iconSize: 44,
@@ -142,82 +164,91 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     final colorScheme = theme.colorScheme;
     final totalMs = widget.duration.inMilliseconds.toDouble();
 
-    return StreamBuilder<Duration>(
-      stream: widget.player.positionStream,
-      initialData: widget.player.position ?? Duration.zero,
-      builder: (context, snapshot) {
-        final pos = snapshot.data ?? Duration.zero;
-        final currentMs = _dragMs ?? pos.inMilliseconds.toDouble();
-        final maxMs = totalMs > 0 ? totalMs : 1.0;
-        final clampedValue = currentMs.clamp(0.0, maxMs);
-        final currentDuration = Duration(milliseconds: clampedValue.round());
-        final remainingDuration = widget.duration > currentDuration
-            ? widget.duration - currentDuration
-            : Duration.zero;
+    return RhythmPulseBuilder(
+      player: widget.player,
+      builder: (context, aura, _) {
+        return StreamBuilder<Duration>(
+          stream: widget.player.positionStream,
+          initialData: widget.player.position ?? Duration.zero,
+          builder: (context, snapshot) {
+            final pos = snapshot.data ?? Duration.zero;
+            final currentMs = _dragMs ?? pos.inMilliseconds.toDouble();
+            final maxMs = totalMs > 0 ? totalMs : 1.0;
+            final clampedValue = currentMs.clamp(0.0, maxMs);
+            final currentDuration = Duration(milliseconds: clampedValue.round());
+            final remainingDuration = widget.duration > currentDuration
+                ? widget.duration - currentDuration
+                : Duration.zero;
 
-        // RepaintBoundary isolates the ticking slider and time-row repaints
-        // from the album art and background canvas layers.
-        return RepaintBoundary(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: _dragMs != null ? 6.0 : 4.0,
-                  trackShape: const RoundedRectSliderTrackShape(),
-                  activeTrackColor: colorScheme.primary,
-                  inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
-                  thumbColor: colorScheme.primary,
-                  thumbShape: RoundSliderThumbShape(
-                    enabledThumbRadius: _dragMs != null ? 8.0 : 5.0,
-                    elevation: _dragMs != null ? 4.0 : 1.0,
+            // RepaintBoundary isolates the ticking slider and time-row repaints
+            // from the album art and background canvas layers.
+            return RepaintBoundary(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: _dragMs != null ? 6.0 : 4.0,
+                      trackShape: const RoundedRectSliderTrackShape(),
+                      activeTrackColor: colorScheme.primary,
+                      inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
+                      thumbColor: colorScheme.primary,
+                      thumbShape: RoundSliderThumbShape(
+                        enabledThumbRadius: _dragMs != null ? 8.0 : (5.0 + (aura * 1.5)),
+                        elevation: _dragMs != null ? 4.0 : (1.0 + (aura * 3.0)),
+                      ),
+                      overlayColor: colorScheme.primary.withValues(
+                        alpha: (0.10 + (aura * 0.16)).clamp(0.0, 1.0),
+                      ),
+                      overlayShape: RoundSliderOverlayShape(
+                        overlayRadius: 14.0 + (aura * 5.0),
+                      ),
+                    ),
+                    child: Slider(
+                      value: clampedValue,
+                      max: maxMs,
+                      onChangeStart: (ms) => setState(() => _dragMs = ms),
+                      onChanged: (ms) => setState(() => _dragMs = ms),
+                      onChangeEnd: (ms) {
+                        widget.player.seek(Duration(milliseconds: ms.round()));
+                        setState(() => _dragMs = null);
+                      },
+                    ),
                   ),
-                  overlayColor: colorScheme.primary.withValues(alpha: 0.15),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
-                ),
-                child: Slider(
-                  value: clampedValue,
-                  max: maxMs,
-                  onChangeStart: (ms) => setState(() => _dragMs = ms),
-                  onChanged: (ms) => setState(() => _dragMs = ms),
-                  onChangeEnd: (ms) {
-                    widget.player.seek(Duration(milliseconds: ms.round()));
-                    setState(() => _dragMs = null);
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _fmt(currentDuration),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        color: colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => setState(() => _showRemaining = !_showRemaining),
-                      behavior: HitTestBehavior.opaque,
-                      child: Text(
-                        _showRemaining
-                            ? '-${_fmt(remainingDuration)}'
-                            : _fmt(widget.duration),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                          color: colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _fmt(currentDuration),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
+                        GestureDetector(
+                          onTap: () => setState(() => _showRemaining = !_showRemaining),
+                          behavior: HitTestBehavior.opaque,
+                          child: Text(
+                            _showRemaining
+                                ? '-${_fmt(remainingDuration)}'
+                                : _fmt(widget.duration),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              color: colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
