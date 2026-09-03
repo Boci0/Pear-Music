@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -346,15 +345,17 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                   },
                 ),
                 SizedBox(
-                  width: 110,
+                  width: 145,
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3.5,
+                      trackHeight: 4.0,
+                      trackShape: const RoundedRectSliderTrackShape(),
                       thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 5.5,
+                        enabledThumbRadius: 6.0,
+                        elevation: 1.0,
                       ),
                       overlayShape: const RoundSliderOverlayShape(
-                        overlayRadius: 10,
+                        overlayRadius: 12.0,
                       ),
                       activeTrackColor: control,
                       inactiveTrackColor: scheme.outlineVariant.withValues(

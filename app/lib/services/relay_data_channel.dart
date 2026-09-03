@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 
 import 'signaling_service.dart';
 
+// ignore_for_file: constant_identifier_names
+
 /// Channel state compatibility enum.
 enum RTCDataChannelState {
   RTCDataChannelConnecting,
@@ -57,12 +59,6 @@ class RelayDataChannel extends RTCDataChannel {
 
   final String peerId;
   final SignalingService signaling;
-
-  @override
-  void Function(int currentAmount)? onBufferedAmountLow;
-
-  @override
-  int? bufferedAmountLowThreshold;
 
   // FIFO of send tasks: preserves ordering (hello -> chunks -> file_done).
   final List<Future<void> Function()> _queue = [];

@@ -266,10 +266,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 ),
               ),
             ),
-            if (widget.result.durationFormatted != null) ...[
+            if (widget.result.duration != null) ...[
               const SizedBox(width: 6),
               Text(
-                '•  ${widget.result.durationFormatted!}',
+                '•  ${widget.result.durationFormatted}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),

@@ -9,6 +9,7 @@ import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import 'player_console_dialog.dart';
+import 'rhythm_pulse.dart';
 
 /// Large album artwork container with rounded corners and ambient accent glow.
 class PlayerArtwork extends StatelessWidget {
@@ -30,7 +31,14 @@ class PlayerArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final radius = BorderRadius.circular(16);
-    final shadowColor = (accent ?? scheme.primary).withValues(alpha: 0.35);
+    final baseShadowColor = (accent ?? scheme.primary);
+    AppController? appController;
+    try {
+      appController = Provider.of<AppController>(context);
+    } catch (_) {
+      appController = null;
+    }
+    final player = appController?.player;
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -106,24 +114,56 @@ class PlayerArtwork extends StatelessWidget {
       imageWidget = _placeholder(scheme);
     }
 
+    if (player == null) {
+      return RepaintBoundary(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            boxShadow: [
+              BoxShadow(
+                color: baseShadowColor.withValues(alpha: 0.28),
+                blurRadius: 20.0,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: radius,
+            child: imageWidget,
+          ),
+        ),
+      );
+    }
+
     return RepaintBoundary(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          boxShadow: [
-            BoxShadow(
-              color: shadowColor,
-              blurRadius: 18,
-              offset: const Offset(0, 6),
+      child: RhythmPulseBuilder(
+        player: player,
+        builder: (context, aura, _) {
+          final blurRadius = 20.0 + (aura * 14.0);
+          final shadowAlpha = 0.28 + (aura * 0.12);
+          final dynamicShadow = baseShadowColor.withValues(alpha: shadowAlpha);
+
+          return Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              boxShadow: [
+                BoxShadow(
+                  color: dynamicShadow,
+                  blurRadius: blurRadius,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: imageWidget,
-        ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: imageWidget,
+            ),
+          );
+        },
       ),
     );
   }

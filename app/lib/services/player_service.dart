@@ -87,7 +87,7 @@ class PlayerService extends ChangeNotifier {
   Duration? get position => _player.position;
   Duration? get duration => _player.duration;
   bool get playing => _player.playing;
-  double _userVolume = 1.0;
+  double _userVolume = 0.75;
   double get volume => _userVolume;
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
@@ -108,9 +108,8 @@ class PlayerService extends ChangeNotifier {
   }
 
   bool get isSleepTimerActive => _sleepTimer != null || _sleepTimerEndOfSong;
-  Duration? get sleepTimerRemaining => _sleepTimerEndTime != null
-      ? _sleepTimerEndTime!.difference(DateTime.now())
-      : null;
+  Duration? get sleepTimerRemaining =>
+      _sleepTimerEndTime?.difference(DateTime.now());
   bool get sleepTimerEndOfSong => _sleepTimerEndOfSong;
 
   List<Song> get queue => List.unmodifiable(_queue);
@@ -232,7 +231,8 @@ class PlayerService extends ChangeNotifier {
     // Never let the underlying player loop by itself: loop modes are
     // implemented in Dart (single-source loads). This is also what fixes the
     // "loops on 1 song" issue on backends that don't advance playlists.
-    _userVolume = _player.volume;
+    _userVolume = 0.75;
+    unawaited(_player.setVolume(0.75));
     unawaited(_player.setLoopMode(LoopMode.off));
 
     // NOTE: `positionStream` is deliberately NOT forwarded through
@@ -333,11 +333,16 @@ class PlayerService extends ChangeNotifier {
       );
 
   /// Starts an infinite radio mix based on [seedSong].
+  /// If [seedSong] is already playing, playback continues uninterrupted at the current position.
   Future<void> startRadio(Song seedSong) async {
     _lastInteraction = DateTime.now();
     _continuationToken = null;
     queueSourceId = 'radio';
     queueTitle = 'Radio (${seedSong.title})';
+
+    final isAlreadyPlayingSeed = currentSong?.id == seedSong.id &&
+        (_player.playing || _player.processingState != ProcessingState.idle);
+
     _queue = [seedSong];
     _queueIndex = 0;
     currentSong = seedSong;
@@ -351,7 +356,11 @@ class PlayerService extends ChangeNotifier {
       }
     }());
 
-    await playSong(seedSong, sourceId: 'radio', sourceTitle: queueTitle);
+    if (isAlreadyPlayingSeed) {
+      _preloadUpcomingStreams();
+    } else {
+      await playSong(seedSong, sourceId: 'radio', sourceTitle: queueTitle);
+    }
   }
 
   /// Fetches the next batch of recommendations and appends them to [_queue].
@@ -472,11 +481,11 @@ class PlayerService extends ChangeNotifier {
       final freshSongs = <Song>[];
       if (batch.items.isNotEmpty) {
         _continuationToken = batch.continuationToken;
-        final existingVideoIds = Set<String>.from(excludeIds);
-        final existingTitles = [
+        final existingVideoIds = excludeIds.toSet();
+        final existingTitles = {
           ...head.map((s) => s.title.toLowerCase().trim()),
           ...lockedUpcoming.map((s) => s.title.toLowerCase().trim()),
-        ].toSet();
+        };
 
         for (final item in batch.items) {
           if (existingVideoIds.contains(item.videoId)) continue;
@@ -803,6 +812,10 @@ class PlayerService extends ChangeNotifier {
     _preloadDebounceTimer = Timer(delay, () {
       if (token != _playRequestToken) return;
       if (!_player.playing && _queueIndex < 0) return;
+      if (_isBufferingNext || _bufferingVideoId != null || StreamCacheManager.isAnyDownloadActive) {
+        DebugLog.write('[preload] Current track is still downloading/buffering; deferring preload');
+        return;
+      }
       DebugLog.write(
         '[preload] Starting 1-track lookahead preloader: next=$nextTrackId',
       );
@@ -972,7 +985,7 @@ class PlayerService extends ChangeNotifier {
         return;
       }
       final pos = _player.position;
-      if (pos != null && pos > const Duration(seconds: 3)) {
+      if (pos > const Duration(seconds: 3)) {
         await seek(Duration.zero);
         return;
       }
@@ -1023,21 +1036,6 @@ class PlayerService extends ChangeNotifier {
     final n = _queueIndex + 1;
     if (n < _queue.length) return n;
     return _loopMode == LoopSetting.all ? 0 : null;
-  }
-
-  int? _pickPreviousIndex() {
-    if (_queue.isEmpty) return null;
-    if (_shuffle) {
-      if (_queue.length == 1) return 0;
-      var r = _queueIndex;
-      while (r == _queueIndex) {
-        r = _random.nextInt(_queue.length);
-      }
-      return r;
-    }
-    final p = _queueIndex - 1;
-    if (p >= 0) return p;
-    return _loopMode == LoopSetting.all ? _queue.length - 1 : null;
   }
 
   Future<void> _replayCurrent() async {

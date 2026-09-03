@@ -1,9 +1,9 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/models/song.dart';
+import 'package:peerm_app/services/artwork_service.dart';
 import 'package:peerm_app/services/recommendation_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 
@@ -94,6 +94,7 @@ void main() {
       // New sliding window should cancel preceding window sequence
       StreamCacheManager.preloadSlidingWindow(['test_preloaded_3']);
       await Future<void>.delayed(const Duration(milliseconds: 20));
+      StreamCacheManager.cancelPreload();
     });
 
     test('RecommendationService prevents infinite duplicate loops', () {
@@ -124,6 +125,46 @@ void main() {
       expect(filtered.length, 1);
       expect(filtered.first.id, 'stream_test456');
     });
+
+    test('ArtworkService.optimizeArtworkUrl enhances low-res and YouTube Music art', () {
+      // 1. YouTube Music googleusercontent upgrade
+      const ytMusicUrl =
+          'https://lh3.googleusercontent.com/abc123xyz=w60-h60-l90-rj';
+      expect(
+        ArtworkService.optimizeArtworkUrl(ytMusicUrl),
+        'https://lh3.googleusercontent.com/abc123xyz=w544-h544-l90-rj',
+      );
+
+      // 2. YouTube default.jpg -> hqdefault.jpg
+      const ytDefault = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg';
+      expect(
+        ArtworkService.optimizeArtworkUrl(ytDefault),
+        'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+      );
+
+      // 3. YouTube mqdefault.jpg -> hqdefault.jpg
+      const ytMedium = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg';
+      expect(
+        ArtworkService.optimizeArtworkUrl(ytMedium),
+        'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+      );
+
+      // 4. YouTube hqdefault.jpg -> sddefault.jpg
+      const ytHigh = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg';
+      expect(
+        ArtworkService.optimizeArtworkUrl(ytHigh),
+        'https://i.ytimg.com/vi/dQw4w9WgXcQ/sddefault.jpg',
+      );
+    });
+
+    test('StreamCacheManager download concurrency state tracking', () {
+      expect(StreamCacheManager.isAnyDownloadActive, isFalse);
+      expect(StreamCacheManager.activeDownloadingVideoId, isNull);
+
+      // cancelPreload should be safe to call when no downloads are active
+      expect(() => StreamCacheManager.cancelPreload(), returnsNormally);
+    });
+
   });
 }
 

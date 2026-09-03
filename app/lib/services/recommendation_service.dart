@@ -588,7 +588,7 @@ class RecommendationService {
       final seen = <String>{
         ...?excludeVideoIds,
         ..._sessionPlayedVideoIds,
-        if (videoId != null) videoId,
+        ?videoId,
       };
       final items = <RecommendationItem>[];
 

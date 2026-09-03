@@ -20,18 +20,6 @@ class _FakeChannel extends RTCDataChannel {
   RTCDataChannel? otherSide;
 
   @override
-  RTCDataChannelMessageCallback? onMessage;
-
-  @override
-  RTCDataChannelStateCallback? onDataChannelState;
-
-  @override
-  void Function(int currentAmount)? onBufferedAmountLow;
-
-  @override
-  int? bufferedAmountLowThreshold;
-
-  @override
   RTCDataChannelState? get state => RTCDataChannelState.RTCDataChannelOpen;
 
   @override

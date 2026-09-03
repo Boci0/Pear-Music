@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -268,6 +266,8 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final player = context.watch<PlayerService>();
     final value = _dragValue ?? player.volume.clamp(0.0, 1.0);
     return Listener(
@@ -281,15 +281,31 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
       },
       // RepaintBoundary keeps drag-tick repaints on the slider layer.
       child: RepaintBoundary(
-        child: Slider(
-          value: value,
-          onChangeStart: (_) =>
-              setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
-          onChanged: (v) {
-            setState(() => _dragValue = v);
-            player.setVolume(v);
-          },
-          onChangeEnd: (_) => setState(() => _dragValue = null),
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4.0,
+            trackShape: const RoundedRectSliderTrackShape(),
+            thumbShape: const RoundSliderThumbShape(
+              enabledThumbRadius: 6.0,
+              elevation: 1.0,
+            ),
+            overlayShape: const RoundSliderOverlayShape(
+              overlayRadius: 12.0,
+            ),
+            activeTrackColor: scheme.primary,
+            inactiveTrackColor: scheme.outlineVariant.withValues(alpha: 0.35),
+            thumbColor: scheme.primary,
+          ),
+          child: Slider(
+            value: value,
+            onChangeStart: (_) =>
+                setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
+            onChanged: (v) {
+              setState(() => _dragValue = v);
+              player.setVolume(v);
+            },
+            onChangeEnd: (_) => setState(() => _dragValue = null),
+          ),
         ),
       ),
     );

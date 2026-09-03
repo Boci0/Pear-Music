@@ -92,7 +92,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         list.sort((a, b) => b.size.compareTo(a.size));
         break;
       case SortOption.dateAdded:
-      default:
         list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
         break;
     }
@@ -850,7 +849,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // an empty list signals the user canceled (no FilePickerResult object).
     final files = await FilePicker.pickFiles(
       type: FileType.audio,
-      allowMultiple: true,
     );
     if (files.isEmpty) return;
     final picked = files

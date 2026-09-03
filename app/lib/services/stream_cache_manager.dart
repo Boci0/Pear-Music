@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:synchronized/synchronized.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
@@ -49,7 +48,6 @@ class StreamCacheManager {
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
-  static final Lock _nativeDownloadLock = Lock();
   static int _slidingWindowSequence = 0;
   // In-flight / completed direct stream URL resolutions, so a prefetch
   // started while the previous track plays satisfies the next track's
@@ -128,32 +126,41 @@ class StreamCacheManager {
     return null;
   }
 
-  static String? _activePreloadProcessId;
-  static String? _activePreloadVideoId;
-  static Process? _activePreloadDesktopProcess;
+  static String? _activeDownloadingVideoId;
+  static bool _isActiveDownloadPreload = false;
+  static String? _activeProcessId;
+  static Process? _activeDesktopProcess;
+
+  /// Whether any audio stream download is currently active.
+  static bool get isAnyDownloadActive => _activeDownloadingVideoId != null;
+
+  /// Video ID of the current active audio stream download, if any.
+  static String? get activeDownloadingVideoId => _activeDownloadingVideoId;
 
   /// Cancels any active background preload sequence immediately.
   static void cancelPreload({String? exceptVideoId}) {
     _slidingWindowSequence++;
-    if (exceptVideoId != null && _activePreloadVideoId == exceptVideoId) {
+    if (exceptVideoId != null && _activeDownloadingVideoId == exceptVideoId) {
       DebugLog.write('[preload] Preserving active in-flight download for $exceptVideoId');
       return;
     }
-    final activeId = _activePreloadProcessId;
-    if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
-      _activePreloadProcessId = null;
-      _activePreloadVideoId = null;
-      try {
-        const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
-      } catch (_) {}
-    }
-    final desktopProc = _activePreloadDesktopProcess;
-    if (desktopProc != null) {
-      _activePreloadDesktopProcess = null;
-      _activePreloadVideoId = null;
-      try {
-        desktopProc.kill();
-      } catch (_) {}
+    if (_isActiveDownloadPreload) {
+      final activeId = _activeProcessId;
+      if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
+        _activeProcessId = null;
+        try {
+          const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
+        } catch (_) {}
+      }
+      final desktopProc = _activeDesktopProcess;
+      if (desktopProc != null) {
+        _activeDesktopProcess = null;
+        try {
+          desktopProc.kill();
+        } catch (_) {}
+      }
+      _activeDownloadingVideoId = null;
+      _isActiveDownloadPreload = false;
     }
     DebugLog.write('[preload] cancelPreload() called, new sequence=$_slidingWindowSequence');
   }
@@ -182,7 +189,14 @@ class StreamCacheManager {
         }
         try {
           DebugLog.write('[preload] Buffering upcoming track: $id');
-          final file = await ensureStreamCached(id, isPreload: true);
+          var file = await ensureStreamCached(id, isPreload: true);
+          // If first attempt returned null and sequence is still active, retry once
+          if (file == null && seq == _slidingWindowSequence) {
+            DebugLog.write('[preload] Preload attempt 1 failed for $id, retrying once...');
+            await Future.delayed(const Duration(milliseconds: 1000));
+            if (seq != _slidingWindowSequence) break;
+            file = await ensureStreamCached(id, isPreload: true);
+          }
           if (seq != _slidingWindowSequence) break;
           if (file != null) {
             DebugLog.write('[preload] Buffered upcoming track ready on disk: $id');
@@ -195,6 +209,7 @@ class StreamCacheManager {
 
   /// Ensures the audio stream for [videoId] is downloaded into the local cache
   /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
+  /// Strictly enforces single-concurrency to prevent multiple downloads from splitting bandwidth.
   static Future<File?> ensureStreamCached(String videoId, {bool isPreload = false}) async {
     final existing = await getCachedFile(videoId);
     if (existing != null) {
@@ -202,11 +217,41 @@ class StreamCacheManager {
       return existing;
     }
 
-    // Single-flight deduplication
+    // Single-flight deduplication: join existing download if already in progress for this videoId
     if (_inFlightDownloads.containsKey(videoId)) {
       DebugLog.write('[cache] Joining in-flight download for $videoId');
       return await _inFlightDownloads[videoId]!.future;
     }
+
+    // Single-concurrency coordinator:
+    // If a background preload requests a download while another download is running, skip to save bandwidth.
+    if (isPreload && _activeDownloadingVideoId != null) {
+      DebugLog.write('[cache] Skipping preload for $videoId: active download $_activeDownloadingVideoId in progress');
+      return null;
+    }
+
+    // If direct playback is requested while another download is running, abort the active download to
+    // dedicate 100% bandwidth to the track the user is actively waiting to hear.
+    if (!isPreload && _activeDownloadingVideoId != null && _activeDownloadingVideoId != videoId) {
+      DebugLog.write('[cache] Direct play for $videoId preempting active download $_activeDownloadingVideoId');
+      if (_activeProcessId != null && YoutubeService.isEmbeddedYtDlpSupported) {
+        try {
+          const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': _activeProcessId});
+        } catch (_) {}
+        _activeProcessId = null;
+      }
+      if (_activeDesktopProcess != null) {
+        try {
+          _activeDesktopProcess!.kill();
+        } catch (_) {}
+        _activeDesktopProcess = null;
+      }
+      _activeDownloadingVideoId = null;
+      _isActiveDownloadPreload = false;
+    }
+
+    _activeDownloadingVideoId = videoId;
+    _isActiveDownloadPreload = isPreload;
 
     final completer = Completer<File?>();
     _inFlightDownloads[videoId] = completer;
@@ -219,10 +264,7 @@ class StreamCacheManager {
       if (YoutubeService.isEmbeddedYtDlpSupported) {
         final tempPart = File(p.join(dir.path, '$videoId.m4a'));
         final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
-        if (isPreload) {
-          _activePreloadProcessId = processId;
-          _activePreloadVideoId = videoId;
-        }
+        _activeProcessId = processId;
         try {
           DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
           const channel = MethodChannel('peerm/ytdlp');
@@ -230,7 +272,7 @@ class StreamCacheManager {
             'url': 'https://www.youtube.com/watch?v=$videoId',
             'outputPath': tempPart.path,
             'processId': processId,
-          }).timeout(const Duration(seconds: 45));
+          }).timeout(const Duration(seconds: 120));
 
           final cached = await getCachedFile(videoId);
           if (cached != null) {
@@ -250,14 +292,13 @@ class StreamCacheManager {
         } catch (e) {
           DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
         } finally {
-          if (isPreload && _activePreloadProcessId == processId) {
-            _activePreloadProcessId = null;
-            _activePreloadVideoId = null;
+          if (_activeProcessId == processId) {
+            _activeProcessId = null;
           }
         }
       }
 
-      // Desktop yt-dlp engine with robust audio format selection
+      // Desktop yt-dlp engine with client emulation and robust audio format selection
       final bin = await YoutubeService.ytDlpPath();
       if (bin != null) {
         DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
@@ -265,6 +306,8 @@ class StreamCacheManager {
         final args = [
           '-f',
           'ba/ba*/bestaudio/b/best',
+          '--extractor-args',
+          'youtube:player_client=android,web',
           '-o',
           outputTemplate,
           '--no-playlist',
@@ -280,7 +323,7 @@ class StreamCacheManager {
           '--http-chunk-size',
           '10M',
           '--socket-timeout',
-          '15',
+          '30',
           '--retries',
           '3',
           '--no-cache-dir',
@@ -288,14 +331,9 @@ class StreamCacheManager {
         ];
 
         final process = await Process.start(bin, args);
-        if (isPreload) {
-          _activePreloadDesktopProcess = process;
-          _activePreloadVideoId = videoId;
-        }
+        _activeDesktopProcess = process;
 
-        final timeoutDuration = isPreload
-            ? const Duration(seconds: 35)
-            : const Duration(seconds: 50);
+        const timeoutDuration = Duration(seconds: 120);
 
         final stderrBuffer = StringBuffer();
         process.stderr.transform(utf8.decoder).listen((data) {
@@ -314,9 +352,8 @@ class StreamCacheManager {
           } catch (_) {}
           rethrow;
         } finally {
-          if (isPreload && _activePreloadDesktopProcess == process) {
-            _activePreloadDesktopProcess = null;
-            _activePreloadVideoId = null;
+          if (_activeDesktopProcess == process) {
+            _activeDesktopProcess = null;
           }
         }
 
@@ -347,6 +384,12 @@ class StreamCacheManager {
     } catch (e) {
       DebugLog.write('[cache] ensureStreamCached error for $videoId: $e');
     } finally {
+      if (_activeDownloadingVideoId == videoId) {
+        _activeDownloadingVideoId = null;
+        _isActiveDownloadPreload = false;
+        _activeProcessId = null;
+        _activeDesktopProcess = null;
+      }
       if (!completer.isCompleted) {
         completer.complete(null);
       }

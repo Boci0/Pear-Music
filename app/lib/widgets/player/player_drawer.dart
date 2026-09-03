@@ -6,6 +6,7 @@ import '../../controllers/app_controller.dart';
 import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
+import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import '../../services/stream_cache_manager.dart';
 
@@ -202,45 +203,47 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
               // not repaint neighbouring rows.
               key: ValueKey('drawer_queue_${keys[i]}'),
               child: ListTile(
-                dense: true,
-                leading: isNetwork
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
-                          song.artwork!,
-                          width: 36,
-                          height: 36,
-                          cacheWidth: 96,
-                          cacheHeight: 96,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) =>
-                              _iconPlaceholder(isCurrent, scheme),
+                  dense: true,
+                  leading: isNetwork
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.network(
+                            ArtworkService.optimizeArtworkUrl(song.artwork!),
+                            width: 36,
+                            height: 36,
+                            cacheWidth: 108,
+                            cacheHeight: 108,
+                            fit: BoxFit.cover,
+                            alignment: Alignment.center,
+                            errorBuilder: (_, _, _) =>
+                                _iconPlaceholder(isCurrent, scheme),
+                          ),
+                        )
+                      : FutureBuilder<Uint8List?>(
+                          initialData: ArtworkPalette.bytes(song),
+                          future: ArtworkPalette.bytesAsync(song),
+                          builder: (context, snapshot) {
+                            final bytes =
+                                snapshot.data ?? ArtworkPalette.bytes(song);
+                            if (bytes == null || bytes.isEmpty) {
+                              return _iconPlaceholder(isCurrent, scheme);
+                            }
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.memory(
+                                bytes,
+                                width: 36,
+                                height: 36,
+                                cacheWidth: 108,
+                                cacheHeight: 108,
+                                fit: BoxFit.cover,
+                                alignment: Alignment.center,
+                                errorBuilder: (_, _, _) =>
+                                    _iconPlaceholder(isCurrent, scheme),
+                              ),
+                            );
+                          },
                         ),
-                      )
-                    : FutureBuilder<Uint8List?>(
-                        initialData: ArtworkPalette.bytes(song),
-                        future: ArtworkPalette.bytesAsync(song),
-                        builder: (context, snapshot) {
-                          final bytes =
-                              snapshot.data ?? ArtworkPalette.bytes(song);
-                          if (bytes == null || bytes.isEmpty) {
-                            return _iconPlaceholder(isCurrent, scheme);
-                          }
-                          return ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.memory(
-                              bytes,
-                              width: 36,
-                              height: 36,
-                              cacheWidth: 96,
-                              cacheHeight: 96,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) =>
-                                  _iconPlaceholder(isCurrent, scheme),
-                            ),
-                          );
-                        },
-                      ),
                 title: Text(
                   song.title,
                   maxLines: 1,

@@ -33,6 +33,16 @@ class ArtworkService {
     }
     // 2. YouTube Video Thumbnails:
     if (url.contains('i.ytimg.com/vi/') || url.contains('img.youtube.com/vi/')) {
+      if (url.contains('default.jpg') &&
+          !url.contains('hqdefault.jpg') &&
+          !url.contains('mqdefault.jpg') &&
+          !url.contains('sddefault.jpg') &&
+          !url.contains('maxresdefault.jpg')) {
+        return url.replaceAll('default.jpg', 'hqdefault.jpg');
+      }
+      if (url.contains('mqdefault.jpg')) {
+        return url.replaceAll('mqdefault.jpg', 'hqdefault.jpg');
+      }
       if (url.contains('hqdefault.jpg')) {
         return url.replaceAll('hqdefault.jpg', 'sddefault.jpg');
       }

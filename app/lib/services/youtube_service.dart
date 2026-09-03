@@ -241,9 +241,7 @@ class YoutubeService {
     DownloadCancellation? cancel,
   }) async {
     var bin = await ytDlpPath();
-    if (bin == null) {
-      bin = await ensureYtDlpAvailable(onStatus: onStatus);
-    }
+    bin ??= await ensureYtDlpAvailable(onStatus: onStatus);
     if (bin == null) {
       throw Exception(
         'yt-dlp could not be found or downloaded. Please check your internet connection.',

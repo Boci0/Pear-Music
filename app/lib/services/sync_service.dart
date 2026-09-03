@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -78,26 +77,20 @@ class SyncBatchState {
 
 class _SyncBatch {
   final int totalSongs;
-  int completedSongs;
+  int completedSongs = 0;
   final int totalBytes;
-  int completedBytes;
-  String activeSongTitle;
-  int activeBytes;
-  int activeTotalBytes;
+  int completedBytes = 0;
+  String activeSongTitle = '';
+  int activeBytes = 0;
+  int activeTotalBytes = 0;
   final bool isDownload;
-  bool isDone;
+  bool isDone = false;
   Timer? dismissTimer;
 
   _SyncBatch({
     required this.totalSongs,
-    this.completedSongs = 0,
     required this.totalBytes,
-    this.completedBytes = 0,
-    this.activeSongTitle = '',
-    this.activeBytes = 0,
-    this.activeTotalBytes = 0,
     required this.isDownload,
-    this.isDone = false,
   });
 
   SyncBatchState toState() => SyncBatchState(

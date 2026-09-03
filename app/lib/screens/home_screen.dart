@@ -664,6 +664,8 @@ class _HomeScreenState extends State<HomeScreen> {
           onSelected: (val) async {
             if (val == 'local') {
               controller.addFilesFromPicker();
+            } else if (val == 'link') {
+              _openYouTubeDialog(context);
             } else if (val == 'sync') {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -693,6 +695,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icon(Icons.folder_open, size: 20),
                   SizedBox(width: 12),
                   Text('Add local audio files'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'link',
+              child: Row(
+                children: [
+                  Icon(Icons.link, size: 20),
+                  SizedBox(width: 12),
+                  Text('Add from link (YouTube/Spotify)'),
                 ],
               ),
             ),

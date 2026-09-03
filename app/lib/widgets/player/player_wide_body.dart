@@ -7,6 +7,7 @@ import '../../controllers/app_controller.dart';
 import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
+import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/stream_cache_manager.dart';
@@ -376,104 +377,106 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                       // changes do not repaint neighbouring rows.
                       key: ValueKey('wide_queue_${keys[i]}'),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Material(
-                          color: isCurrent
-                              ? scheme.primaryContainer.withValues(alpha: 0.35)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          clipBehavior: Clip.antiAlias,
-                          child: ListTile(
-                            dense: true,
-                            mouseCursor: SystemMouseCursors.click,
-                            hoverColor: scheme.primary.withValues(alpha: 0.08),
-                            splashColor: scheme.primary.withValues(alpha: 0.12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            leading: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 24,
-                                  child: isCurrent
-                                      ? Icon(
-                                          Icons.graphic_eq_rounded,
-                                          color: scheme.primary,
-                                          size: 18,
-                                        )
-                                      : Text(
-                                          '${i + 1}',
-                                          style: TextStyle(
-                                            color: scheme.onSurfaceVariant
-                                                .withValues(alpha: 0.6),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                ),
-                                const SizedBox(width: 8),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: SizedBox(
-                                    width: 36,
-                                    height: 36,
-                                    child:
-                                        item.artwork != null &&
-                                            item.artwork!.startsWith('http')
-                                        ? Image.network(
-                                            item.artwork!,
-                                            width: 36,
-                                            height: 36,
-                                            cacheWidth: 96,
-                                            cacheHeight: 96,
-                                            fit: BoxFit.cover,
-                                            gaplessPlayback: true,
-                                            errorBuilder: (_, _, _) =>
-                                                Container(
-                                                  color: scheme
-                                                      .surfaceContainerHighest,
-                                                  child: Icon(
-                                                    Icons.music_note,
-                                                    size: 18,
-                                                    color:
-                                                        scheme.onSurfaceVariant,
-                                                  ),
-                                                ),
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Material(
+                            color: isCurrent
+                                ? scheme.primaryContainer.withValues(alpha: 0.35)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            clipBehavior: Clip.antiAlias,
+                            child: ListTile(
+                              dense: true,
+                              mouseCursor: SystemMouseCursors.click,
+                              hoverColor: scheme.primary.withValues(alpha: 0.08),
+                              splashColor: scheme.primary.withValues(alpha: 0.12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              leading: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 24,
+                                    child: isCurrent
+                                        ? Icon(
+                                            Icons.graphic_eq_rounded,
+                                            color: scheme.primary,
+                                            size: 18,
                                           )
-                                        : FutureBuilder<Uint8List?>(
-                                            initialData: ArtworkPalette.bytes(
-                                              item,
+                                        : Text(
+                                            '${i + 1}',
+                                            style: TextStyle(
+                                              color: scheme.onSurfaceVariant
+                                                  .withValues(alpha: 0.6),
+                                              fontWeight: FontWeight.w600,
                                             ),
-                                            future: ArtworkPalette.bytesAsync(
-                                              item,
-                                            ),
-                                            builder: (context, snapshot) {
-                                              final bytes =
-                                                  snapshot.data ??
-                                                  ArtworkPalette.bytes(item);
-                                              if (bytes != null &&
-                                                  bytes.isNotEmpty) {
-                                                return Image.memory(
-                                                  bytes,
-                                                  width: 36,
-                                                  height: 36,
-                                                  cacheWidth: 96,
-                                                  cacheHeight: 96,
-                                                  fit: BoxFit.cover,
-                                                  gaplessPlayback: true,
-                                                  errorBuilder: (_, _, _) =>
-                                                      Container(
-                                                        color: scheme
-                                                            .surfaceContainerHighest,
-                                                        child: Icon(
-                                                          Icons.music_note,
-                                                          size: 18,
+                                          ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: SizedBox(
+                                      width: 36,
+                                      height: 36,
+                                      child:
+                                          item.artwork != null &&
+                                              item.artwork!.startsWith('http')
+                                          ? Image.network(
+                                              ArtworkService.optimizeArtworkUrl(item.artwork!),
+                                              width: 36,
+                                              height: 36,
+                                              cacheWidth: 108,
+                                              cacheHeight: 108,
+                                              fit: BoxFit.cover,
+                                              alignment: Alignment.center,
+                                              gaplessPlayback: true,
+                                              errorBuilder: (_, _, _) =>
+                                                  Container(
+                                                    color: scheme
+                                                        .surfaceContainerHighest,
+                                                    child: Icon(
+                                                      Icons.music_note,
+                                                      size: 18,
+                                                      color:
+                                                          scheme.onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                            )
+                                          : FutureBuilder<Uint8List?>(
+                                              initialData: ArtworkPalette.bytes(
+                                                item,
+                                              ),
+                                              future: ArtworkPalette.bytesAsync(
+                                                item,
+                                              ),
+                                              builder: (context, snapshot) {
+                                                final bytes =
+                                                    snapshot.data ??
+                                                    ArtworkPalette.bytes(item);
+                                                if (bytes != null &&
+                                                    bytes.isNotEmpty) {
+                                                  return Image.memory(
+                                                    bytes,
+                                                    width: 36,
+                                                    height: 36,
+                                                    cacheWidth: 108,
+                                                    cacheHeight: 108,
+                                                    fit: BoxFit.cover,
+                                                    alignment: Alignment.center,
+                                                    gaplessPlayback: true,
+                                                    errorBuilder: (_, _, _) =>
+                                                        Container(
                                                           color: scheme
-                                                              .onSurfaceVariant,
+                                                              .surfaceContainerHighest,
+                                                          child: Icon(
+                                                            Icons.music_note,
+                                                            size: 18,
+                                                            color: scheme
+                                                                .onSurfaceVariant,
+                                                          ),
                                                         ),
-                                                      ),
-                                                );
-                                              }
+                                                  );
+                                                }
                                               return Container(
                                                 color: scheme
                                                     .surfaceContainerHighest,
