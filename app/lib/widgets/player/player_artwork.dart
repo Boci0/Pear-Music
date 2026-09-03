@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
@@ -259,12 +258,23 @@ class PlayerSongInfo extends StatelessWidget {
                 onPressed: () => controller.startRadio(song),
               ),
             Expanded(
-              child: Text(
-                song.title,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.headlineSmall,
+              child: Tooltip(
+                message: 'Tap or long-press to copy title',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _copyTitle(context, song.title),
+                  onLongPress: () => _copyTitle(context, song.title),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Text(
+                      song.title,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                  ),
+                ),
               ),
             ),
             IconButton(
@@ -375,6 +385,20 @@ class PlayerSongInfo extends StatelessWidget {
       switchOutCurve: Curves.easeIn,
       child: content,
     );
+  }
+
+  static Future<void> _copyTitle(BuildContext context, String title) async {
+    await Clipboard.setData(ClipboardData(text: title));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Copied "$title" to clipboard'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 }
 

@@ -97,12 +97,13 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// Updates current track metadata shown on lockscreen and media notification.
   void updateSongMediaItem(Song song, {Duration? duration, Uri? artUri}) {
+    final prev = mediaItem.valueOrNull;
     final item = MediaItem(
       id: song.id,
       title: song.title,
       album: song.sourceDeviceId == 'stream' ? 'Pear Radio' : 'Local Music',
-      duration: duration,
-      artUri: artUri,
+      duration: duration ?? (prev?.id == song.id ? prev?.duration : null),
+      artUri: artUri ?? (prev?.id == song.id ? prev?.artUri : null),
     );
     mediaItem.add(item);
   }
@@ -120,28 +121,9 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
   }) {
     final controls = [
       _shuffleControl(shuffle),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_previous',
-        label: 'Previous',
-        name: 'peerm_previous',
-      ),
-      if (playing)
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_pause',
-          label: 'Pause',
-          name: 'peerm_pause',
-        )
-      else
-        MediaControl.custom(
-          androidIcon: 'drawable/pear_play',
-          label: 'Play',
-          name: 'peerm_play',
-        ),
-      MediaControl.custom(
-        androidIcon: 'drawable/pear_next',
-        label: 'Next',
-        name: 'peerm_next',
-      ),
+      MediaControl.skipToPrevious,
+      if (playing) MediaControl.pause else MediaControl.play,
+      MediaControl.skipToNext,
       _repeatControl(loopMode),
     ];
 

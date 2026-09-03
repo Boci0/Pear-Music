@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -75,6 +74,11 @@ class SongTile extends StatelessWidget {
               title: const Text('Add to playlist'),
               onTap: () => Navigator.pop(ctx, 'playlist'),
             ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy title'),
+              onTap: () => Navigator.pop(ctx, 'copy_title'),
+            ),
             if (song.sourceDeviceId != 'stream')
               ListTile(
                 leading: Icon(Icons.delete_outline,
@@ -97,6 +101,18 @@ class SongTile extends StatelessWidget {
       await controller.toggleFavorite(song.id);
     } else if (action == 'playlist') {
       await showAddToPlaylistSheet(context, controller, song);
+    } else if (action == 'copy_title') {
+      await Clipboard.setData(ClipboardData(text: song.title));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Copied "${song.title}" to clipboard'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } else if (action == 'remove') {
       await _confirmRemove(context, controller);
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -124,6 +125,24 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                       Navigator.of(ctx).pop();
                       _downloadToLibrary(context, controller);
                     },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy title'),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                await Clipboard.setData(ClipboardData(text: widget.result.title));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Copied "${widget.result.title}" to clipboard'),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
             ),
           ],
         ),
