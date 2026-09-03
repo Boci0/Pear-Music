@@ -34,10 +34,14 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ticker;
   double? _dragFraction;
+  int _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+  int _basePositionMs = 0;
 
   @override
   void initState() {
     super.initState();
+    _basePositionMs = widget.currentPosition.inMilliseconds;
+    _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
     _ticker = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -46,6 +50,15 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
       _ticker.repeat();
     }
     widget.player.addListener(_onPlayerStateChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant VisualSynthesizerBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentPosition != widget.currentPosition) {
+      _basePositionMs = widget.currentPosition.inMilliseconds;
+      _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+    }
   }
 
   void _onPlayerStateChanged() {
@@ -61,6 +74,15 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
     widget.player.removeListener(_onPlayerStateChanged);
     _ticker.dispose();
     super.dispose();
+  }
+
+  double get _smoothSongMs {
+    if (!widget.player.playing) {
+      return _basePositionMs.toDouble();
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final delta = (now - _lastPositionUpdateEpoch).clamp(0, 1000);
+    return (_basePositionMs + delta).toDouble();
   }
 
   void _handleDragUpdate(Offset localPosition, double width) {
@@ -117,14 +139,12 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
               child: AnimatedBuilder(
                 animation: _ticker,
                 builder: (context, _) {
-                  final nowMs = DateTime.now().millisecondsSinceEpoch.toDouble();
                   return CustomPaint(
                     painter: _SynthesizerPainter(
                       displayFraction: displayFraction,
                       isPlaying: widget.player.playing,
                       aura: widget.aura,
-                      posMs: currentMs,
-                      timeMs: nowMs,
+                      songMs: _smoothSongMs,
                       activeColor: colorScheme.primary,
                       inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
                       cursorColor: colorScheme.primary,
@@ -144,20 +164,16 @@ class _SynthesizerPainter extends CustomPainter {
   final double displayFraction;
   final bool isPlaying;
   final double aura;
-  final double posMs;
-  final double timeMs;
+  final double songMs;
   final Color activeColor;
   final Color inactiveColor;
   final Color cursorColor;
-
-  static const int barCount = 42;
 
   _SynthesizerPainter({
     required this.displayFraction,
     required this.isPlaying,
     required this.aura,
-    required this.posMs,
-    required this.timeMs,
+    required this.songMs,
     required this.activeColor,
     required this.inactiveColor,
     required this.cursorColor,
@@ -167,17 +183,42 @@ class _SynthesizerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
-    final totalBars = barCount;
-    final spacing = 2.0;
-    final availableWidth = size.width - ((totalBars - 1) * spacing);
-    final barWidth = (availableWidth / totalBars).clamp(1.5, 6.0);
+    // Dynamically calculate total bars so they stretch 100% across the container width
+    const targetBarWidth = 3.5;
+    const minSpacing = 2.5;
+    final totalBars = ((size.width + minSpacing) / (targetBarWidth + minSpacing))
+        .floor()
+        .clamp(20, 120);
+    final barWidth = targetBarWidth;
+    final spacing = totalBars > 1 ? (size.width - (totalBars * barWidth)) / (totalBars - 1) : 0.0;
     final maxHeight = size.height;
-    final minHeight = 4.0;
+    const minHeight = 3.5;
 
-    // Rhythmic beat clock: 125 BPM fundamental beat (~480ms per beat)
-    final beatPhase = (timeMs / 480.0) * math.pi * 2.0;
-    final halfBeat = (timeMs / 240.0) * math.pi * 2.0;
-    final double beatIntensity = isPlaying ? (0.65 + (0.35 * math.sin(beatPhase))) : 0.0;
+    // Musical rhythm clocks derived directly from song playback position (BPM ~125):
+    // 480ms per beat, 960ms half-measure, 1920ms full measure.
+    final halfMeasureMs = songMs % 960.0;
+
+    // Kick drum impact on beats 1 and 3 (downbeat): sharp attack, exponential decay
+    final kickPhase = (halfMeasureMs < 480.0 ? halfMeasureMs : halfMeasureMs - 480.0) / 480.0;
+    final kickImpact = isPlaying
+        ? math.pow(math.max(0.0, 1.0 - (kickPhase * 2.6)), 2.8).toDouble()
+        : 0.0;
+
+    // Snare / clap impact on beats 2 and 4 (backbeat): 240ms offset in a 480ms cycle
+    final snareOffsetMs = (songMs + 240.0) % 480.0;
+    final snarePhase = snareOffsetMs / 480.0;
+    final snareImpact = isPlaying
+        ? math.pow(math.max(0.0, 1.0 - (snarePhase * 2.8)), 2.2).toDouble()
+        : 0.0;
+
+    // Hi-hat groove on 16th notes (120ms): crisp rapid ticks
+    final hatPhase = (songMs % 120.0) / 120.0;
+    final hatImpact = isPlaying
+        ? math.pow(math.max(0.0, 1.0 - (hatPhase * 3.2)), 1.8).toDouble()
+        : 0.0;
+
+    // Organic chord swell across a 4-beat musical measure (1920ms)
+    final barWave = 0.5 + 0.5 * math.sin((songMs / 1920.0) * math.pi * 2.0);
 
     final activePaint = Paint()
       ..color = activeColor
@@ -197,27 +238,29 @@ class _SynthesizerPainter extends CustomPainter {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      // Multi-harmonic spectrum synthesizer:
-      // Bass frequencies (left) emphasize deep beat drops.
-      // Mid frequencies (center) carry vocal harmonics.
-      // Treble frequencies (right) shimmer with faster subdivision rhythm.
-      final bassWeight = (1.0 - normX).clamp(0.0, 1.0);
-      final trebleWeight = normX.clamp(0.0, 1.0);
+      // Spectrum analyzer weighting:
+      // Bass region: left 30%
+      // Mid-range / Vocals: center 40%
+      // Treble / Percussion: right 30%
+      final bassWeight = math.max(0.0, 1.0 - (normX / 0.35));
+      final midWeight = math.max(0.0, 1.0 - ((normX - 0.5).abs() / 0.3));
+      final trebleWeight = math.max(0.0, (normX - 0.6) / 0.4);
 
-      final bassMod = math.sin(beatPhase + (normX * math.pi)) * bassWeight;
-      final midMod = math.sin(halfBeat + (normX * 4.0 * math.pi)) * 0.4;
-      final trebleMod = math.cos((timeMs / 160.0) * math.pi * 2.0 + (normX * 6.0)) * trebleWeight * 0.3;
+      // Deterministic per-bar frequency resonance peak
+      final barResonance = 0.75 + 0.25 * math.sin(i * 1.85 + (songMs / 320.0));
+      final staticEq = 0.22 + 0.32 * math.pow(normX - 0.48, 2);
 
-      // Base static EQ curve (smiling curve: bass punch, clean mid dip, crisp highs)
-      final staticEq = 0.28 + (0.35 * math.pow(normX - 0.45, 2));
-
-      // Combine static curve with live rhythmic beat modulation
-      double heightRatio = staticEq + ((bassMod + midMod + trebleMod) * 0.38 * beatIntensity * (0.5 + aura * 0.5));
-      if (!isPlaying) {
-        // Calm resting level when paused
-        heightRatio = staticEq * 0.65;
+      double heightRatio;
+      if (isPlaying) {
+        final dynamicPulse = (kickImpact * bassWeight * 0.95) +
+            (snareImpact * midWeight * 0.75) +
+            (hatImpact * trebleWeight * 0.65) +
+            (barWave * 0.12);
+        heightRatio = (staticEq + (dynamicPulse * barResonance * (0.6 + (aura * 0.4))))
+            .clamp(0.10, 0.96);
+      } else {
+        heightRatio = (staticEq * 0.7).clamp(0.12, 0.55);
       }
-      heightRatio = heightRatio.clamp(0.12, 0.95);
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
       final top = (maxHeight - barH) / 2.0;
@@ -227,10 +270,10 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        // Cursor bar: slightly taller with glowing accent
-        final cursorTop = (maxHeight - (barH + 4.0).clamp(minHeight, maxHeight)) / 2.0;
+        final cursorH = (barH + 5.0).clamp(minHeight, maxHeight);
+        final cursorTop = (maxHeight - cursorH) / 2.0;
         final cursorRect = RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, cursorTop, barWidth, (barH + 4.0).clamp(minHeight, maxHeight)),
+          Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
           Radius.circular(barWidth / 2.0),
         );
         canvas.drawRRect(cursorRect, cursorPaint);
@@ -247,8 +290,9 @@ class _SynthesizerPainter extends CustomPainter {
     return oldDelegate.displayFraction != displayFraction ||
         oldDelegate.isPlaying != isPlaying ||
         oldDelegate.aura != aura ||
-        oldDelegate.posMs != posMs ||
+        oldDelegate.songMs != songMs ||
         oldDelegate.activeColor != activeColor ||
-        oldDelegate.inactiveColor != inactiveColor;
+        oldDelegate.inactiveColor != inactiveColor ||
+        oldDelegate.cursorColor != cursorColor;
   }
 }
