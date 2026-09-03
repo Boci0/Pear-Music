@@ -305,9 +305,7 @@ class StreamCacheManager {
         final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
         final args = [
           '-f',
-          'ba/ba*/bestaudio/b/best',
-          '--extractor-args',
-          'youtube:player_client=android,web',
+          '140/ba[ext=m4a]/ba/bestaudio',
           '-o',
           outputTemplate,
           '--no-playlist',
@@ -322,10 +320,9 @@ class StreamCacheManager {
           '--buffer-size',
           '256k',
           '--socket-timeout',
-          '20',
+          '10',
           '--retries',
-          '5',
-          '--no-cache-dir',
+          '2',
           'https://www.youtube.com/watch?v=$videoId',
         ];
 

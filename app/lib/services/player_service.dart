@@ -64,7 +64,6 @@ class PlayerService extends ChangeNotifier {
   String? _bufferingVideoId;    // which track is being resolved
   int _consecutiveStreamFailures = 0;
   bool _isPreloadingUpcoming = false;
-  bool _pendingNaturalAdvance = false;
 
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
@@ -261,8 +260,7 @@ class PlayerService extends ChangeNotifier {
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _queue.isNotEmpty) {
         if (_isLoadingTrack || _isAdvancing) {
-          _pendingNaturalAdvance = true;
-          DebugLog.write('[player] Completed event arrived while loading/advancing; queued pending advance');
+          DebugLog.write('[player] Completed event arrived while loading/advancing; ignoring');
           return;
         }
         DebugLog.write('[player] Track completed naturally; advancing next');
@@ -538,7 +536,6 @@ class PlayerService extends ChangeNotifier {
     _lastInteraction = DateTime.now();
     RecommendationService.markPlayed(song.id);
     final token = ++_playRequestToken;
-    _pendingNaturalAdvance = false;
     _preloadDebounceTimer?.cancel();
     _isAdvancing = true;
     _isLoadingTrack = true;
@@ -715,11 +712,6 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
       _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
-      if (_pendingNaturalAdvance || _player.processingState == ProcessingState.completed) {
-        _pendingNaturalAdvance = false;
-        DebugLog.write('[player] Song reached completed state during/immediately after play setup; auto-advancing next');
-        unawaited(next());
-      }
     } catch (e) {
       DebugLog.write('[player] playSong ERROR: $e');
       if (token != _playRequestToken) return;
@@ -799,14 +791,14 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final nextTrackId = upcomingVideoIds.first;
-    final isNextCached = StreamCacheManager.isStreamCachedSync(nextTrackId);
-    if (isNextCached) {
-      DebugLog.write('[preload] Next track $nextTrackId already cached on disk');
+    final uncachedTrackIds = upcomingVideoIds.where((id) => !StreamCacheManager.isStreamCachedSync(id)).toList();
+    if (uncachedTrackIds.isEmpty) {
+      DebugLog.write('[preload] All upcoming stream tracks already cached on disk');
       _isPreloadingUpcoming = false;
       notifyListeners();
       return;
     }
+    final nextTrackId = uncachedTrackIds.first;
 
     final token = _playRequestToken;
     _preloadDebounceTimer = Timer(delay, () {
@@ -823,7 +815,7 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
 
       // Strict 1-track lookahead window to prevent clogging internet bandwidth
-      final nextTrackWindow = upcomingVideoIds.take(1).toList();
+      final nextTrackWindow = [nextTrackId];
       StreamCacheManager.preloadSlidingWindow(nextTrackWindow, onTrackCached: (cachedId) {
         DebugLog.write('[preload] onTrackCached: $cachedId');
         if (cachedId == nextTrackId) {
@@ -1064,8 +1056,6 @@ class PlayerService extends ChangeNotifier {
       await _player.seek(dur);
       if (!_isAdvancing && !_isLoadingTrack) {
         unawaited(next());
-      } else {
-        _pendingNaturalAdvance = true;
       }
       return;
     }
