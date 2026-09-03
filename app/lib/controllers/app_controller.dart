@@ -450,7 +450,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       library.flushSaveIndex();
       ArtworkPalette.compactMemory();
       PaintingBinding.instance.imageCache.clearLiveImages();
-      if (!player.playing && sync.transfers.isEmpty) {
+      if (!player.playing && !player.isLoadingTrack && !player.isAdvancing && sync.transfers.isEmpty) {
         SignalingService.killCryptoWorker();
         LibraryService.killHashWorker();
         YouTubeSearchService.dispose();

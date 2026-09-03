@@ -60,6 +60,7 @@ class PlayerService extends ChangeNotifier {
   DateTime _lastInteraction = DateTime.now();
   bool _isAdvancing = false;
   bool _isLoadingTrack = false;
+  bool _pendingNaturalAdvance = false;
   bool _isBufferingNext = false; // true while resolving next track's URL
   String? _bufferingVideoId;    // which track is being resolved
   int _consecutiveStreamFailures = 0;
@@ -91,6 +92,7 @@ class PlayerService extends ChangeNotifier {
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
   bool get isLoadingTrack => _isLoadingTrack;
+  bool get isAdvancing => _isAdvancing;
   bool get isBufferingNext => _isBufferingNext;
   String? get bufferingVideoId => _bufferingVideoId;
 
@@ -253,14 +255,23 @@ class PlayerService extends ChangeNotifier {
       _publishNotificationState();
       notifyListeners();
     }));
-    _subs.add(_player.playbackEventStream.listen((_) {
+    _subs.add(_player.playbackEventStream.listen((event) {
+      if (event.processingState == ProcessingState.completed && _queue.isNotEmpty) {
+        if (_isLoadingTrack || _isAdvancing) {
+          _pendingNaturalAdvance = true;
+          DebugLog.write('[player] PlaybackEvent completed arrived while loading/advancing; flagged _pendingNaturalAdvance');
+        } else {
+          unawaited(next());
+        }
+      }
       _publishNotificationState();
     }));
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _queue.isNotEmpty) {
         if (_isLoadingTrack || _isAdvancing) {
-          DebugLog.write('[player] Completed event arrived while loading/advancing; ignoring');
+          _pendingNaturalAdvance = true;
+          DebugLog.write('[player] Completed event arrived while loading/advancing; flagged _pendingNaturalAdvance');
           return;
         }
         DebugLog.write('[player] Track completed naturally; advancing next');
@@ -361,10 +372,20 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
+  Completer<bool>? _recommendationsCompleter;
+
   /// Fetches the next batch of recommendations and appends them to [_queue].
   Future<bool> fetchAndAppendRecommendations() async {
-    if (_isLoadingRecommendations || _queue.isEmpty) return false;
+    if (_isLoadingRecommendations) {
+      if (_recommendationsCompleter != null) {
+        return await _recommendationsCompleter!.future;
+      }
+      return false;
+    }
+    if (_queue.isEmpty) return false;
     _isLoadingRecommendations = true;
+    final completer = Completer<bool>();
+    _recommendationsCompleter = completer;
     notifyListeners();
 
     try {
@@ -414,6 +435,15 @@ class PlayerService extends ChangeNotifier {
           _preloadUpcomingStreams();
           DebugLog.write('[radio] Appended ${newSongs.length} unique tracks (queue size: ${_queue.length})');
           notifyListeners();
+          completer.complete(true);
+
+          // If playback finished while recommendations were loading, auto-advance immediately
+          if (_player.processingState == ProcessingState.completed ||
+              (!_player.playing && _queueIndex == 0 && _queue.length > 1 && !_isAdvancing && !_isLoadingTrack)) {
+            DebugLog.write('[radio] Playback completed while recommendations were loading; auto-advancing to track 1');
+            unawaited(next());
+          }
+
           return true;
         }
       }
@@ -428,14 +458,25 @@ class PlayerService extends ChangeNotifier {
         _queue = [..._queue, ...offlineSongs];
         DebugLog.write('[radio] Appended ${offlineSongs.length} offline library recommendations');
         notifyListeners();
+        completer.complete(true);
+
+        if (_player.processingState == ProcessingState.completed ||
+            (!_player.playing && _queueIndex == 0 && _queue.length > 1 && !_isAdvancing && !_isLoadingTrack)) {
+          DebugLog.write('[radio] Playback completed while recommendations were loading; auto-advancing to track 1');
+          unawaited(next());
+        }
+
         return true;
       }
+      completer.complete(false);
       return false;
     } catch (e) {
       DebugLog.write('[radio] fetchAndAppendRecommendations error: $e');
+      if (!completer.isCompleted) completer.complete(false);
       return false;
     } finally {
       _isLoadingRecommendations = false;
+      _recommendationsCompleter = null;
       notifyListeners();
     }
   }
@@ -536,6 +577,7 @@ class PlayerService extends ChangeNotifier {
     _lastInteraction = DateTime.now();
     RecommendationService.markPlayed(song.id);
     final token = ++_playRequestToken;
+    _pendingNaturalAdvance = false;
     _preloadDebounceTimer?.cancel();
     _isAdvancing = true;
     _isLoadingTrack = true;
@@ -712,6 +754,11 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
       _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
+      if (_pendingNaturalAdvance || _player.processingState == ProcessingState.completed) {
+        _pendingNaturalAdvance = false;
+        DebugLog.write('[player] Song reached completed state during/immediately after play setup; auto-advancing next');
+        unawaited(next());
+      }
     } catch (e) {
       DebugLog.write('[player] playSong ERROR: $e');
       if (token != _playRequestToken) return;
@@ -726,6 +773,11 @@ class PlayerService extends ChangeNotifier {
         _isLoadingTrack = false;
         _isBufferingNext = false;
         _bufferingVideoId = null;
+        if (_pendingNaturalAdvance || _player.processingState == ProcessingState.completed) {
+          _pendingNaturalAdvance = false;
+          DebugLog.write('[player] Song in completed state during finally; auto-advancing next');
+          unawaited(next());
+        }
         notifyListeners();
       }
     }
@@ -1057,6 +1109,8 @@ class PlayerService extends ChangeNotifier {
       await _player.seek(dur);
       if (!_isAdvancing && !_isLoadingTrack) {
         unawaited(next());
+      } else {
+        _pendingNaturalAdvance = true;
       }
       return;
     }
