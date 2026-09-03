@@ -47,6 +47,8 @@ class PlayerArtwork extends StatelessWidget {
         ? ArtworkService.optimizeArtworkUrl(rawNetworkUrl)
         : null;
     final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song!) : null);
+    final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+    final targetPx = (size * dpr).round().clamp(96, 512);
 
     final Widget imageWidget;
     if (effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty) {
@@ -55,8 +57,8 @@ class PlayerArtwork extends StatelessWidget {
         key: ValueKey('net_$effectiveNetworkUrl'),
         width: size,
         height: size,
-        cacheWidth: 512,
-        cacheHeight: 512,
+        cacheWidth: targetPx,
+        cacheHeight: targetPx,
         fit: BoxFit.cover,
         alignment: Alignment.center,
         gaplessPlayback: true,
@@ -66,8 +68,8 @@ class PlayerArtwork extends StatelessWidget {
               rawNetworkUrl,
               width: size,
               height: size,
-              cacheWidth: 512,
-              cacheHeight: 512,
+              cacheWidth: targetPx,
+              cacheHeight: targetPx,
               fit: BoxFit.cover,
               alignment: Alignment.center,
               errorBuilder: (_, _, _) => _placeholder(scheme),
@@ -82,8 +84,8 @@ class PlayerArtwork extends StatelessWidget {
         key: ValueKey('mem_${song?.id ?? initialBytes.hashCode}'),
         width: size,
         height: size,
-        cacheWidth: 512,
-        cacheHeight: 512,
+        cacheWidth: targetPx,
+        cacheHeight: targetPx,
         fit: BoxFit.cover,
         alignment: Alignment.center,
         gaplessPlayback: true,
@@ -101,8 +103,8 @@ class PlayerArtwork extends StatelessWidget {
             bytes,
             width: size,
             height: size,
-            cacheWidth: 512,
-            cacheHeight: 512,
+            cacheWidth: targetPx,
+            cacheHeight: targetPx,
             fit: BoxFit.cover,
             alignment: Alignment.center,
             gaplessPlayback: true,

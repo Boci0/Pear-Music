@@ -25,15 +25,20 @@ import java.util.concurrent.Executors
  * hosts the engine (AudioServiceActivity) — no launcher-activity changes
  * needed.
  */
-class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
+class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler, android.content.ComponentCallbacks2 {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var messenger: BinaryMessenger? = null
     private var context: Context? = null
     private var eventSink: EventChannel.EventSink? = null
     private val executors = mutableMapOf<String, ExecutorService>()
+    private val audioDownloadExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var currentAudioProcessId: String? = null
     @Volatile
     private var initialized = false
+    @Volatile
+    private var ffmpegInitialized = false
 
     /// Set once per process so we only hit the GitHub API once per launch;
     /// after the first run the refreshed yt-dlp persists on disk and
@@ -44,11 +49,13 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         messenger = binding.binaryMessenger
         context = binding.applicationContext
+        context?.registerComponentCallbacks(this)
         MethodChannel(messenger!!, CHANNEL).setMethodCallHandler(this)
         EventChannel(messenger!!, EVENTS).setStreamHandler(this)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        context?.unregisterComponentCallbacks(this)
         MethodChannel(messenger!!, CHANNEL).setMethodCallHandler(null)
         EventChannel(messenger!!, EVENTS).setStreamHandler(null)
         messenger = null
@@ -56,7 +63,28 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         eventSink = null
         executors.values.forEach { it.shutdownNow() }
         executors.clear()
+        audioDownloadExecutor.shutdownNow()
+        currentAudioProcessId = null
         initialized = false
+        ffmpegInitialized = false
+    }
+
+    override fun onTrimMemory(level: Int) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+            // Under critical memory pressure, purge idle completed executors and hint GC
+            val idleKeys = executors.filter { it.value.isTerminated }.keys
+            idleKeys.forEach { executors.remove(it) }
+            System.gc()
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
+
+    override fun onLowMemory() {
+        val idleKeys = executors.filter { it.value.isTerminated }.keys
+        idleKeys.forEach { executors.remove(it) }
+        System.gc()
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -398,7 +426,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     private fun ensureInit(ctx: Context) {
         if (initialized) return
         YoutubeDL.getInstance().init(ctx)
-        FFmpeg.getInstance().init(ctx)
         initialized = true
 
         if (!updateChecked) {
@@ -415,6 +442,17 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         }
     }
 
+    @Synchronized
+    private fun ensureFFmpegInit(ctx: Context) {
+        if (ffmpegInitialized) return
+        try {
+            FFmpeg.getInstance().init(ctx)
+            ffmpegInitialized = true
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "FFmpeg init failed/unavailable: ${e.message}")
+        }
+    }
+
     private fun startDownload(
         ctx: Context,
         url: String,
@@ -428,6 +466,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         executor.execute {
             try {
                 ensureInit(ctx)
+                ensureFFmpegInit(ctx)
                 fun makeRequest(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
@@ -493,10 +532,19 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         processId: String,
         result: MethodChannel.Result,
     ) {
-        val executor = Executors.newSingleThreadExecutor()
-        executors[processId] = executor
-        executor.execute {
+        // Supersede and cancel any previous in-flight audio download to free native Python memory
+        val previousProcessId = currentAudioProcessId
+        if (previousProcessId != null && previousProcessId != processId) {
+            cancelProcess(previousProcessId)
+        }
+        currentAudioProcessId = processId
+
+        audioDownloadExecutor.execute {
             try {
+                if (currentAudioProcessId != processId) {
+                    mainHandler.post { result.error("cancelled", "Superseded by newer audio download", null) }
+                    return@execute
+                }
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT)
                 ensureInit(ctx)
                 fun makeAudioReq(): YoutubeDLRequest {
@@ -532,7 +580,9 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
             } catch (e: Exception) {
                 mainHandler.post { result.error("download_failed", e.message, null) }
             } finally {
-                executors.remove(processId)?.shutdown()
+                if (currentAudioProcessId == processId) {
+                    currentAudioProcessId = null
+                }
                 System.gc()
             }
         }
@@ -591,6 +641,9 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
             YoutubeDL.getInstance().destroyProcessById(processId)
         } catch (_: Exception) {
             // Nothing to destroy.
+        }
+        if (currentAudioProcessId == processId) {
+            currentAudioProcessId = null
         }
         executors.remove(processId)?.shutdownNow()
     }

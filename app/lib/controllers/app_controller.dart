@@ -341,7 +341,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// ran back-to-back every 30s, doubling the connection storm on the router.
   Future<void> _reconcileHostAndGhost() async {
     if (_closing || !identity.isHost) return;
-    final others = _filterReachable(await discoverNearby(allowSubnetScan: true));
+    // Routine background reconciliation uses lightweight UDP multicast instead of
+    // blasting 255 TCP subnet connections across the local router.
+    final others = _filterReachable(await discoverNearby(allowSubnetScan: false));
     await _reconcileHost(others);
     await _reconcileGhostPairings(others);
   }

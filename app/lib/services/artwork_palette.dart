@@ -23,8 +23,8 @@ class ArtworkPalette {
   static const Color fallback = Color(0xFF10B981);
 
   // Bounded LRU caches. Memory caps optimized for high responsiveness and minimal RAM.
-  static const int _maxBytesEntries = 16;
-  static const int _maxAsyncBytesEntries = 24;
+  static const int _maxBytesEntries = 32;
+  static const int _maxAsyncBytesEntries = 48;
   static const int _maxColorEntries = 128;
   static final LinkedHashMap<String, Future<Color>> _cache =
       LinkedHashMap<String, Future<Color>>();

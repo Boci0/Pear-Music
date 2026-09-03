@@ -315,17 +315,16 @@ class StreamCacheManager {
           '--no-mtime',
           '--no-warnings',
           '--no-check-certificates',
+          '--quiet',
           '--force-ipv4',
           '--concurrent-fragments',
-          '1',
+          '4',
           '--buffer-size',
-          '64k',
-          '--http-chunk-size',
-          '10M',
+          '256k',
           '--socket-timeout',
-          '30',
+          '20',
           '--retries',
-          '3',
+          '5',
           '--no-cache-dir',
           'https://www.youtube.com/watch?v=$videoId',
         ];
@@ -335,6 +334,7 @@ class StreamCacheManager {
 
         const timeoutDuration = Duration(seconds: 120);
 
+        process.stdout.drain();
         final stderrBuffer = StringBuffer();
         process.stderr.transform(utf8.decoder).listen((data) {
           stderrBuffer.write(data);

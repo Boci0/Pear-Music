@@ -85,13 +85,27 @@ class LibraryService extends ChangeNotifier {
     await _loadIndex();
     await _loadPlaylists();
     // One-time disk verification to seed the existence cache.
-    for (final s in _songs) {
-      try {
-        final f = File(p.join(_libraryDir!.path, s.fileName));
-        if (await f.exists() && await f.length() > 0) {
-          _filesOnDisk.add(s.id);
+    // Single-pass directory listing gathers all files in one OS call instead of
+    // doing hundreds/thousands of individual File.exists() calls.
+    final existingFileNames = <String>{};
+    try {
+      if (await _libraryDir!.exists()) {
+        await for (final entity in _libraryDir!.list(followLinks: false)) {
+          if (entity is File) {
+            try {
+              if (await entity.length() > 0) {
+                existingFileNames.add(p.basename(entity.path));
+              }
+            } catch (_) {}
+          }
         }
-      } catch (_) {}
+      }
+    } catch (_) {}
+
+    for (final s in _songs) {
+      if (existingFileNames.contains(s.fileName)) {
+        _filesOnDisk.add(s.id);
+      }
     }
     notifyListeners();
   }
@@ -128,7 +142,13 @@ class LibraryService extends ChangeNotifier {
     _checksums.clear();
     if (_indexFile == null || !await _indexFile!.exists()) return;
     try {
-      final decoded = jsonDecode(await _indexFile!.readAsString());
+      final raw = await _indexFile!.readAsString();
+      final dynamic decoded;
+      if (raw.length > 32768) {
+        decoded = await compute(_parseJsonString, raw);
+      } else {
+        decoded = jsonDecode(raw);
+      }
       if (decoded is List) {
         final seenIds = <String>{};
         final seenChecksums = <String>{};
@@ -854,3 +874,5 @@ class _DigestCapture implements Sink<crypto.Digest> {
   @override
   void close() {}
 }
+
+dynamic _parseJsonString(String raw) => jsonDecode(raw);
