@@ -219,16 +219,16 @@ class _SynthesizerPainter extends CustomPainter {
       ..color = activeColor
       ..style = PaintingStyle.fill;
 
-    // Glowing aura effect for active and played portions
+    // GPU-accelerated vector aura for active and played portions (zero Skia mask allocations)
     final activeGlowPaint = Paint()
-      ..color = activeColor.withValues(alpha: (0.35 + (aura * 0.20)).clamp(0.0, 1.0))
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
+      ..color = activeColor.withValues(alpha: (0.16 + (aura * 0.10)).clamp(0.0, 1.0))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5;
 
     final activeHaloPaint = Paint()
-      ..color = activeColor.withValues(alpha: 0.60)
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+      ..color = activeColor.withValues(alpha: (0.35 + (aura * 0.15)).clamp(0.0, 1.0))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
 
     final inactivePaint = Paint()
       ..color = inactiveColor
@@ -239,14 +239,14 @@ class _SynthesizerPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     final cursorGlowPaint = Paint()
-      ..color = cursorColor.withValues(alpha: (0.50 + (aura * 0.25)).clamp(0.0, 1.0))
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+      ..color = cursorColor.withValues(alpha: (0.24 + (aura * 0.12)).clamp(0.0, 1.0))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.5;
 
     final cursorHaloPaint = Paint()
-      ..color = cursorColor.withValues(alpha: 0.85)
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+      ..color = cursorColor.withValues(alpha: (0.50 + (aura * 0.18)).clamp(0.0, 1.0))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
 
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
 
