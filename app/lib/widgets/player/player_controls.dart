@@ -198,6 +198,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                         currentPosition: pos,
                         totalDuration: widget.duration,
                         aura: aura,
+                        enableGlow: appController?.identity.visualizerGlow ?? true,
                         onSeek: (duration) => widget.player.seek(duration),
                         onDragUpdate: (ms) => _dragNotifier.value = ms,
                         onDragEnd: () => _dragNotifier.value = null,

@@ -11,6 +11,7 @@ class VisualSynthesizerBar extends StatefulWidget {
   final Duration currentPosition;
   final Duration totalDuration;
   final double aura;
+  final bool enableGlow;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<double>? onDragUpdate;
   final VoidCallback? onDragEnd;
@@ -21,6 +22,7 @@ class VisualSynthesizerBar extends StatefulWidget {
     required this.currentPosition,
     required this.totalDuration,
     required this.aura,
+    this.enableGlow = true,
     required this.onSeek,
     this.onDragUpdate,
     this.onDragEnd,
@@ -150,6 +152,7 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
                       displayFraction: displayFraction,
                       isPlaying: widget.player.playing,
                       aura: widget.aura,
+                      enableGlow: widget.enableGlow,
                       songMs: _smoothSongMs,
                       activeColor: colorScheme.primary,
                       inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
@@ -170,6 +173,7 @@ class _SynthesizerPainter extends CustomPainter {
   final double displayFraction;
   final bool isPlaying;
   final double aura;
+  final bool enableGlow;
   final double songMs;
   final Color activeColor;
   final Color inactiveColor;
@@ -179,6 +183,7 @@ class _SynthesizerPainter extends CustomPainter {
     required this.displayFraction,
     required this.isPlaying,
     required this.aura,
+    required this.enableGlow,
     required this.songMs,
     required this.activeColor,
     required this.inactiveColor,
@@ -214,6 +219,17 @@ class _SynthesizerPainter extends CustomPainter {
       ..color = activeColor
       ..style = PaintingStyle.fill;
 
+    // Glowing aura effect for active and played portions
+    final activeGlowPaint = Paint()
+      ..color = activeColor.withValues(alpha: (0.35 + (aura * 0.20)).clamp(0.0, 1.0))
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
+
+    final activeHaloPaint = Paint()
+      ..color = activeColor.withValues(alpha: 0.60)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+
     final inactivePaint = Paint()
       ..color = inactiveColor
       ..style = PaintingStyle.fill;
@@ -221,6 +237,16 @@ class _SynthesizerPainter extends CustomPainter {
     final cursorPaint = Paint()
       ..color = cursorColor
       ..style = PaintingStyle.fill;
+
+    final cursorGlowPaint = Paint()
+      ..color = cursorColor.withValues(alpha: (0.50 + (aura * 0.25)).clamp(0.0, 1.0))
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+
+    final cursorHaloPaint = Paint()
+      ..color = cursorColor.withValues(alpha: 0.85)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
 
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
 
@@ -264,8 +290,16 @@ class _SynthesizerPainter extends CustomPainter {
           Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
           Radius.circular(barWidth / 2.0),
         );
+        if (enableGlow) {
+          canvas.drawRRect(cursorRect, cursorGlowPaint);
+          canvas.drawRRect(cursorRect, cursorHaloPaint);
+        }
         canvas.drawRRect(cursorRect, cursorPaint);
       } else if (i < currentBarIndex) {
+        if (enableGlow) {
+          canvas.drawRRect(rect, activeGlowPaint);
+          canvas.drawRRect(rect, activeHaloPaint);
+        }
         canvas.drawRRect(rect, activePaint);
       } else {
         canvas.drawRRect(rect, inactivePaint);
@@ -278,6 +312,7 @@ class _SynthesizerPainter extends CustomPainter {
     return oldDelegate.displayFraction != displayFraction ||
         oldDelegate.isPlaying != isPlaying ||
         oldDelegate.aura != aura ||
+        oldDelegate.enableGlow != enableGlow ||
         oldDelegate.songMs != songMs ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.inactiveColor != inactiveColor ||

@@ -34,6 +34,7 @@ class IdentityService {
   static const _sortOptionKey = 'peerm_sort_option';
   static const _loudnessNormKey = 'peerm_loudness_normalization';
   static const _synthesizerBarKey = 'peerm_synthesizer_bar';
+  static const _visualizerGlowKey = 'peerm_visualizer_glow';
   static const _autoRerollSeedKey = 'peerm_auto_reroll_seed';
   static const _autoplayKey = 'peerm_autoplay';
 
@@ -47,6 +48,7 @@ class IdentityService {
   late SortOption _sortOption;
   late bool _loudnessNormalization;
   late bool _synthesizerBar;
+  late bool _visualizerGlow;
   late bool _autoRerollSeed;
   late bool _autoplay;
 
@@ -65,6 +67,7 @@ class IdentityService {
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
     _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
+    _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
 
@@ -163,6 +166,14 @@ class IdentityService {
   Future<void> setSynthesizerBar(bool value) async {
     _synthesizerBar = value;
     await _prefs.setBool(_synthesizerBarKey, value);
+  }
+
+  bool get visualizerGlow => _visualizerGlow;
+
+  Future<void> setVisualizerGlow(bool value) async {
+    if (_visualizerGlow == value) return;
+    _visualizerGlow = value;
+    await _prefs.setBool(_visualizerGlowKey, value);
   }
 
   bool get autoRerollSeed => _autoRerollSeed;

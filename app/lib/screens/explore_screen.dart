@@ -34,6 +34,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   String? _selectedGenre;
   String _recommendationSeedLabel = 'Trending Mix';
   String? _lastRecommendationSeedTitle;
+  double _genreDragDistance = 0.0;
 
   static const List<String> _genres = [
     'Trending',
@@ -299,6 +300,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   child: SizedBox(
                     height: 38,
                     child: Listener(
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: (_) {
+                        _genreDragDistance = 0.0;
+                      },
+                      onPointerMove: (event) {
+                        if (event.buttons == kPrimaryMouseButton &&
+                            _genreScrollController.hasClients) {
+                          _genreDragDistance += event.delta.dx.abs();
+                          final newOffset =
+                              (_genreScrollController.offset - event.delta.dx)
+                                  .clamp(
+                            0.0,
+                            _genreScrollController.position.maxScrollExtent,
+                          );
+                          _genreScrollController.jumpTo(newOffset);
+                        }
+                      },
                       onPointerSignal: (pointerSignal) {
                         if (pointerSignal is PointerScrollEvent) {
                           final delta = pointerSignal.scrollDelta.dy != 0
@@ -338,6 +356,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               label: Text(genre),
                               selected: isSelected,
                               onSelected: (selected) {
+                                if (_genreDragDistance > 8.0) return;
                                 setState(() {
                                   _selectedGenre = selected ? genre : null;
                                 });
