@@ -57,4 +57,23 @@ void main() {
     expect(await ArtworkPalette.dominant(song), ArtworkPalette.fallback);
     expect(ArtworkPalette.bytes(song), isNull);
   });
+
+  test('readableAccent lifts near-black and dark colors for contrast', () {
+    const nearBlack = Color(0xFF101014);
+    final lifted = ArtworkPalette.readableAccent(nearBlack);
+    final hsl = HSLColor.fromColor(lifted);
+
+    // Lightness must be lifted above 0.65 for visibility on dark background
+    expect(hsl.lightness, greaterThanOrEqualTo(0.65));
+    // Color should have noticeable saturation
+    expect(hsl.saturation, greaterThanOrEqualTo(0.35));
+  });
+
+  test('readableAccent keeps already bright colors legible', () {
+    const brightCyan = Color(0xFF00E5FF);
+    final result = ArtworkPalette.readableAccent(brightCyan);
+    final hsl = HSLColor.fromColor(result);
+
+    expect(hsl.lightness, greaterThanOrEqualTo(0.50));
+  });
 }

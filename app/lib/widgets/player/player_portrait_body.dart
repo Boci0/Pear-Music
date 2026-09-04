@@ -31,8 +31,7 @@ class PlayerPortraitBody extends StatefulWidget {
 }
 
 class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
-  final DraggableScrollableController _sheetController =
-      DraggableScrollableController();
+  final QueueSheetController _sheetController = QueueSheetController();
 
   @override
   void dispose() {
@@ -48,6 +47,7 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
         final bottomInset = MediaQuery.paddingOf(context).bottom;
         final peekHeight = 62.0 + bottomInset;
         final minChildSize = (peekHeight / availableHeight).clamp(0.06, 0.22);
+        final maxHeight = availableHeight * 0.50;
         final artSize =
             ((availableHeight - peekHeight) * 0.36).clamp(140.0, 320.0);
 
@@ -96,26 +96,13 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
               child: ListenableBuilder(
                 listenable: _sheetController,
                 builder: (context, _) {
-                  final currentSize = _sheetController.isAttached
-                      ? _sheetController.size
-                      : minChildSize;
-                  final progress = ((currentSize - minChildSize) /
-                          (0.45 - minChildSize))
-                      .clamp(0.0, 1.0);
+                  final progress = _sheetController.progress;
 
                   return IgnorePointer(
                     ignoring: progress <= 0.001,
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        if (_sheetController.isAttached) {
-                          _sheetController.animateTo(
-                            minChildSize,
-                            duration: const Duration(milliseconds: 240),
-                            curve: Curves.easeOutCubic,
-                          );
-                        }
-                      },
+                      onTap: _sheetController.collapse,
                       child: Container(
                         color: Colors.black.withValues(alpha: 0.55 * progress),
                       ),
@@ -126,13 +113,18 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
             ),
 
             // 3. YouTube Music Style Real-Time Expandable Queue Sheet
-            Positioned.fill(
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
               child: RepaintBoundary(
                 child: ExpandableQueueSheet(
                   player: widget.player,
                   controller: widget.controller,
                   accent: widget.accent,
                   minChildSize: minChildSize,
+                  peekHeight: peekHeight,
+                  maxHeight: maxHeight,
                   sheetController: _sheetController,
                 ),
               ),

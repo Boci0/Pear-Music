@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -8,14 +9,97 @@ import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 
-/// YouTube Music style pull-up queue bottom sheet with 1:1 drag gesture tracking,
-/// 60/120fps fixed-extent virtualization, and layer-isolated repainting.
+/// Controller coordinating expand/collapse state between the expandable queue sheet
+/// and external listeners such as the background dimming scrim.
+class QueueSheetController extends ChangeNotifier {
+  double _progress = 0.0;
+  double _minChildSize = 0.08;
+  double _expandedSize = 0.50;
+
+  void Function()? _collapseCallback;
+  void Function()? _expandCallback;
+  void Function()? _toggleCallback;
+  void Function(double)? _jumpCallback;
+
+  /// Expansion progress from 0.0 (collapsed peek) to 1.0 (fully expanded).
+  double get progress => _progress;
+
+  /// Fractional sheet height relative to screen height for backward compatibility.
+  double get size =>
+      _minChildSize + (_expandedSize - _minChildSize) * _progress;
+
+  double get minChildSize => _minChildSize;
+  double get expandedSize => _expandedSize;
+  bool get isExpanded => _progress > 0.30;
+  bool get isAttached => _collapseCallback != null;
+
+  void attach({
+    required void Function() onCollapse,
+    required void Function() onExpand,
+    required void Function() onToggle,
+    required void Function(double) onJump,
+    required double minSize,
+    double maxSize = 0.50,
+  }) {
+    _collapseCallback = onCollapse;
+    _expandCallback = onExpand;
+    _toggleCallback = onToggle;
+    _jumpCallback = onJump;
+    _minChildSize = minSize;
+    _expandedSize = maxSize;
+  }
+
+  void detach() {
+    _collapseCallback = null;
+    _expandCallback = null;
+    _toggleCallback = null;
+    _jumpCallback = null;
+  }
+
+  void setProgress(double p) {
+    final clamped = p.clamp(0.0, 1.0);
+    if ((_progress - clamped).abs() > 0.0001) {
+      _progress = clamped;
+      notifyListeners();
+    }
+  }
+
+  void collapse() => _collapseCallback?.call();
+  void expand() => _expandCallback?.call();
+  void toggle() => _toggleCallback?.call();
+
+  Future<void> animateTo(
+    double targetSize, {
+    Duration duration = const Duration(milliseconds: 240),
+    Curve curve = Curves.easeOutCubic,
+  }) async {
+    final mid = (_minChildSize + _expandedSize) / 2;
+    if (targetSize <= mid) {
+      collapse();
+    } else {
+      expand();
+    }
+  }
+
+  void jumpTo(double targetSize) {
+    final travel = _expandedSize - _minChildSize;
+    if (travel > 0) {
+      final p = ((targetSize - _minChildSize) / travel).clamp(0.0, 1.0);
+      _jumpCallback?.call(p);
+    }
+  }
+}
+
+/// YouTube Music style pull-up queue bottom sheet with dedicated AnimationController,
+/// smooth drag gesture tracking, effortless expansion threshold, and contrast-guaranteed text.
 class ExpandableQueueSheet extends StatefulWidget {
   final PlayerService player;
   final AppController controller;
   final Color accent;
   final double minChildSize;
-  final DraggableScrollableController sheetController;
+  final double? peekHeight;
+  final double? maxHeight;
+  final QueueSheetController sheetController;
 
   const ExpandableQueueSheet({
     super.key,
@@ -24,285 +108,320 @@ class ExpandableQueueSheet extends StatefulWidget {
     required this.accent,
     required this.minChildSize,
     required this.sheetController,
+    this.peekHeight,
+    this.maxHeight,
   });
 
   @override
   State<ExpandableQueueSheet> createState() => _ExpandableQueueSheetState();
 }
 
-class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
-  static const double _expandedSize = 0.92;
+class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animController;
+  late final CurvedAnimation _curvedAnimation;
+  final ScrollController _scrollController = ScrollController();
 
-  ScrollController? _scrollController;
+  double _dragDistance = 0.0;
+  bool _hasDragged = false;
   bool _didScrollToCurrent = false;
-  bool _isCollapsing = false;
-  double _lastSize = 0.0;
-  DateTime _lastToggleTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
     super.initState();
-    widget.sheetController.addListener(_onSheetSizeChanged);
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+      value: 0.0,
+    );
+    _curvedAnimation = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
+    );
+
+    _animController.addListener(_onAnimTick);
+
+    widget.sheetController.attach(
+      onCollapse: _collapse,
+      onExpand: _expand,
+      onToggle: _toggle,
+      onJump: _jump,
+      minSize: widget.minChildSize,
+      maxSize: 0.50,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant ExpandableQueueSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sheetController != widget.sheetController) {
+      oldWidget.sheetController.detach();
+      widget.sheetController.attach(
+        onCollapse: _collapse,
+        onExpand: _expand,
+        onToggle: _toggle,
+        onJump: _jump,
+        minSize: widget.minChildSize,
+        maxSize: 0.50,
+      );
+    }
   }
 
   @override
   void dispose() {
-    widget.sheetController.removeListener(_onSheetSizeChanged);
+    widget.sheetController.detach();
+    _animController.removeListener(_onAnimTick);
+    _curvedAnimation.dispose();
+    _animController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  void _onSheetSizeChanged() {
-    if (!widget.sheetController.isAttached) return;
-    final currentSize = widget.sheetController.size;
-    final isExpanding = currentSize > _lastSize;
-    _lastSize = currentSize;
+  void _onAnimTick() {
+    widget.sheetController.setProgress(_animController.value);
+  }
 
-    if (currentSize <= widget.minChildSize + 0.03) {
+  void _collapse() {
+    if (!mounted) return;
+    _animController
+        .animateTo(
+      0.0,
+      duration: const Duration(milliseconds: 230),
+      curve: Curves.easeOutCubic,
+    )
+        .then((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.jumpTo(0.0);
+      }
       _didScrollToCurrent = false;
-    } else if (isExpanding && !_isCollapsing && currentSize >= 0.70 && !_didScrollToCurrent) {
-      _maybeScrollToCurrent();
+    });
+  }
+
+  void _expand() {
+    if (!mounted) return;
+    _animController
+        .animateTo(
+      1.0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+    )
+        .then((_) {
+      if (mounted) {
+        _maybeScrollToCurrent();
+      }
+    });
+  }
+
+  void _toggle() {
+    if (_animController.isAnimating) return;
+
+    if (_animController.value > 0.30) {
+      _collapse();
+    } else {
+      _expand();
     }
   }
 
+  void _jump(double progress) {
+    _animController.value = progress;
+  }
+
   void _maybeScrollToCurrent() {
-    if (_isCollapsing || _didScrollToCurrent || !mounted) return;
-    final controller = _scrollController;
-    if (controller == null || !controller.hasClients) return;
+    if (_didScrollToCurrent || !mounted) return;
+    if (!_scrollController.hasClients) return;
 
     final index = widget.player.queueIndex;
     if (index > 2) {
       _didScrollToCurrent = true;
       final targetOffset = (index - 1) * 58.0;
-      controller.animateTo(
-        targetOffset.clamp(0.0, controller.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 280),
+      _scrollController.animateTo(
+        targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
       );
     }
   }
 
-  void _toggleSheet() {
-    final now = DateTime.now();
-    if (now.difference(_lastToggleTime).inMilliseconds < 280) {
+  void _handleDragStart(DragStartDetails details) {
+    _dragDistance = 0.0;
+    _hasDragged = false;
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details, double travel) {
+    if (travel <= 0) return;
+    final delta = details.primaryDelta ?? 0.0;
+    _dragDistance += delta.abs();
+    if (_dragDistance > 4.0) {
+      _hasDragged = true;
+      final nextValue =
+          (_animController.value - (delta / travel)).clamp(0.0, 1.0);
+      _animController.value = nextValue;
+    }
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (!_hasDragged) {
       return;
     }
-    _lastToggleTime = now;
-
-    if (!widget.sheetController.isAttached) return;
-    final currentSize = widget.sheetController.size;
-    final isExpanded = currentSize > (widget.minChildSize + 0.05);
-    if (isExpanded) {
-      _collapseSheet();
+    final vy = details.primaryVelocity ?? 0.0;
+    if (vy < -150) {
+      _expand();
+    } else if (vy > 150) {
+      _collapse();
     } else {
-      _expandSheet();
-    }
-  }
-
-  void _collapseSheet() {
-    if (!widget.sheetController.isAttached) return;
-    _isCollapsing = true;
-    _didScrollToCurrent = true;
-    if (_scrollController != null && _scrollController!.hasClients) {
-      _scrollController!.jumpTo(0.0);
-    }
-    widget.sheetController.animateTo(
-      widget.minChildSize,
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-    ).then((_) {
-      if (mounted) {
-        _isCollapsing = false;
-        _didScrollToCurrent = false;
+      if (_animController.value >= 0.30) {
+        _expand();
+      } else {
+        _collapse();
       }
-    });
-  }
-
-  void _expandSheet() {
-    if (!widget.sheetController.isAttached) return;
-    _isCollapsing = false;
-    _didScrollToCurrent = false;
-    widget.sheetController.animateTo(
-      _expandedSize,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    ).then((_) {
-      _maybeScrollToCurrent();
-    });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ScrollConfiguration(
-      behavior: const MaterialScrollBehavior().copyWith(
-        dragDevices: {
-          PointerDeviceKind.touch,
-          PointerDeviceKind.mouse,
-          PointerDeviceKind.trackpad,
-          PointerDeviceKind.stylus,
-        },
-      ),
-      child: DraggableScrollableSheet(
-        controller: widget.sheetController,
-        initialChildSize: widget.minChildSize,
-        minChildSize: widget.minChildSize,
-        maxChildSize: _expandedSize,
-        snap: true,
-        snapSizes: const [],
-        builder: (context, scrollController) {
-          _scrollController = scrollController;
+    final mediaQuery = MediaQuery.of(context);
+    final totalHeight = mediaQuery.size.height;
+    final bottomInset = mediaQuery.padding.bottom;
 
-          return Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF141418),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(22)),
-              border: Border(
-                top: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  width: 1,
-                ),
+    final peek = widget.peekHeight ??
+        math.max(63.0, (widget.minChildSize * totalHeight) + bottomInset);
+    final maxH = widget.maxHeight ?? (totalHeight * 0.50);
+    final travel = math.max(1.0, maxH - peek);
+
+    return AnimatedBuilder(
+      animation: _curvedAnimation,
+      builder: (context, _) {
+        final currentHeight =
+            lerpDouble(peek, maxH, _curvedAnimation.value)!;
+        final isExpanded = _animController.value > 0.30;
+
+        return Container(
+          height: currentHeight,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: const Color(0xFF141418),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(22)),
+            border: Border(
+              top: BorderSide(
+                color: Colors.white.withValues(alpha: 0.12),
+                width: 1,
               ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black54,
-                  blurRadius: 18,
-                  offset: Offset(0, -4),
-                ),
-              ],
             ),
-            child: CustomScrollView(
-              controller: scrollController,
-              physics: const ClampingScrollPhysics(),
-              slivers: [
-                // Pinned Header: adapts between peek and full toolbar
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _QueueHeaderDelegate(
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 18,
+                offset: Offset(0, -4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Unified Header bar with drag handle and toolbar
+              _QueueHeaderWidget(
+                player: widget.player,
+                accent: widget.accent,
+                isExpanded: isExpanded,
+                onToggle: _toggle,
+                onDragStart: _handleDragStart,
+                onDragUpdate: (details) => _handleDragUpdate(details, travel),
+                onDragEnd: _handleDragEnd,
+              ),
+
+              if (_animController.value > 0.001) ...[
+                const Divider(height: 1, color: Color(0x1AFFFFFF)),
+
+                // Scrollable queue list
+                Expanded(
+                  child: _QueueListView(
                     player: widget.player,
                     accent: widget.accent,
-                    minChildSize: widget.minChildSize,
-                    expandedSize: _expandedSize,
-                    sheetController: widget.sheetController,
-                    onToggle: _toggleSheet,
-                    onCollapse: _collapseSheet,
-                    onExpand: _expandSheet,
+                    scrollController: _scrollController,
+                    onSelectSong: (song, queue) {
+                      _collapse();
+                      widget.player.playSong(
+                        song,
+                        queue: queue,
+                        sourceId: widget.player.queueSourceId,
+                      );
+                    },
                   ),
                 ),
-
-                const SliverToBoxAdapter(
-                  child: Divider(height: 1, color: Color(0x1AFFFFFF)),
-                ),
-
-                // Real-time reactively updated track list
-                _QueueListSliver(
-                  player: widget.player,
-                  accent: widget.accent,
-                  onSelectSong: (song, queue) {
-                    widget.player.playSong(
-                      song,
-                      queue: queue,
-                      sourceId: widget.player.queueSourceId,
-                    );
-                    _collapseSheet();
-                  },
-                ),
               ],
-            ),
-          );
-        },
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
-class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
+class _QueueHeaderWidget extends StatefulWidget {
   final PlayerService player;
   final Color accent;
-  final double minChildSize;
-  final double expandedSize;
-  final DraggableScrollableController sheetController;
+  final bool isExpanded;
   final VoidCallback onToggle;
-  final VoidCallback onCollapse;
-  final VoidCallback onExpand;
+  final void Function(DragStartDetails) onDragStart;
+  final void Function(DragUpdateDetails) onDragUpdate;
+  final void Function(DragEndDetails) onDragEnd;
 
-  const _QueueHeaderDelegate({
+  const _QueueHeaderWidget({
     required this.player,
     required this.accent,
-    required this.minChildSize,
-    required this.expandedSize,
-    required this.sheetController,
+    required this.isExpanded,
     required this.onToggle,
-    required this.onCollapse,
-    required this.onExpand,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
   });
 
   @override
-  double get minExtent => 62.0;
+  State<_QueueHeaderWidget> createState() => _QueueHeaderWidgetState();
+}
+
+class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
+  bool _isHandleHovered = false;
+
+  Color get _readableAccent => ArtworkPalette.readableAccent(widget.accent);
 
   @override
-  double get maxExtent => 62.0;
-
-  @override
-  Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(BuildContext context) {
     return Container(
-      height: 62.0,
+      height: 60.0,
       color: const Color(0xFF141418),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onVerticalDragUpdate: (details) {
-          final delta = details.primaryDelta ?? 0.0;
-          final totalHeight = MediaQuery.sizeOf(context).height;
-          if (totalHeight > 0 && sheetController.isAttached) {
-            final nextSize =
-                (sheetController.size - (delta / totalHeight)).clamp(minChildSize, expandedSize);
-            sheetController.jumpTo(nextSize);
-          }
-        },
-        onVerticalDragEnd: (details) {
-          final vy = details.primaryVelocity ?? 0.0;
-          if (!sheetController.isAttached) return;
-          final midPoint = (minChildSize + expandedSize) / 2;
-          if (vy > 250 || sheetController.size < midPoint) {
-            onCollapse();
-          } else {
-            onExpand();
-          }
-        },
-        onTap: () {
-          if (!sheetController.isAttached) return;
-          if (sheetController.size <= minChildSize + 0.05) {
-            onToggle();
-          }
-        },
+        onVerticalDragStart: widget.onDragStart,
+        onVerticalDragUpdate: widget.onDragUpdate,
+        onVerticalDragEnd: widget.onDragEnd,
+        onTap: widget.onToggle,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Centered drag handle bar acting as the unified expand/collapse toggle
+            // Centered drag handle indicator (hover highlight without nested tap detector)
             Center(
-              child: Tooltip(
-                message: 'Toggle queue',
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: onToggle,
-                    child: Container(
-                      padding: const EdgeInsets.only(
-                        top: 8,
-                        bottom: 6,
-                        left: 36,
-                        right: 36,
-                      ),
-                      color: Colors.transparent,
-                      child: Container(
-                        width: 38,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.32),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) => setState(() => _isHandleHovered = true),
+                onExit: (_) => setState(() => _isHandleHovered = false),
+                child: Container(
+                  padding: const EdgeInsets.only(
+                    top: 6,
+                    bottom: 6,
+                    left: 48,
+                    right: 48,
+                  ),
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: _isHandleHovered
+                          ? Colors.white.withValues(alpha: 0.65)
+                          : Colors.white.withValues(alpha: 0.32),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
@@ -314,29 +433,19 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: ListenableBuilder(
-                  listenable: sheetController,
+                  listenable: widget.player,
                   builder: (context, _) {
-                    final currentSize = sheetController.isAttached
-                        ? sheetController.size
-                        : minChildSize;
-                    final isExpanded = currentSize > (minChildSize + 0.05);
+                    final queue = widget.player.queue;
+                    final nextIndex = widget.player.queueIndex + 1;
+                    final nextSong =
+                        (nextIndex < queue.length) ? queue[nextIndex] : null;
 
-                    return ListenableBuilder(
-                      listenable: player,
-                      builder: (context, _) {
-                        final queue = player.queue;
-                        final nextIndex = player.queueIndex + 1;
-                        final nextSong = (nextIndex < queue.length)
-                            ? queue[nextIndex]
-                            : null;
-
-                        if (isExpanded) {
-                          return _buildExpandedToolbar(context, queue.length);
-                        } else {
-                          return _buildCollapsedPeek(context, queue.length, nextSong);
-                        }
-                      },
-                    );
+                    if (widget.isExpanded) {
+                      return _buildExpandedToolbar(context, queue.length);
+                    } else {
+                      return _buildCollapsedPeek(
+                          context, queue.length, nextSong);
+                    }
                   },
                 ),
               ),
@@ -351,7 +460,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
       BuildContext context, int queueLength, Song? nextSong) {
     return Row(
       children: [
-        Icon(Icons.queue_music_rounded, size: 18, color: accent),
+        Icon(Icons.queue_music_rounded, size: 18, color: _readableAccent),
         const SizedBox(width: 8),
         Text(
           'UP NEXT',
@@ -359,14 +468,14 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
             fontSize: 11.5,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.8,
-            color: accent,
+            color: _readableAccent,
           ),
         ),
         const SizedBox(width: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.18),
+            color: _readableAccent.withValues(alpha: 0.18),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
@@ -374,7 +483,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.bold,
-              color: accent,
+              color: _readableAccent,
             ),
           ),
         ),
@@ -402,7 +511,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
   Widget _buildExpandedToolbar(BuildContext context, int queueLength) {
     return Row(
       children: [
-        Icon(Icons.queue_music_rounded, size: 20, color: accent),
+        Icon(Icons.queue_music_rounded, size: 20, color: _readableAccent),
         const SizedBox(width: 8),
         Text(
           'Up Next',
@@ -415,7 +524,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.16),
+            color: _readableAccent.withValues(alpha: 0.16),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
@@ -423,7 +532,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: accent,
+              color: _readableAccent,
             ),
           ),
         ),
@@ -431,18 +540,18 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
 
         // Autoplay toggle chip
         InkWell(
-          onTap: () => player.setAutoplay(!player.autoplay),
+          onTap: () => widget.player.setAutoplay(!widget.player.autoplay),
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
             decoration: BoxDecoration(
-              color: player.autoplay
-                  ? accent.withValues(alpha: 0.18)
+              color: widget.player.autoplay
+                  ? _readableAccent.withValues(alpha: 0.18)
                   : Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: player.autoplay
-                    ? accent.withValues(alpha: 0.4)
+                color: widget.player.autoplay
+                    ? _readableAccent.withValues(alpha: 0.4)
                     : Colors.white.withValues(alpha: 0.08),
                 width: 1,
               ),
@@ -453,8 +562,8 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
                 Icon(
                   Icons.auto_awesome_rounded,
                   size: 13,
-                  color: player.autoplay
-                      ? accent
+                  color: widget.player.autoplay
+                      ? _readableAccent
                       : Colors.white.withValues(alpha: 0.5),
                 ),
                 const SizedBox(width: 4),
@@ -463,8 +572,8 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: player.autoplay
-                        ? accent
+                    color: widget.player.autoplay
+                        ? _readableAccent
                         : Colors.white.withValues(alpha: 0.6),
                   ),
                 ),
@@ -480,33 +589,24 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
           iconSize: 19,
           visualDensity: VisualDensity.compact,
           tooltip: 'Reroll upcoming recommendations',
-          icon: Icon(Icons.casino_outlined, color: accent),
-          onPressed: () => player.rerollUpcomingQueue(),
+          icon: Icon(Icons.casino_outlined, color: _readableAccent),
+          onPressed: () => widget.player.rerollUpcomingQueue(),
         ),
       ],
     );
   }
-
-  @override
-  bool shouldRebuild(covariant _QueueHeaderDelegate oldDelegate) {
-    return oldDelegate.accent != accent ||
-        oldDelegate.minChildSize != minChildSize ||
-        oldDelegate.expandedSize != expandedSize ||
-        oldDelegate.sheetController != sheetController ||
-        oldDelegate.onToggle != onToggle ||
-        oldDelegate.onCollapse != onCollapse ||
-        oldDelegate.onExpand != onExpand;
-  }
 }
 
-class _QueueListSliver extends StatelessWidget {
+class _QueueListView extends StatelessWidget {
   final PlayerService player;
   final Color accent;
+  final ScrollController scrollController;
   final void Function(Song song, List<Song> queue) onSelectSong;
 
-  const _QueueListSliver({
+  const _QueueListView({
     required this.player,
     required this.accent,
+    required this.scrollController,
     required this.onSelectSong,
   });
 
@@ -519,36 +619,33 @@ class _QueueListSliver extends StatelessWidget {
         final currentIndex = player.queueIndex;
 
         if (queue.isEmpty) {
-          return const SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(
-              child: Text(
-                'Queue is empty',
-                style: TextStyle(color: Colors.white54),
-              ),
+          return const Center(
+            child: Text(
+              'Queue is empty',
+              style: TextStyle(color: Colors.white54),
             ),
           );
         }
 
-        return SliverFixedExtentList(
+        return ListView.builder(
+          controller: scrollController,
           itemExtent: 58.0,
-          delegate: SliverChildBuilderDelegate(
-            (context, i) {
-              final song = queue[i];
-              final isCurrent = i == currentIndex;
+          padding: const EdgeInsets.only(bottom: 16),
+          itemCount: queue.length,
+          itemBuilder: (context, i) {
+            final song = queue[i];
+            final isCurrent = i == currentIndex;
 
-              return _QueueRow(
-                key: ValueKey('queue_row_${song.id}'),
-                song: song,
-                index: i,
-                isCurrent: isCurrent,
-                accent: accent,
-                onTap: () => onSelectSong(song, queue),
-                onRemove: () => player.removeFromQueue(i),
-              );
-            },
-            childCount: queue.length,
-          ),
+            return _QueueRow(
+              key: ValueKey('queue_row_${song.id}'),
+              song: song,
+              index: i,
+              isCurrent: isCurrent,
+              accent: accent,
+              onTap: () => onSelectSong(song, queue),
+              onRemove: () => player.removeFromQueue(i),
+            );
+          },
         );
       },
     );
@@ -573,6 +670,8 @@ class _QueueRow extends StatelessWidget {
     required this.onRemove,
   });
 
+  Color get _readableAccent => ArtworkPalette.readableAccent(accent);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -590,27 +689,27 @@ class _QueueRow extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               color: isCurrent
-                  ? accent.withValues(alpha: 0.12)
+                  ? _readableAccent.withValues(alpha: 0.12)
                   : Colors.transparent,
               border: isCurrent
                   ? Border.all(
-                      color: accent.withValues(alpha: 0.22),
+                      color: _readableAccent.withValues(alpha: 0.22),
                       width: 1,
                     )
                   : null,
             ),
             child: Row(
               children: [
-                // Active bar indicator or index
+                // Track Number or Active indicator bar
                 SizedBox(
-                  width: 32,
+                  width: 38,
                   child: Center(
                     child: isCurrent
                         ? Container(
                             width: 3,
                             height: 18,
                             decoration: BoxDecoration(
-                              color: accent,
+                              color: _readableAccent,
                               borderRadius: BorderRadius.circular(1.5),
                             ),
                           )
@@ -629,7 +728,7 @@ class _QueueRow extends StatelessWidget {
                 _QueueArtworkThumbnail(
                   song: song,
                   isCurrent: isCurrent,
-                  accent: accent,
+                  accent: _readableAccent,
                 ),
 
                 const SizedBox(width: 12),
@@ -649,7 +748,7 @@ class _QueueRow extends StatelessWidget {
                           fontWeight:
                               isCurrent ? FontWeight.w600 : FontWeight.w500,
                           color: isCurrent
-                              ? accent
+                              ? _readableAccent
                               : Colors.white.withValues(alpha: 0.9),
                           letterSpacing: -0.2,
                         ),
@@ -684,7 +783,7 @@ class _QueueRow extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 12),
                     child: Icon(
                       Icons.graphic_eq_rounded,
-                      color: accent,
+                      color: _readableAccent,
                       size: 18,
                     ),
                   ),
@@ -744,7 +843,6 @@ class _QueueArtworkThumbnailState extends State<_QueueArtworkThumbnail> {
       _bytes = cached;
       return;
     }
-    // Asynchronous background isolate load without blocking UI thread
     ArtworkPalette.bytesAsync(widget.song).then((decoded) {
       if (mounted && decoded != null) {
         setState(() => _bytes = decoded);

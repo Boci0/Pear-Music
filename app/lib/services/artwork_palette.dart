@@ -189,12 +189,30 @@ class ArtworkPalette {
   /// A softened, readable accent for controls (play button, sliders, active
   /// highlights). Raw album colours can be too dark or too neon to tint a
   /// control with, so this desaturates and brightens them: saturation is
-  /// clamped to a calm 0.28-0.52 and lightness to a readable 0.56-0.72.
+  /// clamped to a calm 0.32-0.65 and lightness to a readable 0.65-0.82.
   static Color controlAccent(Color accent) {
     final hsl = HSLColor.fromColor(accent);
     return hsl
-        .withSaturation(hsl.saturation.clamp(0.28, 0.52))
-        .withLightness(hsl.lightness.clamp(0.56, 0.72))
+        .withSaturation(hsl.saturation.clamp(0.32, 0.65))
+        .withLightness(hsl.lightness.clamp(0.65, 0.82))
+        .toColor();
+  }
+
+  /// Ensures an accent colour is bright and vibrant enough to be clearly legible
+  /// as text, icons, or active highlights against dark surfaces (#121212 / #141418).
+  /// Lifts dark artwork dominant tones to high-contrast lightness (at least 0.68)
+  /// while keeping saturation vibrant.
+  static Color readableAccent(Color accent, {double minLightness = 0.68}) {
+    final hsl = HSLColor.fromColor(accent);
+    final effectiveLightness = hsl.lightness < minLightness
+        ? minLightness
+        : hsl.lightness.clamp(0.0, 0.88);
+    final effectiveSaturation = hsl.saturation < 0.35
+        ? 0.42
+        : hsl.saturation.clamp(0.0, 0.90);
+    return hsl
+        .withLightness(effectiveLightness)
+        .withSaturation(effectiveSaturation)
         .toColor();
   }
 
@@ -244,7 +262,7 @@ class ArtworkPalette {
         final sat = (maxC - minC) / 255.0;
         final lum = (maxC + minC) / 510.0;
         var score = entry.value * (1 + sat * 2.5);
-        if (lum < 0.12 || lum > 0.88) score *= 0.3; // near black / white
+        if (lum < 0.15 || lum > 0.88) score *= 0.3; // near black / white
         if (sat < 0.15) score *= 0.4; // gray
         if (score > bestScore) {
           bestScore = score;
@@ -253,7 +271,8 @@ class ArtworkPalette {
       }
 
       if (best == null) return fallback;
-      return Color(0xFF000000 | best);
+      final raw = Color(0xFF000000 | best);
+      return readableAccent(raw);
     } catch (_) {
       return fallback;
     }
