@@ -122,13 +122,24 @@ jobs:
           h3=$(sha256sum PearMusic-Android-armv7.apk | cut -d' ' -f1)
           printf '%s *PearMusic-Windows-x64.zip\n%s *PearMusic-Android-arm64.apk\n%s *PearMusic-Android-armv7.apk' "$h1" "$h2" "$h3" > SHA256SUMS
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" \
-            PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
-            --title "Pear Music ${TAG#v}" \
-            --generate-notes
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading release assets with clobber"
+            gh release upload "$TAG" \
+              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" \
+              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Pear Music ${TAG#v}" \
+              --generate-notes
+          fi
+
 
