@@ -92,35 +92,37 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
             ),
 
             // 2. Dimming Scrim when sheet is expanded (tap outside to collapse)
-            ListenableBuilder(
-              listenable: _sheetController,
-              builder: (context, _) {
-                final currentSize = _sheetController.isAttached
-                    ? _sheetController.size
-                    : minChildSize;
-                final progress = ((currentSize - minChildSize) /
-                        (0.45 - minChildSize))
-                    .clamp(0.0, 1.0);
-                if (progress <= 0.001) return const SizedBox.shrink();
+            Positioned.fill(
+              child: ListenableBuilder(
+                listenable: _sheetController,
+                builder: (context, _) {
+                  final currentSize = _sheetController.isAttached
+                      ? _sheetController.size
+                      : minChildSize;
+                  final progress = ((currentSize - minChildSize) /
+                          (0.45 - minChildSize))
+                      .clamp(0.0, 1.0);
 
-                return Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      if (_sheetController.isAttached) {
-                        _sheetController.animateTo(
-                          minChildSize,
-                          duration: const Duration(milliseconds: 240),
-                          curve: Curves.easeOutCubic,
-                        );
-                      }
-                    },
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.55 * progress),
+                  return IgnorePointer(
+                    ignoring: progress <= 0.001,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        if (_sheetController.isAttached) {
+                          _sheetController.animateTo(
+                            minChildSize,
+                            duration: const Duration(milliseconds: 240),
+                            curve: Curves.easeOutCubic,
+                          );
+                        }
+                      },
+                      child: Container(
+                        color: Colors.black.withValues(alpha: 0.55 * progress),
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
 
             // 3. YouTube Music Style Real-Time Expandable Queue Sheet
