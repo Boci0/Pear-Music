@@ -1,4 +1,6 @@
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
@@ -55,5 +57,35 @@ void main() {
 
     await handler.customAction('peerm_shuffle');
     expect(player.shuffle, isFalse);
+  });
+
+  test('playbackState provides standard transport controls for Android 13+', () {
+    handler.updateState(
+      playing: false,
+      processingState: ProcessingState.ready,
+      position: Duration.zero,
+      bufferedPosition: Duration.zero,
+      speed: 1.0,
+      loopMode: LoopSetting.off,
+      shuffle: false,
+    );
+
+    final state = handler.playbackState.value;
+    expect(state.controls.length, 5);
+    expect(state.controls[1], MediaControl.skipToPrevious);
+    expect(state.controls[2], MediaControl.play);
+    expect(state.controls[3], MediaControl.skipToNext);
+    expect(state.androidCompactActionIndices, const [1, 2, 3]);
+
+    handler.updateState(
+      playing: true,
+      processingState: ProcessingState.ready,
+      position: Duration.zero,
+      bufferedPosition: Duration.zero,
+      speed: 1.0,
+      loopMode: LoopSetting.off,
+      shuffle: false,
+    );
+    expect(handler.playbackState.value.controls[2], MediaControl.pause);
   });
 }
