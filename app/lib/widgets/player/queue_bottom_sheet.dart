@@ -73,6 +73,25 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
     }
   }
 
+  DateTime _lastToggleTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _toggleSheet() {
+    final now = DateTime.now();
+    if (now.difference(_lastToggleTime).inMilliseconds < 280) {
+      return;
+    }
+    _lastToggleTime = now;
+
+    if (!widget.sheetController.isAttached) return;
+    final currentSize = widget.sheetController.size;
+    final isExpanded = currentSize > (widget.minChildSize + 0.05);
+    if (isExpanded) {
+      _collapseSheet();
+    } else {
+      _expandSheet();
+    }
+  }
+
   void _collapseSheet() {
     if (!widget.sheetController.isAttached) return;
     widget.sheetController.animateTo(
@@ -145,8 +164,7 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
                     accent: widget.accent,
                     minChildSize: widget.minChildSize,
                     sheetController: widget.sheetController,
-                    onTapPeek: _expandSheet,
-                    onCollapse: _collapseSheet,
+                    onToggle: _toggleSheet,
                   ),
                 ),
 
@@ -181,16 +199,14 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
   final Color accent;
   final double minChildSize;
   final DraggableScrollableController sheetController;
-  final VoidCallback onTapPeek;
-  final VoidCallback onCollapse;
+  final VoidCallback onToggle;
 
   const _QueueHeaderDelegate({
     required this.player,
     required this.accent,
     required this.minChildSize,
     required this.sheetController,
-    required this.onTapPeek,
-    required this.onCollapse,
+    required this.onToggle,
   });
 
   @override
@@ -236,21 +252,39 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
         onTap: () {
           if (!sheetController.isAttached) return;
           if (sheetController.size <= minChildSize + 0.05) {
-            onTapPeek();
+            onToggle();
           }
         },
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Centered drag handle pill
+            // Centered drag handle bar acting as the unified expand/collapse toggle
             Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(top: 8, bottom: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.28),
-                  borderRadius: BorderRadius.circular(2),
+              child: Tooltip(
+                message: 'Toggle queue',
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onToggle,
+                    child: Container(
+                      padding: const EdgeInsets.only(
+                        top: 8,
+                        bottom: 6,
+                        left: 36,
+                        right: 36,
+                      ),
+                      color: Colors.transparent,
+                      child: Container(
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.32),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -338,15 +372,9 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
               ),
             ),
           ),
-          const SizedBox(width: 6),
         ] else ...[
           const Spacer(),
         ],
-        Icon(
-          Icons.keyboard_arrow_up_rounded,
-          size: 22,
-          color: Colors.white.withValues(alpha: 0.65),
-        ),
       ],
     );
   }
@@ -425,7 +453,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
           ),
         ),
 
-        const SizedBox(width: 2),
+        const SizedBox(width: 4),
 
         // Reroll recommendations button
         IconButton(
@@ -435,18 +463,6 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
           icon: Icon(Icons.casino_outlined, color: accent),
           onPressed: () => player.rerollUpcomingQueue(),
         ),
-
-        // Collapse chevron button
-        IconButton(
-          iconSize: 22,
-          visualDensity: VisualDensity.compact,
-          tooltip: 'Collapse',
-          icon: Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: Colors.white.withValues(alpha: 0.7),
-          ),
-          onPressed: onCollapse,
-        ),
       ],
     );
   }
@@ -455,7 +471,8 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(covariant _QueueHeaderDelegate oldDelegate) {
     return oldDelegate.accent != accent ||
         oldDelegate.minChildSize != minChildSize ||
-        oldDelegate.sheetController != sheetController;
+        oldDelegate.sheetController != sheetController ||
+        oldDelegate.onToggle != onToggle;
   }
 }
 
