@@ -108,7 +108,9 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
         minChildSize: widget.minChildSize,
         maxChildSize: 0.94,
         snap: true,
-        snapSizes: [widget.minChildSize, 0.75, 0.94],
+        snapSizes: [
+          if (0.75 > widget.minChildSize && 0.75 < 0.94) 0.75,
+        ],
         builder: (context, scrollController) {
           _scrollController = scrollController;
 
@@ -201,6 +203,7 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
   Widget build(
       BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
+      height: 62.0,
       color: const Color(0xFF141418),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
