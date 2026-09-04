@@ -440,7 +440,8 @@ class LibraryService extends ChangeNotifier {
   /// Explicitly tear down the long-lived hash worker (kill isolate, close
   /// ports). Safe to call any time; called from [dispose] and by the idle
   /// timer so the app never keeps a parked isolate after transfers finish.
-  static void killHashWorker() {
+  static void killHashWorker({bool force = false}) {
+    if (!force && _hashJobs.isNotEmpty) return;
     _hashIdleTimer?.cancel();
     _hashIdleTimer = null;
     _hashIsolate?.kill(priority: Isolate.beforeNextEvent);
@@ -460,14 +461,16 @@ class LibraryService extends ChangeNotifier {
   /// future tail; the next job's result is only emitted after the previous
   /// result has been sent back to the main isolate.
   static void _hashWorkerMain(SendPort ready) {
-    // [ready] points back at the main isolate's reply port — results MUST be
+    // [ready] points back at the main isolate's reply port; results MUST be
     // sent there (sending on our own job port would loop back to ourselves).
     final port = ReceivePort();
     ready.send(port.sendPort);
     var tail = Future<void>.value();
+    var pending = 0;
     port.listen((job) {
       final seq = job[0] as int;
       final path = job[1] as String;
+      pending++;
       tail = tail.then((_) async {
         Object result;
         try {
@@ -479,6 +482,11 @@ class LibraryService extends ChangeNotifier {
         // batch of verifications is queued back-to-back.
         await Future<void>.delayed(const Duration(milliseconds: 16));
         ready.send([seq, result]);
+        pending--;
+        if (pending <= 0) {
+          pending = 0;
+          tail = Future<void>.value();
+        }
       });
     });
   }

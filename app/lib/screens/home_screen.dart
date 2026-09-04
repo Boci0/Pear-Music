@@ -5,21 +5,13 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
-import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 import '../widgets/song_tile.dart';
-import '../widgets/transfer_list.dart';
-import '../widgets/youtube_song_tile.dart';
 import 'playlists_screen.dart';
-
-/// Categories for search filtering.
-enum SearchFilter { streaming, all, library }
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
@@ -33,78 +25,14 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSelecting = false;
   bool _isSearching = false;
   bool _showOnlyFavorites = false;
-  SearchFilter _searchFilter = SearchFilter.streaming;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = {};
-  List<YouTubeSearchResult> _ytResults = [];
-  List<String> _recentSearches = [];
-  bool _isSearchingYt = false;
-  Timer? _ytSearchDebounce;
-  int _searchRequestId = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadRecentSearches();
-  }
-
-  Future<void> _loadRecentSearches() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final list = prefs.getStringList('peerm_recent_searches') ?? [];
-      if (mounted) {
-        setState(() => _recentSearches = list);
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _saveRecentSearch(String query) async {
-    final clean = query.trim();
-    if (clean.length < 2) return;
-    try {
-      final updated = [
-        clean,
-        ..._recentSearches.where((s) => s.toLowerCase() != clean.toLowerCase()),
-      ].take(6).toList();
-      setState(() => _recentSearches = updated);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('peerm_recent_searches', updated);
-    } catch (_) {}
-  }
 
   @override
   void dispose() {
-    _ytSearchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _onSearchQueryChanged(String v) {
-    setState(() => _searchQuery = v);
-    _ytSearchDebounce?.cancel();
-    final reqId = ++_searchRequestId;
-    if (v.trim().length < 2) {
-      setState(() {
-        _ytResults = [];
-        _isSearchingYt = false;
-      });
-      return;
-    }
-    if (_searchFilter == SearchFilter.library) return;
-    setState(() => _isSearchingYt = true);
-    _ytSearchDebounce = Timer(const Duration(milliseconds: 350), () async {
-      final res = await YouTubeSearchService.search(v);
-      if (mounted && _searchQuery == v && reqId == _searchRequestId) {
-        setState(() {
-          _ytResults = res;
-          _isSearchingYt = false;
-        });
-        if (res.isNotEmpty) {
-          _saveRecentSearch(v);
-        }
-      }
-    });
   }
 
   bool get _isDesktop =>
@@ -294,170 +222,22 @@ class _HomeScreenState extends State<HomeScreen> {
       content = CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('Streaming'),
-                    selected: _searchFilter == SearchFilter.streaming,
-                    onSelected: (_) {
-                      setState(() => _searchFilter = SearchFilter.streaming);
-                      _onSearchQueryChanged(_searchQuery);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('All'),
-                    selected: _searchFilter == SearchFilter.all,
-                    onSelected: (_) {
-                      setState(() => _searchFilter = SearchFilter.all);
-                      _onSearchQueryChanged(_searchQuery);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Library'),
-                    selected: _searchFilter == SearchFilter.library,
-                    onSelected: (_) => setState(() => _searchFilter = SearchFilter.library),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_searchQuery.trim().isEmpty && _recentSearches.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'RECENT SEARCHES',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: _recentSearches.map((term) {
-                        return ActionChip(
-                          avatar: const Icon(Icons.history, size: 16),
-                          label: Text(term),
-                          onPressed: () {
-                            _searchController.text = term;
-                            _onSearchQueryChanged(term);
-                          },
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          if (_searchFilter != SearchFilter.library) ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                child: Row(
-                  children: [
-                    Text(
-                      'STREAMING / ONLINE (${_ytResults.length})',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    if (_isSearchingYt) ...[
-                      const SizedBox(width: 8),
-                      const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            if (_isSearchingYt && _ytResults.isEmpty)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (_ytResults.isEmpty && _searchQuery.trim().length >= 2)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Text(
-                    'No online results found',
-                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
-                  ),
-                ),
-              )
-            else if (_searchQuery.trim().length < 2)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Text(
-                    'Type at least 2 characters to search streaming',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                  ),
-                ),
-              )
-            else
-              SliverFixedExtentList.builder(
-                itemExtent: 68.0,
-                itemCount: _ytResults.length,
-                findChildIndexCallback: (Key key) {
-                  final valueKey = key as ValueKey<String>?;
-                  if (valueKey == null) return null;
-                  final index = _ytResults.indexWhere((r) => r.videoId == valueKey.value);
-                  return index >= 0 ? index : null;
-                },
-                itemBuilder: (context, i) {
-                  final result = _ytResults[i];
-                  return YouTubeSongTile(
-                    key: ValueKey(result.videoId),
-                    result: result,
-                    allResults: _ytResults,
-                    isCurrent: controller.player.currentSong?.id == 'stream_${result.videoId}' ||
-                        controller.player.currentSong?.title == result.title,
-                  );
-                },
-              ),
-          ],
-          if (_searchFilter != SearchFilter.streaming) ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          if (songs.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
                 child: Text(
-                  'IN YOUR LIBRARY (${songs.length})',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
+                  'No matching songs in library',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.outline,
                   ),
                 ),
               ),
-            ),
-            if (songs.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Text(
-                    'No local matches',
-                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
-                  ),
-                ),
-              )
-            else
-              SliverFixedExtentList.builder(
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: 24, top: 8),
+              sliver: SliverFixedExtentList.builder(
                 itemExtent: 68.0,
                 itemCount: songs.length,
                 findChildIndexCallback: (Key key) {
@@ -490,15 +270,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
-          ],
-          const SliverToBoxAdapter(child: SizedBox(height: 32)),
+            ),
         ],
       );
     } else {
       content = CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          const SliverToBoxAdapter(child: TransferList()),
           if (_showOnlyFavorites)
             SliverToBoxAdapter(
               child: Container(
@@ -617,8 +395,6 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () {
             setState(() {
               _searchQuery = '';
-              _ytResults = [];
-              _isSearchingYt = false;
               _searchController.clear();
             });
           },
@@ -654,37 +430,18 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       appBarActions = [
         IconButton(
-          tooltip: 'Search library & YouTube',
+          tooltip: 'Search library',
           icon: const Icon(Icons.search),
           onPressed: () => setState(() => _isSearching = true),
         ),
         PopupMenuButton<String>(
-          tooltip: 'Add & Sync options',
+          tooltip: 'Add songs',
           icon: const Icon(Icons.add),
           onSelected: (val) async {
             if (val == 'local') {
               controller.addFilesFromPicker();
             } else if (val == 'link') {
               _openYouTubeDialog(context);
-            } else if (val == 'sync') {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Reconnecting & Syncing library...'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-              final count = await controller.forceSync();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      count > 0
-                          ? 'Resynced with $count active peer(s)'
-                          : 'Reconnected signaling; scanning for peers',
-                    ),
-                  ),
-                );
-              }
             }
           },
           itemBuilder: (_) => const [
@@ -705,16 +462,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icon(Icons.link, size: 20),
                   SizedBox(width: 12),
                   Text('Add from link (YouTube/Spotify)'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'sync',
-              child: Row(
-                children: [
-                  Icon(Icons.sync, size: 20),
-                  SizedBox(width: 12),
-                  Text('Force sync files'),
                 ],
               ),
             ),
@@ -856,8 +603,6 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _isSearching = false;
             _searchQuery = '';
-            _ytResults = [];
-            _isSearchingYt = false;
             _searchController.clear();
           });
         },
@@ -866,10 +611,10 @@ class _HomeScreenState extends State<HomeScreen> {
         controller: _searchController,
         autofocus: true,
         decoration: const InputDecoration(
-          hintText: 'Search songs, artists, or YouTube...',
+          hintText: 'Search library...',
           border: InputBorder.none,
         ),
-        onChanged: _onSearchQueryChanged,
+        onChanged: (v) => setState(() => _searchQuery = v),
       );
     } else if (_isSelecting) {
       leading = IconButton(
@@ -893,11 +638,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
           const Text('Library'),
-          const SizedBox(width: 8),
-          _ConnectionDot(
-            status: controller.connectionStatus,
-            hosting: controller.isHostingServer,
-          ),
         ],
       );
     }
@@ -909,35 +649,6 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: appBarActions,
       ),
       body: body,
-    );
-  }
-}
-
-
-
-/// Compact connection indicator for narrow/mobile app bars (a plain colored
-/// dot instead of a full chip, so the title is never squeezed out).
-class _ConnectionDot extends StatelessWidget {
-  final String status;
-  final bool hosting;
-  const _ConnectionDot({required this.status, required this.hosting});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (status) {
-      'connected' => hosting ? Colors.teal : Colors.green,
-      'connecting' => Colors.orange,
-      _ => Colors.grey,
-    };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Center(
-        child: Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-      ),
     );
   }
 }
@@ -1119,8 +830,7 @@ class _YouTubeDialogState extends State<_YouTubeDialog> {
               Text(
                 'YouTube links download the audio straight to this device. Spotify '
                 'links are matched to their YouTube source (Spotify audio is '
-                'DRM-protected), so either way it syncs to your paired devices '
-                'with artwork.',
+                'DRM-protected), with full artwork metadata.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),

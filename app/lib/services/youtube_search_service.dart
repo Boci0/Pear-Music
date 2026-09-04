@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
+import 'recommendation_service.dart';
 
 /// Representation of a YouTube search track result.
 class YouTubeSearchResult {
@@ -64,6 +65,31 @@ class YouTubeSearchService {
       return _cache[clean]!;
     }
 
+    // 1. Primary: YouTube Music Innertube API (structured, resilient, not blocked by 400)
+    try {
+      final innertubeResults = await RecommendationService.searchInnertubeSongs(clean, limit: limit);
+      if (innertubeResults.isNotEmpty) {
+        final list = innertubeResults
+            .map((item) => YouTubeSearchResult(
+                  videoId: item.videoId,
+                  title: item.title,
+                  author: item.artist,
+                  duration: item.duration,
+                  thumbnailUrl: item.thumbnailUrl,
+                ))
+            .toList();
+
+        if (_cache.length >= _maxCacheEntries) {
+          _cache.remove(_cache.keys.first);
+        }
+        _cache[clean] = list;
+        return list;
+      }
+    } catch (e) {
+      debugPrint('[YouTubeSearchService] Innertube search fallback: $e');
+    }
+
+    // 2. Fallback: youtube_explode HTML scraper
     try {
       final searchResults = await _client.search.search(clean);
       final list = <YouTubeSearchResult>[];

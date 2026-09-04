@@ -3,12 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show PaintingBinding;
 
 import '../models/playlist.dart';
 import '../models/song.dart';
+import 'artwork_palette.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
 import 'relay_data_channel.dart';
+import 'signaling_service.dart';
 import 'update_service.dart';
 
 /// Progress of an in-flight transfer (for the UI).
@@ -504,9 +507,23 @@ class SyncService extends ChangeNotifier {
       _completedTimer = null;
     }
     _ignoredSongChunks.clear();
+
+    // Memory reclamation: terminate transfer isolates and flush decoded image caches
+    // so resident memory returns to the audio playback baseline instead of staying
+    // inflated above 400MB.
+    SignalingService.killCryptoWorker();
+    LibraryService.killHashWorker();
+    ArtworkPalette.compactMemory();
+    try {
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      PaintingBinding.instance.imageCache.clear();
+    } catch (_) {
+      // Safe fallback when running in headless test environments where UI bindings are not mounted.
+    }
+
     // Flush one nudge now that transfers have settled so peers get the final manifest
     _scheduleNudge();
-    debugPrint('[sync] idle: hashJobs pending handled by LibraryService; '
+    debugPrint('[sync] idle: memory compacted & workers cleared; '
         'incoming=${_incoming.length} sending=${_sending.length} '
         'transfers=${_transfers.length} completed=${_completed.length}');
   }

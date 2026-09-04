@@ -52,8 +52,11 @@ class PlayerService extends ChangeNotifier {
   String? queueTitle;
   LoopSetting _loopMode = LoopSetting.off;
   bool _shuffle = false;
-  bool _autoplay = true;
+  bool _autoplay = false;
   final Set<String> _lockedSongIds = {};
+  bool _autoRerollSeed = false;
+  Timer? _autoRerollDebounceTimer;
+  String? _lastAutoRerolledSongId;
 
   String? _continuationToken;
   bool _isLoadingRecommendations = false;
@@ -75,6 +78,10 @@ class PlayerService extends ChangeNotifier {
 
   PlayerService(this.library, {this.identity, this.audioHandler, AudioPlayer? player}) {
     _player = player ?? AudioPlayer();
+    if (identity != null) {
+      _autoRerollSeed = identity!.autoRerollSeed;
+      _autoplay = identity!.autoplay;
+    }
     _initAudioHandler();
   }
 
@@ -131,9 +138,33 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool get autoRerollSeed => _autoRerollSeed;
+
+  void toggleAutoRerollSeed() {
+    _autoRerollSeed = !_autoRerollSeed;
+    identity?.setAutoRerollSeed(_autoRerollSeed);
+    if (_autoRerollSeed && currentSong != null) {
+      _lastAutoRerolledSongId = currentSong!.id;
+      unawaited(rerollNextTrackOnly());
+    }
+    notifyListeners();
+  }
+
+  void setAutoRerollSeed(bool value) {
+    if (_autoRerollSeed == value) return;
+    _autoRerollSeed = value;
+    identity?.setAutoRerollSeed(_autoRerollSeed);
+    if (_autoRerollSeed && currentSong != null) {
+      _lastAutoRerolledSongId = currentSong!.id;
+      unawaited(rerollNextTrackOnly());
+    }
+    notifyListeners();
+  }
+
   void setAutoplay(bool value) {
     if (_autoplay == value) return;
     _autoplay = value;
+    identity?.setAutoplay(_autoplay);
     notifyListeners();
   }
 
@@ -545,6 +576,112 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
+  /// Auto-rerolls the single next track following the current song, and immediately
+  /// caches it in the background so it is instantly ready when the current track finishes.
+  Future<bool> rerollNextTrackOnly() async {
+    if (currentSong == null || _queue.isEmpty) return false;
+    if (_isLoadingRecommendations) return false;
+    _isLoadingRecommendations = true;
+    notifyListeners();
+
+    try {
+      final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
+      final head = _queue.sublist(0, activeIndex + 1);
+      final upcoming = _queue.length > activeIndex + 1
+          ? _queue.sublist(activeIndex + 1)
+          : <Song>[];
+      final lockedUpcoming =
+          upcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
+
+      final excludeIds = RecommendationService.normalizeVideoIds([
+        ...head.map((s) => s.id),
+        ...lockedUpcoming.map((s) => s.id),
+      ]);
+
+      final seed = currentSong ?? head.last;
+      DebugLog.write('[radio] Auto-rerolling 1 next track for "${seed.title}"');
+
+      RecommendationBatch batch;
+      try {
+        batch = await RecommendationService.fetchRadio(
+          seed,
+          excludeVideoIds: excludeIds,
+        );
+      } catch (e) {
+        DebugLog.write(
+            '[radio] Online reroll error ($e), falling back to offline library');
+        batch = const RecommendationBatch(items: []);
+      }
+
+      Song? nextSong;
+      if (batch.items.isNotEmpty) {
+        final existingVideoIds = excludeIds.toSet();
+        final existingTitles = {
+          ...head.map((s) => s.title.toLowerCase().trim()),
+          ...lockedUpcoming.map((s) => s.title.toLowerCase().trim()),
+        };
+
+        for (final item in batch.items) {
+          if (existingVideoIds.contains(item.videoId)) continue;
+          final cleanSong = item.toSong();
+          final cleanTitle = cleanSong.title.toLowerCase().trim();
+          if (existingTitles.contains(cleanTitle)) continue;
+
+          nextSong = cleanSong;
+          break;
+        }
+      }
+
+      if (nextSong == null) {
+        final offlineExcludeIds = {
+          ...head.map((s) => s.id),
+          ...upcoming.map((s) => s.id),
+        };
+        final offline = RecommendationService.getOfflineRecommendations(
+          seed,
+          library.songs,
+          excludeSongIds: offlineExcludeIds,
+        );
+        if (offline.isNotEmpty) {
+          nextSong = offline.first;
+        }
+      }
+
+      if (nextSong != null) {
+        _queue = [...head, ...lockedUpcoming, nextSong];
+        _updateActiveQueueCacheProtection();
+        DebugLog.write(
+            '[radio] Auto-reroll 1 next track selected: "${nextSong.title}" (${nextSong.id})');
+
+        if (nextSong.sourceDeviceId == 'stream') {
+          final vId = RecommendationService.extractVideoId(nextSong.id) ??
+              nextSong.id.replaceFirst('stream_', '');
+          if (vId.isNotEmpty && !StreamCacheManager.isStreamCachedSync(vId)) {
+            DebugLog.write(
+                '[radio] Starting immediate caching for rerolled track: $vId');
+            _isPreloadingUpcoming = true;
+            StreamCacheManager.preloadSlidingWindow([vId],
+                onTrackCached: (cachedId) {
+              if (cachedId == vId) {
+                _isPreloadingUpcoming = false;
+                notifyListeners();
+              }
+            });
+          }
+        }
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      DebugLog.write('[radio] rerollNextTrackOnly error: $e');
+      return false;
+    } finally {
+      _isLoadingRecommendations = false;
+      notifyListeners();
+    }
+  }
+
   int _playRequestToken = 0;
 
   /// Play [song], optionally in the context of [queue] (e.g. a playlist).
@@ -734,7 +871,15 @@ class PlayerService extends ChangeNotifier {
       _publishNotificationState();
       notifyListeners();
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
-      _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
+      if (_autoRerollSeed) {
+        final hasUpcoming = _queueIndex < _queue.length - 1;
+        if (song.id != _lastAutoRerolledSongId || !hasUpcoming) {
+          _lastAutoRerolledSongId = song.id;
+          _scheduleAutoReroll(token);
+        }
+      } else {
+        _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
+      }
       if (_pendingNaturalAdvance) {
         _pendingNaturalAdvance = false;
         DebugLog.write('[player] Song reached completed state during/immediately after play setup; auto-advancing next');
@@ -773,6 +918,18 @@ class PlayerService extends ChangeNotifier {
     }
     _consecutiveStreamFailures = 0;
     StreamCacheManager.resetFailureCounter();
+  }
+
+  void _scheduleAutoReroll(int token) {
+    _autoRerollDebounceTimer?.cancel();
+    _autoRerollDebounceTimer = Timer(const Duration(milliseconds: 350), () async {
+      _autoRerollDebounceTimer = null;
+      if (token != _playRequestToken || !_autoRerollSeed || currentSong == null) {
+        return;
+      }
+      DebugLog.write('[radio] Auto-rerolling next track for "${currentSong!.title}"');
+      await rerollNextTrackOnly();
+    });
   }
 
   Timer? _preloadDebounceTimer;
@@ -970,6 +1127,19 @@ class PlayerService extends ChangeNotifier {
           await _player.seek(Duration.zero);
           notifyListeners();
           return;
+        }
+
+        // Auto-reroll seed: fetch single next track and continue
+        if (_autoRerollSeed && currentSong != null) {
+          final rerolled = await rerollNextTrackOnly();
+          if (rerolled && _queueIndex + 1 < _queue.length) {
+            final target = _queue[_queueIndex + 1];
+            _queueIndex = _queueIndex + 1;
+            currentSong = target;
+            notifyListeners();
+            await playSong(target, queue: _queue);
+            return;
+          }
         }
 
         // Autoplay: fetch next batch and continue
@@ -1175,6 +1345,7 @@ class PlayerService extends ChangeNotifier {
   @override
   void dispose() {
     _preloadDebounceTimer?.cancel();
+    _autoRerollDebounceTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

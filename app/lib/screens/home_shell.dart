@@ -7,7 +7,7 @@ import '../services/player_theme.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/desktop_player_bar.dart';
 import '../widgets/player_bar.dart';
-import 'devices_screen.dart';
+import 'explore_screen.dart';
 import 'home_screen.dart';
 import 'playlist_detail_screen.dart';
 import 'settings_screen.dart';
@@ -27,7 +27,7 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _screens = [
     HomeScreen(),
-    DevicesScreen(),
+    ExploreScreen(),
     SettingsScreen(),
   ];
 
@@ -100,10 +100,6 @@ class _HomeShellState extends State<HomeShell> {
     }
 
     // Mobile layout
-    final pairedCount = context.select<AppController, int>(
-      (c) => c.pairedDevices.length,
-    );
-
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -118,7 +114,6 @@ class _HomeShellState extends State<HomeShell> {
             _MinimalistNavBar(
               selectedIndex: _index,
               onDestinationSelected: (i) => setState(() => _index = i),
-              peerCount: pairedCount,
             ),
           ],
         ),
@@ -130,12 +125,10 @@ class _HomeShellState extends State<HomeShell> {
 class _MinimalistNavBar extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
-  final int peerCount;
 
   const _MinimalistNavBar({
     required this.selectedIndex,
     required this.onDestinationSelected,
-    this.peerCount = 0,
   });
 
   @override
@@ -156,10 +149,9 @@ class _MinimalistNavBar extends StatelessWidget {
           _NavBarItem(
             index: 1,
             selectedIndex: selectedIndex,
-            label: 'Devices',
-            inactiveIcon: Icons.devices_other_outlined,
-            activeIcon: Icons.devices_other_rounded,
-            badgeCount: peerCount,
+            label: 'Explore',
+            inactiveIcon: Icons.explore_outlined,
+            activeIcon: Icons.explore_rounded,
             onTap: () => onDestinationSelected(1),
           ),
           _NavBarItem(
@@ -182,7 +174,6 @@ class _NavBarItem extends StatelessWidget {
   final String label;
   final IconData inactiveIcon;
   final IconData activeIcon;
-  final int badgeCount;
   final VoidCallback onTap;
 
   const _NavBarItem({
@@ -191,7 +182,6 @@ class _NavBarItem extends StatelessWidget {
     required this.label,
     required this.inactiveIcon,
     required this.activeIcon,
-    this.badgeCount = 0,
     required this.onTap,
   });
 
@@ -210,42 +200,12 @@ class _NavBarItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(
-                  isSelected ? activeIcon : inactiveIcon,
-                  size: 22,
-                  color: isSelected
-                      ? scheme.primary
-                      : Colors.white.withValues(alpha: 0.48),
-                ),
-                if (badgeCount > 0)
-                  Positioned(
-                    right: -7,
-                    top: -4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.primary,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      constraints: const BoxConstraints(minWidth: 14),
-                      child: Text(
-                        '$badgeCount',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.bold,
-                          color: scheme.onPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            Icon(
+              isSelected ? activeIcon : inactiveIcon,
+              size: 22,
+              color: isSelected
+                  ? scheme.primary
+                  : Colors.white.withValues(alpha: 0.48),
             ),
             const SizedBox(height: 3),
             Text(
@@ -281,7 +241,6 @@ class _DesktopSidebar extends StatelessWidget {
     final scheme = theme.colorScheme;
     final controller = context.watch<AppController>();
     final playlists = controller.playlists;
-    final pairedCount = controller.pairedDevices.length;
 
     return Container(
       width: 230,
@@ -329,10 +288,9 @@ class _DesktopSidebar extends StatelessWidget {
               onTap: () => onDestinationSelected(0),
             ),
             _SidebarNavTile(
-              icon: Icons.devices_other_outlined,
-              selectedIcon: Icons.devices_other,
-              label: 'Devices',
-              count: pairedCount > 0 ? pairedCount : null,
+              icon: Icons.explore_outlined,
+              selectedIcon: Icons.explore_rounded,
+              label: 'Explore',
               isSelected: selectedIndex == 1,
               onTap: () => onDestinationSelected(1),
             ),

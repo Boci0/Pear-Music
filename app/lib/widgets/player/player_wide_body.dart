@@ -173,15 +173,50 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                           ),
                           const Spacer(),
                           if (_selectedTab == 0) ...[
-                            IconButton(
-                              iconSize: 18,
-                              tooltip:
-                                  'Reroll seed (reroll upcoming recommendations)',
-                              icon: Icon(
-                                Icons.casino_outlined,
-                                color: scheme.primary,
-                              ),
-                              onPressed: () => player.rerollUpcomingQueue(),
+                            ListenableBuilder(
+                              listenable: player,
+                              builder: (context, _) {
+                                final active = player.autoRerollSeed;
+                                return Tooltip(
+                                  message: active
+                                      ? 'Auto-reroll seed: ON (tap to turn OFF)'
+                                      : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
+                                  child: InkWell(
+                                    onTap: () => player.toggleAutoRerollSeed(),
+                                    onLongPress: () => player.rerollUpcomingQueue(),
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: active
+                                            ? scheme.primary.withValues(alpha: 0.18)
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: active
+                                              ? scheme.primary.withValues(alpha: 0.45)
+                                              : Colors.transparent,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Badge(
+                                        isLabelVisible: active,
+                                        smallSize: 7,
+                                        backgroundColor: scheme.primary,
+                                        child: Icon(
+                                          active ? Icons.casino_rounded : Icons.casino_outlined,
+                                          size: 18,
+                                          color: active
+                                              ? scheme.primary
+                                              : scheme.onSurfaceVariant.withValues(
+                                                  alpha: 0.6,
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                             IconButton(
                               iconSize: 18,

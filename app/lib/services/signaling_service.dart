@@ -86,6 +86,7 @@ class SignalingService {
   // relayed the frame, and it delays the ack if the receiving peer is slow —
   // so a large file sync can never blow up memory on either side.
   Future<void> _relayLock = Future<void>.value();
+  int _inFlightRelays = 0;
   Completer<void>? _pendingRelayAck;
   Timer? _relayAckTimeout;
 
@@ -490,7 +491,8 @@ class SignalingService {
   }
 
   /// Explicitly tear down the crypto worker. Safe to call any time.
-  static void killCryptoWorker() {
+  static void killCryptoWorker({bool force = false}) {
+    if (!force && _cryptoJobs.isNotEmpty) return;
     _cryptoIdleTimer?.cancel();
     _cryptoIdleTimer = null;
     _cryptoIsolate?.kill(priority: Isolate.beforeNextEvent);
@@ -508,6 +510,7 @@ class SignalingService {
     final port = ReceivePort();
     ready.send(port.sendPort);
     var tail = Future<void>.value();
+    var pending = 0;
     port.listen((job) {
       final seq = job[0] as int;
       final encrypt = job[1] as bool;
@@ -516,6 +519,7 @@ class SignalingService {
         job[3] as Uint8List?,
         job[4] as Uint8List,
       );
+      pending++;
       tail = tail.then((_) async {
         Object result;
         try {
@@ -528,6 +532,11 @@ class SignalingService {
         // Small yield between chunks so UI/raster threads keep core time.
         await Future<void>.delayed(const Duration(milliseconds: 1));
         ready.send([seq, result]);
+        pending--;
+        if (pending <= 0) {
+          pending = 0;
+          tail = Future<void>.value();
+        }
       });
     });
   }
@@ -606,10 +615,7 @@ class SignalingService {
       // We also tell the server which devices we're already paired with (id +
       // name) — if this is a NEW host (after failover) it uses these to restore
       // the pairing instead of starting empty and unpairing us.
-      final pairings = <Map<String, String>>[
-        for (final entry in identity.pairedDeviceNames.entries)
-          {'deviceId': entry.key, 'deviceName': entry.value},
-      ];
+      final pairings = <Map<String, String>>[];
       send({
         'type': 'register',
         'deviceId': identity.deviceId,
@@ -810,9 +816,7 @@ class SignalingService {
   /// is acked or after a short safety timeout (a lost ack is healed by the
   /// reconnect + manifest re-sync, never by stalling forever).
   Future<void> sendRelayBinary(String peerId, Uint8List bytes) {
-    // Serialize all binary sequences globally: exactly one marker+frame pair
-    // is in flight at a time, so the server always pairs each frame with the
-    // right marker and the next ack always belongs to our frame.
+    _inFlightRelays++;
     final completer = Completer<void>();
     final previous = _relayLock;
     _relayLock = completer.future;
@@ -892,6 +896,11 @@ class SignalingService {
         }
       } finally {
         if (!completer.isCompleted) completer.complete();
+        _inFlightRelays--;
+        if (_inFlightRelays <= 0) {
+          _inFlightRelays = 0;
+          _relayLock = Future<void>.value();
+        }
       }
     }).catchError((Object e) {
       debugPrint('[signaling] sendRelayBinary error: $e');

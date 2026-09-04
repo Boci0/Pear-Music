@@ -17,9 +17,6 @@ import 'services/library_service.dart';
 import 'services/pear_audio_handler.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
-import 'services/signaling_server.dart';
-import 'services/signaling_service.dart';
-import 'services/sync_service.dart';
 import 'services/youtube_service.dart';
 
 Future<void> main() async {
@@ -119,8 +116,6 @@ Future<void> _bootstrapAndRunApp() async {
   final prefs = await SharedPreferences.getInstance();
   final identity = IdentityService(prefs);
   final library = LibraryService();
-  final signaling = SignalingService(identity);
-  final sync = SyncService(identity: identity, library: library);
   final player = PlayerService(
     library,
     identity: identity,
@@ -129,27 +124,11 @@ Future<void> _bootstrapAndRunApp() async {
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());
 
-  // Embedded signaling server. It is NOT started here (the controller starts
-  // it only when this device is the host (the "last online" device), so at any
-  // moment exactly one device on the network runs the server). State (pairings/
-  // names/secrets) persists in the app support directory.
-  final supportDir = await getApplicationSupportDirectory();
-  final server = SignalingServer(
-    port: 8080,
-    stateFile: File('${supportDir.path}/peerm_server_state.json'),
-    onLog: (m) => debugPrint('[server] $m'),
-    advertiseName: identity.deviceName,
-    advertiseDeviceId: identity.deviceId,
-  );
-
   final controller = AppController(
     identity: identity,
     library: library,
-    signaling: signaling,
-    sync: sync,
     player: player,
     youtube: youtube,
-    server: server,
   );
   await controller.init();
 
@@ -169,15 +148,10 @@ class PearMusicApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Expose the services alongside AppController so widgets can subscribe to
-    // the narrowest possible notifier (e.g. TransferList watches SyncService
-    // directly instead of AppController, which no longer re-broadcasts the
-    // ~100ms transfer ticks; the main cause of UI jank).
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<AppController>.value(value: controller),
         ChangeNotifierProvider<LibraryService>.value(value: controller.library),
-        ChangeNotifierProvider<SyncService>.value(value: controller.sync),
         ChangeNotifierProvider<PlayerService>.value(value: controller.player),
         ChangeNotifierProvider<PlayerTheme>.value(value: playerTheme),
       ],

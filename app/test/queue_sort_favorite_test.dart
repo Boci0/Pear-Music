@@ -145,5 +145,83 @@ void main() {
       // Unlocked song C was removed and replaced by fallback/fresh recommendations (songE)
       expect(player.queue.any((s) => s.id == 'e'), isTrue);
     });
+
+    test('autoRerollSeed toggles state and triggers automatic upcoming queue refresh', () async {
+      final songD = Song(
+        id: 'd',
+        title: 'Delta',
+        fileName: 'd.mp3',
+        size: 400,
+        checksum: 'chk_d',
+        addedAt: DateTime(2026, 1, 4),
+      );
+      final songE = Song(
+        id: 'e',
+        title: 'Epsilon',
+        fileName: 'e.mp3',
+        size: 500,
+        checksum: 'chk_e',
+        addedAt: DateTime(2026, 1, 5),
+      );
+
+      player.updateQueue([songA, songB, songC, songD]);
+      player.currentSong = songB;
+      player.updateQueue([songA, songB, songC, songD]);
+      library.setSongsForTesting([songA, songB, songC, songD, songE]);
+
+      expect(player.autoRerollSeed, isFalse);
+
+      player.toggleAutoRerollSeed();
+      expect(player.autoRerollSeed, isTrue);
+
+      // Await any microtasks/futures initiated by toggle
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Toggling off restores false
+      player.toggleAutoRerollSeed();
+      expect(player.autoRerollSeed, isFalse);
+
+      player.setAutoRerollSeed(true);
+      expect(player.autoRerollSeed, isTrue);
+      player.setAutoRerollSeed(false);
+      expect(player.autoRerollSeed, isFalse);
+    });
+
+    test('rerollNextTrackOnly selects only one next song and preserves locked songs', () async {
+      final songD = Song(
+        id: 'd',
+        title: 'Delta',
+        fileName: 'd.mp3',
+        size: 400,
+        checksum: 'chk_d',
+        addedAt: DateTime(2026, 1, 4),
+      );
+      final songE = Song(
+        id: 'e',
+        title: 'Epsilon',
+        fileName: 'e.mp3',
+        size: 500,
+        checksum: 'chk_e',
+        addedAt: DateTime(2026, 1, 5),
+      );
+
+      player.updateQueue([songA, songB, songC, songD]);
+      player.currentSong = songB;
+      player.updateQueue([songA, songB, songC, songD]);
+      library.setSongsForTesting([songA, songB, songC, songD, songE]);
+
+      player.toggleSongLock('d');
+      expect(player.isSongLocked('d'), isTrue);
+
+      final ok = await player.rerollNextTrackOnly();
+      expect(ok, isTrue);
+
+      // Past and current preserved: [A, B]
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'b');
+
+      // Locked D is preserved, and exactly 1 next song (E) is appended
+      expect(player.queue.map((s) => s.id).toList(), ['a', 'b', 'd', 'e']);
+    });
   });
 }

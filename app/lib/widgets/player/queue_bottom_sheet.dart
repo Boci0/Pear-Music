@@ -584,13 +584,49 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
 
         const SizedBox(width: 4),
 
-        // Reroll recommendations button
-        IconButton(
-          iconSize: 19,
-          visualDensity: VisualDensity.compact,
-          tooltip: 'Reroll upcoming recommendations',
-          icon: Icon(Icons.casino_outlined, color: _readableAccent),
-          onPressed: () => widget.player.rerollUpcomingQueue(),
+        // Reroll recommendations button (2 states: manual reroll vs continuous auto-reroll on track change)
+        ListenableBuilder(
+          listenable: widget.player,
+          builder: (context, _) {
+            final active = widget.player.autoRerollSeed;
+            return Tooltip(
+              message: active
+                  ? 'Auto-reroll seed: ON (tap to turn OFF)'
+                  : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
+              child: InkWell(
+                onTap: () => widget.player.toggleAutoRerollSeed(),
+                onLongPress: () => widget.player.rerollUpcomingQueue(),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: active
+                        ? _readableAccent.withValues(alpha: 0.18)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: active
+                          ? _readableAccent.withValues(alpha: 0.45)
+                          : Colors.transparent,
+                      width: 1,
+                    ),
+                  ),
+                  child: Badge(
+                    isLabelVisible: active,
+                    smallSize: 7,
+                    backgroundColor: _readableAccent,
+                    child: Icon(
+                      active ? Icons.casino_rounded : Icons.casino_outlined,
+                      size: 18,
+                      color: active
+                          ? _readableAccent
+                          : _readableAccent.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ],
     );

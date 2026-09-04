@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,11 +30,12 @@ class IdentityService {
   static const _serverUrlKey = 'peerm_server_url';
   static const _deviceSecretKey = 'peerm_device_secret';
   static const _isHostKey = 'peerm_is_host';
-  static const _pairedIdsKey = 'peerm_paired_device_ids';
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
   static const _sortOptionKey = 'peerm_sort_option';
   static const _loudnessNormKey = 'peerm_loudness_normalization';
   static const _synthesizerBarKey = 'peerm_synthesizer_bar';
+  static const _autoRerollSeedKey = 'peerm_auto_reroll_seed';
+  static const _autoplayKey = 'peerm_autoplay';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -43,11 +43,12 @@ class IdentityService {
   late String serverUrl;
   late String deviceSecret;
   late bool isHost;
-  late Map<String, String> _paired; // deviceId -> last known name
   late Set<String> _favoriteSongIds;
   late SortOption _sortOption;
   late bool _loudnessNormalization;
   late bool _synthesizerBar;
+  late bool _autoRerollSeed;
+  late bool _autoplay;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -55,7 +56,6 @@ class IdentityService {
     serverUrl = _prefs.getString(_serverUrlKey) ?? 'ws://localhost:8080';
     deviceSecret = _prefs.getString(_deviceSecretKey) ?? '';
     isHost = _prefs.getBool(_isHostKey) ?? true;
-    _paired = _decodePaired(_prefs.getString(_pairedIdsKey));
 
     _favoriteSongIds = Set<String>.from(_prefs.getStringList(_favoriteIdsKey) ?? []);
     final sortStr = _prefs.getString(_sortOptionKey);
@@ -65,6 +65,8 @@ class IdentityService {
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
     _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
+    _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
+    _autoplay = _prefs.getBool(_autoplayKey) ?? false;
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -88,58 +90,6 @@ class IdentityService {
       if (host.isNotEmpty && host.toLowerCase() != 'localhost') return host;
     } catch (_) {}
     return Platform.isAndroid ? 'My Phone' : 'My Device';
-  }
-
-  Map<String, String> _decodePaired(String? raw) {
-    if (raw == null || raw.isEmpty) return {};
-    try {
-      final d = jsonDecode(raw);
-      if (d is Map) {
-        return d.map((k, v) => MapEntry('$k', '$v'));
-      }
-      if (d is List) {
-        // Legacy format: a plain array of ids (no names known).
-        return {for (final id in d.whereType<String>()) id: ''};
-      }
-    } catch (_) {}
-    return {};
-  }
-
-  /// The device IDs this device is paired with (read-only view).
-  List<String> get pairedDeviceIds => _paired.keys.toList();
-
-  /// Paired device IDs with their last-known names (id -> name). Sent to a new
-  /// host on register so it can restore the pairing WITH names after failover.
-  Map<String, String> get pairedDeviceNames => Map.unmodifiable(_paired);
-
-  /// Replace the known paired-device list (e.g. from the server's `state`).
-  Future<void> setPairedDevices(
-      Iterable<MapEntry<String, String>> entries) async {
-    final next = <String, String>{
-      for (final e in entries)
-        if (e.key.isNotEmpty) e.key: e.value,
-    };
-    _paired = next;
-    await _prefs.setString(_pairedIdsKey, jsonEncode(next));
-  }
-
-  Future<void> addPairedDevice(String id, {String name = ''}) async {
-    if (id.isEmpty) return;
-    if (_paired.containsKey(id)) {
-      if (name.isNotEmpty && _paired[id] != name) {
-        _paired[id] = name;
-        await _prefs.setString(_pairedIdsKey, jsonEncode(_paired));
-      }
-      return;
-    }
-    _paired[id] = name;
-    await _prefs.setString(_pairedIdsKey, jsonEncode(_paired));
-  }
-
-  Future<void> removePairedDevice(String id) async {
-    if (!_paired.containsKey(id)) return;
-    _paired.remove(id);
-    await _prefs.setString(_pairedIdsKey, jsonEncode(_paired));
   }
 
   /// Set whether this device is the host (runs the embedded server).
@@ -213,5 +163,21 @@ class IdentityService {
   Future<void> setSynthesizerBar(bool value) async {
     _synthesizerBar = value;
     await _prefs.setBool(_synthesizerBarKey, value);
+  }
+
+  bool get autoRerollSeed => _autoRerollSeed;
+
+  Future<void> setAutoRerollSeed(bool value) async {
+    if (_autoRerollSeed == value) return;
+    _autoRerollSeed = value;
+    await _prefs.setBool(_autoRerollSeedKey, value);
+  }
+
+  bool get autoplay => _autoplay;
+
+  Future<void> setAutoplay(bool value) async {
+    if (_autoplay == value) return;
+    _autoplay = value;
+    await _prefs.setBool(_autoplayKey, value);
   }
 }
