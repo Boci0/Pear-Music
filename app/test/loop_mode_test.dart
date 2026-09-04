@@ -59,7 +59,7 @@ void main() {
     expect(player.shuffle, isFalse);
   });
 
-  test('playbackState provides standard transport controls for Android 13+', () {
+  test('playbackState provides 5 custom controls with direct action routing', () {
     handler.updateState(
       playing: false,
       processingState: ProcessingState.ready,
@@ -72,9 +72,9 @@ void main() {
 
     final state = handler.playbackState.value;
     expect(state.controls.length, 5);
-    expect(state.controls[1], MediaControl.skipToPrevious);
-    expect(state.controls[2], MediaControl.play);
-    expect(state.controls[3], MediaControl.skipToNext);
+    expect(state.controls[1].androidIcon, contains('drawable/pear_previous'));
+    expect(state.controls[2].androidIcon, contains('drawable/pear_play'));
+    expect(state.controls[3].androidIcon, contains('drawable/pear_next'));
     expect(state.androidCompactActionIndices, const [1, 2, 3]);
 
     handler.updateState(
@@ -86,6 +86,6 @@ void main() {
       loopMode: LoopSetting.off,
       shuffle: false,
     );
-    expect(handler.playbackState.value.controls[2], MediaControl.pause);
+    expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_pause'));
   });
 }

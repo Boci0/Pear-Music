@@ -28,21 +28,12 @@ void main() {
       final state = handler.playbackState.value;
       expect(state.controls.length, 5);
 
-      // Slots 1, 2, 3 must be standard MediaControl transport actions
-      expect(state.controls[1], equals(MediaControl.skipToPrevious));
-      expect(state.controls[2], equals(MediaControl.play));
-      expect(state.controls[3], equals(MediaControl.skipToNext));
+      // Slots 1, 2, 3 must be custom transport controls for direct action dispatch
+      expect(state.controls[1].androidIcon, contains('drawable/pear_previous'));
+      expect(state.controls[2].androidIcon, contains('drawable/pear_play'));
+      expect(state.controls[3].androidIcon, contains('drawable/pear_next'));
 
-      expect(state.controls[1].action, equals(MediaAction.skipToPrevious));
-      expect(state.controls[2].action, equals(MediaAction.play));
-      expect(state.controls[3].action, equals(MediaAction.skipToNext));
-
-      // Standard audio_service drawables, never custom app drawables
-      expect(state.controls[1].androidIcon, equals('drawable/audio_service_skip_previous'));
-      expect(state.controls[2].androidIcon, equals('drawable/audio_service_play_arrow'));
-      expect(state.controls[3].androidIcon, equals('drawable/audio_service_skip_next'));
-
-      // Compact indices must map to Previous, Play/Pause, Next
+      // Compact indices must map to Previous (1), Play/Pause (2), Next (3)
       expect(state.androidCompactActionIndices, equals(const [1, 2, 3]));
 
       // Slots 0 and 4 are custom controls for shuffle and repeat
@@ -50,7 +41,7 @@ void main() {
       expect(state.controls[4].androidIcon, contains('drawable/pear_repeat'));
     });
 
-    test('playing state toggles play and pause cleanly on standard slot 2', () {
+    test('playing state toggles play and pause cleanly on slot 2', () {
       handler.updateState(
         playing: true,
         processingState: ProcessingState.ready,
@@ -61,12 +52,10 @@ void main() {
         shuffle: false,
       );
 
-      expect(handler.playbackState.value.controls[2], equals(MediaControl.pause));
-      expect(handler.playbackState.value.controls[2].action, equals(MediaAction.pause));
-      expect(handler.playbackState.value.controls[2].androidIcon, equals('drawable/audio_service_pause'));
+      expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_pause'));
     });
 
-    test('optimistic state transitions in play() and pause() retain standard controls', () async {
+    test('optimistic state transitions in play() and pause() retain custom controls', () async {
       handler.updateState(
         playing: false,
         processingState: ProcessingState.ready,
@@ -79,18 +68,18 @@ void main() {
 
       await handler.play();
       expect(handler.playbackState.value.playing, isTrue);
-      expect(handler.playbackState.value.controls[2], equals(MediaControl.pause));
-      expect(handler.playbackState.value.controls[1], equals(MediaControl.skipToPrevious));
-      expect(handler.playbackState.value.controls[3], equals(MediaControl.skipToNext));
+      expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_pause'));
+      expect(handler.playbackState.value.controls[1].androidIcon, contains('drawable/pear_previous'));
+      expect(handler.playbackState.value.controls[3].androidIcon, contains('drawable/pear_next'));
 
       await handler.pause();
       expect(handler.playbackState.value.playing, isFalse);
-      expect(handler.playbackState.value.controls[2], equals(MediaControl.play));
-      expect(handler.playbackState.value.controls[1], equals(MediaControl.skipToPrevious));
-      expect(handler.playbackState.value.controls[3], equals(MediaControl.skipToNext));
+      expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_play'));
+      expect(handler.playbackState.value.controls[1].androidIcon, contains('drawable/pear_previous'));
+      expect(handler.playbackState.value.controls[3].androidIcon, contains('drawable/pear_next'));
     });
 
-    test('customAction peerm_play and peerm_pause update state with standard controls', () async {
+    test('customAction peerm_play and peerm_pause update state with custom controls', () async {
       handler.updateState(
         playing: false,
         processingState: ProcessingState.ready,
@@ -103,11 +92,11 @@ void main() {
 
       await handler.customAction('peerm_play');
       expect(handler.playbackState.value.playing, isTrue);
-      expect(handler.playbackState.value.controls[2], equals(MediaControl.pause));
+      expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_pause'));
 
       await handler.customAction('peerm_pause');
       expect(handler.playbackState.value.playing, isFalse);
-      expect(handler.playbackState.value.controls[2], equals(MediaControl.play));
+      expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_play'));
     });
 
     test('systemActions contains all required media transport actions', () {

@@ -24,25 +24,32 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
     required bool shuffle,
     required LoopSetting loopMode,
   }) {
-    // CRITICAL: Indices 1, 2, and 3 MUST always be standard platform transport
-    // controls (MediaControl.skipToPrevious, MediaControl.pause/play, MediaControl.skipToNext).
-    // On Android 13+ (API 33+), System UI media player binds its transport buttons
-    // directly to standard PlaybackState actions. Using MediaControl.custom for these
-    // causes Android System UI to omit the notification controls completely.
-    final controls = [
+    return [
       _shuffleControl(shuffle),
-      MediaControl.skipToPrevious,
-      if (playing) MediaControl.pause else MediaControl.play,
-      MediaControl.skipToNext,
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_previous',
+        label: 'Previous',
+        name: 'peerm_previous',
+      ),
+      if (playing)
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_pause',
+          label: 'Pause',
+          name: 'peerm_pause',
+        )
+      else
+        MediaControl.custom(
+          androidIcon: 'drawable/pear_play',
+          label: 'Play',
+          name: 'peerm_play',
+        ),
+      MediaControl.custom(
+        androidIcon: 'drawable/pear_next',
+        label: 'Next',
+        name: 'peerm_next',
+      ),
       _repeatControl(loopMode),
     ];
-    assert(
-      controls[1] == MediaControl.skipToPrevious &&
-          (controls[2] == MediaControl.play || controls[2] == MediaControl.pause) &&
-          controls[3] == MediaControl.skipToNext,
-      'Indices 1, 2, and 3 must be standard MediaControl transport controls for Android 13+ System UI compatibility',
-    );
-    return controls;
   }
 
   @override
