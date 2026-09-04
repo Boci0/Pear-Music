@@ -179,6 +179,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
         return ListView.builder(
           // Fixed extent (dense two-line ListTile): O(1) scroll geometry.
           itemExtent: 64.0,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           controller: _drawerQueueController,
           itemCount: queue.length,
           findChildIndexCallback: (Key key) {
@@ -198,52 +199,91 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
             final isNetwork =
                 song.artwork != null && song.artwork!.startsWith('http');
 
+            final artworkWidget = isNetwork
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.network(
+                      ArtworkService.optimizeArtworkUrl(song.artwork!),
+                      width: 36,
+                      height: 36,
+                      cacheWidth: 108,
+                      cacheHeight: 108,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.center,
+                      errorBuilder: (_, _, _) =>
+                          _iconPlaceholder(isCurrent, scheme),
+                    ),
+                  )
+                : FutureBuilder<Uint8List?>(
+                    initialData: ArtworkPalette.bytes(song),
+                    future: ArtworkPalette.bytesAsync(song),
+                    builder: (context, snapshot) {
+                      final bytes =
+                          snapshot.data ?? ArtworkPalette.bytes(song);
+                      if (bytes == null || bytes.isEmpty) {
+                        return _iconPlaceholder(isCurrent, scheme);
+                      }
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.memory(
+                          bytes,
+                          width: 36,
+                          height: 36,
+                          cacheWidth: 108,
+                          cacheHeight: 108,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                          errorBuilder: (_, _, _) =>
+                              _iconPlaceholder(isCurrent, scheme),
+                        ),
+                      );
+                    },
+                  );
+
             return RepaintBoundary(
               // Per-row repaint isolation: artwork decode and lock changes do
               // not repaint neighbouring rows.
               key: ValueKey('drawer_queue_${keys[i]}'),
               child: ListTile(
-                  dense: true,
-                  leading: isNetwork
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: Image.network(
-                            ArtworkService.optimizeArtworkUrl(song.artwork!),
-                            width: 36,
-                            height: 36,
-                            cacheWidth: 108,
-                            cacheHeight: 108,
-                            fit: BoxFit.cover,
-                            alignment: Alignment.center,
-                            errorBuilder: (_, _, _) =>
-                                _iconPlaceholder(isCurrent, scheme),
-                          ),
+                dense: true,
+                tileColor: isCurrent
+                    ? scheme.primaryContainer.withValues(alpha: 0.35)
+                    : null,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: isCurrent
+                      ? BorderSide(
+                          color: scheme.primary.withValues(alpha: 0.5),
+                          width: 1,
                         )
-                      : FutureBuilder<Uint8List?>(
-                          initialData: ArtworkPalette.bytes(song),
-                          future: ArtworkPalette.bytesAsync(song),
-                          builder: (context, snapshot) {
-                            final bytes =
-                                snapshot.data ?? ArtworkPalette.bytes(song);
-                            if (bytes == null || bytes.isEmpty) {
-                              return _iconPlaceholder(isCurrent, scheme);
-                            }
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: Image.memory(
-                                bytes,
-                                width: 36,
-                                height: 36,
-                                cacheWidth: 108,
-                                cacheHeight: 108,
-                                fit: BoxFit.cover,
-                                alignment: Alignment.center,
-                                errorBuilder: (_, _, _) =>
-                                    _iconPlaceholder(isCurrent, scheme),
+                      : BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                leading: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      child: isCurrent
+                          ? Icon(
+                              Icons.graphic_eq_rounded,
+                              color: scheme.primary,
+                              size: 16,
+                            )
+                          : Text(
+                              '${i + 1}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: scheme.onSurfaceVariant
+                                    .withValues(alpha: 0.6),
+                                fontWeight: FontWeight.w600,
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                    ),
+                    const SizedBox(width: 6),
+                    artworkWidget,
+                  ],
+                ),
                 title: Text(
                   song.title,
                   maxLines: 1,
@@ -258,17 +298,21 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                 subtitle: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      isStream
-                          ? 'Radio Stream'
-                          : (song.sourceDeviceId == null
-                                ? 'Local track'
-                                : 'Shared'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isCurrent
-                            ? scheme.primary.withValues(alpha: 0.8)
-                            : scheme.onSurfaceVariant,
+                    Flexible(
+                      child: Text(
+                        isStream
+                            ? 'Radio Stream'
+                            : (song.sourceDeviceId == null
+                                  ? 'Local track'
+                                  : 'Shared'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isCurrent
+                              ? scheme.primary.withValues(alpha: 0.8)
+                              : scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                     if (isStream &&
@@ -489,6 +533,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
               : ListView.builder(
                   // Fixed extent (dense one-line ListTile): O(1) scroll geometry.
                   itemExtent: 48.0,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   itemCount: songs.length,
                   itemBuilder: (context, i) {
                     final s = songs[i];
@@ -496,8 +542,24 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     return RepaintBoundary(
                       child: ListTile(
                         dense: true,
+                        tileColor: isCurrent
+                            ? scheme.primaryContainer.withValues(alpha: 0.35)
+                            : null,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: isCurrent
+                              ? BorderSide(
+                                  color: scheme.primary.withValues(alpha: 0.5),
+                                  width: 1,
+                                )
+                              : BorderSide.none,
+                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 12),
                         leading: Icon(
-                          isCurrent ? Icons.graphic_eq : Icons.music_note,
+                          isCurrent
+                              ? Icons.graphic_eq_rounded
+                              : Icons.music_note,
                           color: isCurrent
                               ? scheme.primary
                               : scheme.onSurfaceVariant,
@@ -509,7 +571,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                           style: isCurrent
                               ? TextStyle(
                                   color: scheme.primary,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.bold,
                                 )
                               : null,
                         ),

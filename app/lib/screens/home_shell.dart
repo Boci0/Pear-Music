@@ -100,37 +100,167 @@ class _HomeShellState extends State<HomeShell> {
     }
 
     // Mobile layout
+    final pairedCount = context.select<AppController, int>(
+      (c) => c.pairedDevices.length,
+    );
+
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: _screens,
       ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const PlayerBar(),
+            _MinimalistNavBar(
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              peerCount: pairedCount,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MinimalistNavBar extends StatelessWidget {
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final int peerCount;
+
+  const _MinimalistNavBar({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    this.peerCount = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 52,
+      color: const Color(0xFF0F0F12),
+      child: Row(
         children: [
-          const PlayerBar(),
-          NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.library_music_outlined),
-                selectedIcon: Icon(Icons.library_music),
-                label: 'Library',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.devices_other_outlined),
-                selectedIcon: Icon(Icons.devices_other),
-                label: 'Devices',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings),
-                label: 'Settings',
-              ),
-            ],
+          _NavBarItem(
+            index: 0,
+            selectedIndex: selectedIndex,
+            label: 'Library',
+            inactiveIcon: Icons.library_music_outlined,
+            activeIcon: Icons.library_music_rounded,
+            onTap: () => onDestinationSelected(0),
+          ),
+          _NavBarItem(
+            index: 1,
+            selectedIndex: selectedIndex,
+            label: 'Devices',
+            inactiveIcon: Icons.devices_other_outlined,
+            activeIcon: Icons.devices_other_rounded,
+            badgeCount: peerCount,
+            onTap: () => onDestinationSelected(1),
+          ),
+          _NavBarItem(
+            index: 2,
+            selectedIndex: selectedIndex,
+            label: 'Settings',
+            inactiveIcon: Icons.settings_outlined,
+            activeIcon: Icons.settings_rounded,
+            onTap: () => onDestinationSelected(2),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NavBarItem extends StatelessWidget {
+  final int index;
+  final int selectedIndex;
+  final String label;
+  final IconData inactiveIcon;
+  final IconData activeIcon;
+  final int badgeCount;
+  final VoidCallback onTap;
+
+  const _NavBarItem({
+    required this.index,
+    required this.selectedIndex,
+    required this.label,
+    required this.inactiveIcon,
+    required this.activeIcon,
+    this.badgeCount = 0,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = index == selectedIndex;
+    final scheme = Theme.of(context).colorScheme;
+
+    return Expanded(
+      child: InkResponse(
+        onTap: onTap,
+        containedInkWell: true,
+        highlightShape: BoxShape.rectangle,
+        splashColor: scheme.primary.withValues(alpha: 0.12),
+        highlightColor: Colors.transparent,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  isSelected ? activeIcon : inactiveIcon,
+                  size: 22,
+                  color: isSelected
+                      ? scheme.primary
+                      : Colors.white.withValues(alpha: 0.48),
+                ),
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -7,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 14),
+                      child: Text(
+                        '$badgeCount',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.bold,
+                          color: scheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected
+                    ? scheme.primary
+                    : Colors.white.withValues(alpha: 0.48),
+                letterSpacing: -0.1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -396,21 +526,29 @@ class _SidebarNavTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: Material(
-        color: isSelected ? scheme.primaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
+        color: isSelected
+            ? scheme.primary.withValues(alpha: 0.15)
+            : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: isSelected
+              ? BorderSide(
+                  color: scheme.primary.withValues(alpha: 0.35),
+                  width: 1,
+                )
+              : BorderSide.none,
+        ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
                 Icon(
                   isSelected ? selectedIcon : icon,
                   size: 20,
-                  color: isSelected
-                      ? scheme.onPrimaryContainer
-                      : scheme.onSurfaceVariant,
+                  color: isSelected ? scheme.primary : scheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -418,29 +556,28 @@ class _SidebarNavTile extends StatelessWidget {
                     label,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight:
-                          isSelected ? FontWeight.w600 : FontWeight.normal,
-                      color: isSelected
-                          ? scheme.onPrimaryContainer
-                          : scheme.onSurface,
+                          isSelected ? FontWeight.bold : FontWeight.w500,
+                      color: isSelected ? scheme.primary : scheme.onSurface,
                     ),
                   ),
                 ),
                 if (count != null)
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? scheme.onPrimaryContainer.withValues(alpha: 0.12)
-                          : scheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
+                          ? scheme.primary.withValues(alpha: 0.25)
+                          : scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       '$count',
-                      style: theme.textTheme.labelSmall?.copyWith(
+                      style: TextStyle(
                         fontSize: 11,
+                        fontWeight: FontWeight.w600,
                         color: isSelected
-                            ? scheme.onPrimaryContainer
+                            ? scheme.primary
                             : scheme.onSurfaceVariant,
                       ),
                     ),

@@ -79,9 +79,8 @@ void SaveWindowState(HWND hwnd) {
     return;
   }
   const RECT& rect = placement.rcNormalPosition;
-  const bool maximized = (placement.showCmd & SW_SHOWMAXIMIZED) != 0;
   file << rect.left << L" " << rect.top << L" " << rect.right << L" "
-       << rect.bottom << L" " << (maximized ? 1 : 0);
+       << rect.bottom << L" 0";
 }
 
 // Loads the saved bounds. Returns false (use defaults) when missing, corrupt,
@@ -201,15 +200,22 @@ bool Win32Window::Create(const std::wstring& title,
   bool max_flag = false;
   if (LoadSavedWindowState(&sl, &st, &sr, &sb, &max_flag)) {
     restored_bounds_ = true;
-    restore_maximized_ = max_flag;
+    restore_maximized_ = false;
     px = static_cast<int>(sl);
     py = static_cast<int>(st);
-    pw = static_cast<int>(sr - sl);
-    ph = static_cast<int>(sb - st);
   }
 
-  HWND window = CreateWindow(window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-                             px, py, pw, ph, nullptr, nullptr,
+  // Lock window style to fixed phone dimensions (no maximize button, non-resizable frame)
+  const DWORD window_style =
+      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
+  RECT win_rect = {0, 0, pw, ph};
+  AdjustWindowRect(&win_rect, window_style, FALSE);
+  const int win_w = win_rect.right - win_rect.left;
+  const int win_h = win_rect.bottom - win_rect.top;
+
+  HWND window = CreateWindow(window_class, title.c_str(), window_style,
+                             px, py, win_w, win_h, nullptr, nullptr,
                              GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -222,8 +228,7 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_,
-                    restore_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
+  return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
 void Win32Window::CenterOnScreen() {

@@ -34,29 +34,53 @@ class PlayerBar extends StatelessWidget {
         ) ??
         theme.colorScheme.surfaceContainerHigh;
 
-    return GestureDetector(
-      onHorizontalDragEnd: (details) {
-        final vx = details.primaryVelocity ?? 0;
-        if (vx < -200) {
-          controller.nextTrack();
-        } else if (vx > 200) {
-          controller.previousTrack();
-        }
-      },
-      onVerticalDragEnd: (details) {
-        final vy = details.primaryVelocity ?? 0;
-        if (vy < -200) {
-          _openPlayer(context);
-        }
-      },
-      child: Material(
-        color: barColor,
-        child: InkWell(
-          onTap: () => _openPlayer(context),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-              children: [
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+      child: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          final vx = details.primaryVelocity ?? 0;
+          if (vx < -200) {
+            controller.nextTrack();
+          } else if (vx > 200) {
+            controller.previousTrack();
+          }
+        },
+        onVerticalDragEnd: (details) {
+          final vy = details.primaryVelocity ?? 0;
+          if (vy < -200) {
+            _openPlayer(context);
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: barColor,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: InkWell(
+              onTap: () => _openPlayer(context),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _MiniProgressBar(player: player, color: control),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: Row(
+                  children: [
                 _Thumb(song: song),
                 const SizedBox(width: 12),
                 Expanded(
@@ -121,9 +145,13 @@ class PlayerBar extends StatelessWidget {
               ],
             ),
           ),
+            ],
+          ),
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 
   void _openPlayer(BuildContext context) {
@@ -229,3 +257,53 @@ class _Thumb extends StatelessWidget {
     );
   }
 }
+
+/// 2.5px slim progress line drawn across the very top of the mini player bar.
+class _MiniProgressBar extends StatelessWidget {
+  final PlayerService player;
+  final Color color;
+  const _MiniProgressBar({required this.player, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: StreamBuilder<Duration?>(
+      stream: player.durationStream,
+      initialData: player.duration,
+      builder: (context, durSnapshot) {
+        final totalMs =
+            (durSnapshot.data ?? player.duration ?? Duration.zero)
+                .inMilliseconds
+                .toDouble();
+        if (totalMs <= 0) {
+          return SizedBox(
+            height: 2.5,
+            child: Container(color: color.withValues(alpha: 0.1)),
+          );
+        }
+        return StreamBuilder<Duration>(
+          stream: player.positionStream,
+          initialData: player.position ?? Duration.zero,
+          builder: (context, posSnapshot) {
+            final posMs =
+                (posSnapshot.data ?? player.position ?? Duration.zero)
+                    .inMilliseconds
+                    .toDouble();
+            final fraction = (posMs / totalMs).clamp(0.0, 1.0);
+            return SizedBox(
+              height: 2.5,
+              child: LinearProgressIndicator(
+                value: fraction,
+                minHeight: 2.5,
+                backgroundColor: color.withValues(alpha: 0.15),
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            );
+          },
+        );
+      },
+    ),
+  );
+}
+}
+

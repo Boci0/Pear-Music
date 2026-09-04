@@ -333,6 +333,9 @@ class PlayerService extends ChangeNotifier {
         maxPeriod: const Duration(milliseconds: 250),
       );
 
+  /// Live duration stream from underlying audio player.
+  Stream<Duration?> get durationStream => _player.durationStream;
+
   /// Starts an infinite radio mix based on [seedSong].
   /// If [seedSong] is already playing, playback continues uninterrupted at the current position.
   Future<void> startRadio(Song seedSong) async {

@@ -159,104 +159,168 @@ class SongTile extends StatelessWidget {
     final fromPeer = song.sourceDeviceId != null;
 
     return RepaintBoundary(
-      child: ListTile(
-        selected: isSelected,
-        tileColor: isCurrent
-            ? (theme.brightness == Brightness.dark
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-                : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
-            : null,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      leading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isSelecting)
-            Checkbox(
-              value: isSelected,
-              onChanged: onSelectionChanged,
-            ),
-          _Artwork(song: song, isCurrent: isCurrent),
-        ],
-      ),
-      title: Text(
-        song.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
-          color: isCurrent ? theme.colorScheme.primary : null,
-        ),
-      ),
-      subtitle: Row(
-        children: [
-          if (song.sourceDeviceId == 'stream') ...[
-            Icon(Icons.sensors_rounded,
-                size: 14, color: theme.colorScheme.tertiary),
-            const SizedBox(width: 4),
-          ] else if (fromPeer) ...[
-            Icon(Icons.cloud_done_outlined,
-                size: 14, color: theme.colorScheme.primary),
-            const SizedBox(width: 4),
-          ],
-          Expanded(
-            child: Text(
-              song.sourceDeviceId == 'stream'
-                  ? 'Radio Stream'
-                  : fromPeer
-                      ? 'Shared · ${song.sizeLabel}'
-                      : 'Local · ${song.sizeLabel}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Material(
+          color: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () {
+              if (isSelecting) {
+                onSelectionChanged?.call(!isSelected);
+              } else {
+                controller.playSong(
+                  song,
+                  queue: queue,
+                  sourceId: sourceId,
+                  sourceTitle: sourceTitle,
+                );
+              }
+            },
+            onLongPress:
+                isSelecting ? null : (onLongPress ?? () => _showMenu(context)),
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: isCurrent
+                    ? LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.02),
+                        ],
+                      )
+                    : null,
+                color: isSelected
+                    ? theme.colorScheme.primaryContainer.withValues(alpha: 0.22)
+                    : null,
+                border: isCurrent
+                    ? Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.20),
+                        width: 1,
+                      )
+                    : null,
+              ),
+              child: SizedBox(
+                height: 58,
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    if (isCurrent)
+                      Positioned(
+                        left: 4,
+                        child: Container(
+                          width: 3.5,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 14, right: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          if (isSelecting) ...[
+                            Checkbox(
+                              value: isSelected,
+                              onChanged: onSelectionChanged,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          _Artwork(song: song, isCurrent: isCurrent),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  song.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontSize: 14.5,
+                                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+                                    color: isCurrent ? theme.colorScheme.primary : null,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  children: [
+                                    if (song.sourceDeviceId == 'stream') ...[
+                                      Icon(Icons.sensors_rounded,
+                                          size: 13, color: theme.colorScheme.tertiary),
+                                      const SizedBox(width: 4),
+                                    ] else if (fromPeer) ...[
+                                      Icon(Icons.cloud_done_outlined,
+                                          size: 13, color: theme.colorScheme.primary),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        song.sourceDeviceId == 'stream'
+                                            ? 'Radio Stream'
+                                            : fromPeer
+                                                ? 'Shared · ${song.sizeLabel}'
+                                                : 'Local · ${song.sizeLabel}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          fontSize: 12,
+                                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (isCurrent) ...[
+                            Icon(
+                              Icons.graphic_eq_rounded,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          if (!isSelecting && isFav) ...[
+                            _ActionButton(
+                              icon: Icons.favorite,
+                              color: theme.colorScheme.primary,
+                              tooltip: 'Favorite',
+                              onPressed: () => controller.toggleFavorite(song.id),
+                            ),
+                          ],
+                          if (!isSelecting) ...[
+                            _ActionButton(
+                              icon: Icons.more_vert,
+                              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                              tooltip: 'More options',
+                              onPressed: () => _showMenu(context),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ],
+        ),
       ),
-      trailing: isSelecting
-          ? null
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isFav)
-                  IconButton(
-                    iconSize: 20,
-                    tooltip: 'Favorite',
-                    icon: Icon(Icons.favorite, color: theme.colorScheme.primary),
-                    onPressed: () => controller.toggleFavorite(song.id),
-                  ),
-                if (isCurrent)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.graphic_eq_rounded,
-                      color: theme.colorScheme.primary,
-                      size: 20,
-                    ),
-                  ),
-                IconButton(
-                  tooltip: 'More options',
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () => _showMenu(context),
-                ),
-              ],
-            ),
-      onTap: () {
-        if (isSelecting) {
-          onSelectionChanged?.call(!isSelected);
-        } else {
-          controller.playSong(
-            song,
-            queue: queue,
-            sourceId: sourceId,
-            sourceTitle: sourceTitle,
-          );
-        }
-      },
-      onLongPress: isSelecting ? null : (onLongPress ?? () => _showMenu(context)),
-    ),
-  );
-}
+    );
+  }
 }
 
 class _Artwork extends StatelessWidget {
@@ -336,16 +400,14 @@ class _Artwork extends StatelessWidget {
       );
     }
     if (!isCurrent) return image;
-    final accent = ArtworkPalette.dominantSync(song);
     return Container(
-      width: 48,
-      height: 48,
-      padding: const EdgeInsets.all(2),
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: ArtworkPalette.controlAccent(accent),
-          width: 2,
+          color: scheme.primary.withValues(alpha: 0.65),
+          width: 1.5,
         ),
       ),
       child: image,
@@ -371,6 +433,42 @@ class _Artwork extends StatelessWidget {
         isCurrent ? Icons.music_note : Icons.audiotrack,
         color: scheme.onPrimaryContainer,
         size: 22,
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _ActionButton({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Center(
+              child: Icon(icon, size: 19, color: color),
+            ),
+          ),
+        ),
       ),
     );
   }

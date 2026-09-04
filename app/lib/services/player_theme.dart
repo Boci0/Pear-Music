@@ -36,10 +36,19 @@ class PlayerTheme extends ChangeNotifier {
   /// always match the scheme being shown. That keeps the transition a smooth
   /// fade instead of a snap at the halfway point.
   static ThemeData buildFromScheme(ColorScheme scheme) {
+    const bgDark = Color(0xFF0F0F12);
+    const surfaceDark = Color(0xFF18181E);
+    const surfaceHighlight = Color(0xFF22222A);
+
     return ThemeData(
       useMaterial3: true,
-      colorScheme: scheme,
-      scaffoldBackgroundColor: const Color(0xFF121212),
+      colorScheme: scheme.copyWith(
+        surface: bgDark,
+        surfaceContainerLow: const Color(0xFF141418),
+        surfaceContainer: surfaceDark,
+        surfaceContainerHigh: surfaceHighlight,
+      ),
+      scaffoldBackgroundColor: bgDark,
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: _FastFadePageTransitionsBuilder(),
@@ -50,16 +59,60 @@ class PlayerTheme extends ChangeNotifier {
         },
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF121212),
+        backgroundColor: bgDark,
         scrolledUnderElevation: 0,
         elevation: 0,
+        centerTitle: false,
       ),
       cardTheme: CardThemeData(
-        color: const Color(0xFF1E1E1E),
+        color: surfaceDark,
         elevation: 0,
         shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surfaceDark,
+        elevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: surfaceDark,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide:
+              BorderSide(color: scheme.primary.withValues(alpha: 0.6), width: 1.5),
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: const Color(0xFF141418),
+        elevation: 0,
+        height: 65,
+        indicatorColor: scheme.primary.withValues(alpha: 0.2),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: surfaceHighlight,
+        contentTextStyle: const TextStyle(color: Colors.white),
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
       ),
     );

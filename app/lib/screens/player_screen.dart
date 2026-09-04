@@ -6,7 +6,6 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
 import '../widgets/player/player_console_dialog.dart';
-import '../widgets/player/player_drawer.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
 import '../widgets/player/player_wide_body.dart';
@@ -81,6 +80,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final isWide = MediaQuery.sizeOf(context).width >= 900;
     final themePrimary = Theme.of(context).colorScheme.primary;
 
+    if (song != null) {
+      _resolveAccent(song, themePrimary);
+    }
+    final targetAccent = _accentColor ?? themePrimary;
+
     final appBar = AppBar(
       title: isWide ? const Text('Now Playing') : null,
       backgroundColor: Colors.transparent,
@@ -96,12 +100,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           onPressed: () => PlayerConsoleDialog.show(context),
         ),
         SleepTimerButton(player: player),
-        if (!isWide)
-          IconButton(
-            tooltip: 'Queue / Library',
-            icon: const Icon(Icons.queue_music),
-            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-          ),
       ],
     );
 
@@ -113,9 +111,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    _resolveAccent(song, themePrimary);
-    final targetAccent = _accentColor ?? themePrimary;
-
     final duration = player.duration ?? Duration.zero;
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -126,16 +121,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       key: _scaffoldKey,
       appBar: appBar,
-      drawer: isWide
-          ? null
-          : PlayerDrawer(
-              controller: controller,
-              player: player,
-              currentSong: song,
-              activePlaylistId: _activePlaylistId,
-              onActivePlaylistChanged: (id) =>
-                  setState(() => _activePlaylistId = id),
-            ),
       body: TweenAnimationBuilder<Color?>(
         tween: ColorTween(
           end: targetAccent,
@@ -168,11 +153,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               );
             },
             child: SafeArea(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: isWide
-                    ? PlayerWideBody(
+              bottom: false,
+              child: isWide
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 8),
+                      child: PlayerWideBody(
                         controller: controller,
                         player: player,
                         song: song,
@@ -181,23 +167,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         activePlaylistId: _activePlaylistId,
                         onActivePlaylistChanged: (id) =>
                             setState(() => _activePlaylistId = id),
-                      )
-                    : landscape
-                        ? PlayerLandscapeBody(
-                            controller: controller,
-                            player: player,
-                            song: song,
-                            duration: duration,
-                            accent: activeAccent,
-                          )
-                        : PlayerPortraitBody(
+                      ),
+                    )
+                  : landscape
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 8),
+                          child: PlayerLandscapeBody(
                             controller: controller,
                             player: player,
                             song: song,
                             duration: duration,
                             accent: activeAccent,
                           ),
-              ),
+                        )
+                      : PlayerPortraitBody(
+                          controller: controller,
+                          player: player,
+                          song: song,
+                          duration: duration,
+                          accent: activeAccent,
+                        ),
             ),
           );
         },
