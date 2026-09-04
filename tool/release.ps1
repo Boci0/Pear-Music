@@ -97,44 +97,47 @@ try {
   Pop-Location
 }
 
-# ---- Step 3: builds ----
-if ($SkipBuild) {
-  Write-Step 'Skipping builds (-SkipBuild), reusing existing artifacts'
-  $apkArm64 = Join-Path $androidOut 'app-arm64-v8a-release.apk'
-  $apkArmV7 = Join-Path $androidOut 'app-armeabi-v7a-release.apk'
-  $exePath = Join-Path $windowsOut 'peerm_app.exe'
-  if (-not (Test-Path $apkArm64)) { throw "Missing $apkArm64; run without -SkipBuild first" }
-  if (-not (Test-Path $apkArmV7)) { throw "Missing $apkArmV7; run without -SkipBuild first" }
-  if (-not (Test-Path $exePath)) { throw "Missing $exePath; run without -SkipBuild first" }
-} else {
-  Write-Step 'Building Android APKs (split per ABI)'
-  Push-Location (Join-Path $repoRoot 'app')
-  try {
-    flutter build apk --split-per-abi --release
-    if ($LASTEXITCODE -ne 0) { throw "Android build failed with exit code $LASTEXITCODE" }
-    flutter build windows --release
-    if ($LASTEXITCODE -ne 0) { throw "Windows build failed with exit code $LASTEXITCODE" }
-  } finally {
-    Pop-Location
+# ---- Step 3 & 4: local builds & packaging (only when -LocalRelease is requested) ----
+if ($LocalRelease) {
+  if ($SkipBuild) {
+    Write-Step 'Skipping builds (-SkipBuild), reusing existing artifacts'
+    $apkArm64 = Join-Path $androidOut 'app-arm64-v8a-release.apk'
+    $apkArmV7 = Join-Path $androidOut 'app-armeabi-v7a-release.apk'
+    $exePath = Join-Path $windowsOut 'peerm_app.exe'
+    if (-not (Test-Path $apkArm64)) { throw "Missing $apkArm64; run without -SkipBuild first" }
+    if (-not (Test-Path $apkArmV7)) { throw "Missing $apkArmV7; run without -SkipBuild first" }
+    if (-not (Test-Path $exePath)) { throw "Missing $exePath; run without -SkipBuild first" }
+  } else {
+    Write-Step 'Building Android APKs (split per ABI)'
+    Push-Location (Join-Path $repoRoot 'app')
+    try {
+      flutter build apk --split-per-abi --release
+      if ($LASTEXITCODE -ne 0) { throw "Android build failed with exit code $LASTEXITCODE" }
+      flutter build windows --release
+      if ($LASTEXITCODE -ne 0) { throw "Windows build failed with exit code $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
   }
+
+  Write-Step 'Packaging artifacts and writing SHA256SUMS'
+  $zipPath = Join-Path $repoRoot 'PearMusic-Windows-x64.zip'
+  $apkArm64Path = Join-Path $repoRoot 'PearMusic-Android-arm64.apk'
+  $apkArmV7Path = Join-Path $repoRoot 'PearMusic-Android-armv7.apk'
+
+  Compress-Archive -Path (Join-Path $windowsOut '*') -DestinationPath $zipPath -Force
+  Copy-Item (Join-Path $androidOut 'app-arm64-v8a-release.apk') $apkArm64Path -Force
+  Copy-Item (Join-Path $androidOut 'app-armeabi-v7a-release.apk') $apkArmV7Path -Force
+
+  $h1 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+  $h2 = (Get-FileHash $apkArm64Path -Algorithm SHA256).Hash.ToLower()
+  $h3 = (Get-FileHash $apkArmV7Path -Algorithm SHA256).Hash.ToLower()
+  "$h1 *PearMusic-Windows-x64.zip`n$h2 *PearMusic-Android-arm64.apk`n$h3 *PearMusic-Android-armv7.apk" |
+    Set-Content $shaFile -NoNewline
+  Write-Step (Get-Content $shaFile | Out-String)
+} else {
+  Write-Step 'Default CI release path: skipping local builds (GitHub Actions will build in parallel)'
 }
-
-# ---- Step 4: package and checksums ----
-Write-Step 'Packaging artifacts and writing SHA256SUMS'
-$zipPath = Join-Path $repoRoot 'PearMusic-Windows-x64.zip'
-$apkArm64Path = Join-Path $repoRoot 'PearMusic-Android-arm64.apk'
-$apkArmV7Path = Join-Path $repoRoot 'PearMusic-Android-armv7.apk'
-
-Compress-Archive -Path (Join-Path $windowsOut '*') -DestinationPath $zipPath -Force
-Copy-Item (Join-Path $androidOut 'app-arm64-v8a-release.apk') $apkArm64Path -Force
-Copy-Item (Join-Path $androidOut 'app-armeabi-v7a-release.apk') $apkArmV7Path -Force
-
-$h1 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
-$h2 = (Get-FileHash $apkArm64Path -Algorithm SHA256).Hash.ToLower()
-$h3 = (Get-FileHash $apkArmV7Path -Algorithm SHA256).Hash.ToLower()
-"$h1 *PearMusic-Windows-x64.zip`n$h2 *PearMusic-Android-arm64.apk`n$h3 *PearMusic-Android-armv7.apk" |
-  Set-Content $shaFile -NoNewline
-Write-Step (Get-Content $shaFile | Out-String)
 
 if ($SkipPush) {
   Write-Step 'Done (-SkipPush): commit, tag and push manually when ready'
