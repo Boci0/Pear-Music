@@ -469,6 +469,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     child: ListView.builder(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
+                      itemExtent: 61.0,
                       itemCount: _results.length,
                       itemBuilder: (context, index) {
                         final item = _results[index];

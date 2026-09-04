@@ -205,129 +205,168 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     }
   }
 
+  Widget _artwork(ThemeData theme) {
+    final thumb = widget.result.thumbnailUrl;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: thumb != null && thumb.isNotEmpty
+          ? Image.network(
+              ArtworkService.optimizeArtworkUrl(thumb),
+              key: ValueKey('yt_thumb_${widget.result.videoId}'),
+              width: 44,
+              height: 44,
+              cacheWidth: 88,
+              cacheHeight: 88,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => _placeholder(theme),
+            )
+          : _placeholder(theme),
+    );
+  }
+
+  Widget _placeholder(ThemeData theme) {
+    return Container(
+      width: 44,
+      height: 44,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Icon(Icons.music_note, color: theme.colorScheme.primary, size: 20),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final controller = context.read<AppController>();
 
     return RepaintBoundary(
-      child: ListTile(
-        tileColor: widget.isCurrent
-            ? (theme.brightness == Brightness.dark
-                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-                  : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
-            : null,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        leading: Stack(
-          alignment: Alignment.center,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: widget.result.thumbnailUrl != null
-                  ? Image.network(
-                      widget.result.thumbnailUrl!,
-                      width: 48,
-                      height: 48,
-                      cacheWidth: 96,
-                      cacheHeight: 96,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => Container(
-                        width: 48,
-                        height: 48,
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        child: const Icon(Icons.music_note),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _streamAndPlay(context, controller),
+            onLongPress: () => _showOptions(context, controller),
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: widget.isCurrent
+                    ? LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.02),
+                        ],
+                      )
+                    : null,
+                border: widget.isCurrent
+                    ? Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.20),
+                        width: 1,
+                      )
+                    : null,
+              ),
+              child: SizedBox(
+                height: 58,
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    if (widget.isCurrent)
+                      Positioned(
+                        left: 4,
+                        child: Container(
+                          width: 3.5,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
-                    )
-                  : Container(
-                      width: 48,
-                      height: 48,
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.music_note),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 14, right: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _artwork(theme),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.result.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontSize: 14.5,
+                                    fontWeight: widget.isCurrent ? FontWeight.w600 : FontWeight.w500,
+                                    color: widget.isCurrent ? theme.colorScheme.primary : null,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  children: [
+                                    Icon(Icons.sensors_rounded,
+                                        size: 13, color: theme.colorScheme.tertiary),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        'Online · ${widget.result.author}${widget.result.duration != null ? ' · ${widget.result.durationFormatted}' : ''}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          fontSize: 12,
+                                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (_isDownloading) ...[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  value: _downloadProgress,
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                          ] else if (widget.isCurrent) ...[
+                            Icon(
+                              Icons.graphic_eq_rounded,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          IconButton(
+                            icon: const Icon(Icons.more_vert, size: 20),
+                            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                            tooltip: 'Song options',
+                            onPressed: () => _showOptions(context, controller),
+                          ),
+                        ],
+                      ),
                     ),
-            ),
-            if (widget.isCurrent)
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6),
-                  color: Colors.black.withValues(alpha: 0.4),
-                ),
-                child: const Icon(
-                  Icons.equalizer,
-                  color: Colors.white,
-                  size: 24,
+                  ],
                 ),
               ),
-          ],
-        ),
-        title: Text(
-          widget.result.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontWeight: widget.isCurrent ? FontWeight.bold : FontWeight.w500,
-            color: widget.isCurrent ? theme.colorScheme.primary : null,
+            ),
           ),
         ),
-        subtitle: Row(
-          children: [
-            Icon(Icons.sensors_rounded,
-                size: 13, color: theme.colorScheme.tertiary),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                widget.result.author,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-            if (widget.result.duration != null) ...[
-              const SizedBox(width: 6),
-              Text(
-                '•  ${widget.result.durationFormatted}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_isDownloading)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    value: _downloadProgress,
-                    strokeWidth: 2,
-                  ),
-                ),
-              )
-            else
-              IconButton(
-                icon: Icon(
-                  widget.isCurrent ? Icons.play_arrow : Icons.play_circle_outline,
-                  color: widget.isCurrent ? theme.colorScheme.primary : null,
-                ),
-                tooltip: 'Stream song',
-                onPressed: () => _streamAndPlay(context, controller),
-              ),
-            IconButton(
-              icon: const Icon(Icons.more_vert),
-              tooltip: 'Song options',
-              onPressed: () => _showOptions(context, controller),
-            ),
-          ],
-        ),
-        onTap: () => _streamAndPlay(context, controller),
       ),
     );
   }
