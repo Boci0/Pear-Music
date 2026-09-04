@@ -10,7 +10,7 @@ import 'queue_bottom_sheet.dart';
 
 /// Portrait mobile body: vertically centered artwork, track details, playback
 /// controls, and YouTube Music style pull-up queue peek card.
-class PlayerPortraitBody extends StatelessWidget {
+class PlayerPortraitBody extends StatefulWidget {
   final AppController controller;
   final PlayerService player;
   final Song song;
@@ -27,205 +27,115 @@ class PlayerPortraitBody extends StatelessWidget {
   });
 
   @override
+  State<PlayerPortraitBody> createState() => _PlayerPortraitBodyState();
+}
+
+class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight;
-        final artSize = (availableHeight * 0.36).clamp(140.0, 320.0);
-
-        return Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: (availableHeight - 64).clamp(0.0, double.infinity),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Center(
-                        child: PlayerArtworkHero(
-                          song: song,
-                          size: artSize,
-                          artwork: ArtworkPalette.bytes(song),
-                          accent: accent,
-                        ),
-                      ),
-                      PlayerSongInfo(song: song),
-                      PlayerSeekBar(player: player, duration: duration),
-                      PlayerTransport(player: player, controller: controller),
-                      const PlayerVolumeRow(),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            QueuePullUpCard(
-              player: player,
-              controller: controller,
-              accent: accent,
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class QueuePullUpCard extends StatefulWidget {
-  final PlayerService player;
-  final AppController controller;
-  final Color accent;
-
-  const QueuePullUpCard({
-    super.key,
-    required this.player,
-    required this.controller,
-    required this.accent,
-  });
-
-  @override
-  State<QueuePullUpCard> createState() => _QueuePullUpCardState();
-}
-
-class _QueuePullUpCardState extends State<QueuePullUpCard> {
-  double _dragDistance = 0.0;
-
-  void _openQueue() {
-    QueueBottomSheet.show(
-      context,
-      player: widget.player,
-      controller: widget.controller,
-      accent: widget.accent,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: widget.player,
-      builder: (context, _) {
-        final queue = widget.player.queue;
-        final nextIndex = widget.player.queueIndex + 1;
-        final nextSong = (nextIndex < queue.length) ? queue[nextIndex] : null;
         final bottomInset = MediaQuery.paddingOf(context).bottom;
+        final peekHeight = 62.0 + bottomInset;
+        final minChildSize = (peekHeight / availableHeight).clamp(0.06, 0.22);
+        final artSize =
+            ((availableHeight - peekHeight) * 0.36).clamp(140.0, 320.0);
 
-        return MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _openQueue,
-            onVerticalDragStart: (_) => _dragDistance = 0.0,
-            onVerticalDragUpdate: (details) {
-              _dragDistance += details.primaryDelta ?? 0.0;
-            },
-            onVerticalDragEnd: (details) {
-              final velocity = details.primaryVelocity ?? 0.0;
-              // Trigger if dragged upwards by more than 15px OR flicked upwards
-              if (_dragDistance < -15.0 || velocity < -120.0) {
-                _openQueue();
-              }
-            },
-            child: Container(
-              width: double.infinity,
-              padding: EdgeInsets.fromLTRB(20, 8, 16, 12 + bottomInset),
-              decoration: BoxDecoration(
-                color: const Color(0xFF141418),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(22)),
-                border: Border(
-                  top: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    width: 1,
-                  ),
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black45,
-                    blurRadius: 16,
-                    offset: Offset(0, -3),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(2),
+        return Stack(
+          children: [
+            // 1. Underlying Player Content (artwork, seekbar, controls, volume)
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(24, 8, 24, peekHeight + 12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight:
+                          (availableHeight - peekHeight - 20).clamp(0.0, double.infinity),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Center(
+                          child: PlayerArtworkHero(
+                            song: widget.song,
+                            size: artSize,
+                            artwork: ArtworkPalette.bytes(widget.song),
+                            accent: widget.accent,
+                          ),
+                        ),
+                        PlayerSongInfo(song: widget.song),
+                        PlayerSeekBar(
+                          player: widget.player,
+                          duration: widget.duration,
+                        ),
+                        PlayerTransport(
+                          player: widget.player,
+                          controller: widget.controller,
+                        ),
+                        const PlayerVolumeRow(),
+                      ],
                     ),
                   ),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.queue_music_rounded,
-                        size: 18,
-                        color: widget.accent,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'UP NEXT',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
-                          color: widget.accent,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: widget.accent.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          '${queue.length}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: widget.accent,
-                          ),
-                        ),
-                      ),
-                      if (nextSong != null) ...[
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            nextSong.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white.withValues(alpha: 0.65),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ] else ...[
-                        const Spacer(),
-                      ],
-                      Icon(
-                        Icons.keyboard_arrow_up_rounded,
-                        size: 22,
-                        color: Colors.white.withValues(alpha: 0.65),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
+
+            // 2. Dimming Scrim when sheet is expanded (tap outside to collapse)
+            ListenableBuilder(
+              listenable: _sheetController,
+              builder: (context, _) {
+                final currentSize = _sheetController.isAttached
+                    ? _sheetController.size
+                    : minChildSize;
+                final progress = ((currentSize - minChildSize) /
+                        (0.45 - minChildSize))
+                    .clamp(0.0, 1.0);
+                if (progress <= 0.001) return const SizedBox.shrink();
+
+                return Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      if (_sheetController.isAttached) {
+                        _sheetController.animateTo(
+                          minChildSize,
+                          duration: const Duration(milliseconds: 240),
+                          curve: Curves.easeOutCubic,
+                        );
+                      }
+                    },
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.55 * progress),
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            // 3. YouTube Music Style Real-Time Expandable Queue Sheet
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: ExpandableQueueSheet(
+                  player: widget.player,
+                  controller: widget.controller,
+                  accent: widget.accent,
+                  minChildSize: minChildSize,
+                  sheetController: _sheetController,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
