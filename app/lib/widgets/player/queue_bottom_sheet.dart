@@ -31,8 +31,13 @@ class ExpandableQueueSheet extends StatefulWidget {
 }
 
 class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
+  static const double _expandedSize = 0.92;
+
   ScrollController? _scrollController;
   bool _didScrollToCurrent = false;
+  bool _isCollapsing = false;
+  double _lastSize = 0.0;
+  DateTime _lastToggleTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -49,15 +54,18 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
   void _onSheetSizeChanged() {
     if (!widget.sheetController.isAttached) return;
     final currentSize = widget.sheetController.size;
+    final isExpanding = currentSize > _lastSize;
+    _lastSize = currentSize;
+
     if (currentSize <= widget.minChildSize + 0.03) {
       _didScrollToCurrent = false;
-    } else if (currentSize >= 0.70 && !_didScrollToCurrent) {
+    } else if (isExpanding && !_isCollapsing && currentSize >= 0.70 && !_didScrollToCurrent) {
       _maybeScrollToCurrent();
     }
   }
 
   void _maybeScrollToCurrent() {
-    if (_didScrollToCurrent || !mounted) return;
+    if (_isCollapsing || _didScrollToCurrent || !mounted) return;
     final controller = _scrollController;
     if (controller == null || !controller.hasClients) return;
 
@@ -72,8 +80,6 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
       );
     }
   }
-
-  DateTime _lastToggleTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   void _toggleSheet() {
     final now = DateTime.now();
@@ -94,20 +100,34 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
 
   void _collapseSheet() {
     if (!widget.sheetController.isAttached) return;
+    _isCollapsing = true;
+    _didScrollToCurrent = true;
+    if (_scrollController != null && _scrollController!.hasClients) {
+      _scrollController!.jumpTo(0.0);
+    }
     widget.sheetController.animateTo(
       widget.minChildSize,
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
-    );
+    ).then((_) {
+      if (mounted) {
+        _isCollapsing = false;
+        _didScrollToCurrent = false;
+      }
+    });
   }
 
   void _expandSheet() {
     if (!widget.sheetController.isAttached) return;
+    _isCollapsing = false;
+    _didScrollToCurrent = false;
     widget.sheetController.animateTo(
-      0.75,
+      _expandedSize,
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
-    );
+    ).then((_) {
+      _maybeScrollToCurrent();
+    });
   }
 
   @override
@@ -125,11 +145,9 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
         controller: widget.sheetController,
         initialChildSize: widget.minChildSize,
         minChildSize: widget.minChildSize,
-        maxChildSize: 0.94,
+        maxChildSize: _expandedSize,
         snap: true,
-        snapSizes: [
-          if (0.75 > widget.minChildSize && 0.75 < 0.94) 0.75,
-        ],
+        snapSizes: const [],
         builder: (context, scrollController) {
           _scrollController = scrollController;
 
@@ -163,8 +181,11 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet> {
                     player: widget.player,
                     accent: widget.accent,
                     minChildSize: widget.minChildSize,
+                    expandedSize: _expandedSize,
                     sheetController: widget.sheetController,
                     onToggle: _toggleSheet,
+                    onCollapse: _collapseSheet,
+                    onExpand: _expandSheet,
                   ),
                 ),
 
@@ -198,15 +219,21 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
   final PlayerService player;
   final Color accent;
   final double minChildSize;
+  final double expandedSize;
   final DraggableScrollableController sheetController;
   final VoidCallback onToggle;
+  final VoidCallback onCollapse;
+  final VoidCallback onExpand;
 
   const _QueueHeaderDelegate({
     required this.player,
     required this.accent,
     required this.minChildSize,
+    required this.expandedSize,
     required this.sheetController,
     required this.onToggle,
+    required this.onCollapse,
+    required this.onExpand,
   });
 
   @override
@@ -228,25 +255,18 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
           final totalHeight = MediaQuery.sizeOf(context).height;
           if (totalHeight > 0 && sheetController.isAttached) {
             final nextSize =
-                (sheetController.size - (delta / totalHeight)).clamp(minChildSize, 0.94);
+                (sheetController.size - (delta / totalHeight)).clamp(minChildSize, expandedSize);
             sheetController.jumpTo(nextSize);
           }
         },
         onVerticalDragEnd: (details) {
           final vy = details.primaryVelocity ?? 0.0;
           if (!sheetController.isAttached) return;
-          if (vy > 280 || sheetController.size < 0.40) {
-            sheetController.animateTo(
-              minChildSize,
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-            );
-          } else if (vy < -280 || sheetController.size >= 0.40) {
-            sheetController.animateTo(
-              0.94,
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-            );
+          final midPoint = (minChildSize + expandedSize) / 2;
+          if (vy > 250 || sheetController.size < midPoint) {
+            onCollapse();
+          } else {
+            onExpand();
           }
         },
         onTap: () {
@@ -471,8 +491,11 @@ class _QueueHeaderDelegate extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(covariant _QueueHeaderDelegate oldDelegate) {
     return oldDelegate.accent != accent ||
         oldDelegate.minChildSize != minChildSize ||
+        oldDelegate.expandedSize != expandedSize ||
         oldDelegate.sheetController != sheetController ||
-        oldDelegate.onToggle != onToggle;
+        oldDelegate.onToggle != onToggle ||
+        oldDelegate.onCollapse != onCollapse ||
+        oldDelegate.onExpand != onExpand;
   }
 }
 
