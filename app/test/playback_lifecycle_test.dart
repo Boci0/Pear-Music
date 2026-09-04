@@ -157,7 +157,9 @@ void main() {
       );
     });
 
-    test('StreamCacheManager download concurrency state tracking', () {
+    test('StreamCacheManager download concurrency state tracking', () async {
+      StreamCacheManager.cancelPreload();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(StreamCacheManager.isAnyDownloadActive, isFalse);
       expect(StreamCacheManager.activeDownloadingVideoId, isNull);
 

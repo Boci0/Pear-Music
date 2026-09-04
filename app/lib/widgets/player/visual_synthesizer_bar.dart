@@ -55,6 +55,11 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
   @override
   void didUpdateWidget(covariant VisualSynthesizerBar oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      oldWidget.player.removeListener(_onPlayerStateChanged);
+      widget.player.addListener(_onPlayerStateChanged);
+      _onPlayerStateChanged();
+    }
     if (oldWidget.currentPosition != widget.currentPosition) {
       _basePositionMs = widget.currentPosition.inMilliseconds;
       _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
@@ -72,6 +77,7 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
   @override
   void dispose() {
     widget.player.removeListener(_onPlayerStateChanged);
+    _ticker.stop();
     _ticker.dispose();
     super.dispose();
   }

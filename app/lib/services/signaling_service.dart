@@ -633,6 +633,9 @@ class SignalingService {
           if (!identical(channel, _channel)) return;
           debugPrint(
               '[signaling] socket closed code=${channel.closeCode} reason=${channel.closeReason}');
+          if (channel.closeCode == 4001 || channel.closeReason == 'replaced') {
+            if (_attempt < 3) _attempt = 3;
+          }
           _handleDisconnect();
         },
         cancelOnError: true,

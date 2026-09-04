@@ -51,6 +51,15 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
       reverseCurve: Curves.easeInQuad,
     );
 
+    _fadeController.addStatusListener((status) {
+      if (status == AnimationStatus.dismissed) {
+        if (_pulseController.isAnimating) {
+          _pulseController.stop();
+          _pulseController.reset();
+        }
+      }
+    });
+
     _wasPlaying = widget.player.playing;
     widget.player.addListener(_onPlayerChanged);
 
@@ -84,12 +93,18 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
       _fadeController.forward();
     } else {
       _fadeController.reverse();
+      if (_fadeController.isDismissed && _pulseController.isAnimating) {
+        _pulseController.stop();
+        _pulseController.reset();
+      }
     }
   }
 
   @override
   void dispose() {
     widget.player.removeListener(_onPlayerChanged);
+    _pulseController.stop();
+    _fadeController.stop();
     _pulseController.dispose();
     _fadeController.dispose();
     super.dispose();
@@ -100,11 +115,15 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
     return AnimatedBuilder(
       animation: Listenable.merge([_pulseController, _fadeController]),
       builder: (context, child) {
+        final bloom = _bloomAnimation.value;
+        if (bloom <= 0.0 && !_pulseController.isAnimating) {
+          return widget.builder(context, 0.0, widget.child);
+        }
         // Continuous harmonic breathing pulse between 0.70 and 1.0
         final t = _pulseController.value;
         final pulse = 0.70 + (0.30 * ((1.0 - math.cos(t * math.pi)) / 2.0));
         // Multiplied by the growth animation so it expands smoothly from exactly 0.0
-        final effectiveAura = pulse * _bloomAnimation.value;
+        final effectiveAura = pulse * bloom;
         return widget.builder(context, effectiveAura, widget.child);
       },
     );
