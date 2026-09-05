@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+
+import '../models/song.dart';
 
 enum SortOption {
   dateAdded('Date Added'),
@@ -18,6 +21,7 @@ class IdentityService {
   static const _deviceIdKey = 'peerm_device_id';
   static const _deviceNameKey = 'peerm_device_name';
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
+  static const _favoriteOnlineSongsKey = 'peerm_favorite_online_songs';
   static const _sortOptionKey = 'peerm_sort_option';
   static const _loudnessNormKey = 'peerm_loudness_normalization';
   static const _synthesizerBarKey = 'peerm_synthesizer_bar';
@@ -29,6 +33,7 @@ class IdentityService {
   late final String deviceId;
   late String deviceName;
   late Set<String> _favoriteSongIds;
+  final Map<String, Song> _favoriteOnlineSongs = {};
   late SortOption _sortOption;
   late bool _loudnessNormalization;
   late bool _synthesizerBar;
@@ -41,6 +46,20 @@ class IdentityService {
     deviceName = _prefs.getString(_deviceNameKey) ?? _defaultName();
 
     _favoriteSongIds = Set<String>.from(_prefs.getStringList(_favoriteIdsKey) ?? []);
+    final onlineJson = _prefs.getString(_favoriteOnlineSongsKey);
+    if (onlineJson != null && onlineJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(onlineJson);
+        if (decoded is Map<String, dynamic>) {
+          for (final entry in decoded.entries) {
+            if (entry.value is Map<String, dynamic>) {
+              _favoriteOnlineSongs[entry.key] =
+                  Song.fromJson(entry.value as Map<String, dynamic>);
+            }
+          }
+        }
+      } catch (_) {}
+    }
     final sortStr = _prefs.getString(_sortOptionKey);
     _sortOption = SortOption.values.firstWhere(
       (e) => e.name == sortStr,
@@ -86,15 +105,46 @@ class IdentityService {
 
   Set<String> get favoriteSongIds => Set.unmodifiable(_favoriteSongIds);
 
+  Map<String, Song> get favoriteOnlineSongs =>
+      Map.unmodifiable(_favoriteOnlineSongs);
+
+  Song? findFavoriteOnlineSong(String id) => _favoriteOnlineSongs[id];
+
   bool isFavorite(String songId) => _favoriteSongIds.contains(songId);
 
-  Future<void> toggleFavorite(String songId) async {
+  Future<void> toggleFavorite(String songId, {Song? song}) async {
     if (_favoriteSongIds.contains(songId)) {
       _favoriteSongIds.remove(songId);
+      _favoriteOnlineSongs.remove(songId);
     } else {
       _favoriteSongIds.add(songId);
+      if (song != null &&
+          (song.sourceDeviceId == 'stream' || song.id.startsWith('stream_'))) {
+        _favoriteOnlineSongs[songId] = song;
+      }
     }
-    await _prefs.setStringList(_favoriteIdsKey, _favoriteSongIds.toList());
+    await _saveFavorites();
+  }
+
+  Future<void> cacheFavoriteSongMetadata(Song song) async {
+    if (_favoriteSongIds.contains(song.id) &&
+        (song.sourceDeviceId == 'stream' || song.id.startsWith('stream_'))) {
+      if (!_favoriteOnlineSongs.containsKey(song.id) ||
+          _favoriteOnlineSongs[song.id]!.artwork != song.artwork) {
+        _favoriteOnlineSongs[song.id] = song;
+        await _saveFavorites();
+      }
+    }
+  }
+
+  Future<void> _saveFavorites() async {
+    await Future.wait([
+      _prefs.setStringList(_favoriteIdsKey, _favoriteSongIds.toList()),
+      _prefs.setString(
+        _favoriteOnlineSongsKey,
+        jsonEncode(_favoriteOnlineSongs.map((k, v) => MapEntry(k, v.toJson()))),
+      ),
+    ]);
   }
 
   SortOption get sortOption => _sortOption;

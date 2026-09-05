@@ -202,11 +202,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    List<Song> rawSongs = controller.songs;
-
-    if (_showOnlyFavorites && !_isSearching) {
-      rawSongs = rawSongs.where((s) => controller.isFavorite(s.id)).toList();
-    }
+    List<Song> rawSongs =
+        _showOnlyFavorites ? controller.favoriteSongs : controller.songs;
 
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
@@ -227,7 +224,9 @@ class _HomeScreenState extends State<HomeScreen> {
               hasScrollBody: false,
               child: Center(
                 child: Text(
-                  'No matching songs in library',
+                  _showOnlyFavorites
+                      ? 'No matching favorites'
+                      : 'No matching songs in library',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.outline,
                   ),
@@ -301,17 +300,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     InkWell(
                       onTap: () {
                         setState(() => _showOnlyFavorites = false);
-                        if (controller.player.hasLoaded &&
-                            (controller.player.queueSourceId == 'library' ||
-                                controller.player.queueSourceId == 'favorites' ||
-                                controller.player.queueSourceId == null)) {
-                          final updatedQueue = controller.getSortedSongs(controller.songs);
-                          controller.player.updateQueue(
-                            updatedQueue,
-                            sourceId: 'library',
-                            sourceTitle: 'Library',
-                          );
-                        }
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -331,7 +319,37 @@ class _HomeScreenState extends State<HomeScreen> {
           if (songs.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
-              child: _EmptyState(onAdd: () => controller.addFilesFromPicker()),
+              child: _showOnlyFavorites
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.favorite_border,
+                              size: 64,
+                              color: theme.colorScheme.primary
+                                  .withValues(alpha: 0.6),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No favorite songs yet',
+                              style: theme.textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tap the heart icon on any local or online song to add it to your favorites.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _EmptyState(onAdd: () => controller.addFilesFromPicker()),
             )
           else
             SliverPadding(
@@ -472,23 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.more_vert),
           onSelected: (val) async {
             if (val == 'fav_toggle') {
-              final newFavState = !_showOnlyFavorites;
-              setState(() => _showOnlyFavorites = newFavState);
-              if (controller.player.hasLoaded &&
-                  (controller.player.queueSourceId == 'library' ||
-                      controller.player.queueSourceId == 'favorites' ||
-                      controller.player.queueSourceId == null)) {
-                var currentList = controller.songs;
-                if (newFavState && !_isSearching) {
-                  currentList = currentList.where((s) => controller.isFavorite(s.id)).toList();
-                }
-                final updatedQueue = controller.getSortedSongs(currentList);
-                controller.player.updateQueue(
-                  updatedQueue,
-                  sourceId: newFavState ? 'favorites' : 'library',
-                  sourceTitle: newFavState ? 'Favorites' : 'Library',
-                );
-              }
+              setState(() => _showOnlyFavorites = !_showOnlyFavorites);
             } else if (val == 'sort_date') {
               await controller.setSortOption(SortOption.dateAdded);
             } else if (val == 'sort_title') {

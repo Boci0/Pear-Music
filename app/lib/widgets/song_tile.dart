@@ -98,7 +98,7 @@ class SongTile extends StatelessWidget {
     } else if (action == 'save_stream') {
       await controller.saveStreamToLibrary(song);
     } else if (action == 'favorite') {
-      await controller.toggleFavorite(song.id);
+      await controller.toggleFavorite(song.id, song: song);
     } else if (action == 'playlist') {
       await showAddToPlaylistSheet(context, controller, song);
     } else if (action == 'copy_title') {
@@ -267,7 +267,7 @@ class SongTile extends StatelessWidget {
                                     Expanded(
                                       child: Text(
                                         song.sourceDeviceId == 'stream'
-                                            ? 'Radio Stream'
+                                            ? 'Online Stream'
                                             : fromPeer
                                                 ? 'Shared · ${song.sizeLabel}'
                                                 : 'Local · ${song.sizeLabel}',
@@ -298,7 +298,7 @@ class SongTile extends StatelessWidget {
                               icon: Icons.favorite,
                               color: theme.colorScheme.primary,
                               tooltip: 'Favorite',
-                              onPressed: () => controller.toggleFavorite(song.id),
+                              onPressed: () => controller.toggleFavorite(song.id, song: song),
                             ),
                           ],
                           if (!isSelecting) ...[

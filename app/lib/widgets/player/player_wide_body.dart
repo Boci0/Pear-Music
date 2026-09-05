@@ -72,52 +72,55 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(28),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final artSize = (constraints.maxHeight * 0.85)
-                                .clamp(180.0, 380.0);
-                            return Center(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final artSize = (constraints.maxHeight * 0.54)
+                          .clamp(180.0, 360.0);
+                      return Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Center(
                               child: PlayerArtworkHero(
                                 song: song,
                                 size: artSize,
                                 artwork: ArtworkPalette.cachedBytes(song),
                                 accent: accent,
                               ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      PlayerSongInfo(song: song),
-                      if (player.queueTitle != null) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: accent.withValues(alpha: 0.25),
                             ),
                           ),
-                          child: Text(
-                            'Playing from ${player.queueTitle}',
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: accent,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 32,
+                            child: Center(
+                              child: player.queueTitle != null
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: accent.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: accent.withValues(alpha: 0.25),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Playing from ${player.queueTitle}',
+                                        style: Theme.of(context).textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: accent,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
                           ),
-                        ),
-                      ],
-                    ],
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -327,7 +330,9 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
   void didUpdateWidget(covariant PlayerWideQueueView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentSong.id != widget.currentSong.id) {
-      _scrollToCurrent();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToCurrent();
+      });
     }
   }
 
@@ -339,19 +344,29 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
     final queue = widget.player.queue;
     final idx = queue.indexWhere((s) => s.id == widget.currentSong.id);
     if (idx >= 0) {
-      // Must match the list's itemExtent (dense two-line ListTile + padding).
-      final targetOffset = (idx * 68.0 - 80.0).clamp(
+      final itemTop = idx * 68.0;
+      final itemBottom = (idx + 1) * 68.0;
+      final currentOffset = _scrollController.offset;
+      final viewport = _scrollController.position.viewportDimension;
+
+      // If the active item is already comfortably visible, avoid jarring scroll
+      if (!force &&
+          itemTop >= currentOffset + 40.0 &&
+          itemBottom <= currentOffset + viewport - 40.0) {
+        return;
+      }
+
+      final targetOffset = (itemTop - (viewport - 68.0) / 2).clamp(
         0.0,
         _scrollController.position.maxScrollExtent,
       );
-      final diff = (_scrollController.offset - targetOffset).abs();
-      if (diff > 250) {
-        _scrollController.jumpTo(targetOffset);
-      } else if (diff > 2) {
+      final diff = (currentOffset - targetOffset).abs();
+      if (diff > 1.0) {
+        final durationMs = (diff * 0.35).clamp(140.0, 240.0).toInt();
         _scrollController.animateTo(
           targetOffset,
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOut,
+          duration: Duration(milliseconds: durationMs),
+          curve: Curves.easeOutCubic,
         );
       }
     }
@@ -589,25 +604,6 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                     ),
                                     onPressed: () =>
                                         widget.player.toggleSongLock(item.id),
-                                  ),
-                                if (isCurrent)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: scheme.primary,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      'PLAYING',
-                                      style: TextStyle(
-                                        color: scheme.onPrimary,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
                                   ),
                                 PopupMenuButton<String>(
                                   icon: Icon(

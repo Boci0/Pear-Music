@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/artwork_service.dart';
+import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/recommendation_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -167,6 +169,23 @@ void main() {
       expect(() => StreamCacheManager.cancelPreload(), returnsNormally);
     });
 
+    test('IdentityService audio preferences default and persist properly', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final identity = IdentityService(prefs);
+
+      // Default loudness normalization is true, autoplay is false
+      expect(identity.loudnessNormalization, isTrue);
+      expect(identity.autoplay, isFalse);
+
+      await identity.setLoudnessNormalization(false);
+      expect(identity.loudnessNormalization, isFalse);
+      expect(prefs.getBool('peerm_loudness_normalization'), isFalse);
+
+      await identity.setAutoplay(true);
+      expect(identity.autoplay, isTrue);
+      expect(prefs.getBool('peerm_autoplay'), isTrue);
+    });
   });
 }
 

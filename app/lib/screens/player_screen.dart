@@ -147,10 +147,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: child,
           );
         },
-        child: Column(
-          children: [
-            appBar,
-            Expanded(
+        child: RepaintBoundary(
+          child: Column(
+            children: [
+              appBar,
+              Expanded(
               child: SafeArea(
                 top: false,
                 bottom: false,
@@ -193,6 +194,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }

@@ -31,7 +31,7 @@ class PlayerTransport extends StatelessWidget {
       LoopSetting.all => 'Repeat all (album)',
       LoopSetting.off => 'No repeat',
     };
-    final stateLabel = (player.isLoadingTrack && !player.playing)
+    final stateLabel = player.isBufferingNext
         ? 'Buffering track...'
         : [
             if (player.shuffle) 'Shuffle on',
@@ -91,7 +91,7 @@ class PlayerTransport extends StatelessWidget {
                 IconButton(
                   padding: EdgeInsets.zero,
                   iconSize: 72,
-                  icon: (player.isLoadingTrack && !player.playing)
+                  icon: player.isBufferingNext
                       ? Center(
                           child: SizedBox(
                             width: 52,

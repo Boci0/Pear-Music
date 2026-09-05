@@ -118,6 +118,28 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
       imageWidget = _placeholder(scheme);
     }
 
+    final currentArtKey = effectiveNetworkUrl ??
+        (song?.id ?? (initialBytes != null ? '${initialBytes.hashCode}' : 'placeholder'));
+
+    final crossfadeImage = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ...previousChildren,
+            ?currentChild,
+          ],
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey(currentArtKey),
+        child: SizedBox.expand(child: imageWidget),
+      ),
+    );
+
     final playerService = context.watch<PlayerService?>();
     final glowUnderlay = Container(
       width: size,
@@ -187,13 +209,13 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                   if (_showLyrics && song != null && playerService != null) ...[
                     ImageFiltered(
                       imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                      child: imageWidget,
+                      child: crossfadeImage,
                     ),
                     Container(
                       color: Colors.black.withValues(alpha: 0.55),
                     ),
                   ] else ...[
-                    imageWidget,
+                    crossfadeImage,
                   ],
                   if (song != null && playerService != null)
                     Visibility(
@@ -295,7 +317,6 @@ class PlayerArtworkHero extends StatelessWidget {
       child: Material(
         type: MaterialType.transparency,
         child: PlayerArtwork(
-          key: ValueKey('hero_art_${song.id}'),
           song: song,
           artwork: isNetwork ? null : artwork,
           networkUrl: isNetwork ? song.artwork : null,
@@ -322,71 +343,80 @@ class PlayerSongInfo extends StatelessWidget {
     final isStream = song.sourceDeviceId == 'stream';
     final route = player.currentRouteType;
 
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isStream)
-              IconButton(
-                icon: Icon(
-                  Icons.download_rounded,
-                  color: theme.colorScheme.tertiary,
-                ),
-                tooltip: 'Save to library',
-                onPressed: () => controller.saveStreamToLibrary(song),
-              )
-            else
-              IconButton(
-                icon: Icon(
-                  Icons.sensors_rounded,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                tooltip: 'Start Radio mix',
-                onPressed: () => controller.startRadio(song),
-              ),
-            Expanded(
-              child: Tooltip(
-                message: 'Tap or long-press to copy title',
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => _copyTitle(context, song.title),
-                  onLongPress: () => _copyTitle(context, song.title),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    child: Text(
-                      song.title,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.headlineSmall,
+    return SizedBox(
+      height: 96,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            height: 58,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isStream)
+                  IconButton(
+                    icon: Icon(
+                      Icons.download_rounded,
+                      color: theme.colorScheme.tertiary,
+                    ),
+                    tooltip: 'Save to library',
+                    onPressed: () => controller.saveStreamToLibrary(song),
+                  )
+                else
+                  IconButton(
+                    icon: Icon(
+                      Icons.sensors_rounded,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    tooltip: 'Start Radio mix',
+                    onPressed: () => controller.startRadio(song),
+                  ),
+                Expanded(
+                  child: Tooltip(
+                    message: 'Tap or long-press to copy title',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => _copyTitle(context, song.title),
+                      onLongPress: () => _copyTitle(context, song.title),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        child: Center(
+                          child: Text(
+                            song.title,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.headlineSmall?.copyWith(height: 1.15),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                IconButton(
+                  icon: Icon(
+                    isFav ? Icons.favorite : Icons.favorite_border,
+                    color: isFav
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
+                  onPressed: () => controller.toggleFavorite(song.id, song: song),
+                ),
+              ],
             ),
-            IconButton(
-              icon: Icon(
-                isFav ? Icons.favorite : Icons.favorite_border,
-                color: isFav
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-              tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
-              onPressed: () => controller.toggleFavorite(song.id),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        _buildSourceInfo(
-          context,
-          isStream,
-          route,
-          player.isLoadingTrack && !player.playing,
-          scheme,
-          theme,
-        ),
-      ],
+          ),
+          const SizedBox(height: 6),
+          _buildSourceInfo(
+            context,
+            isStream,
+            route,
+            player.isBufferingNext,
+            scheme,
+            theme,
+          ),
+        ],
+      ),
     );
   }
 
@@ -467,11 +497,16 @@ class PlayerSongInfo extends StatelessWidget {
       );
     }
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      child: content,
+    return SizedBox(
+      height: 24,
+      child: Center(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: content,
+        ),
+      ),
     );
   }
 

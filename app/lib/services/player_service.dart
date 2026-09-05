@@ -198,13 +198,13 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> _fadeVolume(
     double targetVolume, {
-    Duration duration = const Duration(milliseconds: 100),
+    Duration duration = const Duration(milliseconds: 150),
   }) async {
     final startVolume = _player.volume;
     if ((startVolume - targetVolume).abs() < 0.01) return;
-    const steps = 6;
+    final steps = (duration.inMilliseconds / 25).round().clamp(6, 40);
     final stepDuration =
-        Duration(milliseconds: (duration.inMilliseconds / steps).round());
+        Duration(milliseconds: math.max(1, (duration.inMilliseconds / steps).round()));
     final volumeDelta = (targetVolume - startVolume) / steps;
     for (var i = 1; i <= steps; i++) {
       await Future<void>.delayed(stepDuration);
@@ -711,6 +711,9 @@ class PlayerService extends ChangeNotifier {
   }) async {
     _lastInteraction = DateTime.now();
     RecommendationService.markPlayed(song.id);
+    if (identity != null && identity!.isFavorite(song.id)) {
+      unawaited(identity!.cacheFavoriteSongMetadata(song));
+    }
     final token = ++_playRequestToken;
     _pendingNaturalAdvance = false;
     _preloadDebounceTimer?.cancel();
@@ -882,7 +885,16 @@ class PlayerService extends ChangeNotifier {
         return;
       }
       DebugLog.write('[player] Calling _player.play() for "${song.title}"');
+      final shouldFadeIn = _userVolume > 0.05;
+      if (shouldFadeIn) {
+        await _player.setVolume(0.0);
+      } else {
+        await _player.setVolume(_userVolume);
+      }
       unawaited(_player.play());
+      if (shouldFadeIn) {
+        unawaited(_fadeVolume(_userVolume, duration: const Duration(milliseconds: 150)));
+      }
       _isLoadingTrack = false;
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;
@@ -1103,11 +1115,14 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.setActiveQueueVideoIds(vIds);
   }
 
-  Future<void> pause({bool smooth = false}) async {
+  Future<void> pause({bool smooth = true}) async {
     _lastInteraction = DateTime.now();
     _preloadDebounceTimer?.cancel();
     StreamCacheManager.cancelPreload();
     if (_player.playing) {
+      if (smooth && _userVolume > 0.05) {
+        await _fadeVolume(0.0, duration: const Duration(milliseconds: 150));
+      }
       await _player.pause();
       await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
     }
@@ -1126,9 +1141,17 @@ class PlayerService extends ChangeNotifier {
     if (_player.processingState == ProcessingState.completed) {
       await _player.seek(Duration.zero);
     }
-    await _player.setVolume(_userVolume);
+    final shouldFade = _userVolume > 0.05;
+    if (shouldFade) {
+      await _player.setVolume(0.0);
+    } else {
+      await _player.setVolume(_userVolume);
+    }
     try {
       await _player.play();
+      if (shouldFade) {
+        unawaited(_fadeVolume(_userVolume, duration: const Duration(milliseconds: 150)));
+      }
     } catch (e) {
       DebugLog.write('[player] resume failed ($e), reloading track: ${currentSong?.title}');
       if (currentSong != null) {
@@ -1159,6 +1182,9 @@ class PlayerService extends ChangeNotifier {
     _lastInteraction = DateTime.now();
     if (_queue.isEmpty || _isAdvancing) return;
     _isAdvancing = true;
+    if (_player.playing && _userVolume > 0.05) {
+      await _fadeVolume(0.0, duration: const Duration(milliseconds: 120));
+    }
     try {
       if (_loopMode == LoopSetting.one) {
         await _replayCurrent();
@@ -1212,6 +1238,9 @@ class PlayerService extends ChangeNotifier {
   Future<void> previous() async {
     if (_queue.isEmpty || _isAdvancing) return;
     _isAdvancing = true;
+    if (_player.playing && _userVolume > 0.05) {
+      await _fadeVolume(0.0, duration: const Duration(milliseconds: 120));
+    }
     try {
       if (_loopMode == LoopSetting.one) {
         await _replayCurrent();
@@ -1268,15 +1297,15 @@ class PlayerService extends ChangeNotifier {
       }
       return r;
     }
-    final n = _queueIndex + 1;
-    if (n < _queue.length) return n;
-    return _loopMode == LoopSetting.all ? 0 : null;
+    final next = _queueIndex + 1;
+    if (next < _queue.length) return next;
+    if (_loopMode == LoopSetting.all) return 0;
+    return null;
   }
 
   Future<void> _replayCurrent() async {
     await _player.seek(Duration.zero);
     await _player.play();
-    notifyListeners();
   }
 
   /// Keep the notification's repeat / shuffle icons and playback state in sync with our state.
@@ -1305,6 +1334,9 @@ class PlayerService extends ChangeNotifier {
       return;
     }
     await _player.seek(position);
+    if (_player.volume < _userVolume && _player.playing) {
+      unawaited(_player.setVolume(_userVolume));
+    }
   }
 
   Future<void> setVolume(double value) async {

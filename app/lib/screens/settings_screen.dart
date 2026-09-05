@@ -81,26 +81,6 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
-                  secondary: const Icon(Icons.graphic_eq_rounded),
-                  title: const Text('Synthesizer Seek Bar'),
-                  subtitle: const Text('Beat-reactive spectrum bar chart on progress bar'),
-                  value: identity.synthesizerBar,
-                  onChanged: (val) async {
-                    await controller.updateSynthesizerBar(val);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.autorenew_rounded),
-                  title: const Text('Auto-Reroll Seed'),
-                  subtitle: const Text('Continuously update upcoming recommendations based on playing song'),
-                  value: controller.player.autoRerollSeed,
-                  onChanged: (val) {
-                    controller.player.setAutoRerollSeed(val);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
                   secondary: const Icon(Icons.playlist_play_rounded),
                   title: const Text('Endless Play'),
                   subtitle: const Text('Keep playing similar recommendations when queue ends'),

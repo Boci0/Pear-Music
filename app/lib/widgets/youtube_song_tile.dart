@@ -124,6 +124,23 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                       _downloadToLibrary(context, controller);
                     },
             ),
+            Builder(
+              builder: (ctx) {
+                final song = widget.result.toSong();
+                final isFav = controller.isFavorite(song.id);
+                return ListTile(
+                  leading: Icon(
+                    isFav ? Icons.favorite : Icons.favorite_border,
+                    color: isFav ? theme.colorScheme.primary : null,
+                  ),
+                  title: Text(isFav ? 'Remove from favorites' : 'Add to favorites'),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    await controller.toggleFavorite(song.id, song: song);
+                  },
+                );
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.copy_rounded),
               title: const Text('Copy title'),
@@ -235,6 +252,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final controller = context.read<AppController>();
+    final isFav = context.select<AppController, bool>(
+      (c) => c.isFavorite('stream_${widget.result.videoId}'),
+    );
 
     return RepaintBoundary(
       child: Padding(
@@ -348,6 +368,17 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                               color: theme.colorScheme.primary,
                             ),
                             const SizedBox(width: 4),
+                          ],
+                          if (isFav) ...[
+                            IconButton(
+                              icon: const Icon(Icons.favorite, size: 19),
+                              color: theme.colorScheme.primary,
+                              tooltip: 'Favorite',
+                              onPressed: () => controller.toggleFavorite(
+                                'stream_${widget.result.videoId}',
+                                song: widget.result.toSong(),
+                              ),
+                            ),
                           ],
                           IconButton(
                             icon: const Icon(Icons.more_vert, size: 20),

@@ -12,6 +12,7 @@ import '../services/artwork_palette.dart';
 import '../services/identity_service.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
+import '../services/recommendation_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
@@ -40,21 +41,59 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   Set<String> get favoriteSongIds => identity.favoriteSongIds;
   bool isFavorite(String songId) => identity.isFavorite(songId);
-  Future<void> toggleFavorite(String songId) async {
-    await identity.toggleFavorite(songId);
+
+  List<Song> get favoriteSongs {
+    final List<Song> result = [];
+    final seen = <String>{};
+    for (final s in library.songs) {
+      if (identity.isFavorite(s.id)) {
+        result.add(s);
+        seen.add(s.id);
+      }
+    }
+    for (final s in identity.favoriteOnlineSongs.values) {
+      if (!seen.contains(s.id) && identity.isFavorite(s.id)) {
+        result.add(s);
+        seen.add(s.id);
+      }
+    }
+    for (final id in identity.favoriteSongIds) {
+      if (!seen.contains(id) &&
+          (id.startsWith('stream_') || id.startsWith('yt_'))) {
+        final videoId = RecommendationService.extractVideoId(id) ??
+            id.replaceFirst('stream_', '');
+        final song = Song(
+          id: id,
+          title: 'Online Stream ($videoId)',
+          fileName: 'stream_$videoId.m4a',
+          size: 0,
+          checksum: id,
+          sourceDeviceId: 'stream',
+          addedAt: DateTime.now(),
+        );
+        result.add(song);
+        seen.add(id);
+      }
+    }
+    return result;
+  }
+
+  Song? findSongById(String id) {
+    return library.findById(id) ?? identity.findFavoriteOnlineSong(id);
+  }
+
+  Future<void> toggleFavorite(String songId, {Song? song}) async {
+    final resolvedSong = song ??
+        (player.currentSong?.id == songId
+            ? player.currentSong
+            : findSongById(songId));
+    await identity.toggleFavorite(songId, song: resolvedSong);
     notifyListeners();
   }
 
   SortOption get sortOption => identity.sortOption;
   Future<void> setSortOption(SortOption option) async {
     await identity.setSortOption(option);
-    if (player.hasLoaded &&
-        (player.queueSourceId == 'library' ||
-            player.queueSourceId == 'favorites' ||
-            player.queueSourceId == null)) {
-      final sorted = getSortedSongs(player.queue);
-      player.updateQueue(sorted);
-    }
     notifyListeners();
   }
 
@@ -308,7 +347,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> playPlaylist(Playlist playlist) async {
     final songs = [
       for (final id in playlist.songIds)
-        if (library.findById(id) != null) library.findById(id)!,
+        if (findSongById(id) != null) findSongById(id)!,
     ];
     if (songs.isEmpty) {
       _postMessage('This playlist is empty.');
@@ -364,8 +403,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
   Future<void> saveStreamToLibrary(Song song) async {
     _postMessage('Downloading "${song.title}" to library…');
+    final wasFav = isFavorite(song.id);
     final saved = await StreamCacheManager.saveToLibrary(song, library);
     if (saved != null) {
+      if (wasFav && !isFavorite(saved.id)) {
+        await toggleFavorite(saved.id, song: saved);
+      }
       _postMessage('Added "${saved.title}" to library');
       notifyListeners();
     } else {

@@ -32,8 +32,8 @@ class PlaylistDetailScreen extends StatelessWidget {
 
     final songs = [
       for (final id in playlist.songIds)
-        if (controller.library.findById(id) != null)
-          controller.library.findById(id)!,
+        if (controller.findSongById(id) != null)
+          controller.findSongById(id)!,
     ];
 
     return Scaffold(

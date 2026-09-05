@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../models/song.dart';
 import '../../services/lyrics_service.dart';
@@ -67,7 +68,7 @@ class _LyricsViewState extends State<LyricsView> {
       _loadLyrics();
     } else if (widget.isVisible && !oldWidget.isVisible) {
       _isUserScrolling = false;
-      _snapToCurrentPosition();
+      _snapToCurrentPosition(immediate: true);
     }
   }
 
@@ -112,11 +113,11 @@ class _LyricsViewState extends State<LyricsView> {
 
     if (lyrics.isNotEmpty) {
       _positionSub = widget.player.positionStream.listen(_onPositionUpdate);
-      _snapToCurrentPosition();
+      _snapToCurrentPosition(immediate: true);
     }
   }
 
-  void _snapToCurrentPosition() {
+  void _snapToCurrentPosition({bool immediate = false}) {
     if (_lyrics.isEmpty) return;
     final currentPos = widget.player.position ?? Duration.zero;
     final index = LyricsService.findActiveIndex(_lyrics, currentPos);
@@ -125,7 +126,7 @@ class _LyricsViewState extends State<LyricsView> {
         _activeIndex = index;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToActive(index, jumpFirst: true);
+        _scrollToActive(index, immediate: immediate);
       });
     }
   }
@@ -135,47 +136,63 @@ class _LyricsViewState extends State<LyricsView> {
 
     final newIndex = LyricsService.findActiveIndex(_lyrics, position);
     if (newIndex != _activeIndex) {
+      final oldIndex = _activeIndex;
       setState(() {
         _activeIndex = newIndex;
       });
       if (!_isUserScrolling && widget.isVisible) {
-        _scrollToActive(newIndex);
+        final distance = (newIndex - oldIndex).abs();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToActive(newIndex, immediate: distance > 6);
+        });
       }
     }
   }
 
-  void _scrollToActive(int index, {bool jumpFirst = false}) {
-    if (index < 0 || index >= _lyrics.length) return;
+  void _scrollToActive(int index, {bool immediate = false}) {
+    if (index < 0 || index >= _lyrics.length || !_scrollController.hasClients) return;
 
-    // If jumpFirst is requested or item context is not mounted yet,
-    // pre-scroll close to the estimated target offset so ListView builds the item.
-    if (_scrollController.hasClients && (jumpFirst || _itemKeys[index]?.currentContext == null)) {
-      const estimatedItemHeight = 44.0;
-      final targetOffset = (index * estimatedItemHeight);
-      final clamped = targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent);
-      _scrollController.jumpTo(clamped);
-    }
+    final itemContext = _itemKeys[index]?.currentContext;
+    if (itemContext == null) return;
+    final renderBox = itemContext.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final key = _itemKeys[index];
-      final itemContext = key?.currentContext;
-      if (itemContext != null) {
-        Scrollable.ensureVisible(
-          itemContext,
-          alignment: 0.5,
-          duration: Duration(milliseconds: jumpFirst ? 150 : 320),
-          curve: Curves.easeOutCubic,
+    final viewport = RenderAbstractViewport.of(renderBox);
+
+    // alignment 0.5 aligns the exact vertical midpoint of renderBox
+    // with the exact vertical midpoint of the scrollable viewport.
+    final revealedOffset = viewport.getOffsetToReveal(renderBox, 0.5).offset;
+    final targetOffset = revealedOffset.clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+
+    if (immediate) {
+      _scrollController.jumpTo(targetOffset);
+    } else {
+      final currentOffset = _scrollController.offset;
+      final diff = (targetOffset - currentOffset).abs();
+      // If jumping a substantial distance, jump closer first to avoid disorienting blur
+      if (diff > 450) {
+        final jumpNear = targetOffset > currentOffset
+            ? targetOffset - 150
+            : targetOffset + 150;
+        _scrollController.jumpTo(
+          jumpNear.clamp(0.0, _scrollController.position.maxScrollExtent),
         );
       }
-    });
+      _scrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
-
 
   void _onUserScrolled() {
     _isUserScrolling = true;
     _userScrollCooldown?.cancel();
-    _userScrollCooldown = Timer(const Duration(seconds: 3), () {
+    _userScrollCooldown = Timer(const Duration(milliseconds: 3500), () {
       if (mounted) {
         setState(() {
           _isUserScrolling = false;
@@ -268,95 +285,114 @@ class _LyricsViewState extends State<LyricsView> {
       );
     }
 
-    final verticalSpacerHeight = widget.size * 0.42;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportHeight = constraints.maxHeight;
+        // Half height padding ensures every line (from first to last)
+        // can be scrolled to the exact vertical center.
+        final halfHeight = viewportHeight / 2;
 
-    return NotificationListener<UserScrollNotification>(
-      onNotification: (notification) {
-        _onUserScrolled();
-        return false;
-      },
-      child: ShaderMask(
-        shaderCallback: (Rect bounds) {
-          return const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              Colors.white,
-              Colors.white,
-              Colors.transparent,
-            ],
-            stops: [0.0, 0.15, 0.85, 1.0],
-          ).createShader(bounds);
-        },
-        blendMode: BlendMode.dstIn,
-        child: ScrollConfiguration(
-          behavior: const _NoScrollbarBehavior(),
-          child: ListView.builder(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(),
-            padding: EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: verticalSpacerHeight,
-            ),
-            itemCount: _lyrics.length,
-            itemBuilder: (context, index) {
-              final line = _lyrics[index];
-              final isActive = index == _activeIndex;
-
-              return Center(
-                key: _itemKeys[index],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 7.0),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: () {
-                      widget.player.seek(line.timestamp);
-                      _scrollToActive(index);
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      child: AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOutCubic,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: isActive ? 18.0 : 15.0,
-                          fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-                          height: 1.35,
-                          color: isActive
-                              ? Colors.white
-                              : Colors.white.withValues(alpha: 0.45),
-                          shadows: isActive
-                              ? [
-                                  Shadow(
-                                    color: glowColor.withValues(alpha: 0.90),
-                                    blurRadius: 18.0,
-                                  ),
-                                  Shadow(
-                                    color: glowColor.withValues(alpha: 0.50),
-                                    blurRadius: 8.0,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Text(
-                          line.text.isEmpty ? '···' : line.text,
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
+        return NotificationListener<UserScrollNotification>(
+          onNotification: (notification) {
+            _onUserScrolled();
+            return false;
+          },
+          child: ShaderMask(
+            shaderCallback: (Rect bounds) {
+              return const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.white,
+                  Colors.white,
+                  Colors.transparent,
+                ],
+                stops: [0.0, 0.15, 0.85, 1.0],
+              ).createShader(bounds);
             },
+            blendMode: BlendMode.dstIn,
+            child: ScrollConfiguration(
+              behavior: const _NoScrollbarBehavior(),
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: (halfHeight - 22).clamp(0.0, halfHeight),
+                  bottom: (halfHeight - 22).clamp(0.0, halfHeight),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (int i = 0; i < _lyrics.length; i++)
+                      _buildLyricLine(i, glowColor),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLyricLine(int index, Color glowColor) {
+    final line = _lyrics[index];
+    final isActive = index == _activeIndex;
+
+    return Center(
+      key: _itemKeys[index],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7.0),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            widget.player.seek(line.timestamp);
+            setState(() {
+              _activeIndex = index;
+            });
+            _scrollToActive(index);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 6,
+            ),
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16.5,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+                color: isActive
+                    ? Colors.white
+                    : Colors.white.withValues(alpha: 0.38),
+                shadows: isActive
+                    ? [
+                        Shadow(
+                          color: glowColor.withValues(alpha: 0.95),
+                          blurRadius: 20.0,
+                        ),
+                        Shadow(
+                          color: glowColor.withValues(alpha: 0.60),
+                          blurRadius: 10.0,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                line.text.isEmpty ? '···' : line.text,
+                textAlign: TextAlign.center,
+              ),
+            ),
           ),
         ),
       ),
     );
-
   }
 }

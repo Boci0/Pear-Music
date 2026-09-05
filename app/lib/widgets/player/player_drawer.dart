@@ -487,9 +487,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
       songs = songsForPlaylist(controller, playlist);
     } else if (player.queueSourceId == 'favorites') {
       sectionTitle = 'Favorites';
-      songs = controller.getSortedSongs(
-        controller.songs.where((s) => controller.isFavorite(s.id)).toList(),
-      );
+      songs = controller.getSortedSongs(controller.favoriteSongs);
     } else {
       sectionTitle = 'All Songs';
       songs = controller.getSortedSongs(controller.songs);
@@ -662,6 +660,6 @@ Playlist? playlistById(AppController controller, String? id) {
 
 List<Song> songsForPlaylist(AppController controller, Playlist playlist) => [
   for (final id in playlist.songIds)
-    if (controller.library.findById(id) != null)
-      controller.library.findById(id)!,
+    if (controller.findSongById(id) != null)
+      controller.findSongById(id)!,
 ];

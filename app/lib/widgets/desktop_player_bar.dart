@@ -118,7 +118,7 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                     size: 20,
                     color: isFav ? scheme.primary : scheme.onSurfaceVariant,
                   ),
-                  onPressed: () => controller.toggleFavorite(song.id),
+                  onPressed: () => controller.toggleFavorite(song.id, song: song),
                 ),
               ],
             ),
