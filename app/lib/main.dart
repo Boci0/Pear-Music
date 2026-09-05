@@ -350,11 +350,13 @@ class _MessagesListener extends StatefulWidget {
 }
 
 class _MessagesListenerState extends State<_MessagesListener> {
+  StreamSubscription<String>? _sub;
+
   @override
   void initState() {
     super.initState();
     final controller = context.read<AppController>();
-    controller.messages.listen((message) {
+    _sub = controller.messages.listen((message) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -363,6 +365,12 @@ class _MessagesListenerState extends State<_MessagesListener> {
         ),
       );
     });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   @override

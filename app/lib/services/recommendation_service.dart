@@ -134,6 +134,14 @@ class RecommendationService {
   }
 
   static final Map<String, String> _seedVideoIdCache = {};
+  static const int _maxSeedCacheSize = 100;
+
+  static void _cacheSeedVideoId(String key, String id) {
+    if (_seedVideoIdCache.length >= _maxSeedCacheSize) {
+      _seedVideoIdCache.remove(_seedVideoIdCache.keys.first);
+    }
+    _seedVideoIdCache[key] = id;
+  }
 
   /// Generates prioritized search query candidates from a song's title and metadata.
   static List<String> generateSearchCandidates(Song song) {
@@ -239,7 +247,7 @@ class RecommendationService {
         final innertubeResults = await searchInnertubeSongs(query, limit: 1);
         if (innertubeResults.isNotEmpty) {
           final id = innertubeResults.first.videoId;
-          _seedVideoIdCache[cacheKey] = id;
+          _cacheSeedVideoId(cacheKey, id);
           return id;
         }
       } catch (e) {
@@ -251,7 +259,7 @@ class RecommendationService {
         final results = await YouTubeSearchService.search(query, limit: 1);
         if (results.isNotEmpty) {
           final id = results.first.videoId;
-          _seedVideoIdCache[cacheKey] = id;
+          _cacheSeedVideoId(cacheKey, id);
           return id;
         }
       } catch (e) {

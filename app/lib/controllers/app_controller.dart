@@ -76,7 +76,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     final list = List<Song>.from(songList);
     switch (identity.sortOption) {
       case SortOption.title:
-        list.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        list.sort((a, b) => a.lowerTitle.compareTo(b.lowerTitle));
         break;
       case SortOption.size:
         list.sort((a, b) => b.size.compareTo(a.size));

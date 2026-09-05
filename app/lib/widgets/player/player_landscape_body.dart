@@ -46,7 +46,7 @@ class PlayerLandscapeBody extends StatelessWidget {
                           PlayerArtworkHero(
                             song: song,
                             size: artSize,
-                            artwork: ArtworkPalette.bytes(song),
+                            artwork: ArtworkPalette.cachedBytes(song),
                             accent: accent,
                           ),
                           const SizedBox(height: 20),

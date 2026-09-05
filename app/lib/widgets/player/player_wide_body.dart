@@ -84,7 +84,7 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                               child: PlayerArtworkHero(
                                 song: song,
                                 size: artSize,
-                                artwork: ArtworkPalette.bytes(song),
+                                artwork: ArtworkPalette.cachedBytes(song),
                                 accent: accent,
                               ),
                             );

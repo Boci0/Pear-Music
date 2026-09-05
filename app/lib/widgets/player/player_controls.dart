@@ -174,6 +174,9 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final totalMs = widget.duration.inMilliseconds.toDouble();
+    final useSynthesizer = context.select<AppController?, bool>(
+      (c) => c?.identity.synthesizerBar ?? false,
+    );
 
     return StreamBuilder<Duration>(
       stream: widget.player.positionStream,
@@ -182,9 +185,6 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         final pos = snapshot.data ?? Duration.zero;
         final maxMs = totalMs > 0 ? totalMs : 1.0;
         final baseMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
-
-        final appController = context.watch<AppController?>();
-        final useSynthesizer = appController?.identity.synthesizerBar ?? false;
 
         // RepaintBoundary isolates the ticking slider and time-row repaints
         // from the album art and background canvas layers.
@@ -262,12 +262,11 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                                 fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
                               ),
                             ),
-                            if (appController != null)
-                              GestureDetector(
-                                onTap: () {
-                                  appController.updateSynthesizerBar(!useSynthesizer);
-                                },
-                                behavior: HitTestBehavior.opaque,
+                            GestureDetector(
+                              onTap: () {
+                                context.read<AppController?>()?.updateSynthesizerBar(!useSynthesizer);
+                              },
+                              behavior: HitTestBehavior.opaque,
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                   child: Row(

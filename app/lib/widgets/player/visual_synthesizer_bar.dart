@@ -178,6 +178,10 @@ class _SynthesizerPainter extends CustomPainter {
   final Color inactiveColor;
   final Color cursorColor;
 
+  static final Paint _activePaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _inactivePaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _cursorPaint = Paint()..style = PaintingStyle.fill;
+
   _SynthesizerPainter({
     required this.displayFraction,
     required this.isPlaying,
@@ -211,17 +215,9 @@ class _SynthesizerPainter extends CustomPainter {
     final double beatSwell = isPlaying ? (0.5 + 0.5 * math.sin(beatRad)) : 0.0;
     final double measureSwell = isPlaying ? (0.5 + 0.5 * math.sin(measureRad)) : 0.0;
 
-    final activePaint = Paint()
-      ..color = activeColor
-      ..style = PaintingStyle.fill;
-
-    final inactivePaint = Paint()
-      ..color = inactiveColor
-      ..style = PaintingStyle.fill;
-
-    final cursorPaint = Paint()
-      ..color = cursorColor
-      ..style = PaintingStyle.fill;
+    final activePaint = _activePaint..color = activeColor;
+    final inactivePaint = _inactivePaint..color = inactiveColor;
+    final cursorPaint = _cursorPaint..color = cursorColor;
 
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
 

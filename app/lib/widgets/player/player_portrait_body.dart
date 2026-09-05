@@ -70,7 +70,7 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
                           child: PlayerArtworkHero(
                             song: widget.song,
                             size: artSize,
-                            artwork: ArtworkPalette.bytes(widget.song),
+                            artwork: ArtworkPalette.cachedBytes(widget.song),
                             accent: widget.accent,
                           ),
                         ),

@@ -23,6 +23,7 @@ class Song {
   final String? sourceDeviceId;
   final String? artwork;
   final DateTime addedAt;
+  late final String lowerTitle = title.toLowerCase();
 
   Song({
     required this.id,

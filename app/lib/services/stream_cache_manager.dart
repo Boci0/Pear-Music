@@ -455,8 +455,9 @@ class StreamCacheManager {
           return statA.modified.compareTo(statB.modified);
         });
 
+      int currentTrackCount = validFiles.length;
       for (final f in validFiles) {
-        if (totalSize <= targetEvictionBytes && validFiles.length <= maxTrackCount) break;
+        if (totalSize <= targetEvictionBytes && currentTrackCount <= maxTrackCount) break;
         final vId = p.basenameWithoutExtension(f.path);
         if (_activeQueueVideoIds.contains(vId)) continue;
 
@@ -465,6 +466,7 @@ class StreamCacheManager {
           _cachedVideoIds.remove(vId);
           await f.delete();
           totalSize -= size;
+          currentTrackCount--;
           _cachedTotalBytes = (_cachedTotalBytes - size).clamp(0, 1 << 62);
           DebugLog.write('[cache] Evicted old unqueued track: $vId (${(size / 1024).round()} KB)');
         } catch (_) {}

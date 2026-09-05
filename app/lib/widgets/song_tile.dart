@@ -332,7 +332,7 @@ class _Artwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final initialBytes = ArtworkPalette.bytes(song);
+    final initialBytes = ArtworkPalette.cachedBytes(song);
     // Async decode: base64-decoding artwork on the UI thread for every tile
     // that scrolls into view janks scrolling on large libraries. The result
     // is cached per song, so this future resolves instantly after first load.

@@ -123,8 +123,9 @@ class YouTubeSearchService {
     }
   }
 
-  /// Close client resources.
+  /// Close client resources and clear memory caches.
   static void dispose() {
+    _cache.clear();
     _yt?.close();
     _yt = null;
   }

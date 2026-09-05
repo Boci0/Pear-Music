@@ -210,7 +210,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
-      rawSongs = rawSongs.where((s) => s.title.toLowerCase().contains(q)).toList();
+      rawSongs = rawSongs.where((s) => s.lowerTitle.contains(q)).toList();
     }
 
     final songs = controller.getSortedSongs(rawSongs);
@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SliverPadding(
               padding: const EdgeInsets.only(bottom: 24, top: 8),
               sliver: SliverFixedExtentList.builder(
-                itemExtent: 68.0,
+                itemExtent: 61.0,
                 itemCount: songs.length,
                 findChildIndexCallback: (Key key) {
                   final valueKey = key as ValueKey<String>?;
@@ -337,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SliverPadding(
               padding: const EdgeInsets.only(bottom: 24),
               sliver: SliverFixedExtentList.builder(
-                itemExtent: 68.0,
+                itemExtent: 61.0,
                 itemCount: songs.length,
                 findChildIndexCallback: (Key key) {
                   final valueKey = key as ValueKey<String>?;

@@ -60,11 +60,17 @@ class ArtworkService {
     }
 
     try {
-      final bytes = ArtworkPalette.bytes(song) ?? await ArtworkPalette.bytesAsync(song);
+      final dir = await getApplicationCacheDirectory();
+      final safeId = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final file = File('${dir.path}/artwork/song_$safeId.jpg');
+      if (await file.exists() && (await file.length()) > 0) {
+        return Uri.file(file.path);
+      }
+
+      final bytes = ArtworkPalette.cachedBytes(song) ??
+          ArtworkPalette.bytes(song) ??
+          await ArtworkPalette.bytesAsync(song);
       if (bytes != null && bytes.isNotEmpty) {
-        final dir = await getApplicationCacheDirectory();
-        final safeId = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-        final file = File('${dir.path}/artwork/song_$safeId.jpg');
         if (!await file.exists()) {
           await file.create(recursive: true);
           await file.writeAsBytes(bytes, flush: true);

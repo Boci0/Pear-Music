@@ -113,6 +113,20 @@ class ArtworkPalette {
     return decoded;
   }
 
+  /// Returns decoded artwork bytes ONLY if already present in the in-memory LRU cache.
+  /// Does NOT trigger synchronous base64 decoding on cache misses, keeping the UI isolate free.
+  static Uint8List? cachedBytes(Song song) {
+    final art = song.artwork;
+    if (art == null || art.isEmpty) return null;
+    final id = song.id;
+    final cached = _bytesCache.remove(id);
+    if (cached != null) {
+      _bytesCache[id] = cached;
+      return cached;
+    }
+    return null;
+  }
+
   static Uint8List? _decodeArtwork(String base64Art) {
     try {
       return base64Decode(base64Art);
