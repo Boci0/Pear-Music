@@ -125,10 +125,10 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0F141C),
+        color: const Color(0xFF0C0C0C),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: scheme.primary.withValues(alpha: 0.3),
+          color: Colors.white.withValues(alpha: 0.12),
           width: 1.5,
         ),
         boxShadow: const [
@@ -146,7 +146,7 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF161E2A),
+              color: const Color(0xFF161616),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
               border: Border(
                 bottom: BorderSide(
@@ -159,13 +159,13 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                 Container(
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.15),
+                    color: Colors.white.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.terminal_rounded,
                     size: 16,
-                    color: scheme.primary,
+                    color: Colors.white70,
                   ),
                 ),
                 Expanded(
@@ -237,7 +237,7 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFF121824),
+              color: const Color(0xFF111111),
               border: Border(
                 bottom: BorderSide(
                   color: Colors.white.withValues(alpha: 0.06),

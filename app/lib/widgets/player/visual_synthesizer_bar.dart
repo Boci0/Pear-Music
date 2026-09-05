@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
@@ -21,8 +22,8 @@ class VisualSynthesizerBar extends StatefulWidget {
     required this.player,
     required this.currentPosition,
     required this.totalDuration,
-    required this.aura,
-    this.enableGlow = true,
+    this.aura = 0.0,
+    this.enableGlow = false,
     required this.onSeek,
     this.onDragUpdate,
     this.onDragEnd,
@@ -32,9 +33,8 @@ class VisualSynthesizerBar extends StatefulWidget {
   State<VisualSynthesizerBar> createState() => _VisualSynthesizerBarState();
 }
 
-class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ticker;
+class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
+  Timer? _fpsTimer;
   double? _dragFraction;
   int _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
   int _basePositionMs = 0;
@@ -44,14 +44,8 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
     super.initState();
     _basePositionMs = widget.currentPosition.inMilliseconds;
     _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
-    _ticker = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    );
-    if (widget.player.playing) {
-      _ticker.repeat();
-    }
     widget.player.addListener(_onPlayerStateChanged);
+    _syncTimer();
   }
 
   @override
@@ -68,19 +62,29 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
     }
   }
 
-  void _onPlayerStateChanged() {
+  void _syncTimer() {
     if (widget.player.playing) {
-      if (!_ticker.isAnimating) _ticker.repeat();
+      if (_fpsTimer == null || !_fpsTimer!.isActive) {
+        _fpsTimer = Timer.periodic(const Duration(milliseconds: 33), (_) {
+          if (mounted) setState(() {});
+        });
+      }
     } else {
-      if (_ticker.isAnimating) _ticker.stop();
+      _fpsTimer?.cancel();
+      _fpsTimer = null;
     }
+  }
+
+  void _onPlayerStateChanged() {
+    _syncTimer();
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     widget.player.removeListener(_onPlayerStateChanged);
-    _ticker.stop();
-    _ticker.dispose();
+    _fpsTimer?.cancel();
+    _fpsTimer = null;
     super.dispose();
   }
 
@@ -144,22 +148,17 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
             child: SizedBox(
               height: 44,
               width: double.infinity,
-              child: AnimatedBuilder(
-                animation: _ticker,
-                builder: (context, _) {
-                  return CustomPaint(
-                    painter: _SynthesizerPainter(
-                      displayFraction: displayFraction,
-                      isPlaying: widget.player.playing,
-                      aura: widget.aura,
-                      enableGlow: widget.enableGlow,
-                      songMs: _smoothSongMs,
-                      activeColor: colorScheme.primary,
-                      inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
-                      cursorColor: colorScheme.primary,
-                    ),
-                  );
-                },
+              child: CustomPaint(
+                painter: _SynthesizerPainter(
+                  displayFraction: displayFraction,
+                  isPlaying: widget.player.playing,
+                  aura: widget.aura,
+                  enableGlow: widget.enableGlow,
+                  songMs: _smoothSongMs,
+                  activeColor: colorScheme.primary,
+                  inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
+                  cursorColor: colorScheme.primary,
+                ),
               ),
             ),
           );
@@ -194,41 +193,27 @@ class _SynthesizerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
-    // Dynamically calculate total bars so they stretch 100% across the container width
-    const targetBarWidth = 3.5;
-    const minSpacing = 2.5;
+    // Dynamically calculate total bars (16 to 42 bars maximum to preserve GPU and CPU bounds)
+    const targetBarWidth = 4.0;
+    const minSpacing = 3.0;
     final totalBars = ((size.width + minSpacing) / (targetBarWidth + minSpacing))
         .floor()
-        .clamp(20, 120);
+        .clamp(16, 42);
     final barWidth = targetBarWidth;
     final spacing = totalBars > 1 ? (size.width - (totalBars * barWidth)) / (totalBars - 1) : 0.0;
     final maxHeight = size.height;
     const minHeight = 3.5;
 
-    // Musical beat tempo clock: 120 BPM = 500ms beat period, 2000ms 4-beat measure.
-    // Continuous harmonic waves guarantee fluid, cohesive motion with zero erratic twitching.
     final beatRad = (songMs / 500.0) * math.pi * 2.0;
     final halfBeatRad = (songMs / 250.0) * math.pi * 2.0;
     final measureRad = (songMs / 2000.0) * math.pi * 2.0;
 
-    // Smooth rhythmic envelope: soft rhythmic bounce that swells with the beat
     final double beatSwell = isPlaying ? (0.5 + 0.5 * math.sin(beatRad)) : 0.0;
     final double measureSwell = isPlaying ? (0.5 + 0.5 * math.sin(measureRad)) : 0.0;
 
     final activePaint = Paint()
       ..color = activeColor
       ..style = PaintingStyle.fill;
-
-    // GPU-accelerated vector aura for active and played portions (zero Skia mask allocations)
-    final activeGlowPaint = Paint()
-      ..color = activeColor.withValues(alpha: (0.16 + (aura * 0.10)).clamp(0.0, 1.0))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5;
-
-    final activeHaloPaint = Paint()
-      ..color = activeColor.withValues(alpha: (0.35 + (aura * 0.15)).clamp(0.0, 1.0))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6;
 
     final inactivePaint = Paint()
       ..color = inactiveColor
@@ -238,41 +223,25 @@ class _SynthesizerPainter extends CustomPainter {
       ..color = cursorColor
       ..style = PaintingStyle.fill;
 
-    final cursorGlowPaint = Paint()
-      ..color = cursorColor.withValues(alpha: (0.24 + (aura * 0.12)).clamp(0.0, 1.0))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.5;
-
-    final cursorHaloPaint = Paint()
-      ..color = cursorColor.withValues(alpha: (0.50 + (aura * 0.18)).clamp(0.0, 1.0))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
 
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      // Smooth traveling ripple wave across the frequency spectrum:
-      // Phased harmonically so waves travel smoothly from bass to treble.
       final travelingWave1 = math.sin(beatRad - (normX * 2.5 * math.pi));
       final travelingWave2 = math.cos(halfBeatRad + (normX * 1.5 * math.pi));
       final bassPulse = math.sin(beatRad) * math.max(0.0, 1.0 - (normX * 2.2));
-
-      // Elegant baseline curve: gentle smiling EQ shape
       final baseEq = 0.26 + (0.16 * math.sin(normX * math.pi));
 
       double heightRatio;
       if (isPlaying) {
-        // Combined organic motion with gentle damping (bounded between 0.18 and 0.82)
         final motion = (travelingWave1 * 0.14) +
             (travelingWave2 * 0.08) +
             (bassPulse * 0.18 * beatSwell) +
             (measureSwell * 0.08);
-        heightRatio = (baseEq + (motion * (0.65 + (aura * 0.35)))).clamp(0.18, 0.82);
+        heightRatio = (baseEq + (motion * 0.70)).clamp(0.18, 0.82);
       } else {
-        // Calm resting baseline when paused
         heightRatio = (baseEq * 0.70).clamp(0.15, 0.40);
       }
 
@@ -284,22 +253,14 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        final cursorH = (barH + 5.0).clamp(minHeight, maxHeight);
+        final cursorH = (barH + 4.0).clamp(minHeight, maxHeight);
         final cursorTop = (maxHeight - cursorH) / 2.0;
         final cursorRect = RRect.fromRectAndRadius(
           Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
           Radius.circular(barWidth / 2.0),
         );
-        if (enableGlow) {
-          canvas.drawRRect(cursorRect, cursorGlowPaint);
-          canvas.drawRRect(cursorRect, cursorHaloPaint);
-        }
         canvas.drawRRect(cursorRect, cursorPaint);
       } else if (i < currentBarIndex) {
-        if (enableGlow) {
-          canvas.drawRRect(rect, activeGlowPaint);
-          canvas.drawRRect(rect, activeHaloPaint);
-        }
         canvas.drawRRect(rect, activePaint);
       } else {
         canvas.drawRRect(rect, inactivePaint);

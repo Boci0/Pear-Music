@@ -224,10 +224,32 @@ class StreamCacheManager {
     }
 
     // Single-concurrency coordinator:
-    // If a background preload requests a download while another download is running, skip to save bandwidth.
+    // If a background preload requests a download while another download is running,
+    // wait for the active download to finish instead of permanently abandoning preload.
     if (isPreload && _activeDownloadingVideoId != null) {
-      DebugLog.write('[cache] Skipping preload for $videoId: active download $_activeDownloadingVideoId in progress');
-      return null;
+      final activeId = _activeDownloadingVideoId!;
+      if (activeId == videoId) {
+        return await _inFlightDownloads[videoId]?.future;
+      }
+      DebugLog.write('[cache] Preload for $videoId waiting for active download $activeId to complete...');
+      final activeFuture = _inFlightDownloads[activeId]?.future;
+      if (activeFuture != null) {
+        try {
+          await activeFuture;
+        } catch (_) {}
+      } else {
+        while (_activeDownloadingVideoId != null) {
+          await Future.delayed(const Duration(milliseconds: 150));
+        }
+      }
+      final cachedAfterWait = await getCachedFile(videoId);
+      if (cachedAfterWait != null) {
+        return cachedAfterWait;
+      }
+      if (_activeDownloadingVideoId != null) {
+        DebugLog.write('[cache] Another download took concurrency lock after wait, deferring $videoId');
+        return null;
+      }
     }
 
     // If direct playback is requested while another download is running, abort the active download to

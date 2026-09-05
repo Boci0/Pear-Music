@@ -66,7 +66,7 @@ class IdentityService {
       orElse: () => SortOption.dateAdded,
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
-    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
+    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? false;
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;

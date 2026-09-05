@@ -60,53 +60,58 @@ class PlayerTransport extends StatelessWidget {
               icon: const Icon(Icons.skip_previous_rounded),
               onPressed: () => controller.previousTrack(),
             ),
-            RhythmPulseBuilder(
-              player: player,
-              builder: (context, aura, _) {
-                final glowRadius = aura * 28.0;
-                final glowSpread = aura * 4.0;
-                final glowAlpha = (aura * 0.42).clamp(0.0, 1.0);
-
-                return Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: (aura > 0.005)
-                        ? [
-                            BoxShadow(
-                              color: scheme.primary.withValues(alpha: glowAlpha),
-                              blurRadius: glowRadius,
-                              spreadRadius: glowSpread,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    iconSize: 72,
-                    icon: (player.isLoadingTrack && !player.playing)
-                        ? Center(
-                            child: SizedBox(
-                              width: 52,
-                              height: 52,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3.5,
-                                color: scheme.primary,
-                              ),
-                            ),
-                          )
-                        : Icon(
-                            player.playing
-                                ? Icons.pause_circle_filled
-                                : Icons.play_circle_filled,
-                            size: 72,
-                            color: scheme.primary,
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                RhythmPulseBuilder(
+                  player: player,
+                  child: RepaintBoundary(
+                    child: Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: scheme.primary.withValues(alpha: 0.55),
+                            blurRadius: 24.0,
+                            spreadRadius: 2.0,
                           ),
-                    onPressed: () => controller.togglePlayback(),
+                        ],
+                      ),
+                    ),
                   ),
-                );
-              },
+                  builder: (context, aura, cachedGlow) {
+                    return Opacity(
+                      opacity: (aura * 0.90).clamp(0.0, 1.0),
+                      child: cachedGlow,
+                    );
+                  },
+                ),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  iconSize: 72,
+                  icon: (player.isLoadingTrack && !player.playing)
+                      ? Center(
+                          child: SizedBox(
+                            width: 52,
+                            height: 52,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3.5,
+                              color: scheme.primary,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          player.playing
+                              ? Icons.pause_circle_filled
+                              : Icons.play_circle_filled,
+                          size: 72,
+                          color: scheme.primary,
+                        ),
+                  onPressed: () => controller.togglePlayback(),
+                ),
+              ],
             ),
             IconButton(
               iconSize: 44,
@@ -170,76 +175,71 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     final colorScheme = theme.colorScheme;
     final totalMs = widget.duration.inMilliseconds.toDouble();
 
-    return RhythmPulseBuilder(
-      player: widget.player,
-      builder: (context, aura, _) {
-        return StreamBuilder<Duration>(
-          stream: widget.player.positionStream,
-          initialData: widget.player.position ?? Duration.zero,
-          builder: (context, snapshot) {
-            final pos = snapshot.data ?? Duration.zero;
-            final maxMs = totalMs > 0 ? totalMs : 1.0;
-            final baseMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
+    return StreamBuilder<Duration>(
+      stream: widget.player.positionStream,
+      initialData: widget.player.position ?? Duration.zero,
+      builder: (context, snapshot) {
+        final pos = snapshot.data ?? Duration.zero;
+        final maxMs = totalMs > 0 ? totalMs : 1.0;
+        final baseMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
 
-            final appController = context.watch<AppController?>();
-            final useSynthesizer = appController?.identity.synthesizerBar ?? false;
+        final appController = context.watch<AppController?>();
+        final useSynthesizer = appController?.identity.synthesizerBar ?? false;
 
-            // RepaintBoundary isolates the ticking slider and time-row repaints
-            // from the album art and background canvas layers.
-            return RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (useSynthesizer)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      child: VisualSynthesizerBar(
-                        player: widget.player,
-                        currentPosition: pos,
-                        totalDuration: widget.duration,
-                        aura: aura,
-                        enableGlow: appController?.identity.visualizerGlow ?? true,
-                        onSeek: (duration) => widget.player.seek(duration),
-                        onDragUpdate: (ms) => _dragNotifier.value = ms,
-                        onDragEnd: () => _dragNotifier.value = null,
+        // RepaintBoundary isolates the ticking slider and time-row repaints
+        // from the album art and background canvas layers.
+        return RepaintBoundary(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (useSynthesizer)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: VisualSynthesizerBar(
+                    player: widget.player,
+                    currentPosition: pos,
+                    totalDuration: widget.duration,
+                    onSeek: (duration) => widget.player.seek(duration),
+                    onDragUpdate: (ms) => _dragNotifier.value = ms,
+                    onDragEnd: () => _dragNotifier.value = null,
+                  ),
+                )
+              else
+                ValueListenableBuilder<double?>(
+                  valueListenable: _dragNotifier,
+                  builder: (context, dragMs, _) {
+                    final currentVal = (dragMs ?? baseMs).clamp(0.0, maxMs);
+                    return SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: dragMs != null ? 6.0 : 4.0,
+                        trackShape: const RoundedRectSliderTrackShape(),
+                        activeTrackColor: colorScheme.primary,
+                        inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
+                        thumbColor: colorScheme.primary,
+                        thumbShape: RoundSliderThumbShape(
+                          enabledThumbRadius: dragMs != null ? 7.0 : 5.0,
+                          elevation: dragMs != null ? 3.0 : 1.0,
+                        ),
+                        overlayColor: colorScheme.primary.withValues(
+                          alpha: 0.12,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14.0,
+                        ),
                       ),
-                    )
-                  else
-                    ValueListenableBuilder<double?>(
-                      valueListenable: _dragNotifier,
-                      builder: (context, dragMs, _) {
-                        final currentVal = (dragMs ?? baseMs).clamp(0.0, maxMs);
-                        return SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: dragMs != null ? 6.0 : 4.0,
-                            trackShape: const RoundedRectSliderTrackShape(),
-                            activeTrackColor: colorScheme.primary,
-                            inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
-                            thumbColor: colorScheme.primary,
-                            thumbShape: RoundSliderThumbShape(
-                              enabledThumbRadius: dragMs != null ? 8.0 : (5.0 + (aura * 1.5)),
-                              elevation: dragMs != null ? 4.0 : (1.0 + (aura * 3.0)),
-                            ),
-                            overlayColor: colorScheme.primary.withValues(
-                              alpha: (0.10 + (aura * 0.16)).clamp(0.0, 1.0),
-                            ),
-                            overlayShape: RoundSliderOverlayShape(
-                              overlayRadius: 14.0 + (aura * 5.0),
-                            ),
-                          ),
-                          child: Slider(
-                            value: currentVal,
-                            max: maxMs,
-                            onChangeStart: (ms) => _dragNotifier.value = ms,
-                            onChanged: (ms) => _dragNotifier.value = ms,
-                            onChangeEnd: (ms) {
-                              widget.player.seek(Duration(milliseconds: ms.round()));
-                              _dragNotifier.value = null;
-                            },
-                          ),
-                        );
-                      },
-                    ),
+                      child: Slider(
+                        value: currentVal,
+                        max: maxMs,
+                        onChangeStart: (ms) => _dragNotifier.value = ms,
+                        onChanged: (ms) => _dragNotifier.value = ms,
+                        onChangeEnd: (ms) {
+                          widget.player.seek(Duration(milliseconds: ms.round()));
+                          _dragNotifier.value = null;
+                        },
+                      ),
+                    );
+                  },
+                ),
                   ValueListenableBuilder<double?>(
                     valueListenable: _dragNotifier,
                     builder: (context, dragMs, _) {
@@ -315,8 +315,6 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
             );
           },
         );
-      },
-    );
   }
 
   String _fmt(Duration d) {

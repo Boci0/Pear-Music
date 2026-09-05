@@ -214,7 +214,7 @@ class _Thumb extends StatelessWidget {
           width: 40,
           height: 40,
           cacheWidth: 100,
-          cacheHeight: 100,
+          
           fit: BoxFit.cover,
           alignment: Alignment.center,
           gaplessPlayback: true,
@@ -223,7 +223,7 @@ class _Thumb extends StatelessWidget {
             width: 40,
             height: 40,
             cacheWidth: 100,
-            cacheHeight: 100,
+            
             fit: BoxFit.cover,
             alignment: Alignment.center,
             errorBuilder: (_, _, _) => placeholder,
@@ -242,7 +242,7 @@ class _Thumb extends StatelessWidget {
             width: 40,
             height: 40,
             cacheWidth: 96,
-            cacheHeight: 96,
+            
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => placeholder,

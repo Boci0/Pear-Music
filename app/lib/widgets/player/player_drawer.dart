@@ -132,8 +132,8 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     tooltip: player.autoplay
-                        ? 'Autoplay ON (Similar tracks)'
-                        : 'Autoplay OFF',
+                        ? 'Endless Play ON (Similar tracks)'
+                        : 'Endless Play OFF',
                     icon: Icon(
                       Icons.auto_awesome_rounded,
                       color: player.autoplay
@@ -241,7 +241,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                       width: 36,
                       height: 36,
                       cacheWidth: 108,
-                      cacheHeight: 108,
+                      
                       fit: BoxFit.cover,
                       alignment: Alignment.center,
                       errorBuilder: (_, _, _) =>
@@ -264,7 +264,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                           width: 36,
                           height: 36,
                           cacheWidth: 108,
-                          cacheHeight: 108,
+                          
                           fit: BoxFit.cover,
                           alignment: Alignment.center,
                           errorBuilder: (_, _, _) =>

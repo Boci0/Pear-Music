@@ -59,7 +59,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                         width: 48,
                         height: 48,
                         cacheWidth: 100,
-                        cacheHeight: 100,
                         fit: BoxFit.cover,
                         alignment: Alignment.center,
                         errorBuilder: (_, _, _) => Image.network(
@@ -67,7 +66,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                           width: 48,
                           height: 48,
                           cacheWidth: 100,
-                          cacheHeight: 100,
                           fit: BoxFit.cover,
                           alignment: Alignment.center,
                           errorBuilder: (_, _, _) => Container(
@@ -216,7 +214,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               width: 44,
               height: 44,
               cacheWidth: 88,
-              cacheHeight: 88,
               fit: BoxFit.cover,
               gaplessPlayback: true,
               errorBuilder: (_, _, _) => _placeholder(theme),

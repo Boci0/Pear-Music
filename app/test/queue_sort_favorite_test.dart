@@ -220,8 +220,51 @@ void main() {
       expect(player.queue[0].id, 'a');
       expect(player.queue[1].id, 'b');
 
-      // Locked D is preserved, and exactly 1 next song (E) is appended
-      expect(player.queue.map((s) => s.id).toList(), ['a', 'b', 'd', 'e']);
+      // Old next song (C) replaced with E; tail (D) preserved in place
+      expect(player.queue.map((s) => s.id).toList(), ['a', 'b', 'e', 'd']);
+    });
+
+    test('autoRerollSeed with autoplay active swaps only the next track and preserves tail without expanding queue', () async {
+      final songD = Song(
+        id: 'd',
+        title: 'Delta',
+        fileName: 'd.mp3',
+        size: 400,
+        checksum: 'chk_d',
+        addedAt: DateTime(2026, 1, 4),
+      );
+      final songE = Song(
+        id: 'e',
+        title: 'Epsilon',
+        fileName: 'e.mp3',
+        size: 500,
+        checksum: 'chk_e',
+        addedAt: DateTime(2026, 1, 5),
+      );
+      final songF = Song(
+        id: 'f',
+        title: 'Foxtrot',
+        fileName: 'f.mp3',
+        size: 600,
+        checksum: 'chk_f',
+        addedAt: DateTime(2026, 1, 6),
+      );
+
+      player.setAutoplay(true);
+      player.updateQueue([songA, songB, songC, songD]);
+      player.currentSong = songB;
+      player.updateQueue([songA, songB, songC, songD]);
+      library.setSongsForTesting([songA, songB, songC, songD, songE, songF]);
+
+      final ok = await player.rerollNextTrackOnly();
+      expect(ok, isTrue);
+
+      // Auto-reroll only swaps the single next song (index 2); queue length remains 4 and tail (songD) is preserved
+      expect(player.queue.length, 4);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'b');
+      expect(player.queue[2].id, isNot('c'));
+      expect(player.queue[3].id, 'd');
     });
   });
 }

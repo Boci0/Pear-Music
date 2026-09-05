@@ -31,13 +31,6 @@ class PlayerArtwork extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final radius = BorderRadius.circular(16);
     final baseShadowColor = (accent ?? scheme.primary);
-    AppController? appController;
-    try {
-      appController = Provider.of<AppController>(context);
-    } catch (_) {
-      appController = null;
-    }
-    final player = appController?.player;
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -57,7 +50,6 @@ class PlayerArtwork extends StatelessWidget {
         width: size,
         height: size,
         cacheWidth: targetPx,
-        cacheHeight: targetPx,
         fit: BoxFit.cover,
         alignment: Alignment.center,
         gaplessPlayback: true,
@@ -68,7 +60,6 @@ class PlayerArtwork extends StatelessWidget {
               width: size,
               height: size,
               cacheWidth: targetPx,
-              cacheHeight: targetPx,
               fit: BoxFit.cover,
               alignment: Alignment.center,
               errorBuilder: (_, _, _) => _placeholder(scheme),
@@ -84,7 +75,6 @@ class PlayerArtwork extends StatelessWidget {
         width: size,
         height: size,
         cacheWidth: targetPx,
-        cacheHeight: targetPx,
         fit: BoxFit.cover,
         alignment: Alignment.center,
         gaplessPlayback: true,
@@ -103,7 +93,6 @@ class PlayerArtwork extends StatelessWidget {
             width: size,
             height: size,
             cacheWidth: targetPx,
-            cacheHeight: targetPx,
             fit: BoxFit.cover,
             alignment: Alignment.center,
             gaplessPlayback: true,
@@ -115,47 +104,64 @@ class PlayerArtwork extends StatelessWidget {
       imageWidget = _placeholder(scheme);
     }
 
-    if (player == null) {
-      return RepaintBoundary(
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            borderRadius: radius,
-            boxShadow: [
-              BoxShadow(
-                color: baseShadowColor.withValues(alpha: 0.28),
-                blurRadius: 20.0,
-                offset: const Offset(0, 8),
-              ),
-            ],
+    final playerService = context.watch<PlayerService?>();
+    final glowUnderlay = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: baseShadowColor.withValues(alpha: 0.50),
+            blurRadius: 36.0,
+            spreadRadius: 2.0,
+            offset: const Offset(0, 10),
           ),
-          child: ClipRRect(
-            borderRadius: radius,
-            child: imageWidget,
+          BoxShadow(
+            color: baseShadowColor.withValues(alpha: 0.30),
+            blurRadius: 18.0,
+            spreadRadius: 1.0,
+            offset: const Offset(0, 4),
           ),
-        ),
+        ],
+      ),
+    );
+
+    final Widget glowWidget;
+    if (playerService != null) {
+      glowWidget = RhythmPulseBuilder(
+        player: playerService,
+        child: RepaintBoundary(child: glowUnderlay),
+        builder: (context, aura, cachedGlow) {
+          final opacity = (0.35 + (0.65 * aura)).clamp(0.0, 1.0);
+          return Opacity(
+            opacity: opacity,
+            child: cachedGlow,
+          );
+        },
+      );
+    } else {
+      glowWidget = Opacity(
+        opacity: 0.6,
+        child: RepaintBoundary(child: glowUnderlay),
       );
     }
 
-    return RepaintBoundary(
-      child: RhythmPulseBuilder(
-        player: player,
-        builder: (context, aura, _) {
-          final blurRadius = 20.0 + (aura * 14.0);
-          final shadowAlpha = 0.28 + (aura * 0.12);
-          final dynamicShadow = baseShadowColor.withValues(alpha: shadowAlpha);
-
-          return Container(
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        glowWidget,
+        RepaintBoundary(
+          child: Container(
             width: size,
             height: size,
             decoration: BoxDecoration(
               borderRadius: radius,
               boxShadow: [
                 BoxShadow(
-                  color: dynamicShadow,
-                  blurRadius: blurRadius,
-                  offset: const Offset(0, 8),
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 8.0,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
@@ -163,9 +169,9 @@ class PlayerArtwork extends StatelessWidget {
               borderRadius: radius,
               child: imageWidget,
             ),
-          );
-        },
-      ),
+          ),
+        ),
+      ],
     );
   }
 

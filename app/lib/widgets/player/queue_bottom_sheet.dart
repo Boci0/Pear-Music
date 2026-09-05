@@ -568,7 +568,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  'Autoplay',
+                  'Endless Play',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -899,7 +899,7 @@ class _QueueArtworkThumbnailState extends State<_QueueArtworkThumbnail> {
           width: 38,
           height: 38,
           cacheWidth: 96,
-          cacheHeight: 96,
+          
           fit: BoxFit.cover,
           gaplessPlayback: true,
           errorBuilder: (_, _, _) => _placeholder(),
@@ -915,7 +915,7 @@ class _QueueArtworkThumbnailState extends State<_QueueArtworkThumbnail> {
           width: 38,
           height: 38,
           cacheWidth: 96,
-          cacheHeight: 96,
+          
           fit: BoxFit.cover,
           gaplessPlayback: true,
           errorBuilder: (_, _, _) => _placeholder(),

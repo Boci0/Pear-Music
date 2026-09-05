@@ -9,7 +9,6 @@ import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
 import '../widgets/player/player_wide_body.dart';
-import '../widgets/player/rhythm_pulse.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
 
 /// Full-screen player with seek bar, transport controls, sleep timer, and
@@ -127,70 +126,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
         duration: const Duration(milliseconds: 450),
         curve: Curves.easeInOutCubic,
-        builder: (context, animColor, _) {
+        builder: (context, animColor, child) {
           final activeAccent = animColor ?? targetAccent;
           final washColor = ArtworkPalette.wash(activeAccent, lightness: 0.09);
-          return RhythmPulseBuilder(
-            player: player,
-            builder: (context, aura, child) {
-              final dynamicAccentAlpha = 0.18 + (aura * 0.08);
-              final dynamicWashAlpha = 0.10 + (aura * 0.04);
 
-              return Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(0, -0.35),
-                    radius: 1.25,
-                    colors: [
-                      activeAccent.withValues(alpha: dynamicAccentAlpha),
-                      washColor.withValues(alpha: dynamicWashAlpha),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.0, 0.55, 1.0],
+          return Container(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.35),
+                radius: 1.25,
+                colors: [
+                  activeAccent.withValues(alpha: 0.22),
+                  washColor.withValues(alpha: 0.12),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+            ),
+            child: child,
+          );
+        },
+        child: SafeArea(
+          bottom: false,
+          child: isWide
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24, vertical: 8),
+                  child: PlayerWideBody(
+                    controller: controller,
+                    player: player,
+                    song: song,
+                    duration: duration,
+                    accent: targetAccent,
+                    activePlaylistId: _activePlaylistId,
+                    onActivePlaylistChanged: (id) =>
+                        setState(() => _activePlaylistId = id),
                   ),
-                ),
-                child: child,
-              );
-            },
-            child: SafeArea(
-              bottom: false,
-              child: isWide
+                )
+              : landscape
                   ? Padding(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 24, vertical: 8),
-                      child: PlayerWideBody(
+                      child: PlayerLandscapeBody(
                         controller: controller,
                         player: player,
                         song: song,
                         duration: duration,
-                        accent: activeAccent,
-                        activePlaylistId: _activePlaylistId,
-                        onActivePlaylistChanged: (id) =>
-                            setState(() => _activePlaylistId = id),
+                        accent: targetAccent,
                       ),
                     )
-                  : landscape
-                      ? Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 8),
-                          child: PlayerLandscapeBody(
-                            controller: controller,
-                            player: player,
-                            song: song,
-                            duration: duration,
-                            accent: activeAccent,
-                          ),
-                        )
-                      : PlayerPortraitBody(
-                          controller: controller,
-                          player: player,
-                          song: song,
-                          duration: duration,
-                          accent: activeAccent,
-                        ),
-            ),
-          );
-        },
+                  : PlayerPortraitBody(
+                      controller: controller,
+                      player: player,
+                      song: song,
+                      duration: duration,
+                      accent: targetAccent,
+                    ),
+        ),
       ),
     );
   }

@@ -63,10 +63,10 @@ Set-Location $repoRoot
 Write-Step "Bumping version to $Version+$Build"
 
 $pubspecContent = Get-Content $pubspec -Raw
-if (-not ($pubspecContent -match '(?m)^version: \d+\.\d+\.\d+\+\d+')) {
+if (-not ($pubspecContent -match '(?m)^version: \d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?\+\d+')) {
   throw "Version bump failed: no 'version:' line matched in $pubspec"
 }
-$pubspecNew = $pubspecContent -replace '(?m)^version: \d+\.\d+\.\d+\+\d+', "version: $Version+$Build"
+$pubspecNew = $pubspecContent -replace '(?m)^version: \d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?\+\d+', "version: $Version+$Build"
 Set-Content $pubspec $pubspecNew -NoNewline
 
 $updateContent = Get-Content $updateService -Raw

@@ -91,19 +91,9 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
-                  secondary: const Icon(Icons.blur_on_rounded),
-                  title: const Text('Visualizer Glow Effect'),
-                  subtitle: const Text('Luminescent neon glow on active visualizer bars'),
-                  value: identity.visualizerGlow,
-                  onChanged: (val) async {
-                    await controller.updateVisualizerGlow(val);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
                   secondary: const Icon(Icons.autorenew_rounded),
                   title: const Text('Auto-Reroll Seed'),
-                  subtitle: const Text('Continuously fetch and cache next track based on playing song'),
+                  subtitle: const Text('Continuously update upcoming recommendations based on playing song'),
                   value: controller.player.autoRerollSeed,
                   onChanged: (val) {
                     controller.player.setAutoRerollSeed(val);
@@ -112,8 +102,8 @@ class SettingsScreen extends StatelessWidget {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.playlist_play_rounded),
-                  title: const Text('Autoplay'),
-                  subtitle: const Text('Continue playing recommendations when queue ends'),
+                  title: const Text('Endless Play'),
+                  subtitle: const Text('Keep playing similar recommendations when queue ends'),
                   value: controller.player.autoplay,
                   onChanged: (val) {
                     controller.player.setAutoplay(val);

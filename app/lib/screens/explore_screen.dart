@@ -245,16 +245,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
             const Text('Explore'),
           ],
         ),
-        actions: [
-          if (_searchController.text.isEmpty)
-            IconButton(
-              icon: const Icon(Icons.shuffle_rounded),
-              tooltip: 'Shuffle recommendations',
-              onPressed: _isLoadingRecommendations
-                  ? null
-                  : () => _loadRecommendations(shuffle: true),
-            ),
-        ],
         elevation: 0,
         backgroundColor: Colors.transparent,
       ),

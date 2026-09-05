@@ -590,16 +590,31 @@ class PlayerService extends ChangeNotifier {
       final upcoming = _queue.length > activeIndex + 1
           ? _queue.sublist(activeIndex + 1)
           : <Song>[];
-      final lockedUpcoming =
-          upcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
+
+      // If upcoming is empty, there is no next track to replace.
+      // Auto-reroll does not add new tracks; expanding the queue only happens
+      // when at the end of queue and autoplay is ON.
+      if (upcoming.isEmpty) {
+        return false;
+      }
+
+      final oldNextSong = upcoming.first;
+      if (_lockedSongIds.contains(oldNextSong.id)) {
+        // The next track is locked; do not replace it.
+        return false;
+      }
+
+      final tail = upcoming.sublist(1);
 
       final excludeIds = RecommendationService.normalizeVideoIds([
         ...head.map((s) => s.id),
-        ...lockedUpcoming.map((s) => s.id),
+        oldNextSong.id,
+        ...tail.map((s) => s.id),
       ]);
 
       final seed = currentSong ?? head.last;
-      DebugLog.write('[radio] Auto-rerolling 1 next track for "${seed.title}"');
+      DebugLog.write(
+          '[radio] Auto-rerolling next track for "${seed.title}" (preserving ${tail.length} following tracks)');
 
       RecommendationBatch batch;
       try {
@@ -618,7 +633,8 @@ class PlayerService extends ChangeNotifier {
         final existingVideoIds = excludeIds.toSet();
         final existingTitles = {
           ...head.map((s) => s.title.toLowerCase().trim()),
-          ...lockedUpcoming.map((s) => s.title.toLowerCase().trim()),
+          oldNextSong.title.toLowerCase().trim(),
+          ...tail.map((s) => s.title.toLowerCase().trim()),
         };
 
         for (final item in batch.items) {
@@ -635,7 +651,8 @@ class PlayerService extends ChangeNotifier {
       if (nextSong == null) {
         final offlineExcludeIds = {
           ...head.map((s) => s.id),
-          ...upcoming.map((s) => s.id),
+          oldNextSong.id,
+          ...tail.map((s) => s.id),
         };
         final offline = RecommendationService.getOfflineRecommendations(
           seed,
@@ -648,10 +665,10 @@ class PlayerService extends ChangeNotifier {
       }
 
       if (nextSong != null) {
-        _queue = [...head, ...lockedUpcoming, nextSong];
+        _queue = [...head, nextSong, ...tail];
         _updateActiveQueueCacheProtection();
         DebugLog.write(
-            '[radio] Auto-reroll 1 next track selected: "${nextSong.title}" (${nextSong.id})');
+            '[radio] Auto-reroll changed next track: "${oldNextSong.title}" -> "${nextSong.title}". Queue length remains ${_queue.length}.');
 
         if (nextSong.sourceDeviceId == 'stream') {
           final vId = RecommendationService.extractVideoId(nextSong.id) ??
@@ -659,6 +676,7 @@ class PlayerService extends ChangeNotifier {
           if (vId.isNotEmpty && !StreamCacheManager.isStreamCachedSync(vId)) {
             DebugLog.write(
                 '[radio] Starting immediate caching for rerolled track: $vId');
+            StreamCacheManager.cancelPreload();
             _isPreloadingUpcoming = true;
             StreamCacheManager.preloadSlidingWindow([vId],
                 onTrackCached: (cachedId) {
@@ -871,13 +889,19 @@ class PlayerService extends ChangeNotifier {
       _publishNotificationState();
       notifyListeners();
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
+      var willAutoReroll = false;
       if (_autoRerollSeed) {
         final hasUpcoming = _queueIndex < _queue.length - 1;
-        if (song.id != _lastAutoRerolledSongId || !hasUpcoming) {
-          _lastAutoRerolledSongId = song.id;
-          _scheduleAutoReroll(token);
+        final isRadioOrStream = queueSourceId == 'radio' || song.sourceDeviceId == 'stream';
+        if (!hasUpcoming || isRadioOrStream) {
+          if (song.id != _lastAutoRerolledSongId || !hasUpcoming) {
+            _lastAutoRerolledSongId = song.id;
+            willAutoReroll = true;
+            _scheduleAutoReroll(token);
+          }
         }
-      } else {
+      }
+      if (!willAutoReroll) {
         _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
       }
       if (_pendingNaturalAdvance) {
@@ -928,7 +952,10 @@ class PlayerService extends ChangeNotifier {
         return;
       }
       DebugLog.write('[radio] Auto-rerolling next track for "${currentSong!.title}"');
-      await rerollNextTrackOnly();
+      final changed = await rerollNextTrackOnly();
+      if (!changed && token == _playRequestToken) {
+        _preloadUpcomingStreams(delay: Duration.zero);
+      }
     });
   }
 
@@ -972,8 +999,12 @@ class PlayerService extends ChangeNotifier {
       }
     }
     if (upcomingVideoIds.isEmpty) {
-      if (_autoplay && currentSong != null && (queueSourceId == 'radio' || currentSong?.sourceDeviceId == 'stream') && !_isLoadingRecommendations) {
-        DebugLog.write('[preload] Queue near end with autoplay ON, pre-fetching recommendations...');
+      if (_autoplay &&
+          currentSong != null &&
+          _queueIndex >= _queue.length - 1 &&
+          (queueSourceId == 'radio' || currentSong?.sourceDeviceId == 'stream') &&
+          !_isLoadingRecommendations) {
+        DebugLog.write('[preload] Queue on last song with autoplay ON, pre-fetching recommendations...');
         unawaited(fetchAndAppendRecommendations());
       }
       DebugLog.write('[preload] No upcoming stream tracks to preload');
@@ -995,7 +1026,22 @@ class PlayerService extends ChangeNotifier {
       if (token != _playRequestToken) return;
       if (!_player.playing && _queueIndex < 0) return;
       if (_isBufferingNext || _bufferingVideoId != null || StreamCacheManager.isAnyDownloadActive) {
-        DebugLog.write('[preload] Current track is still downloading/buffering; deferring preload');
+        DebugLog.write('[preload] Current track is still downloading/buffering; deferring preload until completion');
+        final activeId = StreamCacheManager.activeDownloadingVideoId;
+        final inFlight = activeId != null ? StreamCacheManager.getInFlightDownload(activeId) : null;
+        if (inFlight != null) {
+          inFlight.whenComplete(() {
+            if (token == _playRequestToken) {
+              _preloadUpcomingStreams(delay: const Duration(milliseconds: 300));
+            }
+          });
+        } else {
+          _preloadDebounceTimer = Timer(const Duration(seconds: 1), () {
+            if (token == _playRequestToken) {
+              _preloadUpcomingStreams(delay: Duration.zero);
+            }
+          });
+        }
         return;
       }
       DebugLog.write(
@@ -1129,20 +1175,7 @@ class PlayerService extends ChangeNotifier {
           return;
         }
 
-        // Auto-reroll seed: fetch single next track and continue
-        if (_autoRerollSeed && currentSong != null) {
-          final rerolled = await rerollNextTrackOnly();
-          if (rerolled && _queueIndex + 1 < _queue.length) {
-            final target = _queue[_queueIndex + 1];
-            _queueIndex = _queueIndex + 1;
-            currentSong = target;
-            notifyListeners();
-            await playSong(target, queue: _queue);
-            return;
-          }
-        }
-
-        // Autoplay: fetch next batch and continue
+        // Autoplay: fetch next batch and continue when at the end of queue
         if (_autoplay && currentSong != null) {
           final appended = await fetchAndAppendRecommendations();
           if (appended && _queueIndex + 1 < _queue.length) {

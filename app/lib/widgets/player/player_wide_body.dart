@@ -221,8 +221,8 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                             IconButton(
                               iconSize: 18,
                               tooltip: player.autoplay
-                                  ? 'Autoplay ON (Similar tracks)'
-                                  : 'Autoplay OFF',
+                                  ? 'Endless Play ON (Similar tracks)'
+                                  : 'Endless Play OFF',
                               icon: Icon(
                                 Icons.auto_awesome_rounded,
                                 color: player.autoplay
@@ -461,7 +461,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                               width: 36,
                                               height: 36,
                                               cacheWidth: 108,
-                                              cacheHeight: 108,
+                                              
                                               fit: BoxFit.cover,
                                               alignment: Alignment.center,
                                               gaplessPlayback: true,
@@ -495,7 +495,7 @@ class _PlayerWideQueueViewState extends State<PlayerWideQueueView> {
                                                     width: 36,
                                                     height: 36,
                                                     cacheWidth: 108,
-                                                    cacheHeight: 108,
+                                                    
                                                     fit: BoxFit.cover,
                                                     alignment: Alignment.center,
                                                     gaplessPlayback: true,
