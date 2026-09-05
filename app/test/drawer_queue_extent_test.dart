@@ -5,9 +5,6 @@ import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
-import 'package:peerm_app/services/signaling_server.dart';
-import 'package:peerm_app/services/signaling_service.dart';
-import 'package:peerm_app/services/sync_service.dart';
 import 'package:peerm_app/services/youtube_service.dart';
 import 'package:peerm_app/widgets/player/player_drawer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,11 +36,8 @@ void main() {
     final controller = AppController(
       identity: identity,
       library: library,
-      signaling: SignalingService(identity),
-      sync: SyncService(identity: identity, library: library),
       player: player,
       youtube: YoutubeService(),
-      server: SignalingServer(port: 8091),
     );
     player.updateQueue(
       [for (var i = 1; i <= 8; i++) _song('s$i', 'Song $i')],

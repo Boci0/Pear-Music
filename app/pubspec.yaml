@@ -1,5 +1,5 @@
 name: peerm_app
-description: "Pear Music - Peer-to-peer music sync for Windows and Android."
+description: "Pear Music - Music player and YouTube discovery engine for Windows and Android."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.1.5+7106
+version: 3.1.6+7107
 
 environment:
   sdk: ^3.12.2
@@ -35,7 +35,6 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   provider: ^6.1.5+1
-  web_socket_channel: ^3.0.3
   just_audio: ^0.10.6
   just_audio_media_kit: ^2.1.0
   media_kit: ^1.2.6
@@ -46,12 +45,10 @@ dependencies:
   uuid: ^4.6.0
   crypto: ^3.0.7
   shared_preferences: ^2.5.5
-  qr_flutter: ^4.1.0
   url_launcher: ^6.3.2
   desktop_drop: ^0.7.1
   audio_service: ^0.18.19
   permission_handler: ^13.0.0
-  mobile_scanner: ^7.0.0
   # Bundled yt-dlp for the phone (youtubedl-android), rips reliably even when
   # YouTube rate-limits the built-in downloader. Android-only native plugin.
   peerm_ytdlp:
@@ -59,11 +56,6 @@ dependencies:
   # Ripping uses yt-dlp (bundled on the phone / installed on the PC). The image
   # package downscales the artwork for embedding in the Song model.
   image: ^4.8.0
-  cryptography: ^2.9.0
-  # Hardware-accelerated AES-GCM for the E2E relay encryption (Android/iOS).
-  # Without this, every transfer chunk is encrypted in pure Dart on the UI
-  # isolate — the main cause of lag and battery drain during syncs.
-  cryptography_flutter: ^2.3.4
   youtube_explode_dart: ^3.1.0
   synchronized: ^3.4.1+1
 

@@ -12,10 +12,7 @@ import '../services/artwork_palette.dart';
 import '../services/identity_service.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
-import '../services/signaling_server.dart';
-import '../services/signaling_service.dart';
 import '../services/stream_cache_manager.dart';
-import '../services/sync_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
@@ -31,24 +28,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final LibraryService library;
   final PlayerService player;
   final YoutubeService youtube;
-  final SignalingService? signaling;
-  final SyncService? sync;
-  final SignalingServer? server;
 
   AppController({
     required this.identity,
     required this.library,
     required this.player,
     required this.youtube,
-    this.signaling,
-    this.sync,
-    this.server,
   });
-
-  bool get isHostingServer => false;
-  String? get serverLanIp => null;
-  String get connectionStatus => 'offline';
-  String? get pendingPairingCode => null;
 
   List<Song> get songs => library.songs;
 

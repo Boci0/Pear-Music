@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
-import 'package:cryptography_flutter/cryptography_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:path_provider/path_provider.dart';
@@ -40,16 +39,6 @@ Future<void> main() async {
     ErrorWidget.builder = (FlutterErrorDetails details) {
       return PearMusicErrorWidget(details: details);
     };
-
-    // Route AES-GCM (E2E relay encryption) through the platform's native crypto
-    // engine on Android/iOS. Without this every transfer chunk is encrypted in
-    // pure Dart on the UI isolate (the main cause of lag and battery drain
-    // during syncs). Unsupported platforms transparently keep the Dart fallback.
-    try {
-      FlutterCryptography.registerWith();
-    } catch (e) {
-      debugPrint('[pearmusic] FlutterCryptography.registerWith error: $e');
-    }
 
     // Enables the media_kit backend for Windows audio playback.
     try {

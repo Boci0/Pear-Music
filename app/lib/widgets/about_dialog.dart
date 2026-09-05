@@ -16,9 +16,8 @@ void showPearMusicAboutDialog(BuildContext context) {
     children: [
       const SizedBox(height: 16),
       Text(
-        'Pear Music is a peer-to-peer music sync application for Windows and Android. '
-        'Your music library stays directly synchronized between your devices without '
-        'cloud storage or accounts.',
+        'Pear Music is a fast, local-first music player and YouTube discovery application '
+        'for Windows and Android with zero cloud requirements or accounts.',
         style: Theme.of(context).textTheme.bodyMedium,
       ),
       const SizedBox(height: 16),

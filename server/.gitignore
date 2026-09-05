@@ -1,5 +1,0 @@
-node_modules/
-*.log
-.env
-# Runtime-persisted pairings/device names (device-specific state).
-state.json

@@ -119,7 +119,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // changes.
     return Scaffold(
       key: _scaffoldKey,
-      appBar: appBar,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: TweenAnimationBuilder<Color?>(
         tween: ColorTween(
           end: targetAccent,
@@ -132,6 +132,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
           return Container(
             decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
               gradient: RadialGradient(
                 center: const Alignment(0, -0.35),
                 radius: 1.25,
@@ -146,42 +147,50 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: child,
           );
         },
-        child: SafeArea(
-          bottom: false,
-          child: isWide
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 8),
-                  child: PlayerWideBody(
-                    controller: controller,
-                    player: player,
-                    song: song,
-                    duration: duration,
-                    accent: targetAccent,
-                    activePlaylistId: _activePlaylistId,
-                    onActivePlaylistChanged: (id) =>
-                        setState(() => _activePlaylistId = id),
-                  ),
-                )
-              : landscape
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 8),
-                      child: PlayerLandscapeBody(
-                        controller: controller,
-                        player: player,
-                        song: song,
-                        duration: duration,
-                        accent: targetAccent,
-                      ),
-                    )
-                  : PlayerPortraitBody(
-                      controller: controller,
-                      player: player,
-                      song: song,
-                      duration: duration,
-                      accent: targetAccent,
-                    ),
+        child: Column(
+          children: [
+            appBar,
+            Expanded(
+              child: SafeArea(
+                top: false,
+                bottom: false,
+                child: isWide
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 8),
+                        child: PlayerWideBody(
+                          controller: controller,
+                          player: player,
+                          song: song,
+                          duration: duration,
+                          accent: targetAccent,
+                          activePlaylistId: _activePlaylistId,
+                          onActivePlaylistChanged: (id) =>
+                              setState(() => _activePlaylistId = id),
+                        ),
+                      )
+                    : landscape
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 8),
+                            child: PlayerLandscapeBody(
+                              controller: controller,
+                              player: player,
+                              song: song,
+                              duration: duration,
+                              accent: targetAccent,
+                            ),
+                          )
+                        : PlayerPortraitBody(
+                            controller: controller,
+                            player: player,
+                            song: song,
+                            duration: duration,
+                            accent: targetAccent,
+                          ),
+              ),
+            ),
+          ],
         ),
       ),
     );

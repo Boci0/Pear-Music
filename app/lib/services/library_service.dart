@@ -60,9 +60,7 @@ class LibraryService extends ChangeNotifier {
   final List<Playlist> _playlists = [];
   List<Playlist> get playlists => List.unmodifiable(_playlists);
 
-  /// Playlists deleted on this device (id → deletion time). Used to propagate
-  /// deletions to peers that were offline when the delete happened, without
-  /// resurrecting them on the next manifest merge.
+  /// Playlists deleted on this device (id -> deletion time).
   final Map<String, DateTime> _deletedPlaylistsAt = {};
   Map<String, DateTime> get deletedPlaylistsAt =>
       Map.unmodifiable(_deletedPlaylistsAt);
@@ -116,8 +114,7 @@ class LibraryService extends ChangeNotifier {
 
   bool hasSongFile(Song song) => _filesOnDisk.contains(song.id);
 
-  /// Force a real disk check for [song] and refresh the cache. Use when the
-  /// cached answer matters (e.g. before sending a file to a peer).
+  /// Force a real disk check for [song] and refresh the cache.
   Future<bool> verifySongFile(Song song) async {
     try {
       final file = songFile(song);
@@ -722,9 +719,8 @@ class LibraryService extends ChangeNotifier {
     return pl;
   }
 
-  /// Delete [id] and record a deletion tombstone so the removal propagates to
-  /// peers (even ones that were offline). Returns the deletion time, or null
-  /// if the playlist did not exist.
+  /// Delete playlist [id]. Returns the deletion time, or null if the playlist
+  /// did not exist.
   Future<DateTime?> deletePlaylist(String id) async {
     if (!_playlists.any((pl) => pl.id == id)) return null;
     _playlists.removeWhere((pl) => pl.id == id);
@@ -734,58 +730,6 @@ class LibraryService extends ChangeNotifier {
     await _savePlaylists();
     notifyListeners();
     return at;
-  }
-
-  /// Merge playlists + deletion tombstones received from a peer ("newest edit
-  /// wins"). Returns the local playlists that are NEWER than the peer's copy
-  /// so the caller can broadcast them back (echo) and converge. A playlist
-  /// whose local copy is newer than a deletion tombstone survives; otherwise
-  /// the tombstone wins and the local copy is removed.
-  Future<List<Playlist>> mergeRemotePlaylists(
-    List<Playlist> incoming,
-    Map<String, DateTime> deleted,
-  ) async {
-    final echo = <Playlist>[];
-    var changed = false;
-
-    // Deletions: a tombstone wins unless the local copy is strictly newer.
-    deleted.forEach((id, at) {
-      final local = findPlaylist(id);
-      if (local == null) return;
-      if (!local.updatedAt.isAfter(at)) {
-        _playlists.removeWhere((pl) => pl.id == id);
-        _deletedPlaylistsAt[id] = at;
-        changed = true;
-      }
-    });
-
-    // Upserts: newest copy wins; older local copies get echoed back. A playlist
-    // we deleted (tombstone) is not resurrected unless the incoming copy is
-    // NEWER than our deletion.
-    for (final pl in incoming) {
-      final tombAt = _deletedPlaylistsAt[pl.id];
-      if (tombAt != null && !pl.updatedAt.isAfter(tombAt)) {
-        continue;
-      }
-      final local = findPlaylist(pl.id);
-      if (local == null) {
-        _playlists.add(pl);
-        changed = true;
-      } else if (pl.updatedAt.isAfter(local.updatedAt)) {
-        final idx = _playlists.indexWhere((p) => p.id == pl.id);
-        _playlists[idx] = pl;
-        changed = true;
-      } else if (pl.updatedAt.isBefore(local.updatedAt)) {
-        echo.add(local);
-      }
-    }
-
-    if (changed) {
-      _pruneTombstones();
-      await _savePlaylists();
-      notifyListeners();
-    }
-    return echo;
   }
 
   /// Cap the tombstone list (drop the oldest entries) so it cannot grow

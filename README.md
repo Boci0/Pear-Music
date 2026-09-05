@@ -1,6 +1,6 @@
 # PEAR MUSIC
 
-> A peer-to-peer music sync and radio player for Windows and Android. No cloud, no accounts.
+> A local-first music player and YouTube discovery engine for Windows and Android. No cloud, no accounts.
 
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20ZIP-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip)
 [![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
@@ -11,19 +11,21 @@
 
 ## Overview
 
-**Pear Music** keeps your music library in sync between your devices with zero cloud storage and no accounts. Drop a song on one device, and paired devices receive and play it seamlessly. Pear Music also includes **Pear Radio**, an ephemeral radio and smart recommendation streaming engine that allows you to discover, stream, and save songs on the fly.
+**Pear Music** is a fast, local-first music player and streaming discovery application with zero cloud storage and no accounts. Play your local audio files, search and stream music from YouTube with genre discovery chips, and use **Pear Radio**, an ephemeral radio and smart recommendation streaming engine that allows you to discover, stream, and save songs on the fly.
 
 ---
 
 ## Key Features
 
-* **End-to-End Encrypted Relay Sync**: Fast device-to-device audio file transfer via encrypted relays (AES-256-GCM / X25519). Files are never stored on external servers.
+* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable genre chips, search YouTube Music via Innertube, and stream instantly without accounts.
+* **Immersive Dynamic Player**: Full-bleed album artwork with ambient color wash gradients extracted dynamically from track artwork, zero-blur GPU vector glow, and real-time audio visualizer bar.
+* **Pull-Up Queue & Library Management**: YouTube Music style peek sheet with queue reordering, track removal, fast-favoriting, and multi-playlist organization.
+* **Offline-First Playback**: Seamless local audio decoding from device storage with automatic offline fallback recommendations for Pear Radio when disconnected from the network.
 * **Pear Radio & Smart Autoplay**: Infinite stream recommendations based on your listening habits with a 4-track sliding window disk pre-buffer and visual cache indicators for zero-latency skipping.
-* **1-Click Save to Library**: Instantly promote any radio stream track into your permanent local library in 0 ms without re-downloading.
+* **1-Click Save to Library**: Instantly promote any radio stream track or search result into your permanent local library in 0 ms without re-downloading.
 * **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with ID3/Vorbis album artwork rendered on Android Lockscreen, Notification Shade, and Windows Media Transport Controls (SMTC).
 * **Automated In-App Updates**: Seamless version checks and 1-click in-app updates directly from GitHub releases.
-* **Fast Code & QR Pairing**: Connect devices in seconds using a 6-character pairing code or QR scan.
-* **Live Diagnostics Console**: Integrated diagnostic log viewer and ring buffer for real-time monitoring of sync, relay, stream, and cache activity.
+* **Live Diagnostics Console**: Integrated diagnostic log viewer and ring buffer for real-time monitoring of stream and cache activity.
 * **Loudness Normalization**: Dynamic range enhancement to prevent jarring volume jumps between tracks.
 
 ---

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,11 +8,13 @@ import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
+import 'lyrics_view.dart';
 import 'player_console_dialog.dart';
 import 'rhythm_pulse.dart';
 
-/// Large album artwork container with rounded corners and ambient accent glow.
-class PlayerArtwork extends StatelessWidget {
+/// Large album artwork container with rounded corners, ambient accent glow,
+/// and synchronized lyrics toggle display.
+class PlayerArtwork extends StatefulWidget {
   final Song? song;
   final Uint8List? artwork;
   final String? networkUrl;
@@ -27,10 +30,21 @@ class PlayerArtwork extends StatelessWidget {
   });
 
   @override
+  State<PlayerArtwork> createState() => _PlayerArtworkState();
+}
+
+class _PlayerArtworkState extends State<PlayerArtwork> {
+  static bool _showLyrics = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final radius = BorderRadius.circular(16);
-    final baseShadowColor = (accent ?? scheme.primary);
+    final size = widget.size;
+    final song = widget.song;
+    final networkUrl = widget.networkUrl;
+    final artwork = widget.artwork;
+    final baseShadowColor = (widget.accent ?? scheme.primary);
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -38,7 +52,7 @@ class PlayerArtwork extends StatelessWidget {
     final effectiveNetworkUrl = rawNetworkUrl != null && rawNetworkUrl.isNotEmpty
         ? ArtworkService.optimizeArtworkUrl(rawNetworkUrl)
         : null;
-    final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song!) : null);
+    final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song) : null);
     final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
     final targetPx = (size * dpr).round().clamp(96, 512);
 
@@ -82,8 +96,8 @@ class PlayerArtwork extends StatelessWidget {
       );
     } else if (song != null) {
       imageWidget = FutureBuilder<Uint8List?>(
-        key: ValueKey('async_${song!.id}'),
-        future: ArtworkPalette.bytesAsync(song!),
+        key: ValueKey('async_${song.id}'),
+        future: ArtworkPalette.bytesAsync(song),
         initialData: initialBytes,
         builder: (context, snapshot) {
           final bytes = snapshot.data ?? initialBytes;
@@ -167,15 +181,82 @@ class PlayerArtwork extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: radius,
-              child: imageWidget,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_showLyrics && song != null && playerService != null) ...[
+                    ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: imageWidget,
+                    ),
+                    Container(
+                      color: Colors.black.withValues(alpha: 0.55),
+                    ),
+                  ] else ...[
+                    imageWidget,
+                  ],
+                  if (song != null && playerService != null)
+                    Visibility(
+                      visible: _showLyrics,
+                      maintainState: true,
+                      child: LyricsView(
+                        song: song,
+                        player: playerService,
+                        accent: widget.accent,
+                        size: size,
+                        isVisible: _showLyrics,
+                      ),
+                    ),
+                  if (song != null && playerService != null)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Tooltip(
+                          message: _showLyrics ? 'Show album artwork' : 'Show lyrics',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => setState(() => _showLyrics = !_showLyrics),
+                            child: Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _showLyrics
+                                    ? (widget.accent ?? scheme.primary).withValues(alpha: 0.90)
+                                    : Colors.black.withValues(alpha: 0.50),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.35),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                _showLyrics ? Icons.image_rounded : Icons.lyrics_rounded,
+                                size: 18,
+                                color: _showLyrics
+                                    ? Colors.black
+                                    : Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ],
     );
+
   }
 
   Widget _placeholder(ColorScheme scheme) {
+    final size = widget.size;
     return Container(
       width: size,
       height: size,
@@ -183,6 +264,7 @@ class PlayerArtwork extends StatelessWidget {
       child: Icon(
         Icons.music_note,
         size: size * 0.45,
+
         color: scheme.onSurfaceVariant,
       ),
     );
