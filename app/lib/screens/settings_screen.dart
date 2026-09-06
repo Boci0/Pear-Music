@@ -7,8 +7,23 @@ import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
 
 /// Clean, decluttered settings screen organized by functional sections.
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _cacheSizeLabel() {
+    final bytes = StreamCacheManager.getCacheStats().totalBytes;
+    if (bytes <= 0) return '0.0 MB used';
+    final mb = bytes / (1024 * 1024);
+    if (mb < 1000) {
+      return '${mb.toStringAsFixed(1)} MB used';
+    }
+    return '${(mb / 1024).toStringAsFixed(2)} GB used';
+  }
 
   Future<void> _confirmClearCache(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -33,6 +48,9 @@ class SettingsScreen extends StatelessWidget {
 
     if (ok == true) {
       await StreamCacheManager.clearCache();
+      if (mounted) {
+        setState(() {});
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Streaming cache cleared')),
@@ -90,11 +108,19 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
                 const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.subtitles_rounded),
+                  title: const Text('Pop Lyrics'),
+                  subtitle: const Text('Pop lyric lines in-place instead of classic scroll'),
+                  value: identity.popLyrics,
+                  onChanged: (val) => controller.updatePopLyrics(val),
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.cleaning_services_rounded),
                   title: const Text('Clear streaming cache'),
-                  subtitle: const Text(
-                    'Free disk space used by temporary streams',
+                  subtitle: Text(
+                    '${_cacheSizeLabel()}; tap to free temporary streams',
                   ),
                   trailing: const Icon(Icons.chevron_right, size: 20),
                   onTap: () => _confirmClearCache(context),

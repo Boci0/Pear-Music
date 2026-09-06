@@ -28,6 +28,7 @@ class IdentityService {
   static const _visualizerGlowKey = 'peerm_visualizer_glow';
   static const _autoRerollSeedKey = 'peerm_auto_reroll_seed';
   static const _autoplayKey = 'peerm_autoplay';
+  static const _popLyricsKey = 'peerm_pop_lyrics';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -40,6 +41,7 @@ class IdentityService {
   late bool _visualizerGlow;
   late bool _autoRerollSeed;
   late bool _autoplay;
+  late bool _popLyrics;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -70,6 +72,7 @@ class IdentityService {
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
+    _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -190,5 +193,13 @@ class IdentityService {
     if (_autoplay == value) return;
     _autoplay = value;
     await _prefs.setBool(_autoplayKey, value);
+  }
+
+  bool get popLyrics => _popLyrics;
+
+  Future<void> setPopLyrics(bool value) async {
+    if (_popLyrics == value) return;
+    _popLyrics = value;
+    await _prefs.setBool(_popLyricsKey, value);
   }
 }

@@ -141,6 +141,8 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
     );
 
     final playerService = context.watch<PlayerService?>();
+    final controller = context.watch<AppController?>();
+    final popLyrics = controller?.identity.popLyrics ?? false;
     final glowUnderlay = Container(
       width: size,
       height: size,
@@ -227,40 +229,88 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                         accent: widget.accent,
                         size: size,
                         isVisible: _showLyrics,
+                        popMode: popLyrics,
+                      ),
+                    ),
+                  if (song != null && playerService != null && _showLyrics)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Tooltip(
+                          message: popLyrics
+                              ? 'Switch to classic scroll lyrics'
+                              : 'Switch to pop lyrics',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () {
+                              controller?.updatePopLyrics(!popLyrics);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: Colors.black.withValues(alpha: 0.28),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.10),
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    popLyrics
+                                        ? Icons.subtitles_rounded
+                                        : Icons.format_line_spacing_rounded,
+                                    size: 12,
+                                    color: Colors.white.withValues(alpha: 0.75),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    popLyrics ? 'Pop' : 'Scroll',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white.withValues(alpha: 0.75),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   if (song != null && playerService != null)
                     Positioned(
-                      top: 8,
-                      right: 8,
+                      top: 10,
+                      right: 10,
                       child: Material(
                         color: Colors.transparent,
                         child: Tooltip(
                           message: _showLyrics ? 'Show album artwork' : 'Show lyrics',
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(16),
                             onTap: () => setState(() => _showLyrics = !_showLyrics),
                             child: Container(
-                              padding: const EdgeInsets.all(7),
+                              padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: _showLyrics
-                                    ? (widget.accent ?? scheme.primary).withValues(alpha: 0.90)
-                                    : Colors.black.withValues(alpha: 0.50),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.35),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
+                                color: Colors.black.withValues(alpha: 0.28),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.10),
+                                  width: 0.5,
+                                ),
                               ),
                               child: Icon(
                                 _showLyrics ? Icons.image_rounded : Icons.lyrics_rounded,
-                                size: 18,
-                                color: _showLyrics
-                                    ? Colors.black
-                                    : Colors.white,
+                                size: 15,
+                                color: Colors.white.withValues(alpha: 0.75),
                               ),
                             ),
                           ),

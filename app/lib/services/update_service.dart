@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '3.1.7';
+  static const String currentVersion = '3.1.8';
 
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.
@@ -237,10 +237,14 @@ class UpdateService {
   static bool _isNewerVersion(String current, String latest) {
     if (latest.isEmpty) return false;
     final currParts = current
+        .split('-')
+        .first
         .split('.')
         .map((e) => int.tryParse(e) ?? 0)
         .toList();
     final lateParts = latest
+        .split('-')
+        .first
         .split('.')
         .map((e) => int.tryParse(e) ?? 0)
         .toList();

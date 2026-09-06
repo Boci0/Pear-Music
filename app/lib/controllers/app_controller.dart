@@ -11,6 +11,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/identity_service.dart';
 import '../services/library_service.dart';
+import '../services/lyrics_service.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/stream_cache_manager.dart';
@@ -153,6 +154,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('[app] app backgrounded: flushing pending saves');
       library.flushSaveIndex();
       ArtworkPalette.compactMemory();
+      LyricsService.compactMemory();
       PaintingBinding.instance.imageCache.clearLiveImages();
       LibraryService.killHashWorker();
       if (!player.playing && !player.isLoadingTrack && !player.isAdvancing) {
@@ -378,6 +380,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> updateVisualizerGlow(bool val) async {
     await identity.setVisualizerGlow(val);
+    notifyListeners();
+  }
+
+  Future<void> updatePopLyrics(bool val) async {
+    await identity.setPopLyrics(val);
     notifyListeners();
   }
 

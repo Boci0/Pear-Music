@@ -97,6 +97,7 @@ class PlaylistDetailScreen extends StatelessWidget {
                 ? const _EmptyPlaylist()
                 : ReorderableListView.builder(
                     padding: const EdgeInsets.only(bottom: 24),
+                    itemExtent: 64.0,
                     itemCount: songs.length,
                     onReorderItem: (oldIndex, newIndex) =>
                         _reorder(context, controller, playlist, songs, oldIndex, newIndex),
@@ -229,51 +230,53 @@ class _SongRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ListTile(
-      tileColor: isCurrent
-          ? (theme.brightness == Brightness.dark
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-              : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
-          : null,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      leading: Icon(
-        isCurrent ? Icons.graphic_eq : Icons.audiotrack,
-        color: isCurrent
-            ? theme.colorScheme.primary
-            : theme.colorScheme.onSurfaceVariant,
-      ),
-      title: Text(
-        song.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: isCurrent
-            ? TextStyle(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              )
+    return RepaintBoundary(
+      child: ListTile(
+        tileColor: isCurrent
+            ? (theme.brightness == Brightness.dark
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+                : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
             : null,
-      ),
-      subtitle: Text(song.sizeLabel, style: theme.textTheme.bodySmall),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: isPlaying ? 'Pause' : 'Play',
-            icon: Icon(
-              isPlaying ? Icons.pause_circle : Icons.play_circle,
-              color: theme.colorScheme.primary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        leading: Icon(
+          isCurrent ? Icons.graphic_eq : Icons.audiotrack,
+          color: isCurrent
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+        title: Text(
+          song.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: isCurrent
+              ? TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                )
+              : null,
+        ),
+        subtitle: Text(song.sizeLabel, style: theme.textTheme.bodySmall),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: isPlaying ? 'Pause' : 'Play',
+              icon: Icon(
+                isPlaying ? Icons.pause_circle : Icons.play_circle,
+                color: theme.colorScheme.primary,
+              ),
+              onPressed: onPlay,
             ),
-            onPressed: onPlay,
-          ),
-          IconButton(
-            tooltip: 'Remove from playlist',
-            icon: Icon(Icons.remove_circle_outline,
-                color: theme.colorScheme.error),
-            onPressed: onRemove,
-          ),
-        ],
+            IconButton(
+              tooltip: 'Remove from playlist',
+              icon: Icon(Icons.remove_circle_outline,
+                  color: theme.colorScheme.error),
+              onPressed: onRemove,
+            ),
+          ],
+        ),
+        onTap: onPlay,
       ),
-      onTap: onPlay,
     );
   }
 }

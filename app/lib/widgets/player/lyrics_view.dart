@@ -18,6 +18,7 @@ class LyricsView extends StatefulWidget {
   final Color? accent;
   final double size;
   final bool isVisible;
+  final bool popMode;
 
   const LyricsView({
     super.key,
@@ -26,6 +27,7 @@ class LyricsView extends StatefulWidget {
     this.accent,
     required this.size,
     this.isVisible = true,
+    this.popMode = false,
   });
 
   @override
@@ -66,9 +68,15 @@ class _LyricsViewState extends State<LyricsView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
       _loadLyrics();
+    } else if (oldWidget.popMode != widget.popMode) {
+      if (!widget.popMode) {
+        _snapToCurrentPosition(immediate: true);
+      }
     } else if (widget.isVisible && !oldWidget.isVisible) {
       _isUserScrolling = false;
-      _snapToCurrentPosition(immediate: true);
+      if (!widget.popMode) {
+        _snapToCurrentPosition(immediate: true);
+      }
     }
   }
 
@@ -140,7 +148,7 @@ class _LyricsViewState extends State<LyricsView> {
       setState(() {
         _activeIndex = newIndex;
       });
-      if (!_isUserScrolling && widget.isVisible) {
+      if (!widget.popMode && !_isUserScrolling && widget.isVisible) {
         final distance = (newIndex - oldIndex).abs();
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _scrollToActive(newIndex, immediate: distance > 6);
@@ -285,6 +293,119 @@ class _LyricsViewState extends State<LyricsView> {
       );
     }
 
+    if (widget.popMode) {
+      return _buildPopLyricsView(glowColor);
+    }
+    return _buildClassicScrollView(glowColor);
+  }
+
+  Widget _buildPopLyricsView(Color glowColor) {
+    final active = (_activeIndex >= 0 && _activeIndex < _lyrics.length)
+        ? _lyrics[_activeIndex]
+        : (_lyrics.isNotEmpty ? _lyrics[0] : null);
+
+    final text = (active == null || active.text.isEmpty) ? '···' : active.text;
+
+    final double fontSize;
+    if (text.length <= 25) {
+      fontSize = 22.0;
+    } else if (text.length <= 50) {
+      fontSize = 19.5;
+    } else {
+      fontSize = 17.5;
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+            return Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                ...previousChildren,
+                ?currentChild,
+              ],
+            );
+          },
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            final isIncoming =
+                child.key == ValueKey('pop_lyric_${widget.song.id}_$_activeIndex');
+
+            if (isIncoming) {
+              return FadeTransition(
+                opacity: CurvedAnimation(
+                  parent: animation,
+                  curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+                ),
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.92, end: 1.0).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+                    ),
+                  ),
+                  child: child,
+                ),
+              );
+            } else {
+              return FadeTransition(
+                opacity: CurvedAnimation(
+                  parent: animation,
+                  curve: const Interval(0.65, 1.0, curve: Curves.easeInCubic),
+                ),
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 1.0, end: 0.94).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: const Interval(0.65, 1.0, curve: Curves.easeInCubic),
+                    ),
+                  ),
+                  child: child,
+                ),
+              );
+            }
+          },
+          child: Container(
+            key: ValueKey('pop_lyric_${widget.song.id}_$_activeIndex'),
+            alignment: Alignment.center,
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamilyFallback: const [
+                  'Segoe UI Variable Text',
+                  'Segoe UI',
+                  'Roboto',
+                  'sans-serif',
+                ],
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.0,
+                height: 1.36,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    color: glowColor.withValues(alpha: 0.85),
+                    blurRadius: 18.0,
+                  ),
+                  Shadow(
+                    color: glowColor.withValues(alpha: 0.45),
+                    blurRadius: 8.0,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildClassicScrollView(Color glowColor) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
@@ -366,21 +487,28 @@ class _LyricsViewState extends State<LyricsView> {
               curve: Curves.easeOutCubic,
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
+                fontFamilyFallback: const [
+                  'Segoe UI Variable Text',
+                  'Segoe UI',
+                  'Roboto',
+                  'sans-serif',
+                ],
+                fontSize: isActive ? 17.0 : 16.0,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                letterSpacing: 0.0,
+                height: 1.40,
                 color: isActive
                     ? Colors.white
-                    : Colors.white.withValues(alpha: 0.38),
+                    : Colors.white.withValues(alpha: 0.35),
                 shadows: isActive
                     ? [
                         Shadow(
-                          color: glowColor.withValues(alpha: 0.95),
-                          blurRadius: 20.0,
+                          color: glowColor.withValues(alpha: 0.85),
+                          blurRadius: 16.0,
                         ),
                         Shadow(
-                          color: glowColor.withValues(alpha: 0.60),
-                          blurRadius: 10.0,
+                          color: glowColor.withValues(alpha: 0.45),
+                          blurRadius: 8.0,
                         ),
                       ]
                     : null,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -37,7 +38,23 @@ class LyricLine {
 /// Service that parses LRC lyrics, checks local files, queries LRCLIB,
 /// and caches lyrics on disk for offline playback.
 class LyricsService {
-  static final Map<String, List<LyricLine>> _memoryCache = {};
+  static const int _maxMemoryEntries = 50;
+  static final LinkedHashMap<String, List<LyricLine>> _memoryCache =
+      LinkedHashMap<String, List<LyricLine>>();
+
+  static void _setMemoryCache(String key, List<LyricLine> lyrics) {
+    _memoryCache.remove(key);
+    _memoryCache[key] = lyrics;
+    if (_memoryCache.length > _maxMemoryEntries) {
+      _memoryCache.remove(_memoryCache.keys.first);
+    }
+  }
+
+  /// Compacts in-memory parsed lyric structures during backgrounding.
+  static void compactMemory() {
+    _memoryCache.clear();
+  }
+
   static Directory? _cacheDir;
   static HttpClient? _httpClient;
 
@@ -159,7 +176,9 @@ class LyricsService {
   }) async {
     final cacheKey = song.id;
     if (_memoryCache.containsKey(cacheKey)) {
-      return _memoryCache[cacheKey]!;
+      final cached = _memoryCache.remove(cacheKey)!;
+      _memoryCache[cacheKey] = cached;
+      return cached;
     }
 
     // 1. Check companion local .lrc file
@@ -171,7 +190,7 @@ class LyricsService {
           final content = await lrcFile.readAsString();
           final parsed = parseLrc(content);
           if (parsed.isNotEmpty) {
-            _memoryCache[cacheKey] = parsed;
+            _setMemoryCache(cacheKey, parsed);
             return parsed;
           }
         }
@@ -188,7 +207,7 @@ class LyricsService {
         final content = await cacheFile.readAsString();
         final parsed = parseLrc(content);
         if (parsed.isNotEmpty) {
-          _memoryCache[cacheKey] = parsed;
+          _setMemoryCache(cacheKey, parsed);
           return parsed;
         }
       }
@@ -202,7 +221,7 @@ class LyricsService {
       if (fetchedLrc != null && fetchedLrc.isNotEmpty) {
         final parsed = parseLrc(fetchedLrc);
         if (parsed.isNotEmpty) {
-          _memoryCache[cacheKey] = parsed;
+          _setMemoryCache(cacheKey, parsed);
           // Save to disk cache
           _saveToDiskCache(song.id, fetchedLrc);
           return parsed;

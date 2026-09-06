@@ -712,8 +712,9 @@ class _QueueRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1.5),
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1.5),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
@@ -828,7 +829,7 @@ class _QueueRow extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 

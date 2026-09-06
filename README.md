@@ -11,22 +11,23 @@
 
 ## Overview
 
-**Pear Music** is a fast, local-first music player and streaming discovery application with zero cloud storage and no accounts. Play your local audio files, search and stream music from YouTube with genre discovery chips, and use **Pear Radio**, an ephemeral radio and smart recommendation streaming engine that allows you to discover, stream, and save songs on the fly.
+**Pear Music** is a fast, local-first music player and streaming discovery application with zero cloud storage and no accounts. Play your local audio files, search and stream music from YouTube with genre discovery chips, and enjoy continuous listening with Endless Play track recommendations.
 
 ---
 
 ## Key Features
 
-* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable genre chips, search YouTube Music via Innertube, and stream instantly without accounts.
-* **Immersive Dynamic Player**: Full-bleed album artwork with ambient color wash gradients extracted dynamically from track artwork, zero-blur GPU vector glow, and real-time audio visualizer bar.
-* **Pull-Up Queue & Library Management**: YouTube Music style peek sheet with queue reordering, track removal, fast-favoriting, and multi-playlist organization.
-* **Offline-First Playback**: Seamless local audio decoding from device storage with automatic offline fallback recommendations for Pear Radio when disconnected from the network.
-* **Pear Radio & Smart Autoplay**: Infinite stream recommendations based on your listening habits with a 4-track sliding window disk pre-buffer and visual cache indicators for zero-latency skipping.
-* **1-Click Save to Library**: Instantly promote any radio stream track or search result into your permanent local library in 0 ms without re-downloading.
-* **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with ID3/Vorbis album artwork rendered on Android Lockscreen, Notification Shade, and Windows Media Transport Controls (SMTC).
-* **Automated In-App Updates**: Seamless version checks and 1-click in-app updates directly from GitHub releases.
-* **Live Diagnostics Console**: Integrated diagnostic log viewer and ring buffer for real-time monitoring of stream and cache activity.
-* **Loudness Normalization**: Dynamic range enhancement to prevent jarring volume jumps between tracks.
+* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable genre chips, search YouTube music directly, and stream without accounts.
+* **Immersive Dynamic Player**: Full-bleed album artwork with ambient gradients extracted from track art, animated glow accents, and an interactive visualizer progress bar.
+* **Synchronized Lyrics**: Real-time synchronized lyrics with line-by-line highlighting, supporting local `.lrc` companion files and automatic LRCLIB lookups.
+* **Pull-Up Queue & Library Management**: Bottom sheet queue with drag-and-drop reordering, track removal, fast favoriting, and multi-playlist organization.
+* **Offline-First Playback**: Fast local audio playback from device storage, with automatic fallback to local tracks when offline.
+* **Endless Play**: Automatically queues related track recommendations when your current queue finishes, with background stream preloading to reduce buffering between tracks.
+* **Save to Library & Favorites**: Bookmark streamed tracks and search results into your favorites and playlists with a single tap.
+* **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with album artwork rendered on Android Lockscreen, Notification Shade, and Windows Media Transport Controls (SMTC).
+* **Automated In-App Updates**: Built-in version checks and direct 1-click in-app updates from GitHub releases.
+* **Live Diagnostics Console**: Integrated diagnostic log viewer and buffer for checking stream and cache activity.
+* **Loudness Normalization**: Leveling to reduce sudden volume jumps between tracks on supported platforms.
 
 ---
 

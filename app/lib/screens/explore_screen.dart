@@ -505,151 +505,194 @@ class _ExploreScreenState extends State<ExploreScreen> {
             )
           else
             Expanded(
-              child: ListView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          scheme.primary.withValues(alpha: 0.18),
-                          scheme.surfaceContainerHigh,
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: scheme.outlineVariant.withValues(alpha: 0.25),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.radio_rounded,
-                            size: 28,
-                            color: scheme.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Quick Radio Mix',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  scheme.primary.withValues(alpha: 0.18),
+                                  scheme.surfaceContainerHigh,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _recommendationSeedLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: scheme.outlineVariant
+                                    .withValues(alpha: 0.25),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 52,
+                                  height: 52,
+                                  decoration: BoxDecoration(
+                                    color: scheme.primary
+                                        .withValues(alpha: 0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.radio_rounded,
+                                    size: 28,
+                                    color: scheme.primary,
+                                  ),
                                 ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Quick Radio Mix',
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _recommendationSeedLabel,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 10),
+                                  ),
+                                  icon: const Icon(Icons.play_arrow_rounded,
+                                      size: 20),
+                                  label: const Text('Play'),
+                                  onPressed: _recommendedResults.isEmpty
+                                      ? null
+                                      : () async {
+                                          final queue = _recommendedResults
+                                              .map((r) => r.toSong())
+                                              .toList();
+                                          await player.playSong(
+                                            queue.first,
+                                            queue: queue,
+                                            sourceId: 'explore:quickmix',
+                                            sourceTitle:
+                                                'Explore: $_recommendationSeedLabel',
+                                          );
+                                        },
+                                ),
+                              ],
+                            ),
+                          ),
+                          Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'Recommended For You',
+                                    style:
+                                        theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (_isLoadingRecommendations)
+                                    const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.refresh_rounded,
+                                    size: 20),
+                                tooltip: 'Re-roll recommendations',
+                                onPressed: _isLoadingRecommendations
+                                    ? null
+                                    : () =>
+                                        _loadRecommendations(shuffle: true),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                          ),
-                          icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                          label: const Text('Play'),
-                          onPressed: _recommendedResults.isEmpty
-                              ? null
-                              : () async {
-                                  final queue = _recommendedResults
-                                      .map((r) => r.toSong())
-                                      .toList();
-                                  await player.playSong(
-                                    queue.first,
-                                    queue: queue,
-                                    sourceId: 'explore:quickmix',
-                                    sourceTitle:
-                                        'Explore: $_recommendationSeedLabel',
-                                  );
-                                },
-                        ),
-                      ],
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Recommended For You',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (_isLoadingRecommendations)
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                          const SizedBox(height: 4),
+                          if (_isLoadingRecommendations &&
+                              _recommendedResults.isEmpty)
+                            const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(32),
+                                child: CircularProgressIndicator(),
+                              ),
+                            )
+                          else if (_recommendedResults.isEmpty)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(32),
+                                child: Text(
+                                  'No recommendations found. Try searching above!',
+                                  style:
+                                      theme.textTheme.bodyMedium?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
                             ),
                         ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh_rounded, size: 20),
-                        tooltip: 'Re-roll recommendations',
-                        onPressed: _isLoadingRecommendations
-                            ? null
-                            : () => _loadRecommendations(shuffle: true),
-                      ),
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  if (_isLoadingRecommendations &&
-                      _recommendedResults.isEmpty)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(32),
-                        child: CircularProgressIndicator(),
-                      ),
-                    )
-                  else if (_recommendedResults.isEmpty)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Text(
-                          'No recommendations found. Try searching above!',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
+                  if (_recommendedResults.isNotEmpty)
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      sliver: SliverFixedExtentList(
+                        itemExtent: 61.0,
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final item = _recommendedResults[index];
+                            final isCurrent = player.currentSong?.id ==
+                                'stream_${item.videoId}';
+                            return YouTubeSongTile(
+                              key: ValueKey('rec_${item.videoId}'),
+                              result: item,
+                              allResults: _recommendedResults,
+                              isCurrent: isCurrent,
+                            );
+                          },
+                          childCount: _recommendedResults.length,
+                          findChildIndexCallback: (Key key) {
+                            final valueKey = key as ValueKey<String>?;
+                            if (valueKey == null) return null;
+                            final id = valueKey.value.replaceFirst('rec_', '');
+                            final idx = _recommendedResults
+                                .indexWhere((r) => r.videoId == id);
+                            return idx >= 0 ? idx : null;
+                          },
                         ),
                       ),
-                    )
-                  else
-                    ..._recommendedResults.map((item) {
-                      final isCurrent =
-                          player.currentSong?.id == 'stream_${item.videoId}';
-                      return YouTubeSongTile(
-                        result: item,
-                        allResults: _recommendedResults,
-                        isCurrent: isCurrent,
-                      );
-                    }),
+                    ),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 16),
+                  ),
                 ],
               ),
             ),

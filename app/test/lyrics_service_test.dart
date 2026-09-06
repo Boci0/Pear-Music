@@ -127,4 +127,10 @@ Third stanza line
       );
     });
   });
+
+  group('LyricsService.compactMemory', () {
+    test('clears memory cache cleanly', () {
+      expect(() => LyricsService.compactMemory(), returnsNormally);
+    });
+  });
 }
