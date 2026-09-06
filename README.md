@@ -1,6 +1,6 @@
 # PEAR MUSIC
 
-> A local-first music player and YouTube discovery engine for Windows and Android. No cloud, no accounts.
+> A local-first music player and streaming discovery engine for Windows and Android. No cloud, no accounts.
 
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20ZIP-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip)
 [![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
@@ -11,13 +11,13 @@
 
 ## Overview
 
-**Pear Music** is a fast, local-first music player and streaming discovery application with zero cloud storage and no accounts. Play your local audio files, search and stream music from YouTube with genre discovery chips, and enjoy continuous listening with Endless Play track recommendations.
+**Pear Music** is a fast, local-first music player and streaming discovery application with zero cloud storage and no accounts. Play your local audio files, search and stream music with genre discovery chips, and enjoy continuous listening with Endless Play track recommendations.
 
 ---
 
 ## Key Features
 
-* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable genre chips, search YouTube music directly, and stream without accounts.
+* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable genre chips, search music directly, and stream without accounts.
 * **Immersive Dynamic Player**: Full-bleed album artwork with ambient gradients extracted from track art, animated glow accents, and an interactive visualizer progress bar.
 * **Synchronized Lyrics**: Real-time synchronized lyrics with line-by-line highlighting, supporting local `.lrc` companion files and automatic LRCLIB lookups.
 * **Pull-Up Queue & Library Management**: Bottom sheet queue with drag-and-drop reordering, track removal, fast favoriting, and multi-playlist organization.
