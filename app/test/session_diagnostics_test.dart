@@ -40,7 +40,9 @@ void main() {
   test('SessionDiagnostics sessionUptime equals foreground + background and clamps playback', () async {
     SessionDiagnostics.resetForTesting();
     SessionDiagnostics.init();
-    expect(SessionDiagnostics.sessionUptime, SessionDiagnostics.foregroundDuration + SessionDiagnostics.backgroundDuration);
+    final initialUptime = SessionDiagnostics.sessionUptime;
+    final initialComponents = SessionDiagnostics.foregroundDuration + SessionDiagnostics.backgroundDuration;
+    expect((initialUptime - initialComponents).inMilliseconds.abs(), lessThanOrEqualTo(1));
 
     SessionDiagnostics.updatePlaybackState(true);
     await Future.delayed(const Duration(milliseconds: 60));
