@@ -244,7 +244,7 @@ class _SynthesizerPainter extends CustomPainter {
     final hasWaveform = wf != null && wf.isNotEmpty;
 
     // Real-time audio energy and beat transient sampled at current playback position
-    double instantLoudness = 0.55;
+    double instantLoudness = 0.20;
     double transientKick = 0.0;
     if (hasWaveform) {
       final curWfIdx = (displayFraction * (wf.length - 1)).clamp(0.0, (wf.length - 1).toDouble());
@@ -256,48 +256,57 @@ class _SynthesizerPainter extends CustomPainter {
       transientKick = math.max(0.0, instantLoudness - wf[prevIdx]);
     }
 
-    final double overallEnergy = hasWaveform
-        ? (0.18 + (0.82 * instantLoudness) + (transientKick * 0.45)).clamp(0.12, 1.0)
-        : 0.65;
+    final rawEnergy = hasWaveform ? instantLoudness : 0.20;
+
+    // Adaptive tempo:
+    // Slow/ambient songs (low energy) breathe on a calm 2600ms - 3200ms cycle.
+    // Fast/energetic songs (high energy) bounce on a snappy 450ms - 550ms tempo cycle.
+    final tempoCycleMs = lerpDouble(2800.0, 480.0, rawEnergy)!;
+
+    // Power-law dynamic range:
+    // Quiet/slow songs produce subtle, calm movement without rapid jitter.
+    // Loud/punchy songs produce dramatic, full-height bouncing.
+    final dynamicIntensity = math.pow(rawEnergy, 1.45).toDouble();
+    final totalBounceRange = (dynamicIntensity + (transientKick * 0.80)).clamp(0.02, 1.0);
 
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      // Real-time multi-band frequency bouncing:
-      // Bass band (low frequencies, punchy kick drum rebound on left bars)
-      final bassPhase = (songMs / 185.0) * math.pi * 2.0;
-      final bassWave = math.pow(math.max(0.0, math.sin(bassPhase - (i * 0.38))), 1.8).toDouble();
+      // Harmonically synchronized with the adaptive tempo cycle:
+      final fundamentalPhase = (songMs / tempoCycleMs) * math.pi * 2.0;
+      final secondHarmonic = (songMs / (tempoCycleMs * 0.5)) * math.pi * 2.0;
+      final thirdHarmonic = (songMs / (tempoCycleMs * 0.33)) * math.pi * 2.0;
 
-      // Mid band (vocals, instruments, snare bounce in center bars)
-      final midPhase = (songMs / 118.0) * math.pi * 2.0;
-      final midWave = math.pow(math.max(0.0, math.sin(midPhase + (i * 0.78))), 1.5).toDouble();
+      // Bass wave (left bars respond to fundamental beat tempo)
+      final bassWave = (0.5 + 0.5 * math.sin(fundamentalPhase - (i * 0.28)));
 
-      // Treble band (hi-hats, percussive shimmer on right bars)
-      final treblePhase = (songMs / 68.0) * math.pi * 2.0;
-      final trebleWave = math.pow(math.max(0.0, math.cos(treblePhase - (i * 1.28))), 1.3).toDouble();
+      // Mid wave (center bars respond to second harmonic)
+      final midWave = (0.5 + 0.5 * math.sin(secondHarmonic + (i * 0.45)));
 
-      // Frequency distribution across the spectrum
-      final bassWeight = math.max(0.0, 1.0 - (normX * 1.65));
+      // Treble wave (right bars respond to third harmonic)
+      final trebleWave = (0.5 + 0.5 * math.cos(thirdHarmonic - (i * 0.65)));
+
+      // Spatial distribution across the frequency bands:
+      final bassWeight = math.max(0.0, 1.0 - (normX * 1.5));
       final midWeight = math.sin(normX * math.pi);
-      final trebleWeight = math.max(0.0, (normX - 0.25) * 1.35);
+      final trebleWeight = math.max(0.0, (normX - 0.3) * 1.4);
 
-      // Individual bar resonance seed so adjacent bars bounce independently
-      final barResonance = 0.68 + (0.32 * math.sin(i * 3.82 + 0.95));
+      final barResonance = 0.80 + 0.20 * math.sin(i * 3.14 + 0.5);
 
-      final bandActivity = (bassWave * bassWeight * 1.15) +
+      final bandActivity = (bassWave * bassWeight * 1.1) +
           (midWave * midWeight * 0.95) +
-          (trebleWave * trebleWeight * 0.80);
+          (trebleWave * trebleWeight * 0.85);
 
-      // Raw dynamic bounce height reacting directly to the current song loudness and transient
-      final dynamicBounce = bandActivity * barResonance * overallEnergy;
+      // Bounce scaled by totalBounceRange:
+      final dynamicBounce = bandActivity * barResonance * totalBounceRange;
 
       double heightRatio;
       if (isPlaying) {
-        // Dramatic vertical travel: actively moves up and down between 0.10 and 0.95
+        // Base resting height is 0.10 (~4px).
+        // Height actively scales with dynamicBounce matching song intensity.
         heightRatio = (0.10 + (dynamicBounce * 0.85)).clamp(0.08, 0.96);
       } else {
-        // When paused or stopped: clean minimal resting baseline
         heightRatio = 0.08;
       }
 
@@ -309,7 +318,7 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        final cursorExtra = isPlaying ? (4.0 + 4.0 * overallEnergy) : 4.0;
+        final cursorExtra = isPlaying ? (3.0 + 4.0 * totalBounceRange) : 3.0;
         final cursorH = (barH + cursorExtra).clamp(minHeight, maxHeight);
         final cursorTop = (maxHeight - cursorH) / 2.0;
         final cursorRect = RRect.fromRectAndRadius(
