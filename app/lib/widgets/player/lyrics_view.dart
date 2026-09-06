@@ -47,7 +47,7 @@ class _NoScrollbarBehavior extends MaterialScrollBehavior {
   }
 }
 
-class _LyricsViewState extends State<LyricsView> {
+class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   List<LyricLine> _lyrics = const [];
   bool _isLoading = true;
   int _activeIndex = -1;
@@ -56,11 +56,24 @@ class _LyricsViewState extends State<LyricsView> {
   final Map<int, GlobalKey> _itemKeys = {};
   Timer? _userScrollCooldown;
   bool _isUserScrolling = false;
+  bool _isForeground = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadLyrics();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isForeground = state == AppLifecycleState.resumed;
+    if (_isForeground != isForeground) {
+      _isForeground = isForeground;
+      if (_isForeground && widget.isVisible) {
+        _snapToCurrentPosition(immediate: true);
+      }
+    }
   }
 
   @override
@@ -74,14 +87,13 @@ class _LyricsViewState extends State<LyricsView> {
       }
     } else if (widget.isVisible && !oldWidget.isVisible) {
       _isUserScrolling = false;
-      if (!widget.popMode) {
-        _snapToCurrentPosition(immediate: true);
-      }
+      _snapToCurrentPosition(immediate: true);
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _positionSub?.cancel();
     _userScrollCooldown?.cancel();
     _scrollController.dispose();
@@ -140,7 +152,7 @@ class _LyricsViewState extends State<LyricsView> {
   }
 
   void _onPositionUpdate(Duration position) {
-    if (_lyrics.isEmpty || !mounted) return;
+    if (_lyrics.isEmpty || !mounted || !widget.isVisible || !_isForeground) return;
 
     final newIndex = LyricsService.findActiveIndex(_lyrics, position);
     if (newIndex != _activeIndex) {
@@ -148,7 +160,7 @@ class _LyricsViewState extends State<LyricsView> {
       setState(() {
         _activeIndex = newIndex;
       });
-      if (!widget.popMode && !_isUserScrolling && widget.isVisible) {
+      if (!widget.popMode && !_isUserScrolling) {
         final distance = (newIndex - oldIndex).abs();
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _scrollToActive(newIndex, immediate: distance > 6);

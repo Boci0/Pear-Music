@@ -46,6 +46,7 @@ class ArtworkPalette {
   /// Last resolved accent colour. Kept across cache clears so the UI never
   /// flashes back to fallback while colours re-resolve.
   static Color? _lastAccent;
+  static String? _currentDominantSongId;
 
   static final HttpClient _httpClient = HttpClient()
     ..connectionTimeout = const Duration(seconds: 4)
@@ -55,6 +56,7 @@ class ArtworkPalette {
   /// Synchronous cached color extraction for zero-latency widget rendering.
   static Color dominantSync(Song song, {Color? fallbackColor}) {
     final id = song.id;
+    _currentDominantSongId = id;
     final cached = _resolvedColors[id];
     if (cached != null) return cached;
     final fb = fallbackColor ?? _lastAccent ?? fallback;
@@ -63,7 +65,9 @@ class ArtworkPalette {
     // Asynchronously resolve in background isolate without blocking UI thread
     dominant(song, fallbackColor: fb).then((color) {
       _resolvedColors[id] = color;
-      _lastAccent = color;
+      if (_currentDominantSongId == null || _currentDominantSongId == id || _lastAccent == null) {
+        _lastAccent = color;
+      }
       _trim(_resolvedColors, _maxColorEntries);
     });
     return fb;
@@ -76,6 +80,7 @@ class ArtworkPalette {
     final art = song.artwork;
     if (art == null || art.isEmpty) return Future.value(fb);
     final id = song.id;
+    _currentDominantSongId = id;
     final cachedColor = _resolvedColors[id];
     if (cachedColor != null) return Future.value(cachedColor);
     final cached = _cache.remove(id);
@@ -86,7 +91,9 @@ class ArtworkPalette {
     final future = _extract(art).then((color) {
       final effective = (color == fallback && _lastAccent != null) ? _lastAccent! : color;
       _resolvedColors[id] = effective;
-      _lastAccent = effective;
+      if (_currentDominantSongId == null || _currentDominantSongId == id || _lastAccent == null) {
+        _lastAccent = effective;
+      }
       _trim(_resolvedColors, _maxColorEntries);
       return effective;
     });
