@@ -141,10 +141,6 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final totalMs = widget.totalDuration.inMilliseconds.toDouble();
-    final currentMs = widget.currentPosition.inMilliseconds.toDouble();
-    final actualFraction = (totalMs > 0 ? currentMs / totalMs : 0.0).clamp(0.0, 1.0);
-    final displayFraction = _dragFraction ?? actualFraction;
 
     return RepaintBoundary(
       child: LayoutBuilder(
@@ -169,6 +165,11 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
               child: AnimatedBuilder(
                 animation: _tickerController,
                 builder: (context, _) {
+                  final totalMs = widget.totalDuration.inMilliseconds.toDouble();
+                  final currentMs = _smoothSongMs;
+                  final actualFraction = (totalMs > 0 ? currentMs / totalMs : 0.0).clamp(0.0, 1.0);
+                  final displayFraction = _dragFraction ?? actualFraction;
+
                   return CustomPaint(
                     painter: _SynthesizerPainter(
                       displayFraction: displayFraction,
@@ -243,71 +244,50 @@ class _SynthesizerPainter extends CustomPainter {
     final wf = waveform;
     final hasWaveform = wf != null && wf.isNotEmpty;
 
-    // Real-time audio energy and beat transient sampled at current playback position
-    double instantLoudness = 0.20;
-    double transientKick = 0.0;
-    if (hasWaveform) {
-      final curWfIdx = (displayFraction * (wf.length - 1)).clamp(0.0, (wf.length - 1).toDouble());
-      final baseIdx = curWfIdx.floor();
-      final frac = curWfIdx - baseIdx;
-      final nextIdx = (baseIdx + 1).clamp(0, wf.length - 1);
-      final prevIdx = (baseIdx - 1).clamp(0, wf.length - 1);
-      instantLoudness = (lerpDouble(wf[baseIdx], wf[nextIdx], frac) ?? wf[baseIdx]).clamp(0.0, 1.0);
-      transientKick = math.max(0.0, instantLoudness - wf[prevIdx]);
+    // Helper: linearly interpolate amplitude envelope at any fraction [0.0, 1.0]
+    double sampleWf(double fraction) {
+      if (!hasWaveform) return 0.22;
+      final fIdx = (fraction * (wf.length - 1)).clamp(0.0, (wf.length - 1).toDouble());
+      final base = fIdx.floor();
+      final next = (base + 1).clamp(0, wf.length - 1);
+      final t = fIdx - base;
+      return (lerpDouble(wf[base], wf[next], t) ?? wf[base]).clamp(0.0, 1.0);
     }
 
-    final rawEnergy = hasWaveform ? instantLoudness : 0.20;
+    // Instantaneous audio energy and transient beat kick at current playback position
+    final currentEnergy = sampleWf(displayFraction);
+    final prevEnergy = sampleWf((displayFraction - 0.012).clamp(0.0, 1.0));
+    final transientKick = math.max(0.0, currentEnergy - prevEnergy);
 
-    // Adaptive tempo:
-    // Slow/ambient songs (low energy) breathe on a calm 2600ms - 3200ms cycle.
-    // Fast/energetic songs (high energy) bounce on a snappy 450ms - 550ms tempo cycle.
-    final tempoCycleMs = lerpDouble(2800.0, 480.0, rawEnergy)!;
-
-    // Power-law dynamic range:
-    // Quiet/slow songs produce subtle, calm movement without rapid jitter.
-    // Loud/punchy songs produce dramatic, full-height bouncing.
-    final dynamicIntensity = math.pow(rawEnergy, 1.45).toDouble();
-    final totalBounceRange = (dynamicIntensity + (transientKick * 0.80)).clamp(0.02, 1.0);
+    // Constant harmonic period divisor (1200ms) guarantees 100% mathematical phase continuity
+    // with zero phase jumps, zero twitching, and zero erratic behavior.
+    final fluidPhase = (songMs / 1200.0) * math.pi * 2.0;
 
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      // Harmonically synchronized with the adaptive tempo cycle:
-      final fundamentalPhase = (songMs / tempoCycleMs) * math.pi * 2.0;
-      final secondHarmonic = (songMs / (tempoCycleMs * 0.5)) * math.pi * 2.0;
-      final thirdHarmonic = (songMs / (tempoCycleMs * 0.33)) * math.pi * 2.0;
-
-      // Bass wave (left bars respond to fundamental beat tempo)
-      final bassWave = (0.5 + 0.5 * math.sin(fundamentalPhase - (i * 0.28)));
-
-      // Mid wave (center bars respond to second harmonic)
-      final midWave = (0.5 + 0.5 * math.sin(secondHarmonic + (i * 0.45)));
-
-      // Treble wave (right bars respond to third harmonic)
-      final trebleWave = (0.5 + 0.5 * math.cos(thirdHarmonic - (i * 0.65)));
-
-      // Spatial distribution across the frequency bands:
-      final bassWeight = math.max(0.0, 1.0 - (normX * 1.5));
-      final midWeight = math.sin(normX * math.pi);
-      final trebleWeight = math.max(0.0, (normX - 0.3) * 1.4);
-
-      final barResonance = 0.80 + 0.20 * math.sin(i * 3.14 + 0.5);
-
-      final bandActivity = (bassWave * bassWeight * 1.1) +
-          (midWave * midWeight * 0.95) +
-          (trebleWave * trebleWeight * 0.85);
-
-      // Bounce scaled by totalBounceRange:
-      final dynamicBounce = bandActivity * barResonance * totalBounceRange;
+      // Authentic acoustic loudness of each bar across the timeline of the song
+      final rawPeak = hasWaveform
+          ? sampleWf(normX)
+          : (0.18 + (0.12 * math.sin(normX * math.pi)));
+      final baseHeightRatio = (0.08 + (rawPeak * 0.72)).clamp(0.08, 0.88);
 
       double heightRatio;
-      if (isPlaying) {
-        // Base resting height is 0.10 (~4px).
-        // Height actively scales with dynamicBounce matching song intensity.
-        heightRatio = (0.10 + (dynamicBounce * 0.85)).clamp(0.08, 0.96);
+      if (i == currentBarIndex) {
+        // The playhead cursor bar: actively surges up and down with the current energy and beat transient
+        final cursorPulse = isPlaying
+            ? ((currentEnergy * 0.35) + (transientKick * 0.50))
+            : 0.0;
+        heightRatio = (baseHeightRatio + 0.12 + cursorPulse).clamp(0.14, 0.98);
+      } else if (i < currentBarIndex) {
+        // Played bars: show their authentic waveform profile with a gentle, energy-scaled fluid ripple
+        final wave = 0.5 + 0.5 * math.sin(fluidPhase - (normX * 3.5));
+        final activeRipple = isPlaying ? (wave * currentEnergy * 0.14) : 0.0;
+        heightRatio = (baseHeightRatio + activeRipple).clamp(0.08, 0.92);
       } else {
-        heightRatio = 0.08;
+        // Unplayed upcoming bars: display true acoustic preview of the track
+        heightRatio = baseHeightRatio;
       }
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
@@ -318,14 +298,7 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        final cursorExtra = isPlaying ? (3.0 + 4.0 * totalBounceRange) : 3.0;
-        final cursorH = (barH + cursorExtra).clamp(minHeight, maxHeight);
-        final cursorTop = (maxHeight - cursorH) / 2.0;
-        final cursorRect = RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
-          Radius.circular(barWidth / 2.0),
-        );
-        canvas.drawRRect(cursorRect, cursorPaint);
+        canvas.drawRRect(rect, cursorPaint);
       } else if (i < currentBarIndex) {
         canvas.drawRRect(rect, activePaint);
       } else {

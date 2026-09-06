@@ -232,7 +232,7 @@ class WaveformService {
 
       int exitCode;
       try {
-        exitCode = await proc.exitCode.timeout(const Duration(seconds: 10));
+        exitCode = await proc.exitCode.timeout(const Duration(seconds: 35));
       } on TimeoutException {
         YoutubeService.killProcessTree(proc.pid);
         rethrow;
@@ -241,7 +241,8 @@ class WaveformService {
       }
 
       if (exitCode == 0 && rawBytes.length >= 2) {
-        final buffer = Uint8List.fromList(rawBytes).buffer;
+        final evenLength = rawBytes.length - (rawBytes.length % 2);
+        final buffer = Uint8List.fromList(rawBytes.sublist(0, evenLength)).buffer;
         final samples = Int16List.view(buffer);
         if (samples.isNotEmpty) {
           return _downsamplePeaks(samples, barCount);
@@ -300,6 +301,7 @@ class WaveformService {
         final step = (len / barCount).floor();
         const sampleWindow = 256;
         double maxEnergy = 1.0;
+        double minEnergy = double.infinity;
 
         for (int i = 0; i < barCount; i++) {
           final pos = (i * step).clamp(0, len - sampleWindow);
@@ -321,10 +323,18 @@ class WaveformService {
           }
           result[i] = variance;
           if (variance > maxEnergy) maxEnergy = variance;
+          if (variance < minEnergy) minEnergy = variance;
         }
 
+        // If variance has virtually no dynamic spread (e.g. compressed packet noise where all blocks have ~70 variance),
+        // pure Dart frame sampling cannot reliably discern acoustic volume, so reject to avoid flat 0.95 distortion.
+        if (maxEnergy - minEnergy < 6.0) {
+          return null;
+        }
+
+        final dynamicSpan = maxEnergy - minEnergy;
         for (int i = 0; i < barCount; i++) {
-          final norm = (result[i] / maxEnergy).clamp(0.0, 1.0);
+          final norm = ((result[i] - minEnergy) / dynamicSpan).clamp(0.0, 1.0);
           result[i] = math.pow(norm, 0.8).toDouble();
         }
         return result;
