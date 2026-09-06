@@ -10,7 +10,6 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
-import 'innertube_service.dart';
 import 'library_service.dart';
 import 'youtube_service.dart';
 
@@ -145,9 +144,6 @@ class StreamCacheManager {
       DebugLog.write('[preload] Preserving active in-flight download for $exceptVideoId');
       return;
     }
-    if (_activeDownloadingVideoId != null && _activeDownloadingVideoId != exceptVideoId) {
-      InnertubeService.cancelDownload(_activeDownloadingVideoId!);
-    }
     if (_isActiveDownloadPreload) {
       final activeId = _activeProcessId;
       if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
@@ -175,9 +171,6 @@ class StreamCacheManager {
     _slidingWindowSequence++;
     if (_activeDownloadingVideoId != null && _activeDownloadingVideoId != exceptVideoId) {
       final abandonedId = _activeDownloadingVideoId;
-      if (abandonedId != null) {
-        InnertubeService.cancelDownload(abandonedId);
-      }
       final activeId = _activeProcessId;
       if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
         _activeProcessId = null;
@@ -317,33 +310,9 @@ class StreamCacheManager {
     try {
       final dir = await getCacheDirectory();
 
-      // Tier 1: Pure Dart Innertube fast-path (Zero Python runtime overhead)
-      final tempPart = File(p.join(dir.path, '$videoId.m4a'));
-      try {
-        DebugLog.write('[cache] Checking Innertube fast-path for $videoId');
-        final innertubeSuccess = await InnertubeService.downloadAudioDirect(videoId, tempPart);
-        if (innertubeSuccess) {
-          final cached = await getCachedFile(videoId);
-          if (cached != null) {
-            final len = await cached.length();
-            _cachedVideoIds.add(videoId);
-            _cachedTotalBytes += len;
-            unawaited(enforceCacheQuota());
-            stopwatch.stop();
-            DebugLog.write(
-              '[cache] Innertube fast-path cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) [Zero Python]',
-            );
-            completer.complete(cached);
-            return await completer.future;
-          }
-        }
-      } catch (e) {
-        DebugLog.write('[cache] Innertube fast-path error for $videoId: $e');
-      }
-      DebugLog.write('[cache] Innertube fast-path unavailable for $videoId, falling back to yt-dlp');
-
       // Android embedded yt-dlp
       if (YoutubeService.isEmbeddedYtDlpSupported) {
+        final tempPart = File(p.join(dir.path, '$videoId.m4a'));
         final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
         _activeProcessId = processId;
         try {
