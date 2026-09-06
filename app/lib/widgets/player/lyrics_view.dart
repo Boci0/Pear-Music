@@ -306,14 +306,18 @@ class _LyricsViewState extends State<LyricsView> {
 
     final text = (active == null || active.text.isEmpty) ? '···' : active.text;
 
-    final double fontSize;
-    if (text.length <= 25) {
-      fontSize = 22.0;
-    } else if (text.length <= 50) {
-      fontSize = 19.5;
+    final scale = (widget.size / 300.0).clamp(0.90, 1.35);
+    final double baseFontSize;
+    if (text.length <= 20) {
+      baseFontSize = 26.0;
+    } else if (text.length <= 45) {
+      baseFontSize = 23.0;
+    } else if (text.length <= 70) {
+      baseFontSize = 20.5;
     } else {
-      fontSize = 17.5;
+      baseFontSize = 18.0;
     }
+    final fontSize = (baseFontSize * scale).roundToDouble();
 
     return Center(
       child: Padding(
@@ -384,17 +388,18 @@ class _LyricsViewState extends State<LyricsView> {
                 ],
                 fontSize: fontSize,
                 fontWeight: FontWeight.w600,
-                letterSpacing: 0.0,
-                height: 1.36,
+                letterSpacing: 0.2,
+                wordSpacing: 4.0,
+                height: 1.40,
                 color: Colors.white,
                 shadows: [
                   Shadow(
                     color: glowColor.withValues(alpha: 0.85),
-                    blurRadius: 18.0,
+                    blurRadius: 8.0,
                   ),
                   Shadow(
                     color: glowColor.withValues(alpha: 0.45),
-                    blurRadius: 8.0,
+                    blurRadius: 4.0,
                   ),
                 ],
               ),
@@ -464,10 +469,14 @@ class _LyricsViewState extends State<LyricsView> {
     final line = _lyrics[index];
     final isActive = index == _activeIndex;
 
+    final scrollScale = (widget.size / 300.0).clamp(0.90, 1.25);
+    final activeFontSize = (19.0 * scrollScale).roundToDouble();
+    final inactiveFontSize = (17.0 * scrollScale).roundToDouble();
+
     return Center(
       key: _itemKeys[index],
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7.0),
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: () {
@@ -493,9 +502,10 @@ class _LyricsViewState extends State<LyricsView> {
                   'Roboto',
                   'sans-serif',
                 ],
-                fontSize: isActive ? 17.0 : 16.0,
+                fontSize: isActive ? activeFontSize : inactiveFontSize,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                letterSpacing: 0.0,
+                letterSpacing: 0.2,
+                wordSpacing: 3.5,
                 height: 1.40,
                 color: isActive
                     ? Colors.white
@@ -504,11 +514,11 @@ class _LyricsViewState extends State<LyricsView> {
                     ? [
                         Shadow(
                           color: glowColor.withValues(alpha: 0.85),
-                          blurRadius: 16.0,
+                          blurRadius: 8.0,
                         ),
                         Shadow(
                           color: glowColor.withValues(alpha: 0.45),
-                          blurRadius: 8.0,
+                          blurRadius: 4.0,
                         ),
                       ]
                     : null,

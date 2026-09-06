@@ -32,16 +32,18 @@ class ArtworkService {
           .replaceAll(RegExp(r'=s\d+.*$'), '=s544-c');
     }
     // 2. YouTube Video Thumbnails:
+    // Upgrades low-res thumbnails (default/mqdefault/hqdefault) to crisp 640x480 standard definition (sddefault).
+    // Avoids maxresdefault.jpg because it frequently 404s on non-HD uploads and uses ~4x more bandwidth.
     if (url.contains('i.ytimg.com/vi/') || url.contains('img.youtube.com/vi/')) {
       if (url.contains('default.jpg') &&
           !url.contains('hqdefault.jpg') &&
           !url.contains('mqdefault.jpg') &&
           !url.contains('sddefault.jpg') &&
           !url.contains('maxresdefault.jpg')) {
-        return url.replaceAll('default.jpg', 'hqdefault.jpg');
+        return url.replaceAll('default.jpg', 'sddefault.jpg');
       }
       if (url.contains('mqdefault.jpg')) {
-        return url.replaceAll('mqdefault.jpg', 'hqdefault.jpg');
+        return url.replaceAll('mqdefault.jpg', 'sddefault.jpg');
       }
       if (url.contains('hqdefault.jpg')) {
         return url.replaceAll('hqdefault.jpg', 'sddefault.jpg');

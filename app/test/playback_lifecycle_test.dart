@@ -137,18 +137,18 @@ void main() {
         'https://lh3.googleusercontent.com/abc123xyz=w544-h544-l90-rj',
       );
 
-      // 2. YouTube default.jpg -> hqdefault.jpg
+      // 2. YouTube default.jpg -> sddefault.jpg
       const ytDefault = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg';
       expect(
         ArtworkService.optimizeArtworkUrl(ytDefault),
-        'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+        'https://i.ytimg.com/vi/dQw4w9WgXcQ/sddefault.jpg',
       );
 
-      // 3. YouTube mqdefault.jpg -> hqdefault.jpg
+      // 3. YouTube mqdefault.jpg -> sddefault.jpg
       const ytMedium = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg';
       expect(
         ArtworkService.optimizeArtworkUrl(ytMedium),
-        'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+        'https://i.ytimg.com/vi/dQw4w9WgXcQ/sddefault.jpg',
       );
 
       // 4. YouTube hqdefault.jpg -> sddefault.jpg

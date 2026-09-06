@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../controllers/app_controller.dart';
@@ -48,8 +50,12 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
         final peekHeight = 62.0 + bottomInset;
         final minChildSize = (peekHeight / availableHeight).clamp(0.06, 0.22);
         final maxHeight = availableHeight * 0.50;
+        // Allow artwork to expand up to available screen width (minus 24px margins on each side)
+        // while bounding against available vertical space to prevent transport controls from being cramped.
+        final maxByWidth = constraints.maxWidth - 48.0;
+        final maxByHeight = availableHeight - peekHeight - 240.0;
         final artSize =
-            ((availableHeight - peekHeight) * 0.36).clamp(140.0, 320.0);
+            math.min(maxByWidth, maxByHeight).clamp(160.0, 360.0);
 
         return Stack(
           children: [

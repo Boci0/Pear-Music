@@ -54,7 +54,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
         : null;
     final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song) : null);
     final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
-    final targetPx = (size * dpr).round().clamp(96, 512);
+    final targetPx = (size * dpr).round().clamp(96, 768);
 
     final Widget imageWidget;
     if (effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty) {
