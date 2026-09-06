@@ -143,45 +143,57 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
     final playerService = context.watch<PlayerService?>();
     final controller = context.watch<AppController?>();
     final popLyrics = controller?.identity.popLyrics ?? false;
-    final glowUnderlay = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: [
-          BoxShadow(
-            color: baseShadowColor.withValues(alpha: 0.50),
-            blurRadius: 36.0,
-            spreadRadius: 2.0,
-            offset: const Offset(0, 10),
-          ),
-          BoxShadow(
-            color: baseShadowColor.withValues(alpha: 0.30),
-            blurRadius: 18.0,
-            spreadRadius: 1.0,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-    );
-
     final Widget glowWidget;
     if (playerService != null) {
       glowWidget = RhythmPulseBuilder(
         player: playerService,
-        child: RepaintBoundary(child: glowUnderlay),
-        builder: (context, aura, cachedGlow) {
-          final opacity = (0.35 + (0.65 * aura)).clamp(0.0, 1.0);
-          return Opacity(
-            opacity: opacity,
-            child: cachedGlow,
+        builder: (context, aura, _) {
+          final alpha1 = (0.175 + (0.325 * aura)).clamp(0.0, 1.0);
+          final alpha2 = (0.105 + (0.195 * aura)).clamp(0.0, 1.0);
+          return Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              boxShadow: [
+                BoxShadow(
+                  color: baseShadowColor.withValues(alpha: alpha1),
+                  blurRadius: 36.0,
+                  spreadRadius: 2.0,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: baseShadowColor.withValues(alpha: alpha2),
+                  blurRadius: 18.0,
+                  spreadRadius: 1.0,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
           );
         },
       );
     } else {
-      glowWidget = Opacity(
-        opacity: 0.6,
-        child: RepaintBoundary(child: glowUnderlay),
+      glowWidget = Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          boxShadow: [
+            BoxShadow(
+              color: baseShadowColor.withValues(alpha: 0.30),
+              blurRadius: 36.0,
+              spreadRadius: 2.0,
+              offset: const Offset(0, 10),
+            ),
+            BoxShadow(
+              color: baseShadowColor.withValues(alpha: 0.18),
+              blurRadius: 18.0,
+              spreadRadius: 1.0,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
       );
     }
 

@@ -15,6 +15,7 @@ import 'library_service.dart';
 import 'pear_audio_handler.dart';
 import 'recommendation_service.dart';
 import 'stream_cache_manager.dart';
+import 'waveform_service.dart';
 
 /// How the queue advances when a track ends or the user skips.
 enum LoopSetting { off, all, one }
@@ -46,6 +47,41 @@ class PlayerService extends ChangeNotifier {
   final math.Random _random = math.Random();
 
   Song? currentSong;
+  List<double>? _currentWaveform;
+  List<double>? get currentWaveform => _currentWaveform;
+
+  void _loadWaveform(Song song, File? file, int token) {
+    if (file == null) return;
+    if (identity != null && !identity!.synthesizerBar) return;
+    WaveformService.instance.getWaveform(song.id, file).then((wf) {
+      if (token == _playRequestToken && currentSong?.id == song.id && wf != null) {
+        _currentWaveform = wf;
+        notifyListeners();
+      }
+    });
+  }
+
+  /// Lazily loads the waveform if the user activates the visualizer bar on demand.
+  void ensureWaveformLoaded() async {
+    if (currentSong == null || _currentWaveform != null) return;
+    final song = currentSong!;
+    final token = _playRequestToken;
+    File? file;
+    if (song.sourceDeviceId == 'stream') {
+      final videoId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
+      file = await StreamCacheManager.getCachedFile(videoId);
+    } else {
+      file = library.songFile(song);
+    }
+    if (file != null && await file.exists()) {
+      final wf = await WaveformService.instance.getWaveform(song.id, file);
+      if (token == _playRequestToken && currentSong?.id == song.id && wf != null) {
+        _currentWaveform = wf;
+        notifyListeners();
+      }
+    }
+  }
+
   List<Song> _queue = [];
   int _queueIndex = -1;
   String? queueSourceId; // 'library' | 'favorites' | 'search' | 'playlist:<id>' | 'radio'
@@ -750,6 +786,7 @@ class PlayerService extends ChangeNotifier {
       _queueIndex = 0;
     }
     currentSong = song;
+    _currentWaveform = WaveformService.instance.getCachedSync(song.id);
     _pendingNaturalAdvance = false;
     _lastTrackLoadMs = -1;
     _updateActiveQueueCacheProtection();
@@ -803,6 +840,7 @@ class PlayerService extends ChangeNotifier {
             AudioSource.file(cachedFile.path),
           );
           _resetStreamFailureCounters();
+          _loadWaveform(song, cachedFile, token);
         } else {
           // Signal buffering state so the UI shows "Connecting to Pear Radio..."
           _isBufferingNext = true;
@@ -836,6 +874,7 @@ class PlayerService extends ChangeNotifier {
               AudioSource.file(downloadedFile.path),
             );
             _resetStreamFailureCounters();
+            _loadWaveform(song, downloadedFile, token);
           } else {
             _consecutiveStreamFailures++;
             final fastFail = StreamCacheManager.isFastFailMode;
@@ -878,6 +917,7 @@ class PlayerService extends ChangeNotifier {
         await _player.setAudioSource(
           AudioSource.file(file.path),
         );
+        _loadWaveform(song, file, token);
       }
 
       if (token != _playRequestToken) {
@@ -1412,6 +1452,7 @@ class PlayerService extends ChangeNotifier {
   Future<void> stop() async {
     await _player.stop();
     currentSong = null;
+    _currentWaveform = null;
     _queue = [];
     _queueIndex = -1;
     notifyListeners();

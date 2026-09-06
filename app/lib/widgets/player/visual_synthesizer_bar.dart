@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ class VisualSynthesizerBar extends StatefulWidget {
   final PlayerService player;
   final Duration currentPosition;
   final Duration totalDuration;
+  final List<double>? waveform;
   final double aura;
   final bool enableGlow;
   final ValueChanged<Duration> onSeek;
@@ -22,6 +22,7 @@ class VisualSynthesizerBar extends StatefulWidget {
     required this.player,
     required this.currentPosition,
     required this.totalDuration,
+    this.waveform,
     this.aura = 0.0,
     this.enableGlow = false,
     required this.onSeek,
@@ -33,19 +34,36 @@ class VisualSynthesizerBar extends StatefulWidget {
   State<VisualSynthesizerBar> createState() => _VisualSynthesizerBarState();
 }
 
-class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
-  Timer? _fpsTimer;
+class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  late final AnimationController _tickerController;
   double? _dragFraction;
   int _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
   int _basePositionMs = 0;
+  bool _isAppForeground = true;
 
   @override
   void initState() {
     super.initState();
     _basePositionMs = widget.currentPosition.inMilliseconds;
     _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+    _tickerController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    WidgetsBinding.instance.addObserver(this);
     widget.player.addListener(_onPlayerStateChanged);
-    _syncTimer();
+    _syncTicker();
+    widget.player.ensureWaveformLoaded();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isForeground = state == AppLifecycleState.resumed;
+    if (_isAppForeground != isForeground) {
+      _isAppForeground = isForeground;
+      _syncTicker();
+    }
   }
 
   @override
@@ -60,31 +78,31 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
       _basePositionMs = widget.currentPosition.inMilliseconds;
       _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
     }
+    widget.player.ensureWaveformLoaded();
   }
 
-  void _syncTimer() {
-    if (widget.player.playing) {
-      if (_fpsTimer == null || !_fpsTimer!.isActive) {
-        _fpsTimer = Timer.periodic(const Duration(milliseconds: 33), (_) {
-          if (mounted) setState(() {});
-        });
+  void _syncTicker() {
+    if (widget.player.playing && _isAppForeground) {
+      if (!_tickerController.isAnimating) {
+        _tickerController.repeat();
       }
     } else {
-      _fpsTimer?.cancel();
-      _fpsTimer = null;
+      if (_tickerController.isAnimating) {
+        _tickerController.stop();
+      }
     }
   }
 
   void _onPlayerStateChanged() {
-    _syncTimer();
+    _syncTicker();
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.player.removeListener(_onPlayerStateChanged);
-    _fpsTimer?.cancel();
-    _fpsTimer = null;
+    _tickerController.dispose();
     super.dispose();
   }
 
@@ -148,17 +166,23 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
             child: SizedBox(
               height: 44,
               width: double.infinity,
-              child: CustomPaint(
-                painter: _SynthesizerPainter(
-                  displayFraction: displayFraction,
-                  isPlaying: widget.player.playing,
-                  aura: widget.aura,
-                  enableGlow: widget.enableGlow,
-                  songMs: _smoothSongMs,
-                  activeColor: colorScheme.primary,
-                  inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
-                  cursorColor: colorScheme.primary,
-                ),
+              child: AnimatedBuilder(
+                animation: _tickerController,
+                builder: (context, _) {
+                  return CustomPaint(
+                    painter: _SynthesizerPainter(
+                      displayFraction: displayFraction,
+                      isPlaying: widget.player.playing,
+                      waveform: widget.waveform ?? widget.player.currentWaveform,
+                      aura: widget.aura,
+                      enableGlow: widget.enableGlow,
+                      songMs: _smoothSongMs,
+                      activeColor: colorScheme.primary,
+                      inactiveColor: colorScheme.onSurface.withValues(alpha: 0.15),
+                      cursorColor: colorScheme.primary,
+                    ),
+                  );
+                },
               ),
             ),
           );
@@ -171,6 +195,7 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar> {
 class _SynthesizerPainter extends CustomPainter {
   final double displayFraction;
   final bool isPlaying;
+  final List<double>? waveform;
   final double aura;
   final bool enableGlow;
   final double songMs;
@@ -185,6 +210,7 @@ class _SynthesizerPainter extends CustomPainter {
   _SynthesizerPainter({
     required this.displayFraction,
     required this.isPlaying,
+    this.waveform,
     required this.aura,
     required this.enableGlow,
     required this.songMs,
@@ -221,6 +247,12 @@ class _SynthesizerPainter extends CustomPainter {
 
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
 
+    final wf = waveform;
+    final hasWaveform = wf != null && wf.isNotEmpty;
+    final currentEnergy = hasWaveform
+        ? wf[(displayFraction * (wf.length - 1)).round().clamp(0, wf.length - 1)]
+        : 0.5;
+
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
@@ -231,14 +263,31 @@ class _SynthesizerPainter extends CustomPainter {
       final baseEq = 0.26 + (0.16 * math.sin(normX * math.pi));
 
       double heightRatio;
-      if (isPlaying) {
-        final motion = (travelingWave1 * 0.14) +
-            (travelingWave2 * 0.08) +
-            (bassPulse * 0.18 * beatSwell) +
-            (measureSwell * 0.08);
-        heightRatio = (baseEq + (motion * 0.70)).clamp(0.18, 0.82);
+      if (hasWaveform) {
+        final wfIndex = (normX * (wf.length - 1)).round().clamp(0, wf.length - 1);
+        final rawAmp = wf[wfIndex];
+        // Authentic envelope: scale between 0.16 and 0.84 based on real audio amplitude
+        final baseHeightRatio = 0.16 + (rawAmp * 0.60);
+        if (isPlaying) {
+          // Modulate with traveling micro-harmonics scaled by real local amplitude & playhead energy
+          final motion = (travelingWave1 * 0.08) +
+              (travelingWave2 * 0.04) +
+              (bassPulse * 0.10 * beatSwell * currentEnergy) +
+              (measureSwell * 0.04);
+          heightRatio = (baseHeightRatio + (motion * (0.4 + 0.6 * rawAmp))).clamp(0.14, 0.88);
+        } else {
+          heightRatio = (baseHeightRatio * 0.85).clamp(0.12, 0.75);
+        }
       } else {
-        heightRatio = (baseEq * 0.70).clamp(0.15, 0.40);
+        if (isPlaying) {
+          final motion = (travelingWave1 * 0.14) +
+              (travelingWave2 * 0.08) +
+              (bassPulse * 0.18 * beatSwell) +
+              (measureSwell * 0.08);
+          heightRatio = (baseEq + (motion * 0.70)).clamp(0.18, 0.82);
+        } else {
+          heightRatio = (baseEq * 0.70).clamp(0.15, 0.40);
+        }
       }
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
@@ -249,7 +298,8 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        final cursorH = (barH + 4.0).clamp(minHeight, maxHeight);
+        final cursorExtra = hasWaveform ? (3.0 + 3.0 * currentEnergy) : 4.0;
+        final cursorH = (barH + cursorExtra).clamp(minHeight, maxHeight);
         final cursorTop = (maxHeight - cursorH) / 2.0;
         final cursorRect = RRect.fromRectAndRadius(
           Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
@@ -273,6 +323,7 @@ class _SynthesizerPainter extends CustomPainter {
         oldDelegate.songMs != songMs ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.inactiveColor != inactiveColor ||
-        oldDelegate.cursorColor != cursorColor;
+        oldDelegate.cursorColor != cursorColor ||
+        oldDelegate.waveform != waveform;
   }
 }

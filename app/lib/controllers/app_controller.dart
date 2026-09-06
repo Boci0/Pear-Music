@@ -15,6 +15,7 @@ import '../services/lyrics_service.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/stream_cache_manager.dart';
+import '../services/waveform_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
@@ -178,7 +179,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       library.flushSaveIndex();
       ArtworkPalette.compactMemory();
       LyricsService.compactMemory();
+      WaveformService.instance.clearMemoryCache();
       PaintingBinding.instance.imageCache.clearLiveImages();
+      PaintingBinding.instance.imageCache.clear();
       LibraryService.killHashWorker();
       if (!player.playing && !player.isLoadingTrack && !player.isAdvancing) {
         YouTubeSearchService.dispose();

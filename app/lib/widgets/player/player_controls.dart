@@ -65,26 +65,24 @@ class PlayerTransport extends StatelessWidget {
               children: [
                 RhythmPulseBuilder(
                   player: player,
-                  child: RepaintBoundary(
-                    child: Container(
+                  builder: (context, aura, _) {
+                    final alpha = (aura * 0.495).clamp(0.0, 1.0);
+                    if (alpha <= 0.005) {
+                      return const SizedBox(width: 52, height: 52);
+                    }
+                    return Container(
                       width: 52,
                       height: 52,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: scheme.primary.withValues(alpha: 0.55),
+                            color: scheme.primary.withValues(alpha: alpha),
                             blurRadius: 24.0,
                             spreadRadius: 2.0,
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                  builder: (context, aura, cachedGlow) {
-                    return Opacity(
-                      opacity: (aura * 0.90).clamp(0.0, 1.0),
-                      child: cachedGlow,
                     );
                   },
                 ),

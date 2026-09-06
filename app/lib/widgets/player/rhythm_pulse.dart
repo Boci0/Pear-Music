@@ -23,11 +23,12 @@ class RhythmPulseBuilder extends StatefulWidget {
 }
 
 class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _pulseController;
   late final AnimationController _fadeController;
   late final Animation<double> _bloomAnimation;
   bool _wasPlaying = false;
+  bool _isAppForeground = true;
 
   @override
   void initState() {
@@ -60,12 +61,30 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
       }
     });
 
+    WidgetsBinding.instance.addObserver(this);
     _wasPlaying = widget.player.playing;
     widget.player.addListener(_onPlayerChanged);
 
     if (_wasPlaying) {
       _pulseController.repeat(reverse: true);
       _fadeController.forward();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isForeground = state == AppLifecycleState.resumed;
+    if (_isAppForeground != isForeground) {
+      _isAppForeground = isForeground;
+      if (!isForeground) {
+        if (_pulseController.isAnimating) {
+          _pulseController.stop();
+        }
+      } else {
+        if (widget.player.playing && !_pulseController.isAnimating) {
+          _pulseController.repeat(reverse: true);
+        }
+      }
     }
   }
 
@@ -86,7 +105,7 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
     if (isPlaying == _wasPlaying) return;
     _wasPlaying = isPlaying;
 
-    if (isPlaying) {
+    if (isPlaying && _isAppForeground) {
       if (!_pulseController.isAnimating) {
         _pulseController.repeat(reverse: true);
       }
@@ -102,6 +121,7 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.player.removeListener(_onPlayerChanged);
     _pulseController.stop();
     _fadeController.stop();
