@@ -10,7 +10,6 @@ class VisualSynthesizerBar extends StatefulWidget {
   final PlayerService player;
   final Duration currentPosition;
   final Duration totalDuration;
-  final List<double>? waveform;
   final double aura;
   final bool enableGlow;
   final ValueChanged<Duration> onSeek;
@@ -22,7 +21,6 @@ class VisualSynthesizerBar extends StatefulWidget {
     required this.player,
     required this.currentPosition,
     required this.totalDuration,
-    this.waveform,
     this.aura = 0.0,
     this.enableGlow = false,
     required this.onSeek,
@@ -54,7 +52,6 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
     WidgetsBinding.instance.addObserver(this);
     widget.player.addListener(_onPlayerStateChanged);
     _syncTicker();
-    widget.player.ensureWaveformLoaded();
   }
 
   @override
@@ -78,7 +75,6 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
       _basePositionMs = widget.currentPosition.inMilliseconds;
       _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
     }
-    widget.player.ensureWaveformLoaded();
   }
 
   void _syncTicker() {
@@ -174,7 +170,6 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
                     painter: _SynthesizerPainter(
                       displayFraction: displayFraction,
                       isPlaying: widget.player.playing,
-                      waveform: widget.waveform ?? widget.player.currentWaveform,
                       aura: widget.aura,
                       enableGlow: widget.enableGlow,
                       songMs: _smoothSongMs,
@@ -196,7 +191,6 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
 class _SynthesizerPainter extends CustomPainter {
   final double displayFraction;
   final bool isPlaying;
-  final List<double>? waveform;
   final double aura;
   final bool enableGlow;
   final double songMs;
@@ -211,7 +205,6 @@ class _SynthesizerPainter extends CustomPainter {
   _SynthesizerPainter({
     required this.displayFraction,
     required this.isPlaying,
-    this.waveform,
     required this.aura,
     required this.enableGlow,
     required this.songMs,
@@ -235,59 +228,37 @@ class _SynthesizerPainter extends CustomPainter {
     final maxHeight = size.height;
     const minHeight = 3.5;
 
+    final beatRad = (songMs / 500.0) * math.pi * 2.0;
+    final halfBeatRad = (songMs / 250.0) * math.pi * 2.0;
+    final measureRad = (songMs / 2000.0) * math.pi * 2.0;
+
+    final double beatSwell = isPlaying ? (0.5 + 0.5 * math.sin(beatRad)) : 0.0;
+    final double measureSwell = isPlaying ? (0.5 + 0.5 * math.sin(measureRad)) : 0.0;
+
     final activePaint = _activePaint..color = activeColor;
     final inactivePaint = _inactivePaint..color = inactiveColor;
     final cursorPaint = _cursorPaint..color = cursorColor;
 
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
 
-    final wf = waveform;
-    final hasWaveform = wf != null && wf.isNotEmpty;
-
-    // Helper: linearly interpolate amplitude envelope at any fraction [0.0, 1.0]
-    double sampleWf(double fraction) {
-      if (!hasWaveform) return 0.22;
-      final fIdx = (fraction * (wf.length - 1)).clamp(0.0, (wf.length - 1).toDouble());
-      final base = fIdx.floor();
-      final next = (base + 1).clamp(0, wf.length - 1);
-      final t = fIdx - base;
-      return (lerpDouble(wf[base], wf[next], t) ?? wf[base]).clamp(0.0, 1.0);
-    }
-
-    // Instantaneous audio energy and transient beat kick at current playback position
-    final currentEnergy = sampleWf(displayFraction);
-    final prevEnergy = sampleWf((displayFraction - 0.012).clamp(0.0, 1.0));
-    final transientKick = math.max(0.0, currentEnergy - prevEnergy);
-
-    // Constant harmonic period divisor (1200ms) guarantees 100% mathematical phase continuity
-    // with zero phase jumps, zero twitching, and zero erratic behavior.
-    final fluidPhase = (songMs / 1200.0) * math.pi * 2.0;
-
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      // Authentic acoustic loudness of each bar across the timeline of the song
-      final rawPeak = hasWaveform
-          ? sampleWf(normX)
-          : (0.18 + (0.12 * math.sin(normX * math.pi)));
-      final baseHeightRatio = (0.08 + (rawPeak * 0.72)).clamp(0.08, 0.88);
+      final travelingWave1 = math.sin(beatRad - (normX * 2.5 * math.pi));
+      final travelingWave2 = math.cos(halfBeatRad + (normX * 1.5 * math.pi));
+      final bassPulse = math.sin(beatRad) * math.max(0.0, 1.0 - (normX * 2.2));
+      final baseEq = 0.26 + (0.16 * math.sin(normX * math.pi));
 
       double heightRatio;
-      if (i == currentBarIndex) {
-        // The playhead cursor bar: actively surges up and down with the current energy and beat transient
-        final cursorPulse = isPlaying
-            ? ((currentEnergy * 0.35) + (transientKick * 0.50))
-            : 0.0;
-        heightRatio = (baseHeightRatio + 0.12 + cursorPulse).clamp(0.14, 0.98);
-      } else if (i < currentBarIndex) {
-        // Played bars: show their authentic waveform profile with a gentle, energy-scaled fluid ripple
-        final wave = 0.5 + 0.5 * math.sin(fluidPhase - (normX * 3.5));
-        final activeRipple = isPlaying ? (wave * currentEnergy * 0.14) : 0.0;
-        heightRatio = (baseHeightRatio + activeRipple).clamp(0.08, 0.92);
+      if (isPlaying) {
+        final motion = (travelingWave1 * 0.14) +
+            (travelingWave2 * 0.08) +
+            (bassPulse * 0.18 * beatSwell) +
+            (measureSwell * 0.08);
+        heightRatio = (baseEq + (motion * 0.70)).clamp(0.18, 0.82);
       } else {
-        // Unplayed upcoming bars: display true acoustic preview of the track
-        heightRatio = baseHeightRatio;
+        heightRatio = (baseEq * 0.70).clamp(0.15, 0.40);
       }
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
@@ -298,7 +269,13 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        canvas.drawRRect(rect, cursorPaint);
+        final cursorH = (barH + 4.0).clamp(minHeight, maxHeight);
+        final cursorTop = (maxHeight - cursorH) / 2.0;
+        final cursorRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
+          Radius.circular(barWidth / 2.0),
+        );
+        canvas.drawRRect(cursorRect, cursorPaint);
       } else if (i < currentBarIndex) {
         canvas.drawRRect(rect, activePaint);
       } else {
@@ -316,7 +293,6 @@ class _SynthesizerPainter extends CustomPainter {
         oldDelegate.songMs != songMs ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.inactiveColor != inactiveColor ||
-        oldDelegate.cursorColor != cursorColor ||
-        oldDelegate.waveform != waveform;
+        oldDelegate.cursorColor != cursorColor;
   }
 }
