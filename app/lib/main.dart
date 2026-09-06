@@ -17,10 +17,12 @@ import 'services/pear_audio_handler.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
 import 'services/self_test_service.dart';
+import 'services/session_diagnostics.dart';
 import 'services/youtube_service.dart';
 
 Future<void> main([List<String> args = const []]) async {
   runZonedGuarded(() async {
+    SessionDiagnostics.init();
     WidgetsFlutterBinding.ensureInitialized();
 
     if (args.contains(SelfTestService.flag)) {

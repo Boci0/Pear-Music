@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/debug_log.dart';
+import '../../services/session_diagnostics.dart';
 import '../../services/stream_cache_manager.dart';
 
 /// Interactive live terminal diagnostics console for real-time stream inspection.
@@ -48,24 +49,56 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
   bool _autoScroll = true;
 
   double _rssMb = 0.0;
+  double _peakRssMb = 0.0;
   int _cacheTrackCount = 0;
   double _cacheMb = 0.0;
   int _inFlightCount = 0;
+  String _uptimeStr = '';
+  String _lifecycleStr = '';
+  String _playbackStr = '';
+  String _batterySummary = 'Checking...';
+  bool _isCharging = false;
+  bool _isPss = false;
 
-  void _updateStats() {
+  void _updateStats() async {
     if (!mounted) return;
     double rss = 0;
+    bool isPss = false;
     try {
       if (!kIsWeb) {
-        rss = ProcessInfo.currentRss / (1024 * 1024);
+        final pss = await SessionDiagnostics.getNativePssMb();
+        if (pss != null && pss > 0) {
+          rss = pss;
+          isPss = true;
+        } else {
+          rss = ProcessInfo.currentRss / (1024 * 1024);
+        }
       }
     } catch (_) {}
+    SessionDiagnostics.recordRss(rss);
+    await SessionDiagnostics.updateBatterySnapshot();
+    if (!mounted) return;
+
     final stats = StreamCacheManager.getCacheStats();
+    final uptime = SessionDiagnostics.sessionUptime;
+    final fg = SessionDiagnostics.foregroundDuration;
+    final bg = SessionDiagnostics.backgroundDuration;
+    final playback = SessionDiagnostics.totalPlaybackDuration;
+    final latestBattery = SessionDiagnostics.latestBattery;
+
     setState(() {
       _rssMb = rss;
+      _isPss = isPss;
+      _peakRssMb = SessionDiagnostics.peakRssMb;
       _cacheTrackCount = stats.trackCount;
       _cacheMb = stats.totalBytes / (1024 * 1024);
       _inFlightCount = stats.inFlightCount;
+
+      _uptimeStr = SessionDiagnostics.formatDuration(uptime);
+      _lifecycleStr = 'FG: ${SessionDiagnostics.formatDuration(fg)} | BG: ${SessionDiagnostics.formatDuration(bg)}';
+      _playbackStr = SessionDiagnostics.formatDuration(playback);
+      _batterySummary = SessionDiagnostics.getBatterySummary();
+      _isCharging = latestBattery?.isCharging ?? false;
     });
   }
 
@@ -235,7 +268,7 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
           ),
           // Live Resource Usage Bar (Lightweight O(1) in-memory stats, zero emojis)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFF111111),
               border: Border(
@@ -244,24 +277,57 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                 ),
               ),
             ),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _buildStatItem(
-                  icon: Icons.memory_rounded,
-                  label: 'RAM: ${_rssMb.toStringAsFixed(1)} MB',
-                  color: const Color(0xFF81C784),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 5,
+                  children: [
+                    _buildStatItem(
+                      icon: _isCharging
+                          ? Icons.battery_charging_full_rounded
+                          : Icons.battery_std_rounded,
+                      label: 'Battery: $_batterySummary',
+                      color: _isCharging
+                          ? const Color(0xFF81C784)
+                          : const Color(0xFFFFD54F),
+                    ),
+                    _buildStatItem(
+                      icon: Icons.timer_outlined,
+                      label: 'Uptime: $_uptimeStr ($_lifecycleStr)',
+                      color: const Color(0xFFE0E0E0),
+                    ),
+                    if (_playbackStr.isNotEmpty && _playbackStr != '0s')
+                      _buildStatItem(
+                        icon: Icons.music_note_rounded,
+                        label: 'Playback: $_playbackStr',
+                        color: const Color(0xFF4DD0E1),
+                      ),
+                  ],
                 ),
-                _buildStatItem(
-                  icon: Icons.storage_rounded,
-                  label: 'Cache: $_cacheTrackCount tracks (${_cacheMb.toStringAsFixed(1)} MB)',
-                  color: const Color(0xFF64B5F6),
-                ),
-                _buildStatItem(
-                  icon: _inFlightCount > 0 ? Icons.downloading_rounded : Icons.check_circle_outline_rounded,
-                  label: 'Preload: ${_inFlightCount > 0 ? "Buffering $_inFlightCount" : "Idle"}',
-                  color: _inFlightCount > 0 ? const Color(0xFFFFB74D) : Colors.white60,
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 5,
+                  children: [
+                    _buildStatItem(
+                      icon: Icons.memory_rounded,
+                      label: 'RAM (${_isPss ? "PSS" : "RSS"}): ${_rssMb.toStringAsFixed(1)} MB (Peak: ${_peakRssMb.toStringAsFixed(1)} MB)',
+                      color: const Color(0xFF81C784),
+                    ),
+                    _buildStatItem(
+                      icon: Icons.storage_rounded,
+                      label: 'Cache: $_cacheTrackCount tracks (${_cacheMb.toStringAsFixed(1)} MB)',
+                      color: const Color(0xFF64B5F6),
+                    ),
+                    _buildStatItem(
+                      icon: _inFlightCount > 0 ? Icons.downloading_rounded : Icons.check_circle_outline_rounded,
+                      label: 'Preload: ${_inFlightCount > 0 ? "Buffering $_inFlightCount" : "Idle"}',
+                      color: _inFlightCount > 0 ? const Color(0xFFFFB74D) : Colors.white60,
+                    ),
+                  ],
                 ),
               ],
             ),

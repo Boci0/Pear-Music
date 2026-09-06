@@ -165,6 +165,36 @@ class StreamCacheManager {
     DebugLog.write('[preload] cancelPreload() called, new sequence=$_slidingWindowSequence');
   }
 
+  /// Terminates any ongoing yt-dlp download process (foreground or background preload)
+  /// if it does not match [exceptVideoId], releasing native heap, CPU, and network immediately.
+  static void cancelActiveDownload({String? exceptVideoId}) {
+    _slidingWindowSequence++;
+    if (_activeDownloadingVideoId != null && _activeDownloadingVideoId != exceptVideoId) {
+      final abandonedId = _activeDownloadingVideoId;
+      final activeId = _activeProcessId;
+      if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
+        _activeProcessId = null;
+        try {
+          const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
+        } catch (_) {}
+      }
+      final desktopProc = _activeDesktopProcess;
+      if (desktopProc != null) {
+        _activeDesktopProcess = null;
+        try {
+          desktopProc.kill();
+        } catch (_) {}
+      }
+      if (abandonedId != null && _inFlightDownloads.containsKey(abandonedId)) {
+        _inFlightDownloads[abandonedId]?.complete(null);
+        _inFlightDownloads.remove(abandonedId);
+      }
+      _activeDownloadingVideoId = null;
+      _isActiveDownloadPreload = false;
+      DebugLog.write('[cache] cancelActiveDownload: aborted abandoned download for $abandonedId');
+    }
+  }
+
   /// Sequentially pre-downloads a tight 1-track lookahead window
   /// in the background using a single-queue worker to enable instant 0ms playback.
   static void preloadSlidingWindow(

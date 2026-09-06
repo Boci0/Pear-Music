@@ -14,6 +14,7 @@ import 'identity_service.dart';
 import 'library_service.dart';
 import 'pear_audio_handler.dart';
 import 'recommendation_service.dart';
+import 'session_diagnostics.dart';
 import 'stream_cache_manager.dart';
 
 /// How the queue advances when a track ends or the user skips.
@@ -280,6 +281,7 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
     }));
     _subs.add(_player.playerStateStream.listen((state) {
+      SessionDiagnostics.updatePlaybackState(state.playing);
       if (state.playing && _isLoadingTrack) {
         _isLoadingTrack = false;
       }
@@ -787,6 +789,7 @@ class PlayerService extends ChangeNotifier {
         final videoId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
         DebugLog.write('[player] Stream path: checking active preload for $videoId');
         StreamCacheManager.cancelPreload(exceptVideoId: videoId);
+        StreamCacheManager.cancelActiveDownload(exceptVideoId: videoId);
         DebugLog.write('[player] Resolved videoId=$videoId, checking disk cache...');
 
         final cachedFile = await StreamCacheManager.getCachedFile(videoId);

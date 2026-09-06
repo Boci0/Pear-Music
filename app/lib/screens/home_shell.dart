@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_theme.dart';
+import '../services/session_diagnostics.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/desktop_player_bar.dart';
 import '../widgets/player_bar.dart';
@@ -35,12 +37,22 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    SessionDiagnostics.init();
+    const MethodChannel('com.peerm.peerm_app/memory')
+        .setMethodCallHandler((call) async {
+      if (call.method == 'onTrimMemory') {
+        ArtworkPalette.compactMemory();
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      }
+    });
     // Cap the in-memory image cache to a balanced budget so memory is bounded
     // while preventing covers and list tiles from flashing or reloading.
     PaintingBinding.instance.imageCache.maximumSize = 100;
     PaintingBinding.instance.imageCache.maximumSizeBytes = 25 * 1024 * 1024;
     _lifecycleListener = AppLifecycleListener(
       onStateChange: (state) {
+        SessionDiagnostics.onLifecycleChanged(state);
         if (state == AppLifecycleState.resumed) {
           // Restore the artwork-derived theme after a background/foreground
           // cycle so the UI doesn't sit on the fallback colour.
