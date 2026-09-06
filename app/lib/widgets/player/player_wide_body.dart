@@ -74,8 +74,8 @@ class _PlayerWideBodyState extends State<PlayerWideBody> {
                   padding: const EdgeInsets.all(28),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final artSize = (constraints.maxHeight * 0.54)
-                          .clamp(180.0, 360.0);
+                      final artSize = (constraints.maxHeight * 0.48)
+                          .clamp(160.0, 310.0);
                       return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [

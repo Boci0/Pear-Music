@@ -50,12 +50,11 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
         final peekHeight = 62.0 + bottomInset;
         final minChildSize = (peekHeight / availableHeight).clamp(0.06, 0.22);
         final maxHeight = availableHeight * 0.50;
-        // Allow artwork to expand up to available screen width (minus 24px margins on each side)
+        // Allow artwork to sit comfortably with balanced margins
         // while bounding against available vertical space to prevent transport controls from being cramped.
-        final maxByWidth = constraints.maxWidth - 48.0;
-        final maxByHeight = availableHeight - peekHeight - 240.0;
-        final artSize =
-            math.min(maxByWidth, maxByHeight).clamp(160.0, 360.0);
+        final maxByWidth = (constraints.maxWidth - 72.0).clamp(150.0, 305.0);
+        final maxByHeight = (availableHeight - peekHeight - 250.0).clamp(150.0, 305.0);
+        final artSize = math.min(maxByWidth, maxByHeight);
 
         return Stack(
           children: [

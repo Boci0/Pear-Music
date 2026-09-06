@@ -306,16 +306,16 @@ class _LyricsViewState extends State<LyricsView> {
 
     final text = (active == null || active.text.isEmpty) ? '···' : active.text;
 
-    final scale = (widget.size / 300.0).clamp(0.90, 1.35);
+    final scale = (widget.size / 280.0).clamp(0.85, 1.25);
     final double baseFontSize;
     if (text.length <= 20) {
-      baseFontSize = 26.0;
+      baseFontSize = 24.0;
     } else if (text.length <= 45) {
-      baseFontSize = 23.0;
+      baseFontSize = 21.0;
     } else if (text.length <= 70) {
-      baseFontSize = 20.5;
+      baseFontSize = 19.0;
     } else {
-      baseFontSize = 18.0;
+      baseFontSize = 16.5;
     }
     final fontSize = (baseFontSize * scale).roundToDouble();
 
@@ -469,9 +469,9 @@ class _LyricsViewState extends State<LyricsView> {
     final line = _lyrics[index];
     final isActive = index == _activeIndex;
 
-    final scrollScale = (widget.size / 300.0).clamp(0.90, 1.25);
-    final activeFontSize = (19.0 * scrollScale).roundToDouble();
-    final inactiveFontSize = (17.0 * scrollScale).roundToDouble();
+    final scrollScale = (widget.size / 280.0).clamp(0.85, 1.20);
+    final activeFontSize = (18.0 * scrollScale).roundToDouble();
+    final inactiveFontSize = (15.5 * scrollScale).roundToDouble();
 
     return Center(
       key: _itemKeys[index],
