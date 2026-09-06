@@ -43,7 +43,21 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Set<String> get favoriteSongIds => identity.favoriteSongIds;
   bool isFavorite(String songId) => identity.isFavorite(songId);
 
+  List<Song>? _cachedFavoriteSongs;
+  List<Song>? _lastSortInput;
+  SortOption? _lastSortOption;
+  List<Song>? _lastSortResult;
+
+  @override
+  void notifyListeners() {
+    _cachedFavoriteSongs = null;
+    _lastSortInput = null;
+    _lastSortResult = null;
+    super.notifyListeners();
+  }
+
   List<Song> get favoriteSongs {
+    if (_cachedFavoriteSongs != null) return _cachedFavoriteSongs!;
     final List<Song> result = [];
     final seen = <String>{};
     for (final s in library.songs) {
@@ -76,6 +90,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         seen.add(id);
       }
     }
+    _cachedFavoriteSongs = result;
     return result;
   }
 
@@ -99,6 +114,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   List<Song> getSortedSongs(List<Song> songList) {
+    if (identical(songList, _lastSortInput) &&
+        identity.sortOption == _lastSortOption &&
+        _lastSortResult != null) {
+      return _lastSortResult!;
+    }
     final list = List<Song>.from(songList);
     switch (identity.sortOption) {
       case SortOption.title:
@@ -111,6 +131,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
         break;
     }
+    _lastSortInput = songList;
+    _lastSortOption = identity.sortOption;
+    _lastSortResult = list;
     return list;
   }
 
@@ -250,7 +273,32 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     await library.setPlaylistSongIds(playlistId, songIds);
   }
 
+  final Map<String, Future<String?>> _inFlightAddFromLink = {};
+
   Future<String?> addFromLink(
+    String url, {
+    YoutubeStatusCallback? onStatus,
+    YoutubeProgressCallback? onProgress,
+    DownloadCancellation? cancel,
+  }) async {
+    final existing = _inFlightAddFromLink[url];
+    if (existing != null) return existing;
+
+    final future = _addFromLinkInternal(
+      url,
+      onStatus: onStatus,
+      onProgress: onProgress,
+      cancel: cancel,
+    );
+    _inFlightAddFromLink[url] = future;
+    try {
+      return await future;
+    } finally {
+      _inFlightAddFromLink.remove(url);
+    }
+  }
+
+  Future<String?> _addFromLinkInternal(
     String url, {
     YoutubeStatusCallback? onStatus,
     YoutubeProgressCallback? onProgress,

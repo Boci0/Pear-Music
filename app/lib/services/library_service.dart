@@ -29,10 +29,18 @@ class LibraryService extends ChangeNotifier {
   /// hot paths (manifest matching during sync) avoid per-song `existsSync()`
   /// syscalls, which caused severe UI lag with large libraries.
   final Set<String> _filesOnDisk = {};
-  List<Song> get songs => List.unmodifiable(_songs);
+  List<Song>? _cachedUnmodifiableSongs;
+  List<Song> get songs => _cachedUnmodifiableSongs ??= List.unmodifiable(_songs);
+
+  @override
+  void notifyListeners() {
+    _cachedUnmodifiableSongs = null;
+    super.notifyListeners();
+  }
 
   @visibleForTesting
   void setSongsForTesting(List<Song> songs) {
+    _cachedUnmodifiableSongs = null;
     _songs.clear();
     _songs.addAll(songs);
     _rebuildIndexMaps();
@@ -77,7 +85,19 @@ class LibraryService extends ChangeNotifier {
     final support = debugBaseDirectory ?? await getApplicationSupportDirectory();
     _libraryDir = Directory(p.join(support.path, 'library'));
     await _libraryDir!.create(recursive: true);
-    await Directory(p.join(_libraryDir!.path, '_incoming')).create(recursive: true);
+    final incomingDir = Directory(p.join(_libraryDir!.path, '_incoming'));
+    await incomingDir.create(recursive: true);
+    try {
+      if (await incomingDir.exists()) {
+        await for (final entity in incomingDir.list(followLinks: false)) {
+          if (entity is File && entity.path.endsWith('.part')) {
+            try {
+              await entity.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
     _indexFile = File(p.join(support.path, 'index.json'));
     _playlistsFile = File(p.join(support.path, 'playlists.json'));
     await _loadIndex();

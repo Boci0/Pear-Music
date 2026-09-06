@@ -982,6 +982,7 @@ class PlayerService extends ChangeNotifier {
       DebugLog.write('[preload] Skipping preload: queueIdx=$_queueIndex queueLen=${_queue.length}');
       return;
     }
+    const maxLookahead = 3;
     final upcomingVideoIds = <String>[];
     if (_shuffle) {
       for (int i = 0; i < _queue.length; i++) {
@@ -989,7 +990,10 @@ class PlayerService extends ChangeNotifier {
         final s = _queue[i];
         if (s.sourceDeviceId == 'stream') {
           final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-          if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) upcomingVideoIds.add(vId);
+          if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
+            upcomingVideoIds.add(vId);
+            if (upcomingVideoIds.length >= maxLookahead) break;
+          }
         }
       }
     } else {
@@ -997,15 +1001,21 @@ class PlayerService extends ChangeNotifier {
         final s = _queue[idx];
         if (s.sourceDeviceId == 'stream') {
           final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-          if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) upcomingVideoIds.add(vId);
+          if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
+            upcomingVideoIds.add(vId);
+            if (upcomingVideoIds.length >= maxLookahead) break;
+          }
         }
       }
-      if (_loopMode == LoopSetting.all) {
+      if (upcomingVideoIds.length < maxLookahead && _loopMode == LoopSetting.all) {
         for (int idx = 0; idx <= _queueIndex; idx++) {
           final s = _queue[idx];
           if (s.sourceDeviceId == 'stream') {
             final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-            if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) upcomingVideoIds.add(vId);
+            if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
+              upcomingVideoIds.add(vId);
+              if (upcomingVideoIds.length >= maxLookahead) break;
+            }
           }
         }
       }

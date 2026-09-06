@@ -263,9 +263,7 @@ class StreamCacheManager {
         _activeProcessId = null;
       }
       if (_activeDesktopProcess != null) {
-        try {
-          _activeDesktopProcess!.kill();
-        } catch (_) {}
+        YoutubeService.killProcessTree(_activeDesktopProcess!.pid);
         _activeDesktopProcess = null;
       }
       _activeDownloadingVideoId = null;
@@ -366,9 +364,7 @@ class StreamCacheManager {
           DebugLog.write(
             '[cache] Desktop yt-dlp timed out for $videoId after ${timeoutDuration.inSeconds}s, killing process',
           );
-          try {
-            process.kill();
-          } catch (_) {}
+          YoutubeService.killProcessTree(process.pid);
           rethrow;
         } finally {
           if (_activeDesktopProcess == process) {
@@ -699,11 +695,24 @@ class StreamCacheManager {
     final timeout = fastFail
         ? const Duration(seconds: 4)
         : Duration(seconds: args.contains('--quiet') ? 8 : 6);
+    Process? proc;
     try {
       final bin = await YoutubeService.ytDlpPath() ?? 'yt-dlp';
-      final res = await Process.run(bin, [...args, url]).timeout(timeout);
-      if (res.exitCode == 0) {
-        final out = res.stdout.toString().trim();
+      proc = await Process.start(bin, [...args, url]);
+      final outBuf = StringBuffer();
+      final outSub = proc.stdout.transform(utf8.decoder).listen(outBuf.write);
+      proc.stderr.drain();
+      int exitCode;
+      try {
+        exitCode = await proc.exitCode.timeout(timeout);
+      } on TimeoutException {
+        YoutubeService.killProcessTree(proc.pid);
+        rethrow;
+      } finally {
+        await outSub.cancel();
+      }
+      if (exitCode == 0) {
+        final out = outBuf.toString().trim();
         final lines = out
             .split(RegExp(r'[\r\n]+'))
             .map((l) => l.trim())
@@ -715,6 +724,10 @@ class StreamCacheManager {
       }
     } catch (e) {
       DebugLog.write('[stream] yt-dlp attempt failed: $e');
+    } finally {
+      if (proc != null) {
+        YoutubeService.killProcessTree(proc.pid);
+      }
     }
     return null;
   }

@@ -343,6 +343,7 @@ class _DesktopSidebar extends StatelessWidget {
                       ),
                     )
                   : ListView.builder(
+                      itemExtent: 48.0,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       itemCount: playlists.length,
                       itemBuilder: (context, i) {

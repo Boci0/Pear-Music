@@ -179,6 +179,40 @@ class YoutubeService {
     }
   }
 
+  /// Forcibly terminates a process and any descendant processes it spawned.
+  /// On Windows, invokes `taskkill /F /T /PID <pid>` to prevent zombie child
+  /// processes; on other platforms, calls `Process.killPid`.
+  static void killProcessTree(int pid) {
+    try {
+      if (!kIsWeb && Platform.isWindows) {
+        unawaited(Process.run('taskkill', ['/F', '/T', '/PID', '$pid']));
+      } else {
+        Process.killPid(pid);
+      }
+    } catch (_) {}
+  }
+
+  /// Sweeps temporary directory for lingering `peerm-ytdlp-*` folders from previous
+  /// crashes or ungraceful exits older than 2 hours.
+  static Future<void> cleanupOrphanedTempDirs() async {
+    if (kIsWeb) return;
+    try {
+      final tempDir = Directory.systemTemp;
+      if (!await tempDir.exists()) return;
+      final threshold = DateTime.now().subtract(const Duration(hours: 2));
+      await for (final entity in tempDir.list(followLinks: false)) {
+        if (entity is Directory && p.basename(entity.path).startsWith('peerm-ytdlp-')) {
+          try {
+            final stat = await entity.stat();
+            if (stat.modified.isBefore(threshold)) {
+              await entity.delete(recursive: true);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
   /// Runs a background, non-blocking `yt-dlp -U` once per session on Windows
   /// so the desktop binary stays updated against YouTube cipher changes.
   static Future<void> checkDesktopYtDlpUpdate() async {
@@ -188,7 +222,9 @@ class YoutubeService {
       final bin = await ytDlpPath();
       if (bin != null) {
         unawaited(
-          Process.run(bin, ['-U']).then((r) {
+          Process.run(bin, ['-U'])
+              .timeout(const Duration(seconds: 15))
+              .then((r) {
             debugPrint('[pearmusic] Desktop yt-dlp -U exit code: ${r.exitCode}');
           }).catchError((e) {
             debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
@@ -288,9 +324,7 @@ class YoutubeService {
         final proc = await Process.start(finalBin, args);
         if (cancel != null) {
           unawaited(cancel.whenCancelled.then((_) {
-            try {
-              proc.kill();
-            } catch (_) {}
+            killProcessTree(proc.pid);
           }));
         }
         final outBuf = StringBuffer();
@@ -300,9 +334,16 @@ class YoutubeService {
           errBuf.write(chunk);
           _parseYtDlpProgress(chunk, onProgress);
         });
-        final exit = await proc.exitCode.timeout(const Duration(minutes: 6));
-        await outSub.cancel();
-        await errSub.cancel();
+        int exit;
+        try {
+          exit = await proc.exitCode.timeout(const Duration(minutes: 6));
+        } on TimeoutException {
+          killProcessTree(proc.pid);
+          rethrow;
+        } finally {
+          await outSub.cancel();
+          await errSub.cancel();
+        }
         if (cancel?.isCancelled ?? false) {
           throw DownloadCancelledException();
         }

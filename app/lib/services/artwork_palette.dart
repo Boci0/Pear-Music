@@ -184,19 +184,34 @@ class ArtworkPalette {
     }
   }
 
+  static final Map<String, Future<Color>> _inFlightHttpExtracts = {};
+
   static Future<Color> _extract(String art) async {
     try {
       if (art.startsWith('http')) {
-        final req = await _httpClient.getUrl(Uri.parse(art)).timeout(const Duration(seconds: 4));
-        final resp = await req.close().timeout(const Duration(seconds: 4));
-        if (resp.statusCode == 200) {
-          final bytes = await consolidateHttpClientResponseBytes(resp);
-          return await compute(computeDominantFromBytes, bytes);
+        final existing = _inFlightHttpExtracts[art];
+        if (existing != null) return await existing;
+        final future = _fetchAndComputeDominant(art);
+        _inFlightHttpExtracts[art] = future;
+        try {
+          return await future;
+        } finally {
+          _inFlightHttpExtracts.remove(art);
         }
       } else {
         return await compute(computeDominant, art);
       }
     } catch (_) {}
+    return _lastAccent ?? fallback;
+  }
+
+  static Future<Color> _fetchAndComputeDominant(String url) async {
+    final req = await _httpClient.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 4));
+    final resp = await req.close().timeout(const Duration(seconds: 4));
+    if (resp.statusCode == 200) {
+      final bytes = await consolidateHttpClientResponseBytes(resp);
+      return await compute(computeDominantFromBytes, bytes);
+    }
     return _lastAccent ?? fallback;
   }
 
