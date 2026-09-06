@@ -234,13 +234,6 @@ class _SynthesizerPainter extends CustomPainter {
     final maxHeight = size.height;
     const minHeight = 3.5;
 
-    final beatRad = (songMs / 500.0) * math.pi * 2.0;
-    final halfBeatRad = (songMs / 250.0) * math.pi * 2.0;
-    final measureRad = (songMs / 2000.0) * math.pi * 2.0;
-
-    final double beatSwell = isPlaying ? (0.5 + 0.5 * math.sin(beatRad)) : 0.0;
-    final double measureSwell = isPlaying ? (0.5 + 0.5 * math.sin(measureRad)) : 0.0;
-
     final activePaint = _activePaint..color = activeColor;
     final inactivePaint = _inactivePaint..color = inactiveColor;
     final cursorPaint = _cursorPaint..color = cursorColor;
@@ -249,45 +242,63 @@ class _SynthesizerPainter extends CustomPainter {
 
     final wf = waveform;
     final hasWaveform = wf != null && wf.isNotEmpty;
-    final currentEnergy = hasWaveform
-        ? wf[(displayFraction * (wf.length - 1)).round().clamp(0, wf.length - 1)]
-        : 0.5;
+
+    // Real-time audio energy and beat transient sampled at current playback position
+    double instantLoudness = 0.55;
+    double transientKick = 0.0;
+    if (hasWaveform) {
+      final curWfIdx = (displayFraction * (wf.length - 1)).clamp(0.0, (wf.length - 1).toDouble());
+      final baseIdx = curWfIdx.floor();
+      final frac = curWfIdx - baseIdx;
+      final nextIdx = (baseIdx + 1).clamp(0, wf.length - 1);
+      final prevIdx = (baseIdx - 1).clamp(0, wf.length - 1);
+      instantLoudness = (lerpDouble(wf[baseIdx], wf[nextIdx], frac) ?? wf[baseIdx]).clamp(0.0, 1.0);
+      transientKick = math.max(0.0, instantLoudness - wf[prevIdx]);
+    }
+
+    final double overallEnergy = hasWaveform
+        ? (0.18 + (0.82 * instantLoudness) + (transientKick * 0.45)).clamp(0.12, 1.0)
+        : 0.65;
 
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
       final x = i * (barWidth + spacing);
 
-      final travelingWave1 = math.sin(beatRad - (normX * 2.5 * math.pi));
-      final travelingWave2 = math.cos(halfBeatRad + (normX * 1.5 * math.pi));
-      final bassPulse = math.sin(beatRad) * math.max(0.0, 1.0 - (normX * 2.2));
-      final baseEq = 0.26 + (0.16 * math.sin(normX * math.pi));
+      // Real-time multi-band frequency bouncing:
+      // Bass band (low frequencies, punchy kick drum rebound on left bars)
+      final bassPhase = (songMs / 185.0) * math.pi * 2.0;
+      final bassWave = math.pow(math.max(0.0, math.sin(bassPhase - (i * 0.38))), 1.8).toDouble();
+
+      // Mid band (vocals, instruments, snare bounce in center bars)
+      final midPhase = (songMs / 118.0) * math.pi * 2.0;
+      final midWave = math.pow(math.max(0.0, math.sin(midPhase + (i * 0.78))), 1.5).toDouble();
+
+      // Treble band (hi-hats, percussive shimmer on right bars)
+      final treblePhase = (songMs / 68.0) * math.pi * 2.0;
+      final trebleWave = math.pow(math.max(0.0, math.cos(treblePhase - (i * 1.28))), 1.3).toDouble();
+
+      // Frequency distribution across the spectrum
+      final bassWeight = math.max(0.0, 1.0 - (normX * 1.65));
+      final midWeight = math.sin(normX * math.pi);
+      final trebleWeight = math.max(0.0, (normX - 0.25) * 1.35);
+
+      // Individual bar resonance seed so adjacent bars bounce independently
+      final barResonance = 0.68 + (0.32 * math.sin(i * 3.82 + 0.95));
+
+      final bandActivity = (bassWave * bassWeight * 1.15) +
+          (midWave * midWeight * 0.95) +
+          (trebleWave * trebleWeight * 0.80);
+
+      // Raw dynamic bounce height reacting directly to the current song loudness and transient
+      final dynamicBounce = bandActivity * barResonance * overallEnergy;
 
       double heightRatio;
-      if (hasWaveform) {
-        final wfIndex = (normX * (wf.length - 1)).round().clamp(0, wf.length - 1);
-        final rawAmp = wf[wfIndex];
-        // Authentic envelope: scale between 0.16 and 0.84 based on real audio amplitude
-        final baseHeightRatio = 0.16 + (rawAmp * 0.60);
-        if (isPlaying) {
-          // Modulate with traveling micro-harmonics scaled by real local amplitude & playhead energy
-          final motion = (travelingWave1 * 0.08) +
-              (travelingWave2 * 0.04) +
-              (bassPulse * 0.10 * beatSwell * currentEnergy) +
-              (measureSwell * 0.04);
-          heightRatio = (baseHeightRatio + (motion * (0.4 + 0.6 * rawAmp))).clamp(0.14, 0.88);
-        } else {
-          heightRatio = (baseHeightRatio * 0.85).clamp(0.12, 0.75);
-        }
+      if (isPlaying) {
+        // Dramatic vertical travel: actively moves up and down between 0.10 and 0.95
+        heightRatio = (0.10 + (dynamicBounce * 0.85)).clamp(0.08, 0.96);
       } else {
-        if (isPlaying) {
-          final motion = (travelingWave1 * 0.14) +
-              (travelingWave2 * 0.08) +
-              (bassPulse * 0.18 * beatSwell) +
-              (measureSwell * 0.08);
-          heightRatio = (baseEq + (motion * 0.70)).clamp(0.18, 0.82);
-        } else {
-          heightRatio = (baseEq * 0.70).clamp(0.15, 0.40);
-        }
+        // When paused or stopped: clean minimal resting baseline
+        heightRatio = 0.08;
       }
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
@@ -298,7 +309,7 @@ class _SynthesizerPainter extends CustomPainter {
       );
 
       if (i == currentBarIndex) {
-        final cursorExtra = hasWaveform ? (3.0 + 3.0 * currentEnergy) : 4.0;
+        final cursorExtra = isPlaying ? (4.0 + 4.0 * overallEnergy) : 4.0;
         final cursorH = (barH + cursorExtra).clamp(minHeight, maxHeight);
         final cursorTop = (maxHeight - cursorH) / 2.0;
         final cursorRect = RRect.fromRectAndRadius(
