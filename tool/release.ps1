@@ -169,4 +169,6 @@ Write-Step "Creating GitHub release $tag from local artifacts"
 gh release create $tag $apkArm64Path $apkArmV7Path $zipPath $shaFile `
   --title "Pear Music $Version" --notes $Notes
 if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+gh release edit $tag --draft=false --latest
+if ($LASTEXITCODE -ne 0) { throw 'gh release edit failed' }
 Write-Step "Release published: https://github.com/Boci0/Pear-Music/releases/tag/$tag"

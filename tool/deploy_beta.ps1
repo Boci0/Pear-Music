@@ -1,4 +1,4 @@
-﻿# Pear Music Beta Deployment Script
+# Pear Music Beta Deployment Script
 #
 # Compiles the Windows release binary with beta tagging, deploys to a dedicated
 # LocalAppData directory ("Pear Music Beta"), creates a Desktop shortcut, and
@@ -48,6 +48,17 @@ if (-not (Test-Path $destDir)) {
 
 $sourceDir = Join-Path $repoRoot "app\build\windows\x64\runner\Release"
 robocopy $sourceDir $destDir /E /PURGE /NFL /NDL /NJH /NJS | Out-Null
+
+# 3b. Bundle yt-dlp binary directly into Beta installation directory
+$ytDlpBin = Get-Command yt-dlp.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+if (-not $ytDlpBin) {
+  $wingetPath = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\yt-dlp.exe"
+  if (Test-Path $wingetPath) { $ytDlpBin = $wingetPath }
+}
+if ($ytDlpBin -and (Test-Path $ytDlpBin)) {
+  Write-Host "[deploy_beta] Bundling resolver ($ytDlpBin) into $destDir..."
+  Copy-Item -Path $ytDlpBin -Destination (Join-Path $destDir "yt-dlp.exe") -Force
+}
 
 # 4. Create Desktop Shortcut
 $desktopPath = [Environment]::GetFolderPath("Desktop")

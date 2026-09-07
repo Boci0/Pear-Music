@@ -35,6 +35,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
   }
 
+  // Ensure all child and descendant processes (e.g. yt-dlp.exe, ffmpeg.exe)
+  // are automatically terminated by Windows kernel when the app process exits or closes.
+  HANDLE job = ::CreateJobObjectW(nullptr, nullptr);
+  if (job != nullptr) {
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {0};
+    jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    ::SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+    ::AssignProcessToJobObject(job, ::GetCurrentProcess());
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -73,6 +83,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  if (job) ::CloseHandle(job);
   if (mutex) ::CloseHandle(mutex);
   return EXIT_SUCCESS;
 }

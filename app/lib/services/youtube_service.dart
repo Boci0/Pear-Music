@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
+import 'artwork_service.dart';
 import 'library_service.dart';
 
 /// Live status text for the "Add from link" dialog.
@@ -76,6 +78,11 @@ class YoutubeService {
   static Future<String?> ytDlpPath() async {
     if (kIsWeb) return null;
     try {
+      // Bundled binary directly alongside the executable (e.g. deployed standalone package)
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final bundledBin = File(p.join(exeDir, Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp'));
+      if (bundledBin.existsSync()) return bundledBin.path;
+
       if (Platform.isWindows) {
         final r = await Process.run('where.exe', ['yt-dlp']);
         if (r.exitCode == 0) {
@@ -585,13 +592,13 @@ class YoutubeService {
     onProgress(downloaded, total);
   }
 
-  /// Center-crop + downscale an image to a small square JPEG and return it as
-  /// base64 (keeps the sync manifest small). Returns null if the bytes are not
-  /// a decodable image.
+  /// Center-crop + downscale an image to a square JPEG and return it as
+  /// base64. Bounded to [size] (default 640px) at high quality to preserve
+  /// sharpness on desktop and high-DPI displays.
   static String? downscaleToBase64(
     List<int> bytes, {
-    int size = 256,
-    int quality = 80,
+    int size = 640,
+    int quality = 90,
   }) {
     try {
       final decoded = img.decodeImage(Uint8List.fromList(bytes));
@@ -605,7 +612,10 @@ class YoutubeService {
         width: side,
         height: side,
       );
-      final resized = img.copyResize(crop, width: size, height: size);
+      final targetSide = math.min(side, size);
+      final resized = (crop.width > targetSide || crop.height > targetSide)
+          ? img.copyResize(crop, width: targetSide, height: targetSide)
+          : crop;
       return base64Encode(img.encodeJpg(resized, quality: quality));
     } catch (_) {
       return null;
@@ -613,19 +623,26 @@ class YoutubeService {
   }
 
   /// Robust HTTP fetch of thumbnail bytes, downscaling and converting to persistent base64 JPEG.
+  /// Applies [ArtworkService.optimizeArtworkUrl] to fetch crisp high-resolution sources.
   static Future<String?> downloadArtworkAsBase64(
     String? artworkUrl, {
     String? videoId,
-    int size = 256,
-    int quality = 80,
+    int size = 640,
+    int quality = 90,
   }) async {
     if (artworkUrl != null && !artworkUrl.startsWith('http')) {
       return artworkUrl; // Already base64 encoded
     }
 
+    final effectiveUrl = (artworkUrl != null && artworkUrl.isNotEmpty)
+        ? ArtworkService.optimizeArtworkUrl(artworkUrl)
+        : null;
+
     final urls = <String>[
-      if (artworkUrl != null && artworkUrl.isNotEmpty) artworkUrl,
+      if (effectiveUrl != null && effectiveUrl.isNotEmpty) effectiveUrl,
+      if (artworkUrl != null && artworkUrl.isNotEmpty && artworkUrl != effectiveUrl) artworkUrl,
       if (videoId != null && videoId.isNotEmpty) ...[
+        'https://i.ytimg.com/vi/$videoId/sddefault.jpg',
         'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
         'https://i.ytimg.com/vi/$videoId/mqdefault.jpg',
       ],

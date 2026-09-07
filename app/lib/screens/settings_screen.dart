@@ -109,6 +109,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
+                  secondary: const Icon(Icons.casino_rounded),
+                  title: const Text('Auto-Reroll Seed'),
+                  subtitle: const Text('Reroll recommendation seed on every track change'),
+                  value: controller.player.autoRerollSeed,
+                  onChanged: (val) {
+                    controller.player.setAutoRerollSeed(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
                   secondary: const Icon(Icons.subtitles_rounded),
                   title: const Text('Pop Lyrics'),
                   subtitle: const Text('Pop lyric lines in-place instead of classic scroll'),

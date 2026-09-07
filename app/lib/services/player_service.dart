@@ -47,6 +47,8 @@ class PlayerService extends ChangeNotifier {
   final math.Random _random = math.Random();
 
   Song? currentSong;
+  static const int maxRecommendationsPerAppend = 10;
+
   List<Song> _queue = [];
   int _queueIndex = -1;
   String? queueSourceId; // 'library' | 'favorites' | 'search' | 'playlist:<id>' | 'radio'
@@ -448,6 +450,7 @@ class PlayerService extends ChangeNotifier {
 
         final newSongs = <Song>[];
         for (final item in batch.items) {
+          if (newSongs.length >= maxRecommendationsPerAppend) break;
           if (existingVideoIds.contains(item.videoId)) continue;
           final cleanSong = item.toSong();
           final cleanTitle = cleanSong.title.toLowerCase().trim();
@@ -474,9 +477,10 @@ class PlayerService extends ChangeNotifier {
         library.songs,
         excludeSongIds: excludeIds,
       );
-      if (offlineSongs.isNotEmpty) {
-        _queue = [..._queue, ...offlineSongs];
-        DebugLog.write('[radio] Appended ${offlineSongs.length} offline library recommendations');
+      final boundedOffline = offlineSongs.take(maxRecommendationsPerAppend).toList();
+      if (boundedOffline.isNotEmpty) {
+        _queue = [..._queue, ...boundedOffline];
+        DebugLog.write('[radio] Appended ${boundedOffline.length} offline library recommendations');
         notifyListeners();
         completer.complete(true);
         return true;
@@ -496,7 +500,9 @@ class PlayerService extends ChangeNotifier {
 
   /// Rerolls upcoming recommendations in the queue (songs after current song).
   /// Preserves any tracks explicitly marked as locked in the upcoming queue.
-  Future<bool> rerollUpcomingQueue() async {
+  /// Bounded to at most [maxRecommendationsPerAppend] (10 songs) to prevent
+  /// bloating the queue.
+  Future<bool> rerollUpcomingQueue({int? maxCount}) async {
     if (currentSong == null || _queue.isEmpty) return false;
     if (_isLoadingRecommendations) return false;
     _isLoadingRecommendations = true;
@@ -507,6 +513,10 @@ class PlayerService extends ChangeNotifier {
       final head = _queue.sublist(0, activeIndex + 1);
       final upcoming = _queue.length > activeIndex + 1 ? _queue.sublist(activeIndex + 1) : <Song>[];
       final lockedUpcoming = upcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
+      final unlockedUpcomingCount = upcoming.length - lockedUpcoming.length;
+      final targetCount = maxCount ??
+          (unlockedUpcomingCount > 0 ? unlockedUpcomingCount : maxRecommendationsPerAppend)
+              .clamp(1, maxRecommendationsPerAppend);
 
       // Reset continuation token so we query fresh recommendations
       _continuationToken = null;
@@ -517,7 +527,8 @@ class PlayerService extends ChangeNotifier {
       ]);
 
       final seed = currentSong ?? head.last;
-      DebugLog.write('[radio] Rerolling seed for "${seed.title}" (preserving ${lockedUpcoming.length} locked tracks)');
+      DebugLog.write(
+          '[radio] Rerolling seed for "${seed.title}" (target: $targetCount, preserving ${lockedUpcoming.length} locked tracks)');
 
       RecommendationBatch batch;
       try {
@@ -540,6 +551,7 @@ class PlayerService extends ChangeNotifier {
         };
 
         for (final item in batch.items) {
+          if (freshSongs.length >= targetCount) break;
           if (existingVideoIds.contains(item.videoId)) continue;
           final cleanSong = item.toSong();
           final cleanTitle = cleanSong.title.toLowerCase().trim();
@@ -561,12 +573,13 @@ class PlayerService extends ChangeNotifier {
           library.songs,
           excludeSongIds: offlineExcludeIds,
         );
-        freshSongs.addAll(offline);
+        freshSongs.addAll(offline.take(targetCount));
       }
 
       _queue = [...head, ...lockedUpcoming, ...freshSongs];
       _preloadUpcomingStreams();
-      DebugLog.write('[radio] Reroll complete: queue now has ${_queue.length} tracks (${lockedUpcoming.length} locked, ${freshSongs.length} new)');
+      DebugLog.write(
+          '[radio] Reroll complete: queue now has ${_queue.length} tracks (${lockedUpcoming.length} locked, ${freshSongs.length} new)');
       notifyListeners();
       return true;
     } catch (e) {

@@ -786,6 +786,8 @@ class StreamCacheManager {
 
   /// Clean up resources on shutdown.
   static void dispose() {
+    cancelActiveDownload();
+    cancelPreload();
     _ytExplode?.close();
     _ytExplode = null;
   }

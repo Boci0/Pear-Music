@@ -8,15 +8,12 @@ import '../services/player_service.dart';
 import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
-import '../widgets/player/player_wide_body.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
 
 /// Full-screen player with seek bar, transport controls, sleep timer, and
 /// volume.
 ///
-/// Responsive across three screen widths:
-///   - **Wide (desktop, >= 900px)**: 2-column layout (showcase on the left,
-///     interactive queue/playlists + controls on the right).
+/// Responsive across screen orientations:
 ///   - **Mobile portrait**: vertically stacked player.
 ///   - **Mobile landscape**: 2-column split (artwork/info + controls).
 ///
@@ -30,27 +27,13 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  /// When set, the wide layout or mobile drawer shows this playlist''s songs
-  /// instead of all library songs.
-  String? _activePlaylistId;
-
   /// Opens the library drawer from the app-bar menu. A key is required because
   /// Scaffold.of(context) from inside this Scaffold would resolve to the
-  /// HomeShell''s Scaffold (which has no drawer) and silently do nothing.
+  /// HomeShell's Scaffold (which has no drawer) and silently do nothing.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   Color? _accentColor;
   String? _resolvedSongId;
-
-  @override
-  void initState() {
-    super.initState();
-    final player = context.read<PlayerService>();
-    if (player.queueSourceId != null &&
-        player.queueSourceId!.startsWith('playlist:')) {
-      _activePlaylistId = player.queueSourceId!.substring('playlist:'.length);
-    }
-  }
 
   void _resolveAccent(Song song, Color themePrimary) {
     if (_resolvedSongId == song.id) return;
@@ -76,7 +59,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final player = context.watch<PlayerService>();
     final controller = context.read<AppController>();
     final song = player.currentSong;
-    final isWide = MediaQuery.sizeOf(context).width >= 900;
     final themePrimary = Theme.of(context).colorScheme.primary;
 
     if (song != null) {
@@ -85,7 +67,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final targetAccent = _accentColor ?? themePrimary;
 
     final appBar = AppBar(
-      title: isWide ? const Text('Now Playing') : null,
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
@@ -152,49 +133,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
             children: [
               appBar,
               Expanded(
-              child: SafeArea(
-                top: false,
-                bottom: false,
-                child: isWide
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 8),
-                        child: PlayerWideBody(
-                          controller: controller,
-                          player: player,
-                          song: song,
-                          duration: duration,
-                          accent: targetAccent,
-                          activePlaylistId: _activePlaylistId,
-                          onActivePlaylistChanged: (id) =>
-                              setState(() => _activePlaylistId = id),
-                        ),
-                      )
-                    : landscape
-                        ? Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 8),
-                            child: PlayerLandscapeBody(
-                              controller: controller,
-                              player: player,
-                              song: song,
-                              duration: duration,
-                              accent: targetAccent,
-                            ),
-                          )
-                        : PlayerPortraitBody(
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: landscape
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 8),
+                          child: PlayerLandscapeBody(
                             controller: controller,
                             player: player,
                             song: song,
                             duration: duration,
                             accent: targetAccent,
                           ),
+                        )
+                      : PlayerPortraitBody(
+                          controller: controller,
+                          player: player,
+                          song: song,
+                          duration: duration,
+                          accent: targetAccent,
+                        ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 }

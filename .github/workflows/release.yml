@@ -133,13 +133,14 @@ jobs:
               PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-          else
+            gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
             echo "Creating release $TAG"
             gh release create "$TAG" \
               PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" \
               --title "Pear Music ${TAG#v}" \
               --generate-notes
+            gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
           fi
 
 
