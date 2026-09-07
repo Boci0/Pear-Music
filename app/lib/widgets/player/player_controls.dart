@@ -198,8 +198,14 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                     currentPosition: pos,
                     totalDuration: widget.duration,
                     onSeek: (duration) => widget.player.seek(duration),
-                    onDragUpdate: (ms) => _dragNotifier.value = ms,
-                    onDragEnd: () => _dragNotifier.value = null,
+                    onDragUpdate: (ms) {
+                      _dragNotifier.value = ms;
+                      widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
+                    },
+                    onDragEnd: () {
+                      _dragNotifier.value = null;
+                      widget.player.setScrubbingPosition(null);
+                    },
                   ),
                 )
               else
@@ -228,11 +234,18 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                       child: Slider(
                         value: currentVal,
                         max: maxMs,
-                        onChangeStart: (ms) => _dragNotifier.value = ms,
-                        onChanged: (ms) => _dragNotifier.value = ms,
+                        onChangeStart: (ms) {
+                          _dragNotifier.value = ms;
+                          widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
+                        },
+                        onChanged: (ms) {
+                          _dragNotifier.value = ms;
+                          widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
+                        },
                         onChangeEnd: (ms) {
                           widget.player.seek(Duration(milliseconds: ms.round()));
                           _dragNotifier.value = null;
+                          widget.player.setScrubbingPosition(null);
                         },
                       ),
                     );

@@ -99,6 +99,16 @@ class PlayerService extends ChangeNotifier {
   bool get playing => _player.playing;
   double _userVolume = 0.75;
   double get volume => _userVolume;
+  final ValueNotifier<Duration?> scrubbingPositionNotifier =
+      ValueNotifier<Duration?>(null);
+  Duration? get scrubbingPosition => scrubbingPositionNotifier.value;
+
+  void setScrubbingPosition(Duration? position) {
+    if (scrubbingPositionNotifier.value != position) {
+      scrubbingPositionNotifier.value = position;
+    }
+  }
+
   bool get hasLoaded => currentSong != null;
   bool get loudnessNormalization => _loudnessNormalization;
   bool get isLoadingTrack => _isLoadingTrack;
@@ -1441,6 +1451,7 @@ class PlayerService extends ChangeNotifier {
       s.cancel();
     }
     _player.dispose();
+    scrubbingPositionNotifier.dispose();
     super.dispose();
   }
 }

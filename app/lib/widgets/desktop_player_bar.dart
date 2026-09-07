@@ -276,9 +276,13 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                                   max: maxSec > 0 ? maxSec : 1.0,
                                   onChanged: (v) {
                                     setState(() => _dragPositionSeconds = v);
+                                    player.setScrubbingPosition(
+                                      Duration(milliseconds: (v * 1000).toInt()),
+                                    );
                                   },
                                   onChangeEnd: (v) {
                                     setState(() => _dragPositionSeconds = null);
+                                    player.setScrubbingPosition(null);
                                     player.seek(
                                       Duration(milliseconds: (v * 1000).toInt()),
                                     );

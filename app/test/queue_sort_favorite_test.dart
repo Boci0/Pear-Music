@@ -266,5 +266,20 @@ void main() {
       expect(player.queue[2].id, isNot('c'));
       expect(player.queue[3].id, 'd');
     });
+
+    test('setScrubbingPosition updates scrubbingPosition and notifies listeners', () {
+      Duration? receivedPos;
+      player.scrubbingPositionNotifier.addListener(() {
+        receivedPos = player.scrubbingPosition;
+      });
+
+      player.setScrubbingPosition(const Duration(seconds: 45));
+      expect(player.scrubbingPosition, const Duration(seconds: 45));
+      expect(receivedPos, const Duration(seconds: 45));
+
+      player.setScrubbingPosition(null);
+      expect(player.scrubbingPosition, isNull);
+      expect(receivedPos, isNull);
+    });
   });
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../../models/song.dart';
 import '../../services/lyrics_service.dart';
@@ -35,34 +34,18 @@ class LyricsView extends StatefulWidget {
   State<LyricsView> createState() => _LyricsViewState();
 }
 
-class _NoScrollbarBehavior extends MaterialScrollBehavior {
-  const _NoScrollbarBehavior();
-
-  @override
-  Widget buildScrollbar(
-    BuildContext context,
-    Widget child,
-    ScrollableDetails details,
-  ) {
-    return child;
-  }
-}
-
 class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   List<LyricLine> _lyrics = const [];
   bool _isLoading = true;
   int _activeIndex = -1;
   StreamSubscription<Duration>? _positionSub;
-  final ScrollController _scrollController = ScrollController();
-  final Map<int, GlobalKey> _itemKeys = {};
-  Timer? _userScrollCooldown;
-  bool _isUserScrolling = false;
   bool _isForeground = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
     _loadLyrics();
   }
 
@@ -72,7 +55,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     if (_isForeground != isForeground) {
       _isForeground = isForeground;
       if (_isForeground && widget.isVisible) {
-        _snapToCurrentPosition(immediate: true);
+        _snapToCurrentPosition();
       }
     }
   }
@@ -80,24 +63,22 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(LyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      oldWidget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
+      widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
+    }
     if (oldWidget.song.id != widget.song.id) {
       _loadLyrics();
-    } else if (oldWidget.popMode != widget.popMode) {
-      if (!widget.popMode) {
-        _snapToCurrentPosition(immediate: true);
-      }
     } else if (widget.isVisible && !oldWidget.isVisible) {
-      _isUserScrolling = false;
-      _snapToCurrentPosition(immediate: true);
+      _snapToCurrentPosition();
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
     _positionSub?.cancel();
-    _userScrollCooldown?.cancel();
-    _scrollController.dispose();
     super.dispose();
   }
 
@@ -106,7 +87,6 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       _isLoading = true;
       _lyrics = const [];
       _activeIndex = -1;
-      _itemKeys.clear();
     });
     _positionSub?.cancel();
 
@@ -128,102 +108,47 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     setState(() {
       _lyrics = lyrics;
       _isLoading = false;
-      for (int i = 0; i < lyrics.length; i++) {
-        _itemKeys[i] = GlobalKey();
-      }
     });
 
     if (lyrics.isNotEmpty) {
       _positionSub = widget.player.positionStream.listen(_onPositionUpdate);
-      _snapToCurrentPosition(immediate: true);
+      _snapToCurrentPosition();
     }
   }
 
-  void _snapToCurrentPosition({bool immediate = false}) {
+  void _snapToCurrentPosition() {
     if (_lyrics.isEmpty) return;
     final currentPos = widget.player.position ?? Duration.zero;
     final index = LyricsService.findActiveIndex(_lyrics, currentPos);
-    if (index >= 0) {
+    if (index >= 0 && mounted) {
       setState(() {
         _activeIndex = index;
       });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToActive(index, immediate: immediate);
-      });
     }
   }
 
-  void _onPositionUpdate(Duration position) {
+  void _onScrubbingChanged() {
+    final scrubPos = widget.player.scrubbingPosition;
+    if (scrubPos != null) {
+      _onPositionUpdate(scrubPos, isScrubbing: true);
+    } else {
+      final currentPos = widget.player.position ?? Duration.zero;
+      _onPositionUpdate(currentPos, isScrubbing: false);
+    }
+  }
+
+  void _onPositionUpdate(Duration position, {bool isScrubbing = false}) {
     if (_lyrics.isEmpty || !mounted || !widget.isVisible || !_isForeground) return;
+
+    // Suppress background audio playback ticks while user is actively dragging the slider
+    if (!isScrubbing && widget.player.scrubbingPosition != null) return;
 
     final newIndex = LyricsService.findActiveIndex(_lyrics, position);
     if (newIndex != _activeIndex) {
-      final oldIndex = _activeIndex;
       setState(() {
         _activeIndex = newIndex;
       });
-      if (!widget.popMode && !_isUserScrolling) {
-        final distance = (newIndex - oldIndex).abs();
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToActive(newIndex, immediate: distance > 6);
-        });
-      }
     }
-  }
-
-  void _scrollToActive(int index, {bool immediate = false}) {
-    if (index < 0 || index >= _lyrics.length || !_scrollController.hasClients) return;
-
-    final itemContext = _itemKeys[index]?.currentContext;
-    if (itemContext == null) return;
-    final renderBox = itemContext.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.hasSize) return;
-
-    final viewport = RenderAbstractViewport.of(renderBox);
-
-    // alignment 0.5 aligns the exact vertical midpoint of renderBox
-    // with the exact vertical midpoint of the scrollable viewport.
-    final revealedOffset = viewport.getOffsetToReveal(renderBox, 0.5).offset;
-    final targetOffset = revealedOffset.clamp(
-      0.0,
-      _scrollController.position.maxScrollExtent,
-    );
-
-    if (immediate) {
-      _scrollController.jumpTo(targetOffset);
-    } else {
-      final currentOffset = _scrollController.offset;
-      final diff = (targetOffset - currentOffset).abs();
-      // If jumping a substantial distance, jump closer first to avoid disorienting blur
-      if (diff > 450) {
-        final jumpNear = targetOffset > currentOffset
-            ? targetOffset - 150
-            : targetOffset + 150;
-        _scrollController.jumpTo(
-          jumpNear.clamp(0.0, _scrollController.position.maxScrollExtent),
-        );
-      }
-      _scrollController.animateTo(
-        targetOffset,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-      );
-    }
-  }
-
-  void _onUserScrolled() {
-    _isUserScrolling = true;
-    _userScrollCooldown?.cancel();
-    _userScrollCooldown = Timer(const Duration(milliseconds: 3500), () {
-      if (mounted) {
-        setState(() {
-          _isUserScrolling = false;
-        });
-        if (_activeIndex >= 0) {
-          _scrollToActive(_activeIndex);
-        }
-      }
-    });
   }
 
   @override
@@ -329,10 +254,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       );
     }
 
-    if (widget.popMode) {
-      return _buildPopLyricsView(glowColor);
-    }
-    return _buildClassicScrollView(glowColor);
+    return _buildPopLyricsView(glowColor);
   }
 
   Widget _buildPopLyricsView(Color glowColor) {
@@ -355,11 +277,13 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     }
     final fontSize = (baseFontSize * scale).roundToDouble();
 
+    final isScrubbing = widget.player.scrubbingPosition != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
+          duration: isScrubbing ? Duration.zero : const Duration(milliseconds: 200),
           layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
             return Stack(
               alignment: Alignment.center,
@@ -370,6 +294,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
             );
           },
           transitionBuilder: (Widget child, Animation<double> animation) {
+            if (isScrubbing) return child;
             final isIncoming =
                 child.key == ValueKey('pop_lyric_${widget.song.id}_$_activeIndex');
 
@@ -445,128 +370,5 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       ),
     );
   }
-
-  Widget _buildClassicScrollView(Color glowColor) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final viewportHeight = constraints.maxHeight;
-        // Half height padding ensures every line (from first to last)
-        // can be scrolled to the exact vertical center.
-        final halfHeight = viewportHeight / 2;
-
-        return NotificationListener<UserScrollNotification>(
-          onNotification: (notification) {
-            _onUserScrolled();
-            return false;
-          },
-          child: ShaderMask(
-            shaderCallback: (Rect bounds) {
-              return const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.white,
-                  Colors.white,
-                  Colors.transparent,
-                ],
-                stops: [0.0, 0.15, 0.85, 1.0],
-              ).createShader(bounds);
-            },
-            blendMode: BlendMode.dstIn,
-            child: ScrollConfiguration(
-              behavior: const _NoScrollbarBehavior(),
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: (halfHeight - 22).clamp(0.0, halfHeight),
-                  bottom: (halfHeight - 22).clamp(0.0, halfHeight),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (int i = 0; i < _lyrics.length; i++)
-                      _buildLyricLine(i, glowColor),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildLyricLine(int index, Color glowColor) {
-    final line = _lyrics[index];
-    final isActive = index == _activeIndex;
-
-    final scrollScale = (widget.size / 280.0).clamp(0.85, 1.20);
-    final activeFontSize = (18.0 * scrollScale).roundToDouble();
-    final inactiveFontSize = (15.5 * scrollScale).roundToDouble();
-
-    return Center(
-      key: _itemKeys[index],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: () {
-            widget.player.seek(line.timestamp);
-            setState(() {
-              _activeIndex = index;
-            });
-            _scrollToActive(index);
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 6,
-            ),
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamilyFallback: const [
-                  'Segoe UI Variable Text',
-                  'Segoe UI',
-                  'Roboto',
-                  'sans-serif',
-                ],
-                fontSize: isActive ? activeFontSize : inactiveFontSize,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                letterSpacing: 0.2,
-                wordSpacing: 3.5,
-                height: 1.40,
-                color: isActive
-                    ? Colors.white
-                    : Colors.white.withValues(alpha: 0.35),
-                shadows: isActive
-                    ? [
-                        Shadow(
-                          color: glowColor.withValues(alpha: 0.85),
-                          blurRadius: 8.0,
-                        ),
-                        Shadow(
-                          color: glowColor.withValues(alpha: 0.45),
-                          blurRadius: 4.0,
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Text(
-                line.text.isEmpty ? '···' : line.text,
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
+

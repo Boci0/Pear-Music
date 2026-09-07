@@ -257,56 +257,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                           Material(
                             color: Colors.transparent,
                             child: Tooltip(
-                              message: popLyrics
-                                  ? 'Switch to classic scroll lyrics'
-                                  : 'Switch to pop lyrics',
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () {
-                                  controller?.updatePopLyrics(!popLyrics);
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(14),
-                                    color: Colors.black.withValues(alpha: 0.28),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.10),
-                                      width: 0.5,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        popLyrics
-                                            ? Icons.subtitles_rounded
-                                            : Icons.format_line_spacing_rounded,
-                                        size: 12,
-                                        color: Colors.white.withValues(alpha: 0.75),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        popLyrics ? 'Pop' : 'Scroll',
-                                        style: TextStyle(
-                                          fontSize: 10.5,
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.white.withValues(alpha: 0.75),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Material(
-                            color: Colors.transparent,
-                            child: Tooltip(
                               message: 'Lyrics timing & options',
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(14),
