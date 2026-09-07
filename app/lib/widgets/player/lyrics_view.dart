@@ -18,7 +18,6 @@ class LyricsView extends StatefulWidget {
   final Color? accent;
   final double size;
   final bool isVisible;
-  final bool popMode;
 
   const LyricsView({
     super.key,
@@ -27,7 +26,6 @@ class LyricsView extends StatefulWidget {
     this.accent,
     required this.size,
     this.isVisible = true,
-    this.popMode = false,
   });
 
   @override

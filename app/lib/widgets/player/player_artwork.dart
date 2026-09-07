@@ -143,8 +143,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
     );
 
     final playerService = context.watch<PlayerService?>();
-    final controller = context.watch<AppController?>();
-    final popLyrics = controller?.identity.popLyrics ?? false;
     final Widget glowWidget;
     if (playerService != null) {
       glowWidget = RhythmPulseBuilder(
@@ -244,7 +242,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                         accent: widget.accent,
                         size: size,
                         isVisible: _showLyrics,
-                        popMode: popLyrics,
                       ),
                     ),
                   if (song != null && playerService != null && _showLyrics)

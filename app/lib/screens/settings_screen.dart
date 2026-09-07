@@ -117,14 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller.player.setAutoRerollSeed(val);
                   },
                 ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.subtitles_rounded),
-                  title: const Text('Pop Lyrics'),
-                  subtitle: const Text('Pop lyric lines in-place instead of classic scroll'),
-                  value: identity.popLyrics,
-                  onChanged: (val) => controller.updatePopLyrics(val),
-                ),
+
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.cleaning_services_rounded),

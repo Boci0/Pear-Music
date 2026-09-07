@@ -432,11 +432,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> updatePopLyrics(bool val) async {
-    await identity.setPopLyrics(val);
-    notifyListeners();
-  }
-
   // ---------- playback (delegated) ----------
 
   Future<void> playSong(
