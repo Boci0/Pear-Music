@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import '../../models/song.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
+import 'lyric_sync_sheet.dart';
 
 /// Interactive synchronized lyric display.
 ///
@@ -119,6 +120,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     final lyrics = await LyricsService.getLyrics(
       widget.song,
       localAudioPath: localAudioPath,
+      duration: widget.player.duration,
     );
 
     if (!mounted) return;
@@ -289,15 +291,37 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                   fontSize: 12,
                 ),
               ),
-              const SizedBox(height: 12),
-              TextButton.icon(
-                onPressed: _loadLyrics,
-                icon: const Icon(Icons.refresh_rounded, size: 16),
-                label: const Text('Retry'),
-                style: TextButton.styleFrom(
-                  foregroundColor: glowColor,
-                  visualDensity: VisualDensity.compact,
-                ),
+              Wrap(
+                spacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  TextButton.icon(
+                    onPressed: _loadLyrics,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Retry'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: glowColor,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      showLyricSyncSheet(
+                        context,
+                        song: widget.song,
+                        player: widget.player,
+                        initialSearchOpen: true,
+                        onLyricsUpdated: _loadLyrics,
+                      );
+                    },
+                    icon: const Icon(Icons.search_rounded, size: 16),
+                    label: const Text('Search Lyrics'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: glowColor,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

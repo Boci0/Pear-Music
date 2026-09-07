@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../services/artwork_palette.dart';
+import '../services/lyrics_service.dart';
 import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
 import '../widgets/player_bar.dart';
@@ -37,6 +38,7 @@ class _HomeShellState extends State<HomeShell> {
         .setMethodCallHandler((call) async {
       if (call.method == 'onTrimMemory') {
         ArtworkPalette.compactMemory();
+        LyricsService.compactMemory();
         PaintingBinding.instance.imageCache.clear();
         PaintingBinding.instance.imageCache.clearLiveImages();
       }
@@ -55,6 +57,7 @@ class _HomeShellState extends State<HomeShell> {
         } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
           // Free unused decoded byte caches and live image entries to drop background memory footprint.
           ArtworkPalette.compactMemory();
+          LyricsService.compactMemory();
           PaintingBinding.instance.imageCache.clearLiveImages();
         }
       },

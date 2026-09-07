@@ -8,6 +8,7 @@ import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
+import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
 import 'player_console_dialog.dart';
 import 'rhythm_pulse.dart';
@@ -35,6 +36,7 @@ class PlayerArtwork extends StatefulWidget {
 
 class _PlayerArtworkState extends State<PlayerArtwork> {
   static bool _showLyrics = false;
+  int _lyricsVersion = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -236,6 +238,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                       visible: _showLyrics,
                       maintainState: true,
                       child: LyricsView(
+                        key: ValueKey('lyrics_${song.id}_$_lyricsVersion'),
                         song: song,
                         player: playerService,
                         accent: widget.accent,
@@ -248,54 +251,114 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                     Positioned(
                       top: 10,
                       left: 10,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: Tooltip(
-                          message: popLyrics
-                              ? 'Switch to classic scroll lyrics'
-                              : 'Switch to pop lyrics',
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: () {
-                              controller?.updatePopLyrics(!popLyrics);
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Material(
+                            color: Colors.transparent,
+                            child: Tooltip(
+                              message: popLyrics
+                                  ? 'Switch to classic scroll lyrics'
+                                  : 'Switch to pop lyrics',
+                              child: InkWell(
                                 borderRadius: BorderRadius.circular(14),
-                                color: Colors.black.withValues(alpha: 0.28),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.10),
-                                  width: 0.5,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    popLyrics
-                                        ? Icons.subtitles_rounded
-                                        : Icons.format_line_spacing_rounded,
-                                    size: 12,
-                                    color: Colors.white.withValues(alpha: 0.75),
+                                onTap: () {
+                                  controller?.updatePopLyrics(!popLyrics);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    popLyrics ? 'Pop' : 'Scroll',
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.white.withValues(alpha: 0.75),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(14),
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.10),
+                                      width: 0.5,
                                     ),
                                   ),
-                                ],
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        popLyrics
+                                            ? Icons.subtitles_rounded
+                                            : Icons.format_line_spacing_rounded,
+                                        size: 12,
+                                        color: Colors.white.withValues(alpha: 0.75),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        popLyrics ? 'Pop' : 'Scroll',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.white.withValues(alpha: 0.75),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                          const SizedBox(width: 6),
+                          Material(
+                            color: Colors.transparent,
+                            child: Tooltip(
+                              message: 'Lyrics timing & options',
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () {
+                                  showLyricSyncSheet(
+                                    context,
+                                    song: song,
+                                    player: playerService,
+                                    onLyricsUpdated: () {
+                                      setState(() {
+                                        _lyricsVersion++;
+                                      });
+                                    },
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(14),
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.10),
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.tune_rounded,
+                                        size: 12,
+                                        color: Colors.white.withValues(alpha: 0.75),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Sync',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.white.withValues(alpha: 0.75),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   if (song != null && playerService != null)

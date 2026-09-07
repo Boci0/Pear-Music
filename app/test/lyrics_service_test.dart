@@ -128,6 +128,61 @@ Third stanza line
     });
   });
 
+  group('LyricsService offset management', () {
+    test('extracts offset correctly from LRC string', () {
+      expect(LyricsService.extractOffsetMs('[offset: 500]\n[00:01.00] Test'), 500);
+      expect(LyricsService.extractOffsetMs('[offset: -350]\n[00:01.00] Test'), -350);
+      expect(LyricsService.extractOffsetMs('[00:01.00] No offset here'), 0);
+    });
+
+    test('applies or replaces offset tag cleanly', () {
+      const originalWithoutTag = '[00:01.00] Test line';
+      final withTag = LyricsService.applyOffsetTag(originalWithoutTag, 250);
+      expect(withTag, startsWith('[offset: 250]'));
+      expect(LyricsService.extractOffsetMs(withTag), 250);
+
+      final replaced = LyricsService.applyOffsetTag(withTag, -400);
+      expect(replaced, startsWith('[offset: -400]'));
+      expect(LyricsService.extractOffsetMs(replaced), -400);
+
+      // Multiple tags in legacy files
+      const duplicateTags = '[offset: 100]\n[offset: 200]\n[00:01.00] Test';
+      final cleaned = LyricsService.applyOffsetTag(duplicateTags, 300);
+      expect(cleaned, '[offset: 300]\n[offset: 300]\n[00:01.00] Test');
+      expect(LyricsService.extractOffsetMs(cleaned), 300);
+    });
+
+    test('negative offset advances lyrics earlier', () {
+      const lrc = '''
+[offset: -500]
+[00:02.00] Advanced line
+''';
+      final lines = LyricsService.parseLrc(lrc);
+      expect(lines.length, 1);
+      expect(lines[0].timestamp, const Duration(milliseconds: 1500));
+    });
+  });
+
+  group('LrcCandidate', () {
+    test('extracts first non-empty lyric line as snippet', () {
+      const candidate = LrcCandidate(
+        id: 1,
+        trackName: 'Test',
+        artistName: 'Artist',
+        albumName: 'Album',
+        duration: 180,
+        hasSyncedLyrics: true,
+        syncedLyrics: '''
+[ti:Test]
+[ar:Artist]
+[00:05.00] First actual lyric line
+[00:10.00] Second lyric line
+''',
+      );
+      expect(candidate.snippet, 'First actual lyric line');
+    });
+  });
+
   group('LyricsService.compactMemory', () {
     test('clears memory cache cleanly', () {
       expect(() => LyricsService.compactMemory(), returnsNormally);
