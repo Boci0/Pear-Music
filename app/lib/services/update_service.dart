@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '3.2.6';
+  static const String currentVersion = '3.2.7';
 
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.
@@ -459,7 +459,7 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
           appDir,
           '-ExePath',
           exePath,
-        ], mode: ProcessStartMode.inheritStdio);
+        ], mode: ProcessStartMode.detached);
 
         exit(0);
       } else {

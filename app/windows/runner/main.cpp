@@ -40,7 +40,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   HANDLE job = ::CreateJobObjectW(nullptr, nullptr);
   if (job != nullptr) {
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {0};
-    jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                                           | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
     ::SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
     ::AssignProcessToJobObject(job, ::GetCurrentProcess());
   }
