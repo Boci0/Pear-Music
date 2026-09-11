@@ -240,6 +240,7 @@ class _SynthesizerPainter extends CustomPainter {
     final cursorPaint = _cursorPaint..color = cursorColor;
 
     final currentBarIndex = (displayFraction * totalBars).floor().clamp(0, totalBars - 1);
+    final cornerRadius = barWidth / 2.0;
 
     for (int i = 0; i < totalBars; i++) {
       final normX = i / (totalBars - 1);
@@ -263,17 +264,19 @@ class _SynthesizerPainter extends CustomPainter {
 
       final barH = lerpDouble(minHeight, maxHeight, heightRatio)!;
       final top = (maxHeight - barH) / 2.0;
-      final rect = RRect.fromRectAndRadius(
+      final rect = RRect.fromRectXY(
         Rect.fromLTWH(x, top, barWidth, barH),
-        Radius.circular(barWidth / 2.0),
+        cornerRadius,
+        cornerRadius,
       );
 
       if (i == currentBarIndex) {
         final cursorH = (barH + 4.0).clamp(minHeight, maxHeight);
         final cursorTop = (maxHeight - cursorH) / 2.0;
-        final cursorRect = RRect.fromRectAndRadius(
+        final cursorRect = RRect.fromRectXY(
           Rect.fromLTWH(x, cursorTop, barWidth, cursorH),
-          Radius.circular(barWidth / 2.0),
+          cornerRadius,
+          cornerRadius,
         );
         canvas.drawRRect(cursorRect, cursorPaint);
       } else if (i < currentBarIndex) {

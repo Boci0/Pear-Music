@@ -717,6 +717,7 @@ class _QueueRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final readableAccent = _readableAccent;
 
     return RepaintBoundary(
       child: Padding(
@@ -732,11 +733,11 @@ class _QueueRow extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               color: isCurrent
-                  ? _readableAccent.withValues(alpha: 0.12)
+                  ? readableAccent.withValues(alpha: 0.12)
                   : Colors.transparent,
               border: isCurrent
                   ? Border.all(
-                      color: _readableAccent.withValues(alpha: 0.22),
+                      color: readableAccent.withValues(alpha: 0.22),
                       width: 1,
                     )
                   : null,
@@ -752,7 +753,7 @@ class _QueueRow extends StatelessWidget {
                             width: 3,
                             height: 18,
                             decoration: BoxDecoration(
-                              color: _readableAccent,
+                              color: readableAccent,
                               borderRadius: BorderRadius.circular(1.5),
                             ),
                           )
@@ -771,7 +772,7 @@ class _QueueRow extends StatelessWidget {
                 _QueueArtworkThumbnail(
                   song: song,
                   isCurrent: isCurrent,
-                  accent: _readableAccent,
+                  accent: readableAccent,
                 ),
 
                 const SizedBox(width: 12),
@@ -791,7 +792,7 @@ class _QueueRow extends StatelessWidget {
                           fontWeight:
                               isCurrent ? FontWeight.w600 : FontWeight.w500,
                           color: isCurrent
-                              ? _readableAccent
+                              ? readableAccent
                               : Colors.white.withValues(alpha: 0.9),
                           letterSpacing: -0.2,
                         ),

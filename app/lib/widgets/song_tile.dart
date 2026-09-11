@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
+import '../services/artwork_service.dart';
 import 'playlist_actions.dart';
 
 /// One row in the library: artwork, title, meta, play button + a menu with
@@ -335,7 +336,7 @@ class _Artwork extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: Image.network(
-            song.artwork!,
+            ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('tile_net_${song.id}'),
             width: 44,
             height: 44,

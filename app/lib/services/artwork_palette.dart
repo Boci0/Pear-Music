@@ -104,7 +104,7 @@ class ArtworkPalette {
   /// Returns synchronous cached decoded bytes if present, or null.
   static Uint8List? cachedBytes(Song song) {
     final id = song.id;
-    final cached = _bytesCache[id];
+    final cached = _bytesCache.remove(id);
     if (cached != null) {
       _bytesCache[id] = cached;
       return cached;

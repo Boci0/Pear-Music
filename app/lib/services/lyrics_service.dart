@@ -66,9 +66,9 @@ class LrcCandidate {
   String get snippet {
     final content = lyricsContent;
     if (content.isEmpty) return '';
-    final lines = content.split(RegExp(r'\r?\n'));
+    final lines = content.split(LyricsService._lineSplitRegex);
     for (final line in lines) {
-      final text = line.replaceAll(RegExp(r'\[.*?\]'), '').trim();
+      final text = line.replaceAll(LyricsService._bracketContentRegex, '').trim();
       if (text.isNotEmpty) {
         return text;
       }
@@ -80,6 +80,16 @@ class LrcCandidate {
 /// Service that parses LRC lyrics, checks local files, queries LRCLIB,
 /// and caches lyrics on disk for offline playback.
 class LyricsService {
+  static final RegExp _lineSplitRegex = RegExp(r'\r?\n');
+  static final RegExp _bracketContentRegex = RegExp(r'\[.*?\]');
+  static final RegExp _tagRegex = RegExp(r'\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]');
+  static final RegExp _offsetRegex = RegExp(r'\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
+  static final RegExp _titleNoiseRegex = RegExp(
+    r'\s*[\(\[](?:official\s+)?(?:music\s+)?(?:video|audio|lyric\s+video|visualizer|hd|4k|remaster(?:ed)?(?:\s+\d+)?|live)[\)\]]',
+    caseSensitive: false,
+  );
+  static final RegExp _topicRegex = RegExp(r'\s+-\s+Topic$', caseSensitive: false);
+
   static const int _maxMemoryEntries = 50;
   static final LinkedHashMap<String, List<LyricLine>> _memoryCache =
       LinkedHashMap<String, List<LyricLine>>();
@@ -127,14 +137,12 @@ class LyricsService {
   static List<LyricLine> parseLrc(String rawContent) {
     if (rawContent.trim().isEmpty) return const [];
 
-    final lines = rawContent.split(RegExp(r'\r?\n'));
+    final lines = rawContent.split(_lineSplitRegex);
     final result = <LyricLine>[];
-    final tagRegex = RegExp(r'\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]');
-    final offsetRegex = RegExp(r'\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
 
     int offsetMs = 0;
     for (final line in lines) {
-      final offsetMatch = offsetRegex.firstMatch(line);
+      final offsetMatch = _offsetRegex.firstMatch(line);
       if (offsetMatch != null) {
         offsetMs = int.tryParse(offsetMatch.group(1) ?? '0') ?? 0;
         break;
@@ -147,7 +155,7 @@ class LyricsService {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
 
-      final matches = tagRegex.allMatches(trimmed).toList();
+      final matches = _tagRegex.allMatches(trimmed).toList();
       if (matches.isNotEmpty) {
         hasTimestamp = true;
         // Text is everything after the last tag
@@ -199,31 +207,29 @@ class LyricsService {
     return plainLines;
   }
 
-  /// Binary/linear search to find the active lyric index given [currentPosition].
+  /// Binary search to find the active lyric index given [currentPosition].
   static int findActiveIndex(List<LyricLine> lyrics, Duration currentPosition) {
     if (lyrics.isEmpty) return -1;
     if (currentPosition < lyrics.first.timestamp) return 0;
+    if (currentPosition >= lyrics.last.timestamp) return lyrics.length - 1;
 
-    int active = 0;
-    for (int i = 0; i < lyrics.length; i++) {
-      if (lyrics[i].timestamp <= currentPosition) {
-        active = i;
+    int low = 0;
+    int high = lyrics.length - 1;
+    while (low <= high) {
+      final mid = low + ((high - low) >> 1);
+      if (lyrics[mid].timestamp <= currentPosition) {
+        low = mid + 1;
       } else {
-        break;
+        high = mid - 1;
       }
     }
-    return active;
+    return high.clamp(0, lyrics.length - 1);
   }
 
   /// Cleans titles removing common noise like "(Official Music Video)", "[HD]", etc.
   static String cleanTrackTitle(String rawTitle) {
-    var cleaned = rawTitle;
-    cleaned = cleaned.replaceAll(
-      RegExp(r'\s*[\(\[](?:official\s+)?(?:music\s+)?(?:video|audio|lyric\s+video|visualizer|hd|4k|remaster(?:ed)?(?:\s+\d+)?|live)[\)\]]',
-          caseSensitive: false),
-      '',
-    );
-    cleaned = cleaned.replaceAll(RegExp(r'\s+-\s+Topic$', caseSensitive: false), '');
+    var cleaned = rawTitle.replaceAll(_titleNoiseRegex, '');
+    cleaned = cleaned.replaceAll(_topicRegex, '');
     return cleaned.trim();
   }
 
@@ -411,9 +417,6 @@ class LyricsService {
 
     return candidates;
   }
-
-  static final RegExp _offsetRegex =
-      RegExp(r'\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
 
   /// Extracts the offset tag in milliseconds from raw LRC content.
   static int extractOffsetMs(String rawContent) {

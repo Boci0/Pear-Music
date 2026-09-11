@@ -6,6 +6,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
+import '../services/artwork_service.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
 /// playlist order, remove a song from the playlist, rename or delete it.
@@ -330,7 +331,7 @@ class _SongRow extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: Image.network(
-            song.artwork!,
+            ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('pl_net_${song.id}'),
             width: 44,
             height: 44,

@@ -72,8 +72,8 @@ class PlayerTransport extends StatelessWidget {
                       player: player,
                       child: RepaintBoundary(
                         child: Container(
-                          width: 52,
-                          height: 52,
+                          width: 64,
+                          height: 64,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             boxShadow: [
@@ -89,7 +89,7 @@ class PlayerTransport extends StatelessWidget {
                       builder: (context, aura, child) {
                         final alpha = aura.clamp(0.0, 1.0);
                         if (alpha <= 0.005) {
-                          return const SizedBox(width: 52, height: 52);
+                          return const SizedBox(width: 64, height: 64);
                         }
                         return Opacity(
                           opacity: alpha,
@@ -97,28 +97,32 @@ class PlayerTransport extends StatelessWidget {
                         );
                       },
                     ),
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      iconSize: 72,
-                      icon: player.isBuffering
-                          ? Center(
-                              child: SizedBox(
-                                width: 52,
-                                height: 52,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 3.5,
-                                  color: scheme.primary,
+                    SizedBox(
+                      width: 72,
+                      height: 72,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        iconSize: 72,
+                        icon: player.isBuffering
+                            ? Center(
+                                child: SizedBox(
+                                  width: 64,
+                                  height: 64,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 4.0,
+                                    color: scheme.primary,
+                                  ),
                                 ),
+                              )
+                            : Icon(
+                                player.playing
+                                    ? Icons.pause_circle_filled
+                                    : Icons.play_circle_filled,
+                                size: 72,
+                                color: scheme.primary,
                               ),
-                            )
-                          : Icon(
-                              player.playing
-                                  ? Icons.pause_circle_filled
-                                  : Icons.play_circle_filled,
-                              size: 72,
-                              color: scheme.primary,
-                            ),
-                      onPressed: () => controller.togglePlayback(),
+                        onPressed: () => controller.togglePlayback(),
+                      ),
                     ),
                   ],
                 ),

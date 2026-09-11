@@ -478,7 +478,10 @@ class StreamCacheManager {
         totalSize += stat.size;
       }
 
-      if (totalSize <= maxCacheBytes && fileStats.length <= maxTrackCount) return;
+      if (totalSize <= maxCacheBytes && fileStats.length <= maxTrackCount) {
+        _cachedTotalBytes = totalSize;
+        return;
+      }
 
       // Sort by last accessed / modified (oldest first)
       final validFiles = fileStats.keys.toList()
@@ -500,10 +503,10 @@ class StreamCacheManager {
           await f.delete();
           totalSize -= size;
           currentTrackCount--;
-          _cachedTotalBytes = (_cachedTotalBytes - size).clamp(0, 1 << 62);
           DebugLog.write('[cache] Evicted old unqueued track: $vId (${(size / 1024).round()} KB)');
         } catch (_) {}
       }
+      _cachedTotalBytes = totalSize;
     } catch (e) {
       debugPrint('[StreamCacheManager] Quota enforcement error: $e');
     }

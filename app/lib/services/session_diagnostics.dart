@@ -344,12 +344,14 @@ class SessionDiagnostics {
 
             if (_lastSampleUs > 0 && nowUs > _lastSampleUs) {
               final elapsedUs = nowUs - _lastSampleUs;
-              final cpuDeltaUs = totalCpuUs - _lastCpuUs;
-              final cores = math.max(1, Platform.numberOfProcessors);
-              final pct = ((cpuDeltaUs / (elapsedUs * cores)) * 100.0).clamp(0.0, 100.0);
-              _currentCpuPercent = pct;
-              if (pct > _peakCpuPercent) {
-                _peakCpuPercent = pct;
+              if (elapsedUs <= 5000000) {
+                final cpuDeltaUs = totalCpuUs - _lastCpuUs;
+                final cores = math.max(1, Platform.numberOfProcessors);
+                final pct = ((cpuDeltaUs / (elapsedUs * cores)) * 100.0).clamp(0.0, 100.0);
+                _currentCpuPercent = pct;
+                if (pct > _peakCpuPercent) {
+                  _peakCpuPercent = pct;
+                }
               }
             }
             _lastCpuUs = totalCpuUs;
@@ -432,6 +434,7 @@ class SessionDiagnostics {
     }
   }
 
+  /// Estimates GPU / Raster thread utilization from recently captured frame timings.
   static GpuTimingSnapshot getGpuSnapshot() {
     if (_timingsCallback == null) {
       startGpuTracking();
@@ -453,13 +456,9 @@ class SessionDiagnostics {
     final avgRasterUs = totalRasterUs / _recentTimings.length;
     _currentGpuRasterMs = avgRasterUs / 1000.0;
 
-    if (_lastGpuSampleUs > 0 && nowUs > _lastGpuSampleUs) {
-      final elapsedUs = nowUs - _lastGpuSampleUs;
-      final rasterDeltaUs = totalRasterUs - _lastGpuRasterUs;
-      if (rasterDeltaUs >= 0) {
-        _currentGpuDutyCycle = ((rasterDeltaUs / elapsedUs) * 100.0).clamp(0.0, 100.0);
-      }
-    }
+    // Direct frame budget duty cycle: fraction of the 16.666ms (60 FPS) raster budget consumed
+    const targetFrameMs = 1000.0 / 60.0;
+    _currentGpuDutyCycle = ((_currentGpuRasterMs / targetFrameMs) * 100.0).clamp(0.0, 100.0);
     _lastGpuRasterUs = totalRasterUs;
     _lastGpuSampleUs = nowUs;
 
