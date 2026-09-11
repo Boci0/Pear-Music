@@ -171,10 +171,12 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
                           iconSize: 36,
-                          tooltip: (player.isLoadingTrack && !player.playing)
-                              ? 'Buffering track...'
-                              : (player.playing ? 'Pause' : 'Play'),
-                          icon: (player.isLoadingTrack && !player.playing)
+                          tooltip: player.isLoadingRecommendations
+                              ? 'Finding next tracks...'
+                              : player.isBuffering
+                                  ? 'Buffering track...'
+                                  : (player.playing ? 'Pause' : 'Play'),
+                          icon: player.isBuffering
                               ? Center(
                                   child: SizedBox(
                                     width: 28,

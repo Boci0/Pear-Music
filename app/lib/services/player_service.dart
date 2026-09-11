@@ -55,6 +55,7 @@ class PlayerService extends ChangeNotifier {
   String? queueTitle;
   LoopSetting _loopMode = LoopSetting.off;
   bool _shuffle = false;
+  final Set<int> _shufflePlayedIndices = {};
   bool _autoplay = false;
   final Set<String> _lockedSongIds = {};
   bool _autoRerollSeed = false;
@@ -99,7 +100,8 @@ class PlayerService extends ChangeNotifier {
   Song? get song => currentSong;
   Duration? get position => _player.position;
   Duration? get duration => _player.duration;
-  bool get playing => _player.playing;
+  bool get playing =>
+      _player.playing && _player.processingState != ProcessingState.completed;
   double _userVolume = 0.75;
   double get volume => _userVolume;
   final ValueNotifier<Duration?> scrubbingPositionNotifier =
@@ -117,6 +119,9 @@ class PlayerService extends ChangeNotifier {
   bool get isLoadingTrack => _isLoadingTrack;
   bool get isAdvancing => _isAdvancing;
   bool get isBufferingNext => _isBufferingNext;
+  bool get isLoadingRecommendations => _isLoadingRecommendations;
+  bool get isBuffering =>
+      _isLoadingTrack || _isBufferingNext || _isLoadingRecommendations;
   String? get bufferingVideoId => _bufferingVideoId;
 
   bool get isPreloadingUpcoming => _isPreloadingUpcoming || _isLoadingRecommendations;
@@ -788,6 +793,9 @@ class PlayerService extends ChangeNotifier {
       _queue = [song, ..._queue];
       _queueIndex = 0;
     }
+    if (_shuffle && _queueIndex >= 0) {
+      _shufflePlayedIndices.add(_queueIndex);
+    }
     currentSong = song;
     _pendingNaturalAdvance = false;
     _lastTrackLoadMs = -1;
@@ -924,17 +932,8 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write('[player] Token stale before play() ($token != $_playRequestToken), aborting');
         return;
       }
-      DebugLog.write('[player] Calling _player.play() for "${song.title}"');
-      final shouldFadeIn = _userVolume > 0.05;
-      if (shouldFadeIn) {
-        await _player.setVolume(0.0);
-      } else {
-        await _player.setVolume(_userVolume);
-      }
+      await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
       unawaited(_player.play());
-      if (shouldFadeIn) {
-        unawaited(_fadeVolume(_userVolume, duration: const Duration(milliseconds: 150)));
-      }
       _isLoadingTrack = false;
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;
@@ -954,11 +953,6 @@ class PlayerService extends ChangeNotifier {
       DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex${willAutoReroll ? ", waiting for auto-reroll before preload" : ", triggering preload"}');
       if (!willAutoReroll) {
         _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
-      }
-      if (_pendingNaturalAdvance) {
-        _pendingNaturalAdvance = false;
-        DebugLog.write('[player] Song reached completed state during/immediately after play setup; auto-advancing next');
-        unawaited(next());
       }
     } catch (e) {
       DebugLog.write('[player] playSong ERROR: $e');
@@ -1067,7 +1061,6 @@ class PlayerService extends ChangeNotifier {
       if (_autoplay &&
           currentSong != null &&
           _queueIndex >= _queue.length - 1 &&
-          (queueSourceId == 'radio' || currentSong?.sourceDeviceId == 'stream') &&
           !_isLoadingRecommendations) {
         DebugLog.write('[preload] Queue on last song with autoplay ON, pre-fetching recommendations...');
         unawaited(fetchAndAppendRecommendations());
@@ -1179,8 +1172,16 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> pause({bool smooth = false}) async {
     _lastInteraction = DateTime.now();
+    _playRequestToken++;
     _preloadDebounceTimer?.cancel();
     StreamCacheManager.cancelPreload();
+    if (_isLoadingTrack || _isBufferingNext) {
+      _isLoadingTrack = false;
+      _isBufferingNext = false;
+      _bufferingVideoId = null;
+      _isAdvancing = false;
+      StreamCacheManager.cancelActiveDownload();
+    }
     if (_player.playing) {
       if (smooth && _userVolume > 0.05) {
         await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
@@ -1194,6 +1195,9 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> resume() async {
     _lastInteraction = DateTime.now();
+    if (_isLoadingTrack || _isBufferingNext) {
+      return;
+    }
     if (currentSong == null) {
       if (library.songs.isNotEmpty) {
         await playSong(library.songs.first);
@@ -1218,13 +1222,28 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> toggle() async {
     _lastInteraction = DateTime.now();
+    if (_isLoadingTrack || _isBufferingNext || _isLoadingRecommendations) {
+      DebugLog.write('[player] toggle() tapped while loading/buffering; cancelling load and pausing');
+      _playRequestToken++;
+      _isLoadingTrack = false;
+      _isBufferingNext = false;
+      _bufferingVideoId = null;
+      _isAdvancing = false;
+      _isLoadingRecommendations = false;
+      StreamCacheManager.cancelActiveDownload();
+      StreamCacheManager.cancelPreload();
+      await _player.pause();
+      _publishNotificationState();
+      notifyListeners();
+      return;
+    }
     if (currentSong == null) {
       if (library.songs.isNotEmpty) {
         await playSong(library.songs.first);
       }
       return;
     }
-    if (_player.playing) {
+    if (playing) {
       await pause(smooth: false);
     } else {
       await resume();
@@ -1256,7 +1275,12 @@ class PlayerService extends ChangeNotifier {
 
         // Autoplay: fetch next batch and continue when at the end of queue
         if (_autoplay && currentSong != null) {
+          final token = _playRequestToken;
           final appended = await fetchAndAppendRecommendations();
+          if (token != _playRequestToken || !_player.playing) {
+            DebugLog.write('[player] Autoplay aborted because playback was paused or cancelled during recommendation fetch');
+            return;
+          }
           if (appended && _queueIndex + 1 < _queue.length) {
             final target = _queue[_queueIndex + 1];
             _queueIndex = _queueIndex + 1;
@@ -1334,6 +1358,10 @@ class PlayerService extends ChangeNotifier {
 
   void toggleShuffle() {
     _shuffle = !_shuffle;
+    _shufflePlayedIndices.clear();
+    if (_shuffle && _queueIndex >= 0) {
+      _shufflePlayedIndices.add(_queueIndex);
+    }
     _publishNotificationState();
     notifyListeners();
   }
@@ -1344,11 +1372,29 @@ class PlayerService extends ChangeNotifier {
     if (_queue.isEmpty) return null;
     if (_shuffle) {
       if (_queue.length == 1) return 0;
-      var r = _queueIndex;
-      while (r == _queueIndex) {
-        r = _random.nextInt(_queue.length);
+      final unplayed = [
+        for (var i = 0; i < _queue.length; i++)
+          if (!_shufflePlayedIndices.contains(i) && i != _queueIndex) i,
+      ];
+      if (unplayed.isEmpty) {
+        if (_loopMode == LoopSetting.all) {
+          _shufflePlayedIndices.clear();
+          if (_queueIndex >= 0) _shufflePlayedIndices.add(_queueIndex);
+          final pool = [
+            for (var i = 0; i < _queue.length; i++)
+              if (i != _queueIndex) i,
+          ];
+          final r = pool.isNotEmpty
+              ? pool[_random.nextInt(pool.length)]
+              : _random.nextInt(_queue.length);
+          _shufflePlayedIndices.add(r);
+          return r;
+        }
+        return null;
       }
-      return r;
+      final picked = unplayed[_random.nextInt(unplayed.length)];
+      _shufflePlayedIndices.add(picked);
+      return picked;
     }
     final next = _queueIndex + 1;
     if (next < _queue.length) return next;
@@ -1461,17 +1507,30 @@ class PlayerService extends ChangeNotifier {
     if (index < 0 || index >= _queue.length) {
       return;
     }
-    if (index == _queueIndex) {
-      unawaited(next());
+    if (_queue.length <= 1) {
+      unawaited(stop());
+      return;
     }
+    final isRemovingCurrent = index == _queueIndex;
     final mutableQueue = List<Song>.from(_queue);
     mutableQueue.removeAt(index);
     _queue = mutableQueue;
-    if (currentSong != null) {
-      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    _shufflePlayedIndices.removeWhere((i) => i >= _queue.length);
+
+    if (isRemovingCurrent) {
+      final nextIdx = index < _queue.length ? index : 0;
+      _queueIndex = nextIdx;
+      final nextSong = _queue[_queueIndex];
+      currentSong = nextSong;
+      notifyListeners();
+      unawaited(playSong(nextSong, queue: _queue));
+    } else {
+      if (index < _queueIndex) {
+        _queueIndex--;
+      }
+      _preloadUpcomingStreams();
+      notifyListeners();
     }
-    _preloadUpcomingStreams();
-    notifyListeners();
   }
 
   Future<void> stop() async {

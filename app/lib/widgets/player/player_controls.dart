@@ -34,12 +34,14 @@ class PlayerTransport extends StatelessWidget {
           LoopSetting.all => 'Repeat all (album)',
           LoopSetting.off => 'No repeat',
         };
-        final stateLabel = player.isBufferingNext
-            ? 'Buffering track...'
-            : [
-                if (player.shuffle) 'Shuffle on',
-                loopLabel,
-              ].join(' · ');
+        final stateLabel = player.isLoadingRecommendations
+            ? 'Finding next tracks...'
+            : player.isBuffering
+                ? 'Buffering track...'
+                : [
+                    if (player.shuffle) 'Shuffle on',
+                    loopLabel,
+                  ].join(' · ');
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -98,7 +100,7 @@ class PlayerTransport extends StatelessWidget {
                     IconButton(
                       padding: EdgeInsets.zero,
                       iconSize: 72,
-                      icon: player.isBufferingNext
+                      icon: player.isBuffering
                           ? Center(
                               child: SizedBox(
                                 width: 52,
@@ -140,7 +142,7 @@ class PlayerTransport extends StatelessWidget {
             Text(
               stateLabel,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: (player.isLoadingTrack && !player.playing) || loopActive || player.shuffle
+                color: player.isBuffering || loopActive || player.shuffle
                     ? scheme.primary
                     : scheme.onSurfaceVariant,
               ),

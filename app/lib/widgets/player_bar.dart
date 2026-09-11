@@ -100,11 +100,13 @@ class PlayerBar extends StatelessWidget {
                                 style: theme.textTheme.titleSmall,
                               ),
                               Text(
-                                (player.isLoadingTrack && !player.playing)
-                                    ? 'Buffering track...'
-                                    : 'Playing on this device',
+                                player.isLoadingRecommendations
+                                    ? 'Finding next tracks...'
+                                    : player.isBuffering
+                                        ? 'Buffering track...'
+                                        : 'Playing on this device',
                                 style: theme.textTheme.labelSmall?.copyWith(
-                                  color: (player.isLoadingTrack && !player.playing)
+                                  color: player.isBuffering
                                       ? theme.colorScheme.primary
                                       : null,
                                 ),
@@ -122,7 +124,7 @@ class PlayerBar extends StatelessWidget {
                           child: IconButton(
                             padding: EdgeInsets.zero,
                             iconSize: 36,
-                            icon: (player.isLoadingTrack && !player.playing)
+                            icon: player.isBuffering
                                 ? Center(
                                     child: SizedBox(
                                       width: 28,
