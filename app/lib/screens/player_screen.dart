@@ -5,7 +5,6 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
-import '../widgets/player/console_symbol_icon.dart';
 import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
@@ -77,7 +76,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       actions: [
         IconButton(
           tooltip: 'Diagnostics Console',
-          icon: const ConsoleSymbolIcon(size: 18),
+          icon: const Icon(Icons.terminal_rounded),
           onPressed: () => PlayerConsoleDialog.show(context),
         ),
         SleepTimerButton(player: player),
@@ -101,9 +100,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // changes.
     return Scaffold(
       key: _scaffoldKey,
-      extendBodyBehindAppBar: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: appBar,
       body: TweenAnimationBuilder<Color?>(
         tween: ColorTween(
           end: targetAccent,
@@ -132,28 +129,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
           );
         },
         child: RepaintBoundary(
-          child: SafeArea(
-            top: false,
-            bottom: false,
-            child: landscape
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 8),
-                    child: PlayerLandscapeBody(
-                      controller: controller,
-                      player: player,
-                      song: song,
-                      duration: duration,
-                      accent: targetAccent,
-                    ),
-                  )
-                : PlayerPortraitBody(
-                    controller: controller,
-                    player: player,
-                    song: song,
-                    duration: duration,
-                    accent: targetAccent,
-                  ),
+          child: Column(
+            children: [
+              appBar,
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: landscape
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 8),
+                          child: PlayerLandscapeBody(
+                            controller: controller,
+                            player: player,
+                            song: song,
+                            duration: duration,
+                            accent: targetAccent,
+                          ),
+                        )
+                      : PlayerPortraitBody(
+                          controller: controller,
+                          player: player,
+                          song: song,
+                          duration: duration,
+                          accent: targetAccent,
+                        ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

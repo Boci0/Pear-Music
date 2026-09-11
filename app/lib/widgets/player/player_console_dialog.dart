@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import '../../services/debug_log.dart';
 import '../../services/session_diagnostics.dart';
 import '../../services/stream_cache_manager.dart';
-import 'console_symbol_icon.dart';
 
 /// Interactive live terminal diagnostics console for real-time stream inspection.
 class PlayerConsoleDialog extends StatefulWidget {
@@ -238,8 +237,9 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
               children: [
                 const Padding(
                   padding: EdgeInsets.only(right: 8),
-                  child: ConsoleSymbolIcon(
-                    size: 15,
+                  child: Icon(
+                    Icons.terminal_rounded,
+                    size: 16,
                     color: Colors.white70,
                   ),
                 ),

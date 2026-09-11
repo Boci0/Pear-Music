@@ -817,8 +817,8 @@ class LibraryService extends ChangeNotifier {
     if (idx == -1) return;
     _playlists[idx] = _playlists[idx]
         .copyWith(songIds: List.of(songIds), updatedAt: DateTime.now());
-    await _savePlaylists();
     notifyListeners();
+    await _savePlaylists();
   }
 
   void _stripSongFromPlaylists(String songId) {

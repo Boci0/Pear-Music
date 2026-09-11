@@ -10,10 +10,17 @@ import '../widgets/player_bar.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
 /// playlist order, remove a song from the playlist, rename or delete it.
-class PlaylistDetailScreen extends StatelessWidget {
+class PlaylistDetailScreen extends StatefulWidget {
   final String playlistId;
 
   const PlaylistDetailScreen({super.key, required this.playlistId});
+
+  @override
+  State<PlaylistDetailScreen> createState() => _PlaylistDetailScreenState();
+}
+
+class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
+  List<String>? _optimisticIds;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +28,7 @@ class PlaylistDetailScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final player = controller.player;
     final playlist = controller.playlists
-        .where((p) => p.id == playlistId)
+        .where((p) => p.id == widget.playlistId)
         .firstOrNull;
 
     // The playlist was deleted (e.g. from another flow) — leave.
@@ -32,8 +39,20 @@ class PlaylistDetailScreen extends StatelessWidget {
       );
     }
 
+    if (_optimisticIds != null) {
+      final currentSet = playlist.songIds.toSet();
+      final optSet = _optimisticIds!.toSet();
+      if (currentSet.length != optSet.length || !currentSet.containsAll(optSet)) {
+        _optimisticIds = null;
+      } else if (listEquals(_optimisticIds, playlist.songIds)) {
+        _optimisticIds = null;
+      }
+    }
+
+    final effectiveIds = _optimisticIds ?? playlist.songIds;
+
     final songs = [
-      for (final id in playlist.songIds)
+      for (final id in effectiveIds)
         if (controller.findSongById(id) != null)
           controller.findSongById(id)!,
     ];
@@ -147,7 +166,23 @@ class PlaylistDetailScreen extends StatelessWidget {
                     buildDefaultDragHandles: false,
                     itemCount: songs.length,
                     onReorderItem: (oldIndex, newIndex) =>
-                        _reorder(context, controller, playlist, songs, oldIndex, newIndex),
+                        _reorder(controller, playlist, oldIndex, newIndex),
+                    proxyDecorator: (child, index, animation) {
+                      return AnimatedBuilder(
+                        animation: animation,
+                        builder: (context, child) {
+                          final t = Curves.easeInOut.transform(animation.value);
+                          return Material(
+                            color: const Color(0xFF1B1B20),
+                            elevation: 8 * t,
+                            shadowColor: Colors.black.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(12),
+                            child: child,
+                          );
+                        },
+                        child: child,
+                      );
+                    },
                     itemBuilder: (context, i) {
                       final song = songs[i];
                       final isCurrent = song.id == player.currentSong?.id;
@@ -178,18 +213,22 @@ class PlaylistDetailScreen extends StatelessWidget {
   }
 
   void _reorder(
-    BuildContext context,
     AppController controller,
     Playlist playlist,
-    List<Song> songs,
     int oldIndex,
     int newIndex,
   ) {
     // onReorderItem already adjusts newIndex for the removed item, so a
     // direct removeAt + insert gives the correct order.
-    final ids = [...playlist.songIds];
+    final ids = List<String>.from(_optimisticIds ?? playlist.songIds);
+    if (oldIndex < 0 || oldIndex >= ids.length || newIndex < 0 || newIndex >= ids.length) {
+      return;
+    }
     final moved = ids.removeAt(oldIndex);
     ids.insert(newIndex, moved);
+    setState(() {
+      _optimisticIds = ids;
+    });
     controller.reorderPlaylist(playlist.id, ids);
   }
 
