@@ -620,6 +620,7 @@ class PlayerService extends ChangeNotifier {
     }
     _isLoadingRecommendations = true;
     notifyListeners();
+    bool changed = false;
 
     try {
       final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
@@ -706,16 +707,7 @@ class PlayerService extends ChangeNotifier {
         _updateActiveQueueCacheProtection();
         DebugLog.write(
             '[radio] Auto-reroll changed next track: "${oldNextSong.title}" -> "${nextSong.title}". Queue length remains ${_queue.length}.');
-
-        if (nextSong.sourceDeviceId == 'stream') {
-          final vId = RecommendationService.extractVideoId(nextSong.id) ??
-              nextSong.id.replaceFirst('stream_', '');
-          if (vId.isNotEmpty && !StreamCacheManager.isStreamCachedSync(vId)) {
-            DebugLog.write(
-                '[radio] Scheduling preload for settled rerolled track: $vId');
-            _preloadUpcomingStreams(delay: Duration.zero);
-          }
-        }
+        changed = true;
         notifyListeners();
         return true;
       }
@@ -727,6 +719,17 @@ class PlayerService extends ChangeNotifier {
       _isLoadingRecommendations = false;
       _isRerolling = false;
       notifyListeners();
+      if (changed) {
+        final nextS =
+            _queue.length > _queueIndex + 1 ? _queue[_queueIndex + 1] : null;
+        if (nextS != null && nextS.sourceDeviceId == 'stream') {
+          final vId = RecommendationService.extractVideoId(nextS.id) ??
+              nextS.id.replaceFirst('stream_', '');
+          DebugLog.write(
+              '[radio] Scheduling preload for settled rerolled track: $vId');
+        }
+        _preloadUpcomingStreams(delay: Duration.zero);
+      }
     }
   }
 
