@@ -68,6 +68,7 @@ class PlayerService extends ChangeNotifier {
   String? _continuationToken;
   bool _isLoadingRecommendations = false;
   DateTime _lastInteraction = DateTime.now();
+  bool _isManuallyPaused = false;
   bool _isAdvancing = false;
   bool _isLoadingTrack = false;
   bool _pendingNaturalAdvance = false;
@@ -101,7 +102,7 @@ class PlayerService extends ChangeNotifier {
   Duration? get position => _player.position;
   Duration? get duration => _player.duration;
   bool get playing =>
-      _player.playing && _player.processingState != ProcessingState.completed;
+      !_isManuallyPaused && _player.playing && _player.processingState != ProcessingState.completed;
   double _userVolume = 0.75;
   double get volume => _userVolume;
   final ValueNotifier<Duration?> scrubbingPositionNotifier =
@@ -120,11 +121,10 @@ class PlayerService extends ChangeNotifier {
   bool get isAdvancing => _isAdvancing;
   bool get isBufferingNext => _isBufferingNext;
   bool get isLoadingRecommendations => _isLoadingRecommendations;
-  bool get isBuffering =>
-      _isLoadingTrack || _isBufferingNext || _isLoadingRecommendations;
+  bool get isBuffering => _isLoadingTrack || _isBufferingNext;
   String? get bufferingVideoId => _bufferingVideoId;
 
-  bool get isPreloadingUpcoming => _isPreloadingUpcoming || _isLoadingRecommendations;
+  bool get isPreloadingUpcoming => _isPreloadingUpcoming;
 
   bool get hasNextTrack => _queueIndex >= 0 && _queueIndex + 1 < _queue.length;
 
@@ -311,6 +311,9 @@ class PlayerService extends ChangeNotifier {
       if (state.playing && _isLoadingTrack) {
         _isLoadingTrack = false;
       }
+      if (state.playing) {
+        _isManuallyPaused = false;
+      }
       _publishNotificationState();
       notifyListeners();
     }));
@@ -357,6 +360,10 @@ class PlayerService extends ChangeNotifier {
     };
     h.onSetShuffleMode = (mode) async {
       _shuffle = mode == AudioServiceShuffleMode.all;
+      _shufflePlayedIndices.clear();
+      if (_shuffle && _queueIndex >= 0) {
+        _shufflePlayedIndices.add(_queueIndex);
+      }
       _publishNotificationState();
       notifyListeners();
     };
@@ -488,7 +495,7 @@ class PlayerService extends ChangeNotifier {
 
         if (newSongs.isNotEmpty) {
           _queue = [..._queue, ...newSongs];
-          if (!_isLoadingTrack && !_isAdvancing && !_isRerolling) {
+          if (!_isLoadingTrack && !_isAdvancing && !_isRerolling && !_isManuallyPaused && playing) {
             _preloadUpcomingStreams();
           }
           DebugLog.write('[radio] Appended ${newSongs.length} unique tracks (queue size: ${_queue.length})');
@@ -604,7 +611,7 @@ class PlayerService extends ChangeNotifier {
       }
 
       _queue = [...head, ...lockedUpcoming, ...freshSongs];
-      if (!_isLoadingTrack && !_isAdvancing) {
+      if (!_isLoadingTrack && !_isAdvancing && !_isManuallyPaused && playing) {
         _preloadUpcomingStreams();
       }
       DebugLog.write(
@@ -759,6 +766,7 @@ class PlayerService extends ChangeNotifier {
       unawaited(identity!.cacheFavoriteSongMetadata(song));
     }
     final token = ++_playRequestToken;
+    _isManuallyPaused = false;
     _pendingNaturalAdvance = false;
     _preloadDebounceTimer?.cancel();
     _isAdvancing = true;
@@ -934,6 +942,7 @@ class PlayerService extends ChangeNotifier {
       }
       await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
       unawaited(_player.play());
+      _isManuallyPaused = false;
       _isLoadingTrack = false;
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;
@@ -1082,7 +1091,12 @@ class PlayerService extends ChangeNotifier {
     final token = _playRequestToken;
     _preloadDebounceTimer = Timer(delay, () {
       if (token != _playRequestToken) return;
-      if (!_player.playing && _queueIndex < 0) return;
+      if (_isManuallyPaused || (!_player.playing && !_isLoadingTrack)) {
+        DebugLog.write('[preload] Playback is paused or idle; skipping upcoming stream preload');
+        _isPreloadingUpcoming = false;
+        notifyListeners();
+        return;
+      }
       if (_isRerolling || _isLoadingRecommendations || (_autoRerollSeed && _autoRerollDebounceTimer != null)) {
         DebugLog.write('[preload] Reroll or recommendation in progress; deferring preload until settled');
         _preloadDebounceTimer = Timer(const Duration(milliseconds: 500), () {
@@ -1092,7 +1106,7 @@ class PlayerService extends ChangeNotifier {
         });
         return;
       }
-      if (_isBufferingNext || _bufferingVideoId != null || StreamCacheManager.isAnyDownloadActive) {
+      if (_isBufferingNext || _bufferingVideoId != null || StreamCacheManager.isForegroundDownloadActive) {
         DebugLog.write('[preload] Current track is still downloading/buffering; deferring preload until completion');
         final activeId = StreamCacheManager.activeDownloadingVideoId;
         final inFlight = activeId != null ? StreamCacheManager.getInFlightDownload(activeId) : null;
@@ -1172,9 +1186,14 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> pause({bool smooth = false}) async {
     _lastInteraction = DateTime.now();
+    _isManuallyPaused = true;
     _playRequestToken++;
     _preloadDebounceTimer?.cancel();
-    StreamCacheManager.cancelPreload();
+    _preloadDebounceTimer = null;
+    if (_isPreloadingUpcoming || StreamCacheManager.isActiveDownloadPreload) {
+      StreamCacheManager.cancelPreload();
+      _isPreloadingUpcoming = false;
+    }
     if (_isLoadingTrack || _isBufferingNext) {
       _isLoadingTrack = false;
       _isBufferingNext = false;
@@ -1182,12 +1201,17 @@ class PlayerService extends ChangeNotifier {
       _isAdvancing = false;
       StreamCacheManager.cancelActiveDownload();
     }
+    _publishNotificationState();
+    notifyListeners();
+    final targetVol = _userVolume > 0.05 ? _userVolume : 1.0;
     if (_player.playing) {
       if (smooth && _userVolume > 0.05) {
         await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
       }
       await _player.pause();
-      await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
+      await _player.setVolume(targetVol);
+    } else {
+      await _player.setVolume(targetVol);
     }
     _publishNotificationState();
     notifyListeners();
@@ -1204,12 +1228,20 @@ class PlayerService extends ChangeNotifier {
       }
       return;
     }
+    _isManuallyPaused = false;
+    _publishNotificationState();
+    notifyListeners();
+
     if (_player.processingState == ProcessingState.completed) {
       await _player.seek(Duration.zero);
     }
-    await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
+    final targetVol = _userVolume > 0.05 ? _userVolume : 1.0;
+    await _player.setVolume(targetVol);
     try {
       await _player.play();
+      await _player.setVolume(targetVol);
+      _resetStreamFailureCounters();
+      _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
     } catch (e) {
       DebugLog.write('[player] resume failed ($e), reloading track: ${currentSong?.title}');
       if (currentSong != null) {
@@ -1222,14 +1254,14 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> toggle() async {
     _lastInteraction = DateTime.now();
-    if (_isLoadingTrack || _isBufferingNext || _isLoadingRecommendations) {
-      DebugLog.write('[player] toggle() tapped while loading/buffering; cancelling load and pausing');
+    if (_isLoadingTrack || _isBufferingNext) {
+      DebugLog.write('[player] toggle() tapped while audio is buffering; cancelling load and pausing');
       _playRequestToken++;
       _isLoadingTrack = false;
       _isBufferingNext = false;
       _bufferingVideoId = null;
       _isAdvancing = false;
-      _isLoadingRecommendations = false;
+      _isManuallyPaused = true;
       StreamCacheManager.cancelActiveDownload();
       StreamCacheManager.cancelPreload();
       await _player.pause();
@@ -1243,6 +1275,7 @@ class PlayerService extends ChangeNotifier {
       }
       return;
     }
+    DebugLog.write('[player] toggle() called: playing=$playing, isManuallyPaused=$_isManuallyPaused');
     if (playing) {
       await pause(smooth: false);
     } else {
@@ -1277,8 +1310,8 @@ class PlayerService extends ChangeNotifier {
         if (_autoplay && currentSong != null) {
           final token = _playRequestToken;
           final appended = await fetchAndAppendRecommendations();
-          if (token != _playRequestToken || !_player.playing) {
-            DebugLog.write('[player] Autoplay aborted because playback was paused or cancelled during recommendation fetch');
+          if (token != _playRequestToken || _isManuallyPaused) {
+            DebugLog.write('[player] Autoplay aborted because playback was manually paused or cancelled during recommendation fetch');
             return;
           }
           if (appended && _queueIndex + 1 < _queue.length) {
@@ -1405,16 +1438,11 @@ class PlayerService extends ChangeNotifier {
   Future<void> _replayCurrent() async {
     try {
       await _player.seek(Duration.zero);
-      final shouldFade = _userVolume > 0.05;
-      if (shouldFade) {
-        await _player.setVolume(0.0);
-      } else {
-        await _player.setVolume(_userVolume);
-      }
+      final targetVol = _userVolume > 0.05 ? _userVolume : 1.0;
+      await _player.setVolume(targetVol);
       await _player.play();
-      if (shouldFade) {
-        unawaited(_fadeVolume(_userVolume, duration: const Duration(milliseconds: 150)));
-      }
+      await _player.setVolume(targetVol);
+      _isManuallyPaused = false;
       _publishNotificationState();
       notifyListeners();
     } catch (e) {

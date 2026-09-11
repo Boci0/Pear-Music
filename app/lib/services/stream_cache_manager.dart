@@ -134,6 +134,13 @@ class StreamCacheManager {
   /// Whether any audio stream download is currently active.
   static bool get isAnyDownloadActive => _activeDownloadingVideoId != null;
 
+  /// Whether the currently active download is a background preload task.
+  static bool get isActiveDownloadPreload => _isActiveDownloadPreload;
+
+  /// Whether a foreground (current song) audio download is currently active.
+  static bool get isForegroundDownloadActive =>
+      _activeDownloadingVideoId != null && !_isActiveDownloadPreload;
+
   /// Video ID of the current active audio stream download, if any.
   static String? get activeDownloadingVideoId => _activeDownloadingVideoId;
 

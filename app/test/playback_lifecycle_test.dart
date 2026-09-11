@@ -169,6 +169,11 @@ void main() {
       expect(() => StreamCacheManager.cancelPreload(), returnsNormally);
     });
 
+    test('StreamCacheManager foreground vs preload state tracking', () {
+      expect(StreamCacheManager.isForegroundDownloadActive, isFalse);
+      expect(StreamCacheManager.isActiveDownloadPreload, isFalse);
+    });
+
     test('IdentityService audio preferences default and persist properly', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
