@@ -25,6 +25,69 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  updater_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "peerm/windows_updater",
+          &flutter::StandardMethodCodec::GetInstance());
+
+  updater_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        if (call.method_name() == "startDetachedProcess") {
+          const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (!args) {
+            result->Error("INVALID_ARGS", "Expected argument map");
+            return;
+          }
+          auto cmd_it = args->find(flutter::EncodableValue("commandLine"));
+          if (cmd_it == args->end() ||
+              !std::holds_alternative<std::string>(cmd_it->second)) {
+            result->Error("INVALID_ARGS", "Expected string commandLine");
+            return;
+          }
+          std::string cmd_str = std::get<std::string>(cmd_it->second);
+          int len = ::MultiByteToWideChar(CP_UTF8, 0, cmd_str.c_str(), -1, nullptr, 0);
+          if (len <= 0) {
+            result->Error("CONVERSION_FAILED", "Failed to convert commandLine to UTF-16");
+            return;
+          }
+          std::vector<wchar_t> wcmd(len);
+          ::MultiByteToWideChar(CP_UTF8, 0, cmd_str.c_str(), -1, wcmd.data(), len);
+
+          STARTUPINFOW si = {sizeof(si)};
+          si.dwFlags = STARTF_USESHOWWINDOW;
+          si.wShowWindow = SW_HIDE;
+          PROCESS_INFORMATION pi = {0};
+
+          // CREATE_BREAKAWAY_FROM_JOB is permitted because the Job Object was
+          // created with JOB_OBJECT_LIMIT_BREAKAWAY_OK in main.cpp.
+          BOOL ok = ::CreateProcessW(
+              nullptr,
+              wcmd.data(),
+              nullptr,
+              nullptr,
+              FALSE,
+              CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW,
+              nullptr,
+              nullptr,
+              &si,
+              &pi);
+
+          if (ok) {
+            ::CloseHandle(pi.hProcess);
+            ::CloseHandle(pi.hThread);
+            result->Success(flutter::EncodableValue(true));
+          } else {
+            DWORD err = ::GetLastError();
+            result->Error("SPAWN_FAILED",
+                          "CreateProcess failed with error code " + std::to_string(err));
+          }
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +103,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  updater_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

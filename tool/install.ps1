@@ -35,7 +35,7 @@ if (-not (Test-Path $installDir)) {
 }
 
 Write-Host "[install] Copying files..."
-$items = Get-ChildItem -Path $scriptDir -Exclude 'install.ps1'
+$items = Get-ChildItem -Path $scriptDir -Exclude 'install.ps1', 'Install.bat', 'install.bat'
 foreach ($item in $items) {
   if ($item.PSIsContainer) {
     robocopy $item.FullName (Join-Path $installDir $item.Name) /E /NFL /NDL /NJH /NJS | Out-Null

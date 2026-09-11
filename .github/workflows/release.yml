@@ -35,6 +35,7 @@ jobs:
       - name: Package Windows build
         run: |
           Copy-Item "tool/install.ps1" "app/build/windows/x64/runner/Release/install.ps1"
+          Copy-Item "tool/Install.bat" "app/build/windows/x64/runner/Release/Install.bat"
           Compress-Archive -Path "app/build/windows/x64/runner/Release/*" -DestinationPath "PearMusic-Windows-x64.zip" -Force
 
       - name: Upload Windows artifact

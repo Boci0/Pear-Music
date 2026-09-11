@@ -443,23 +443,41 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''');
 
         final currentPid = pid;
-        await Process.start('powershell.exe', [
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-WindowStyle',
-          'Hidden',
-          '-File',
-          updaterScript.path,
-          '-AppPid',
-          '$currentPid',
-          '-ZipPath',
-          zipFile.path,
-          '-AppDir',
-          appDir,
-          '-ExePath',
-          exePath,
-        ], mode: ProcessStartMode.detached);
+        final cmdLine =
+            'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+            '-File "${updaterScript.path}" -AppPid $currentPid -ZipPath "${zipFile.path}" '
+            '-AppDir "$appDir" -ExePath "$exePath"';
+
+        bool launchedViaChannel = false;
+        try {
+          const channel = MethodChannel('peerm/windows_updater');
+          final ok = await channel.invokeMethod<bool>('startDetachedProcess', {
+            'commandLine': cmdLine,
+          });
+          launchedViaChannel = ok ?? false;
+        } catch (e) {
+          debugPrint('[UpdateService] Native breakaway launch failed: $e');
+        }
+
+        if (!launchedViaChannel) {
+          await Process.start('powershell.exe', [
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-WindowStyle',
+            'Hidden',
+            '-File',
+            updaterScript.path,
+            '-AppPid',
+            '$currentPid',
+            '-ZipPath',
+            zipFile.path,
+            '-AppDir',
+            appDir,
+            '-ExePath',
+            exePath,
+          ], mode: ProcessStartMode.detached);
+        }
 
         exit(0);
       } else {
