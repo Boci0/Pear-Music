@@ -36,19 +36,35 @@ class PlayerTheme extends ChangeNotifier {
   /// always match the scheme being shown. That keeps the transition a smooth
   /// fade instead of a snap at the halfway point.
   static ThemeData buildFromScheme(ColorScheme scheme) {
-    const bgDark = Color(0xFF0F0F12);
-    const surfaceDark = Color(0xFF18181E);
-    const surfaceHighlight = Color(0xFF22222A);
+    const bgDark = Color(0xFF0B0B0E);
+    const surfaceDark = Color(0xFF14141A);
+    const surfaceHighlight = Color(0xFF1E1E26);
 
     return ThemeData(
       useMaterial3: true,
+      hoverColor: Colors.white.withValues(alpha: 0.04),
+      splashColor: scheme.primary.withValues(alpha: 0.08),
+      highlightColor: Colors.transparent,
       colorScheme: scheme.copyWith(
         surface: bgDark,
-        surfaceContainerLow: const Color(0xFF141418),
+        surfaceContainerLow: const Color(0xFF101014),
         surfaceContainer: surfaceDark,
         surfaceContainerHigh: surfaceHighlight,
       ),
       scaffoldBackgroundColor: bgDark,
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(
+          overlayColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.pressed)) {
+              return scheme.primary.withValues(alpha: 0.14);
+            }
+            if (states.contains(WidgetState.hovered)) {
+              return Colors.white.withValues(alpha: 0.06);
+            }
+            return Colors.transparent;
+          }),
+        ),
+      ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: _FastFadePageTransitionsBuilder(),
@@ -69,7 +85,7 @@ class PlayerTheme extends ChangeNotifier {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
         ),
       ),
       dialogTheme: DialogThemeData(
@@ -86,21 +102,55 @@ class PlayerTheme extends ChangeNotifier {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide:
               BorderSide(color: scheme.primary.withValues(alpha: 0.6), width: 1.5),
         ),
       ),
+      chipTheme: ChipThemeData(
+        backgroundColor: surfaceDark,
+        selectedColor: scheme.primary.withValues(alpha: 0.18),
+        secondarySelectedColor: scheme.primary.withValues(alpha: 0.18),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        labelStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: scheme.onSurface),
+        secondaryLabelStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: scheme.primary),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        showCheckmark: false,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return scheme.primary;
+          }
+          return Colors.white.withValues(alpha: 0.4);
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return scheme.primary.withValues(alpha: 0.25);
+          }
+          return Colors.white.withValues(alpha: 0.08);
+        }),
+        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+      ),
+      dividerTheme: DividerThemeData(
+        color: Colors.white.withValues(alpha: 0.05),
+        thickness: 1,
+        space: 1,
+      ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: const Color(0xFF141418),
+        backgroundColor: const Color(0xFF0F0F14),
         elevation: 0,
         height: 65,
         indicatorColor: scheme.primary.withValues(alpha: 0.2),
@@ -185,7 +235,8 @@ class _FastFadePageTransitionsBuilder extends PageTransitionsBuilder {
     return FadeTransition(
       opacity: CurvedAnimation(
         parent: animation,
-        curve: Curves.easeOutCubic,
+        curve: Curves.easeOutQuad,
+        reverseCurve: Curves.easeInQuad,
       ),
       child: child,
     );

@@ -820,15 +820,6 @@ class _QueueRow extends StatelessWidget {
                       color: Colors.white.withValues(alpha: 0.35),
                     ),
                     onPressed: onRemove,
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: Icon(
-                      Icons.graphic_eq_rounded,
-                      color: _readableAccent,
-                      size: 18,
-                    ),
                   ),
               ],
             ),

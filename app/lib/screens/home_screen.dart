@@ -11,7 +11,6 @@ import '../models/song.dart';
 import '../services/identity_service.dart';
 import '../services/youtube_service.dart';
 import '../widgets/song_tile.dart';
-import 'playlists_screen.dart';
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
@@ -276,46 +275,47 @@ class _HomeScreenState extends State<HomeScreen> {
       content = CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          if (_showOnlyFavorites)
-            SliverToBoxAdapter(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.favorite, size: 16, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Showing Favorites (${songs.length})',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.onPrimaryContainer,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    InkWell(
-                      onTap: () {
-                        setState(() => _showOnlyFavorites = false);
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: Text(
-                          'Show all',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+          SliverToBoxAdapter(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+              child: Row(
+                children: [
+                  _FilterPill(
+                    label: 'All (${controller.songs.length})',
+                    isSelected: !_showOnlyFavorites,
+                    onTap: () => setState(() => _showOnlyFavorites = false),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterPill(
+                    icon: _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+                    label: 'Favorites (${controller.favoriteSongs.length})',
+                    isSelected: _showOnlyFavorites,
+                    onTap: () => setState(() => _showOnlyFavorites = true),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterPill(
+                    icon: Icons.sort_rounded,
+                    label: _sortLabel(controller.sortOption),
+                    isSelected: false,
+                    onTap: () => _showSortSheet(context, controller),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterPill(
+                    icon: Icons.checklist_rounded,
+                    label: _isSelecting ? 'Done' : 'Select',
+                    isSelected: _isSelecting,
+                    onTap: () {
+                      setState(() {
+                        _isSelecting = !_isSelecting;
+                        if (!_isSelecting) _selectedIds.clear();
+                      });
+                    },
+                  ),
+                ],
               ),
             ),
+          ),
           if (songs.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -326,23 +326,38 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              Icons.favorite_border,
-                              size: 64,
-                              color: theme.colorScheme.primary
-                                  .withValues(alpha: 0.6),
+                            Container(
+                              width: 76,
+                              height: 76,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(22),
+                                border: Border.all(
+                                  color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.favorite_border_rounded,
+                                size: 36,
+                                color: theme.colorScheme.primary,
+                              ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 18),
                             Text(
                               'No favorite songs yet',
-                              style: theme.textTheme.titleMedium,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.2,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Text(
                               'Tap the heart icon on any local or online song to add it to your favorites.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+                                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                                fontSize: 13,
                               ),
                             ),
                           ],
@@ -404,233 +419,112 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final List<Widget> appBarActions;
+    final Widget headerContent;
     if (_isSearching) {
-      appBarActions = [
-        IconButton(
-          tooltip: 'Clear search',
-          icon: const Icon(Icons.close),
-          onPressed: () {
-            setState(() {
-              _searchQuery = '';
-              _searchController.clear();
-            });
-          },
-        ),
-      ];
-    } else if (_isSelecting) {
-      appBarActions = [
-        IconButton(
-          tooltip: _selectedIds.length == songs.length
-              ? 'Deselect all'
-              : 'Select all',
-          icon: Icon(_selectedIds.length == songs.length
-              ? Icons.deselect
-              : Icons.select_all),
-          onPressed: () => _selectAll(songs),
-        ),
-        IconButton(
-          tooltip: 'Add to playlist',
-          icon: const Icon(Icons.playlist_add),
-          onPressed: _selectedIds.isEmpty
-              ? null
-              : () => _batchAddToPlaylist(controller, songs),
-        ),
-        IconButton(
-          tooltip: 'Delete selected',
-          icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
-          onPressed: _selectedIds.isEmpty
-              ? null
-              : () => _batchDelete(controller, songs),
-        ),
-        const SizedBox(width: 4),
-      ];
-    } else {
-      appBarActions = [
-        IconButton(
-          tooltip: 'Search library',
-          icon: const Icon(Icons.search),
-          onPressed: () => setState(() => _isSearching = true),
-        ),
-        PopupMenuButton<String>(
-          tooltip: 'Add songs',
-          icon: const Icon(Icons.add),
-          onSelected: (val) async {
-            if (val == 'local') {
-              controller.addFilesFromPicker();
-            } else if (val == 'link') {
-              _openYouTubeDialog(context);
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'local',
-              child: Row(
-                children: [
-                  Icon(Icons.folder_open, size: 20),
-                  SizedBox(width: 12),
-                  Text('Add local audio files'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'link',
-              child: Row(
-                children: [
-                  Icon(Icons.link, size: 20),
-                  SizedBox(width: 12),
-                  Text('Add from link (YouTube/Spotify)'),
-                ],
-              ),
-            ),
-          ],
-        ),
-        PopupMenuButton<String>(
-          tooltip: 'More options',
-          icon: const Icon(Icons.more_vert),
-          onSelected: (val) async {
-            if (val == 'fav_toggle') {
-              setState(() => _showOnlyFavorites = !_showOnlyFavorites);
-            } else if (val == 'sort_date') {
-              await controller.setSortOption(SortOption.dateAdded);
-            } else if (val == 'sort_title') {
-              await controller.setSortOption(SortOption.title);
-            } else if (val == 'sort_size') {
-              await controller.setSortOption(SortOption.size);
-            } else if (val == 'select') {
-              setState(() => _isSelecting = true);
-            } else if (val == 'playlists') {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PlaylistsScreen()),
-              );
-            }
-          },
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              value: 'fav_toggle',
-              child: Row(
-                children: [
-                  Icon(
-                    _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
-                    color: _showOnlyFavorites ? theme.colorScheme.primary : null,
-                    size: 20,
+      headerContent = Row(
+        key: const ValueKey('header_search'),
+        children: [
+          IconButton(
+            tooltip: 'Close search',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              FocusScope.of(context).unfocus();
+              setState(() {
+                _isSearching = false;
+                _searchQuery = '';
+                _searchController.clear();
+              });
+            },
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: SizedBox(
+              height: 40,
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search library...',
+                  hintStyle: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                   ),
-                  const SizedBox(width: 12),
-                  Text(_showOnlyFavorites ? 'Show all songs' : 'Show favorites only'),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(),
-            PopupMenuItem(
-              value: 'sort_date',
-              child: Row(
-                children: [
-                  Icon(
-                    controller.sortOption == SortOption.dateAdded
-                        ? Icons.check
-                        : Icons.calendar_today,
-                    size: 20,
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 16),
+                          onPressed: () {
+                            setState(() {
+                              _searchQuery = '';
+                              _searchController.clear();
+                            });
+                          },
+                        )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceContainer,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
                   ),
-                  const SizedBox(width: 12),
-                  const Text('Sort: Date Added'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'sort_title',
-              child: Row(
-                children: [
-                  Icon(
-                    controller.sortOption == SortOption.title
-                        ? Icons.check
-                        : Icons.sort_by_alpha,
-                    size: 20,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
                   ),
-                  const SizedBox(width: 12),
-                  const Text('Sort: Title'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'sort_size',
-              child: Row(
-                children: [
-                  Icon(
-                    controller.sortOption == SortOption.size
-                        ? Icons.check
-                        : Icons.data_usage,
-                    size: 20,
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                      width: 1.5,
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  const Text('Sort: File Size'),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(),
-            const PopupMenuItem(
-              value: 'select',
-              child: Row(
-                children: [
-                  Icon(Icons.checklist, size: 20),
-                  SizedBox(width: 12),
-                  Text('Select multiple songs'),
-                ],
-              ),
-            ),
-            if (!_isDesktop && MediaQuery.sizeOf(context).width < 850) ...[
-              const PopupMenuItem(
-                value: 'playlists',
-                child: Row(
-                  children: [
-                    Icon(Icons.queue_music, size: 20),
-                    SizedBox(width: 12),
-                    Text('Playlists'),
-                  ],
                 ),
+                onChanged: (v) => setState(() => _searchQuery = v),
               ),
-            ],
-          ],
-        ),
-        const SizedBox(width: 4),
-      ];
-    }
-
-    Widget? leading;
-    Widget title;
-
-    if (_isSearching) {
-      leading = IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () {
-          setState(() {
-            _isSearching = false;
-            _searchQuery = '';
-            _searchController.clear();
-          });
-        },
-      );
-      title = TextField(
-        controller: _searchController,
-        autofocus: true,
-        decoration: const InputDecoration(
-          hintText: 'Search library...',
-          border: InputBorder.none,
-        ),
-        onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+        ],
       );
     } else if (_isSelecting) {
-      leading = IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: () => setState(() {
-          _isSelecting = false;
-          _selectedIds.clear();
-        }),
+      headerContent = Row(
+        key: const ValueKey('header_selecting'),
+        children: [
+          IconButton(
+            tooltip: 'Cancel selection',
+            icon: const Icon(Icons.close),
+            onPressed: () => setState(() {
+              _isSelecting = false;
+              _selectedIds.clear();
+            }),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${_selectedIds.length} selected',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const Spacer(),
+          IconButton(
+            tooltip: _selectedIds.length == songs.length ? 'Deselect all' : 'Select all',
+            icon: Icon(_selectedIds.length == songs.length ? Icons.deselect : Icons.select_all),
+            onPressed: () => _selectAll(songs),
+          ),
+          IconButton(
+            tooltip: 'Add to playlist',
+            icon: const Icon(Icons.playlist_add),
+            onPressed: _selectedIds.isEmpty ? null : () => _batchAddToPlaylist(controller, songs),
+          ),
+          IconButton(
+            tooltip: 'Delete selected',
+            icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+            onPressed: _selectedIds.isEmpty ? null : () => _batchDelete(controller, songs),
+          ),
+        ],
       );
-      title = Text('${_selectedIds.length} selected');
     } else {
-      leading = null;
-      title = Row(
-        mainAxisSize: MainAxisSize.min,
+      headerContent = Row(
+        key: const ValueKey('header_default'),
         children: [
           Image.asset(
             'assets/pear_logo.png',
@@ -639,19 +533,256 @@ class _HomeScreenState extends State<HomeScreen> {
             filterQuality: FilterQuality.medium,
           ),
           const SizedBox(width: 8),
-          const Text('Library'),
+          const Text(
+            'Library',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const Spacer(),
+          IconButton(
+            tooltip: 'Search library',
+            icon: const Icon(Icons.search),
+            onPressed: () => setState(() => _isSearching = true),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Add songs',
+            icon: const Icon(Icons.add),
+            onSelected: (val) async {
+              if (val == 'local') {
+                controller.addFilesFromPicker();
+              } else if (val == 'link') {
+                _openYouTubeDialog(context);
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'local',
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_open, size: 20),
+                    SizedBox(width: 12),
+                    Text('Add local audio files'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'link',
+                child: Row(
+                  children: [
+                    Icon(Icons.link, size: 20),
+                    SizedBox(width: 12),
+                    Text('Add from link (YouTube/Spotify)'),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        leading: leading,
-        title: title,
-        actions: appBarActions,
+        automaticallyImplyLeading: false,
+        titleSpacing: 14,
+        centerTitle: false,
+        title: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: headerContent,
+        ),
       ),
       body: body,
     );
+  }
+}
+
+class _FilterPill extends StatefulWidget {
+  final String label;
+  final IconData? icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FilterPill({
+    required this.label,
+    this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  State<_FilterPill> createState() => _FilterPillState();
+}
+
+class _FilterPillState extends State<_FilterPill> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
+    final double scale = _isPressed
+        ? 0.93
+        : (_isHovered ? 1.05 : 1.0);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() {
+        _isHovered = false;
+        _isPressed = false;
+      }),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) => setState(() => _isPressed = false),
+        onTapCancel: () => setState(() => _isPressed = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: widget.isSelected
+                  ? primary.withValues(alpha: _isHovered ? 0.28 : 0.20)
+                  : (_isHovered
+                      ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)
+                      : theme.colorScheme.surfaceContainer),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: widget.isSelected
+                    ? primary.withValues(alpha: _isHovered ? 0.65 : 0.40)
+                    : (_isHovered
+                        ? Colors.white.withValues(alpha: 0.15)
+                        : Colors.white.withValues(alpha: 0.07)),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.icon != null) ...[
+                  Icon(
+                    widget.icon,
+                    size: 14,
+                    color: widget.isSelected
+                        ? primary
+                        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.8),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                    color: widget.isSelected
+                        ? primary
+                        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.85),
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+void _showSortSheet(BuildContext context, AppController controller) {
+  final theme = Theme.of(context);
+  final primary = theme.colorScheme.primary;
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: theme.colorScheme.surfaceContainer,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Text(
+                'Sort Library',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(
+                Icons.calendar_today_rounded,
+                color: controller.sortOption == SortOption.dateAdded ? primary : null,
+              ),
+              title: const Text('Date Added'),
+              trailing: controller.sortOption == SortOption.dateAdded
+                  ? Icon(Icons.check_rounded, color: primary)
+                  : null,
+              onTap: () {
+                controller.setSortOption(SortOption.dateAdded);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.sort_by_alpha_rounded,
+                color: controller.sortOption == SortOption.title ? primary : null,
+              ),
+              title: const Text('Title (A-Z)'),
+              trailing: controller.sortOption == SortOption.title
+                  ? Icon(Icons.check_rounded, color: primary)
+                  : null,
+              onTap: () {
+                controller.setSortOption(SortOption.title);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.data_usage_rounded,
+                color: controller.sortOption == SortOption.size ? primary : null,
+              ),
+              title: const Text('File Size'),
+              trailing: controller.sortOption == SortOption.size
+                  ? Icon(Icons.check_rounded, color: primary)
+                  : null,
+              onTap: () {
+                controller.setSortOption(SortOption.size);
+                Navigator.pop(ctx);
+              },
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+String _sortLabel(SortOption option) {
+  switch (option) {
+    case SortOption.dateAdded:
+      return 'Recent';
+    case SortOption.title:
+      return 'Title';
+    case SortOption.size:
+      return 'Size';
   }
 }
 
@@ -662,28 +793,56 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.library_music_outlined,
-                size: 72, color: theme.colorScheme.primary),
-            const SizedBox(height: 16),
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: primary.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                Icons.library_music_rounded,
+                size: 38,
+                color: primary,
+              ),
+            ),
+            const SizedBox(height: 18),
             Text('Your music library is empty',
-                style: theme.textTheme.titleMedium),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                )),
             const SizedBox(height: 8),
             Text(
               'Tap "Add music" to pick audio files.\nOn Windows you can also drag & drop files here.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                fontSize: 13,
+              ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
             FilledButton.icon(
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
               onPressed: onAdd,
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add, size: 18),
               label: const Text('Add music'),
             ),
           ],

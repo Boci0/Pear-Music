@@ -16,6 +16,11 @@ import 'rhythm_pulse.dart';
 /// Large album artwork container with rounded corners, ambient accent glow,
 /// and synchronized lyrics toggle display.
 class PlayerArtwork extends StatefulWidget {
+  static final ValueNotifier<bool> showLyricsNotifier = ValueNotifier<bool>(false);
+  static bool get isLyricsShowing => showLyricsNotifier.value;
+  static void closeLyrics() => showLyricsNotifier.value = false;
+  static void toggleLyrics() => showLyricsNotifier.value = !showLyricsNotifier.value;
+
   final Song? song;
   final Uint8List? artwork;
   final String? networkUrl;
@@ -34,9 +39,64 @@ class PlayerArtwork extends StatefulWidget {
   State<PlayerArtwork> createState() => _PlayerArtworkState();
 }
 
-class _PlayerArtworkState extends State<PlayerArtwork> {
-  static bool _showLyrics = false;
+class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProviderStateMixin {
+  late final AnimationController _lyricsAnimController;
+  late final Animation<double> _blurAnimation;
+  late final Animation<double> _lyricsAnimation;
+  late final Animation<double> _syncAnimation;
+
   int _lyricsVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lyricsAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 170),
+      reverseDuration: const Duration(milliseconds: 130),
+      value: PlayerArtwork.showLyricsNotifier.value ? 1.0 : 0.0,
+    );
+
+    // Snappy, front-loaded curves:
+    // Blur layer softens into frosted glass immediately
+    _blurAnimation = CurvedAnimation(
+      parent: _lyricsAnimController,
+      curve: Curves.easeOutQuad,
+      reverseCurve: Curves.easeInQuad,
+    );
+
+    // Lyrics fade in closely behind the blur (starting at ~25ms)
+    _lyricsAnimation = CurvedAnimation(
+      parent: _lyricsAnimController,
+      curve: const Interval(0.12, 1.0, curve: Curves.easeOutQuad),
+      reverseCurve: const Interval(0.0, 0.70, curve: Curves.easeInQuad),
+    );
+
+    // Sync button animates with lyrics
+    _syncAnimation = CurvedAnimation(
+      parent: _lyricsAnimController,
+      curve: const Interval(0.12, 1.0, curve: Curves.easeOutQuad),
+      reverseCurve: const Interval(0.0, 0.70, curve: Curves.easeInQuad),
+    );
+
+    PlayerArtwork.showLyricsNotifier.addListener(_onLyricsVisibilityChanged);
+  }
+
+  void _onLyricsVisibilityChanged() {
+    if (!mounted) return;
+    if (PlayerArtwork.showLyricsNotifier.value) {
+      _lyricsAnimController.forward();
+    } else {
+      _lyricsAnimController.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    PlayerArtwork.showLyricsNotifier.removeListener(_onLyricsVisibilityChanged);
+    _lyricsAnimController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -207,6 +267,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
             height: size,
             decoration: BoxDecoration(
               borderRadius: radius,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.12),
+                width: 1.0,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.25),
@@ -218,52 +282,75 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
             child: ClipRRect(
               borderRadius: radius,
               clipBehavior: Clip.antiAliasWithSaveLayer,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (_showLyrics && song != null && playerService != null) ...[
-                    RepaintBoundary(
-                      child: ClipRRect(
-                        borderRadius: radius,
-                        clipBehavior: Clip.antiAliasWithSaveLayer,
-                        child: ImageFiltered(
-                          imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                          child: crossfadeImage,
+              child: AnimatedBuilder(
+                animation: _lyricsAnimController,
+                builder: (context, _) {
+                  final isLyricsActive = _lyricsAnimController.value > 0.0;
+                  final isLyricsFullyOpen = PlayerArtwork.showLyricsNotifier.value;
+
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      crossfadeImage,
+                      if (song != null && playerService != null && isLyricsActive)
+                        FadeTransition(
+                          opacity: _blurAnimation,
+                          child: IgnorePointer(
+                            ignoring: !isLyricsFullyOpen,
+                            child: _buildBlurredGlassBackdrop(
+                              scheme: scheme,
+                              baseShadowColor: baseShadowColor,
+                              radius: radius,
+                              size: size,
+                              song: song,
+                              initialBytes: initialBytes,
+                              effectiveNetworkUrl: effectiveNetworkUrl,
+                            ),
+                          ),
+                        ),
+                      if (song != null && playerService != null)
+                        Visibility(
+                          visible: isLyricsActive,
+                          maintainState: true,
+                          child: FadeTransition(
+                            opacity: _lyricsAnimation,
+                            child: LyricsView(
+                              key: ValueKey('lyrics_${song.id}_$_lyricsVersion'),
+                              song: song,
+                              player: playerService,
+                              accent: widget.accent,
+                              size: size,
+                              isVisible: isLyricsFullyOpen,
+                            ),
+                          ),
+                        ),
+                      // Razor-thin crisp border framing the big artwork
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: radius,
+                              border: Border.all(
+                                color: isLyricsFullyOpen
+                                    ? Colors.white.withValues(alpha: 0.22)
+                                    : Colors.white.withValues(alpha: 0.16),
+                                width: 1.0,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.55),
-                    ),
-                  ] else ...[
-                    crossfadeImage,
-                  ],
-                  if (song != null && playerService != null)
-                    Visibility(
-                      visible: _showLyrics,
-                      maintainState: true,
-                      child: LyricsView(
-                        key: ValueKey('lyrics_${song.id}_$_lyricsVersion'),
-                        song: song,
-                        player: playerService,
-                        accent: widget.accent,
-                        size: size,
-                        isVisible: _showLyrics,
-                      ),
-                    ),
-                  if (song != null && playerService != null && _showLyrics)
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Material(
-                            color: Colors.transparent,
-                            child: Tooltip(
-                              message: 'Lyrics timing & options',
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
+                      if (song != null && playerService != null)
+                        Positioned(
+                          top: 10,
+                          left: 10,
+                          child: FadeTransition(
+                            opacity: _syncAnimation,
+                            child: IgnorePointer(
+                              ignoring: !isLyricsFullyOpen,
+                              child: PlayerPillButton(
+                                tooltip: 'Lyrics timing & options',
+                                activeColor: baseShadowColor,
                                 onTap: () {
                                   showLyricSyncSheet(
                                     context,
@@ -276,77 +363,57 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
                                     },
                                   );
                                 },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(14),
-                                    color: Colors.black.withValues(alpha: 0.28),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.10),
-                                      width: 0.5,
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.tune_rounded,
+                                      size: 13,
+                                      color: Colors.white,
                                     ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.tune_rounded,
-                                        size: 12,
-                                        color: Colors.white.withValues(alpha: 0.75),
+                                    SizedBox(width: 4.5),
+                                    Text(
+                                      'Sync',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                        letterSpacing: 0.2,
                                       ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Sync',
-                                        style: TextStyle(
-                                          fontSize: 10.5,
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.white.withValues(alpha: 0.75),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (song != null && playerService != null)
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: Tooltip(
-                          message: _showLyrics ? 'Show album artwork' : 'Show lyrics',
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () => setState(() => _showLyrics = !_showLyrics),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black.withValues(alpha: 0.28),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.10),
-                                  width: 0.5,
-                                ),
-                              ),
-                              child: Icon(
-                                _showLyrics ? Icons.image_rounded : Icons.lyrics_rounded,
-                                size: 15,
-                                color: Colors.white.withValues(alpha: 0.75),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
+                      if (song != null && playerService != null)
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: PlayerPillButton(
+                            isCircle: true,
+                            tooltip: isLyricsFullyOpen ? 'Show album artwork' : 'Show lyrics',
+                            activeColor: baseShadowColor,
+                            onTap: () => PlayerArtwork.toggleLyrics(),
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 90),
+                              transitionBuilder: (child, anim) => FadeTransition(
+                                opacity: anim,
+                                child: child,
+                              ),
+                              child: Icon(
+                                isLyricsFullyOpen ? Icons.image_rounded : Icons.lyrics_rounded,
+                                key: ValueKey(isLyricsFullyOpen),
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -354,6 +421,93 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
       ],
     );
 
+  }
+
+  Widget _buildBlurredGlassBackdrop({
+    required ColorScheme scheme,
+    required Color baseShadowColor,
+    required BorderRadius radius,
+    required double size,
+    required Song? song,
+    required Uint8List? initialBytes,
+    required String? effectiveNetworkUrl,
+  }) {
+    const lowResPx = 64;
+    final Widget lowResImage;
+    if (effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty) {
+      lowResImage = Image.network(
+        effectiveNetworkUrl,
+        width: size,
+        height: size,
+        cacheWidth: lowResPx,
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => _placeholder(scheme),
+      );
+    } else if (initialBytes != null && initialBytes.isNotEmpty) {
+      lowResImage = Image.memory(
+        initialBytes,
+        width: size,
+        height: size,
+        cacheWidth: lowResPx,
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => _placeholder(scheme),
+      );
+    } else if (song != null) {
+      final cached = ArtworkPalette.bytes(song);
+      if (cached != null && cached.isNotEmpty) {
+        lowResImage = Image.memory(
+          cached,
+          width: size,
+          height: size,
+          cacheWidth: lowResPx,
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _placeholder(scheme),
+        );
+      } else {
+        lowResImage = _placeholder(scheme);
+      }
+    } else {
+      lowResImage = _placeholder(scheme);
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        RepaintBoundary(
+          child: ClipRRect(
+            borderRadius: radius,
+            clipBehavior: Clip.antiAliasWithSaveLayer,
+            child: Transform.scale(
+              scale: 1.12,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                child: lowResImage,
+              ),
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: 0.15),
+                baseShadowColor.withValues(alpha: 0.14),
+                Colors.black.withValues(alpha: 0.40),
+              ],
+              stops: const [0.0, 0.45, 1.0],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _placeholder(ColorScheme scheme) {
@@ -601,6 +755,93 @@ class PlayerSongInfo extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+class PlayerPillButton extends StatefulWidget {
+  final VoidCallback onTap;
+  final Widget child;
+  final String? tooltip;
+  final Color activeColor;
+  final bool isCircle;
+  final bool isActive;
+
+  const PlayerPillButton({
+    super.key,
+    required this.onTap,
+    required this.child,
+    required this.activeColor,
+    this.tooltip,
+    this.isCircle = false,
+    this.isActive = true,
+  });
+
+  @override
+  State<PlayerPillButton> createState() => _PlayerPillButtonState();
+}
+
+class _PlayerPillButtonState extends State<PlayerPillButton> {
+  bool _isPressed = false;
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final pillRadius = widget.isCircle ? BorderRadius.circular(20) : BorderRadius.circular(16);
+
+    Widget button = MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) {
+          setState(() => _isPressed = false);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _isPressed = false),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedScale(
+          scale: _isPressed ? 0.90 : (_isHovered ? 1.06 : 1.0),
+          duration: const Duration(milliseconds: 90),
+          curve: Curves.easeOutQuad,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 100),
+            curve: Curves.easeOutQuad,
+            padding: widget.isCircle
+                ? const EdgeInsets.all(7.5)
+                : const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              shape: widget.isCircle ? BoxShape.circle : BoxShape.rectangle,
+              borderRadius: widget.isCircle ? null : pillRadius,
+              color: _isPressed
+                  ? Colors.black.withValues(alpha: 0.70)
+                  : (_isHovered
+                      ? Colors.black.withValues(alpha: 0.58)
+                      : Colors.black.withValues(alpha: 0.46)),
+              border: Border.all(
+                color: _isHovered
+                    ? Colors.white.withValues(alpha: 0.45)
+                    : Colors.white.withValues(alpha: 0.22),
+                width: 1.0,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 6.0,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+
+    if (widget.tooltip != null) {
+      button = Tooltip(message: widget.tooltip!, child: button);
+    }
+    return button;
   }
 }
 

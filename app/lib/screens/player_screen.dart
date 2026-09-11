@@ -5,6 +5,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
+import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
@@ -72,7 +73,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       scrolledUnderElevation: 0,
       elevation: 0,
       notificationPredicate: (_) => false,
-      leading: const BackButton(),
+      leading: BackButton(
+        onPressed: () {
+          if (PlayerArtwork.isLyricsShowing) {
+            PlayerArtwork.closeLyrics();
+          } else {
+            Navigator.maybePop(context);
+          }
+        },
+      ),
       actions: [
         IconButton(
           tooltip: 'Diagnostics Console',
@@ -98,7 +107,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
     // changes.
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: PlayerArtwork.showLyricsNotifier,
+      builder: (context, lyricsShowing, child) {
+        return PopScope(
+          canPop: !lyricsShowing,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (lyricsShowing) {
+              PlayerArtwork.closeLyrics();
+            }
+          },
+          child: child!,
+        );
+      },
+      child: Scaffold(
       key: _scaffoldKey,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: TweenAnimationBuilder<Color?>(
@@ -161,6 +184,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         ),
       ),
-    );
+    ),
+  );
+  }
+
+  @override
+  void dispose() {
+    PlayerArtwork.closeLyrics();
+    super.dispose();
   }
 }

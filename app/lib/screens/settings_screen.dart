@@ -85,6 +85,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _sectionTitle(context, 'Audio & Playback'),
           Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            ),
             child: Column(
               children: [
                 ListTile(
@@ -122,7 +126,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SwitchListTile(
                   secondary: const Icon(Icons.playlist_play_rounded),
                   title: const Text('Endless Play'),
-                  subtitle: const Text('Keep playing similar recommendations when queue ends'),
+                  subtitle: const Text('Keep playing recommendations when queue ends'),
                   value: controller.player.autoplay,
                   onChanged: (val) {
                     controller.player.setAutoplay(val);
@@ -132,14 +136,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SwitchListTile(
                   secondary: const Icon(Icons.casino_rounded),
                   title: const Text('Auto-Reroll Seed'),
-                  subtitle: const Text('Reroll recommendation seed on every track change'),
+                  subtitle: const Text('Reroll recommendation seed on track change'),
                   value: controller.player.autoRerollSeed,
                   onChanged: (val) {
                     controller.player.setAutoRerollSeed(val);
                   },
                 ),
-
-                const Divider(height: 1),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _sectionTitle(context, 'Storage & Cache'),
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Column(
+              children: [
                 ListTile(
                   leading: const Icon(Icons.cleaning_services_rounded),
                   title: const Text('Clear streaming cache'),
@@ -152,9 +166,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
           _sectionTitle(context, 'About & Updates'),
           Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            ),
             child: Column(
               children: [
                 ListTile(
@@ -201,12 +219,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _sectionTitle(BuildContext context, String title) => Padding(
-    padding: const EdgeInsets.only(left: 4, bottom: 8),
+    padding: const EdgeInsets.only(left: 6, bottom: 8, top: 4),
     child: Text(
-      title,
-      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-        color: Theme.of(context).colorScheme.primary,
-        fontWeight: FontWeight.w600,
+      title.toUpperCase(),
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.9),
       ),
     ),
   );

@@ -7,6 +7,7 @@ import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
+import 'pear_page_route.dart';
 
 /// Compact now-playing bar shown above the navigation bar.
 class PlayerBar extends StatelessWidget {
@@ -35,7 +36,7 @@ class PlayerBar extends StatelessWidget {
         theme.colorScheme.surfaceContainerHigh;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
       child: GestureDetector(
         onHorizontalDragEnd: (details) {
           final vx = details.primaryVelocity ?? 0;
@@ -53,101 +54,105 @@ class PlayerBar extends StatelessWidget {
         },
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 16,
+                color: Colors.black.withValues(alpha: 0.40),
+                blurRadius: 18,
                 offset: const Offset(0, 4),
               ),
             ],
           ),
           child: Material(
             color: barColor,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(20),
               side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: InkWell(
               onTap: () => _openPlayer(context),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+              child: Stack(
                 children: [
-                  _MiniProgressBar(player: player, color: control),
+                  Positioned.fill(
+                    child: _MiniPlayerBackgroundProgress(
+                      player: player,
+                      color: control,
+                    ),
+                  ),
                   Padding(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     child: Row(
-                  children: [
-                _Thumb(song: song),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall,
-                      ),
-                      Text(
-                        (player.isLoadingTrack && !player.playing)
-                            ? 'Buffering track...'
-                            : 'Playing on this device',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: (player.isLoadingTrack && !player.playing)
-                              ? theme.colorScheme.primary
-                              : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.skip_previous, color: control),
-                  onPressed: () => controller.previousTrack(),
-                ),
-                SizedBox(
-                  width: 36,
-                  height: 36,
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    iconSize: 36,
-                    icon: (player.isLoadingTrack && !player.playing)
-                        ? Center(
-                            child: SizedBox(
-                              width: 28,
-                              height: 28,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: control,
+                      children: [
+                        _Thumb(song: song),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                song.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall,
                               ),
-                            ),
-                          )
-                        : Icon(
-                            player.playing
-                                ? Icons.pause_circle_filled
-                                : Icons.play_circle_filled,
-                            size: 36,
-                            color: control,
+                              Text(
+                                (player.isLoadingTrack && !player.playing)
+                                    ? 'Buffering track...'
+                                    : 'Playing on this device',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: (player.isLoadingTrack && !player.playing)
+                                      ? theme.colorScheme.primary
+                                      : null,
+                                ),
+                              ),
+                            ],
                           ),
-                    onPressed: () => controller.togglePlayback(),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.skip_previous, color: control),
+                          onPressed: () => controller.previousTrack(),
+                        ),
+                        SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            iconSize: 36,
+                            icon: (player.isLoadingTrack && !player.playing)
+                                ? Center(
+                                    child: SizedBox(
+                                      width: 28,
+                                      height: 28,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: control,
+                                      ),
+                                    ),
+                                  )
+                                : Icon(
+                                    player.playing
+                                        ? Icons.pause_circle_filled
+                                        : Icons.play_circle_filled,
+                                    size: 36,
+                                    color: control,
+                                  ),
+                            onPressed: () => controller.togglePlayback(),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.skip_next, color: control),
+                          onPressed: () => controller.nextTrack(),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.skip_next, color: control),
-                  onPressed: () => controller.nextTrack(),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-            ],
-          ),
-        ),
       ),
     ),
   ),
@@ -156,19 +161,8 @@ class PlayerBar extends StatelessWidget {
 
   void _openPlayer(BuildContext context) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 250),
-        reverseTransitionDuration: const Duration(milliseconds: 250),
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const PlayerScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            FadeTransition(
-              opacity: CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-              ),
-              child: child,
-            ),
+      PearPageRoute(
+        builder: (_) => const PlayerScreen(),
       ),
     );
   }
@@ -258,52 +252,65 @@ class _Thumb extends StatelessWidget {
   }
 }
 
-/// 2.5px slim progress line drawn across the very top of the mini player bar.
-class _MiniProgressBar extends StatelessWidget {
+/// Progress fill spanning the entire mini player capsule background from left to right.
+class _MiniPlayerBackgroundProgress extends StatelessWidget {
   final PlayerService player;
   final Color color;
-  const _MiniProgressBar({required this.player, required this.color});
+  const _MiniPlayerBackgroundProgress({
+    required this.player,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
       child: StreamBuilder<Duration?>(
-      stream: player.durationStream,
-      initialData: player.duration,
-      builder: (context, durSnapshot) {
-        final totalMs =
-            (durSnapshot.data ?? player.duration ?? Duration.zero)
-                .inMilliseconds
-                .toDouble();
-        if (totalMs <= 0) {
-          return SizedBox(
-            height: 2.5,
-            child: Container(color: color.withValues(alpha: 0.1)),
+        stream: player.durationStream,
+        initialData: player.duration,
+        builder: (context, durSnapshot) {
+          final totalMs =
+              (durSnapshot.data ?? player.duration ?? Duration.zero)
+                  .inMilliseconds
+                  .toDouble();
+          if (totalMs <= 0) {
+            return const SizedBox.expand();
+          }
+          return StreamBuilder<Duration>(
+            stream: player.positionStream,
+            initialData: player.position ?? Duration.zero,
+            builder: (context, posSnapshot) {
+              final posMs =
+                  (posSnapshot.data ?? player.position ?? Duration.zero)
+                      .inMilliseconds
+                      .toDouble();
+              final fraction = (posMs / totalMs).clamp(0.0, 1.0);
+              return FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: fraction,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        color.withValues(alpha: 0.22),
+                        color.withValues(alpha: 0.12),
+                      ],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    border: Border(
+                      right: BorderSide(
+                        color: color.withValues(alpha: 0.50),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           );
-        }
-        return StreamBuilder<Duration>(
-          stream: player.positionStream,
-          initialData: player.position ?? Duration.zero,
-          builder: (context, posSnapshot) {
-            final posMs =
-                (posSnapshot.data ?? player.position ?? Duration.zero)
-                    .inMilliseconds
-                    .toDouble();
-            final fraction = (posMs / totalMs).clamp(0.0, 1.0);
-            return SizedBox(
-              height: 2.5,
-              child: LinearProgressIndicator(
-                value: fraction,
-                minHeight: 2.5,
-                backgroundColor: color.withValues(alpha: 0.15),
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
-}
+        },
+      ),
+    );
+  }
 }
 

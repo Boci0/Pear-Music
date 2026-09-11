@@ -23,8 +23,8 @@ class ArtworkPalette {
   static const Color fallback = Color(0xFF10B981);
 
   // Bounded LRU caches. Memory caps optimized for high responsiveness and minimal RAM.
-  static const int _maxBytesEntries = 32;
-  static const int _maxAsyncBytesEntries = 48;
+  static const int _maxBytesEntries = 128;
+  static const int _maxAsyncBytesEntries = 160;
   static const int _maxColorEntries = 128;
   static final LinkedHashMap<String, Future<Color>> _cache =
       LinkedHashMap<String, Future<Color>>();
@@ -46,7 +46,6 @@ class ArtworkPalette {
   /// Last resolved accent colour. Kept across cache clears so the UI never
   /// flashes back to fallback while colours re-resolve.
   static Color? _lastAccent;
-  static String? _currentDominantSongId;
 
   static final HttpClient _httpClient = HttpClient()
     ..connectionTimeout = const Duration(seconds: 4)
@@ -56,47 +55,29 @@ class ArtworkPalette {
   /// Synchronous cached color extraction for zero-latency widget rendering.
   static Color dominantSync(Song song, {Color? fallbackColor}) {
     final id = song.id;
-    _currentDominantSongId = id;
     final cached = _resolvedColors[id];
     if (cached != null) return cached;
-    final fb = fallbackColor ?? _lastAccent ?? fallback;
-    final art = song.artwork;
-    if (art == null || art.isEmpty) return fb;
-    // Asynchronously resolve in background isolate without blocking UI thread
-    dominant(song, fallbackColor: fb).then((color) {
-      _resolvedColors[id] = color;
-      if (_currentDominantSongId == null || _currentDominantSongId == id || _lastAccent == null) {
-        _lastAccent = color;
-      }
-      _trim(_resolvedColors, _maxColorEntries);
-    });
-    return fb;
+    return fallbackColor ?? _lastAccent ?? fallback;
   }
 
-  /// Returns the dominant colour for [song] (or [fallback] when the song has
-  /// no artwork). The returned future is cached, so repeated calls are free.
+  /// Theme accent colour for [song]. Cached per song id: runs [compute] once,
+  /// then returns the resolved colour instantly on every subsequent build.
   static Future<Color> dominant(Song song, {Color? fallbackColor}) {
-    final fb = fallbackColor ?? _lastAccent ?? fallback;
-    final art = song.artwork;
-    if (art == null || art.isEmpty) return Future.value(fb);
     final id = song.id;
-    _currentDominantSongId = id;
-    final cachedColor = _resolvedColors[id];
-    if (cachedColor != null) return Future.value(cachedColor);
-    final cached = _cache.remove(id);
-    if (cached != null) {
-      _cache[id] = cached; // re-insert -> move to most-recently-used end.
-      return cached;
+    final cached = _cache[id];
+    if (cached != null) return cached;
+    final art = song.artwork;
+    if (art == null || art.isEmpty) {
+      return Future.value(fallbackColor ?? _lastAccent ?? fallback);
     }
+
     final future = _extract(art).then((color) {
-      final effective = (color == fallback && _lastAccent != null) ? _lastAccent! : color;
-      _resolvedColors[id] = effective;
-      if (_currentDominantSongId == null || _currentDominantSongId == id || _lastAccent == null) {
-        _lastAccent = effective;
-      }
+      _resolvedColors[id] = color;
       _trim(_resolvedColors, _maxColorEntries);
-      return effective;
+      _lastAccent = color;
+      return color;
     });
+
     _cache[id] = future;
     _trim(_cache, _maxColorEntries);
     return future;
@@ -120,13 +101,10 @@ class ArtworkPalette {
     return decoded;
   }
 
-  /// Returns decoded artwork bytes ONLY if already present in the in-memory LRU cache.
-  /// Does NOT trigger synchronous base64 decoding on cache misses, keeping the UI isolate free.
+  /// Returns synchronous cached decoded bytes if present, or null.
   static Uint8List? cachedBytes(Song song) {
-    final art = song.artwork;
-    if (art == null || art.isEmpty) return null;
     final id = song.id;
-    final cached = _bytesCache.remove(id);
+    final cached = _bytesCache[id];
     if (cached != null) {
       _bytesCache[id] = cached;
       return cached;
@@ -142,12 +120,11 @@ class ArtworkPalette {
     }
   }
 
-  /// Asynchronously decodes artwork for [song] in a background isolate.
+  /// Asynchronously decodes artwork for [song] with caching.
   ///
-  /// List tiles MUST use this instead of [bytes]: the synchronous base64
-  /// decode of every tile that scrolls into view janks the UI thread on large
-  /// libraries (hundreds of embedded JPEGs). Results are cached by song id in
-  /// a bounded LRU so repeated builds are free.
+  /// Small thumbnails (< 64KB) decode in < 0.1ms synchronously, avoiding the
+  /// heavy 10-20ms isolate spawn penalty of `compute`. Larger artworks decode
+  /// in background isolates. Results are cached by song id in a bounded LRU.
   static Future<Uint8List?> bytesAsync(Song song) {
     final art = song.artwork;
     if (art == null || art.isEmpty) return Future.value(null);
@@ -159,6 +136,17 @@ class ArtworkPalette {
     final syncCached = _bytesCache[id];
     if (syncCached != null) {
       final fut = Future.value(syncCached);
+      _asyncBytesCache[id] = fut;
+      _trim(_asyncBytesCache, _maxAsyncBytesEntries);
+      return fut;
+    }
+    if (art.length < 65536) {
+      final decoded = _decodeArtwork(art);
+      if (decoded != null) {
+        _bytesCache[id] = decoded;
+        _trim(_bytesCache, _maxBytesEntries);
+      }
+      final fut = Future.value(decoded);
       _asyncBytesCache[id] = fut;
       _trim(_asyncBytesCache, _maxAsyncBytesEntries);
       return fut;

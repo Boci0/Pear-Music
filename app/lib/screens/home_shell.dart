@@ -7,6 +7,7 @@ import '../services/artwork_palette.dart';
 import '../services/lyrics_service.dart';
 import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
+import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import 'explore_screen.dart';
 import 'home_screen.dart';
@@ -24,12 +25,18 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   AppLifecycleListener? _lifecycleListener;
+  final GlobalKey<NavigatorState> _playlistsNavKey = GlobalKey<NavigatorState>();
 
-  static const _screens = [
-    HomeScreen(),
-    PlaylistsScreen(),
-    ExploreScreen(),
-    SettingsScreen(),
+  late final List<Widget> _screens = [
+    const HomeScreen(),
+    Navigator(
+      key: _playlistsNavKey,
+      onGenerateRoute: (settings) => PearPageRoute(
+        builder: (_) => const PlaylistsScreen(),
+      ),
+    ),
+    const ExploreScreen(),
+    const SettingsScreen(),
   ];
 
   @override
@@ -86,22 +93,38 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: _screens,
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const PlayerBar(),
-            _MinimalistNavBar(
-              selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-            ),
-          ],
+    return PopScope(
+      canPop: _index == 0 && !(_playlistsNavKey.currentState?.canPop() ?? false),
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_index == 1 && (_playlistsNavKey.currentState?.canPop() ?? false)) {
+          _playlistsNavKey.currentState!.pop();
+        } else if (_index != 0) {
+          setState(() => _index = 0);
+        }
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: _index,
+          children: _screens,
+        ),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const PlayerBar(),
+              _MinimalistNavBar(
+                selectedIndex: _index,
+                onDestinationSelected: (i) {
+                  if (i == 1 && _index == 1) {
+                    _playlistsNavKey.currentState?.popUntil((route) => route.isFirst);
+                  }
+                  setState(() => _index = i);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -119,50 +142,99 @@ class _MinimalistNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
-      height: 52,
-      color: const Color(0xFF0F0F12),
-      child: Row(
-        children: [
-          _NavBarItem(
-            index: 0,
-            selectedIndex: selectedIndex,
-            label: 'Library',
-            inactiveIcon: Icons.library_music_outlined,
-            activeIcon: Icons.library_music_rounded,
-            onTap: () => onDestinationSelected(0),
-          ),
-          _NavBarItem(
-            index: 1,
-            selectedIndex: selectedIndex,
-            label: 'Playlists',
-            inactiveIcon: Icons.queue_music_outlined,
-            activeIcon: Icons.queue_music_rounded,
-            onTap: () => onDestinationSelected(1),
-          ),
-          _NavBarItem(
-            index: 2,
-            selectedIndex: selectedIndex,
-            label: 'Explore',
-            inactiveIcon: Icons.explore_outlined,
-            activeIcon: Icons.explore_rounded,
-            onTap: () => onDestinationSelected(2),
-          ),
-          _NavBarItem(
-            index: 3,
-            selectedIndex: selectedIndex,
-            label: 'Settings',
-            inactiveIcon: Icons.settings_outlined,
-            activeIcon: Icons.settings_rounded,
-            onTap: () => onDestinationSelected(3),
+      margin: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+      height: 58,
+      decoration: BoxDecoration(
+        color: const Color(0xFF14141A),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.08),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.45),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final itemWidth = constraints.maxWidth / 4;
+            return Stack(
+              children: [
+                // Gliding solid pill indicator across tabs
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutCubic,
+                  left: selectedIndex * itemWidth + 5,
+                  top: 5,
+                  bottom: 5,
+                  width: itemWidth - 10,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: scheme.primary.withValues(alpha: 0.38),
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                ),
+                // Navigation items
+                Row(
+                  children: [
+                    _NavBarItem(
+                      index: 0,
+                      selectedIndex: selectedIndex,
+                      label: 'Library',
+                      inactiveIcon: Icons.library_music_outlined,
+                      activeIcon: Icons.library_music_rounded,
+                      onTap: () => onDestinationSelected(0),
+                    ),
+                    _NavBarItem(
+                      index: 1,
+                      selectedIndex: selectedIndex,
+                      label: 'Playlists',
+                      inactiveIcon: Icons.queue_music_outlined,
+                      activeIcon: Icons.queue_music_rounded,
+                      onTap: () => onDestinationSelected(1),
+                    ),
+                    _NavBarItem(
+                      index: 2,
+                      selectedIndex: selectedIndex,
+                      label: 'Explore',
+                      inactiveIcon: Icons.explore_outlined,
+                      activeIcon: Icons.explore_rounded,
+                      onTap: () => onDestinationSelected(2),
+                    ),
+                    _NavBarItem(
+                      index: 3,
+                      selectedIndex: selectedIndex,
+                      label: 'Settings',
+                      inactiveIcon: Icons.settings_outlined,
+                      activeIcon: Icons.settings_rounded,
+                      onTap: () => onDestinationSelected(3),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 }
 
-class _NavBarItem extends StatelessWidget {
+class _NavBarItem extends StatefulWidget {
   final int index;
   final int selectedIndex;
   final String label;
@@ -180,40 +252,76 @@ class _NavBarItem extends StatelessWidget {
   });
 
   @override
+  State<_NavBarItem> createState() => _NavBarItemState();
+}
+
+class _NavBarItemState extends State<_NavBarItem> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final isSelected = index == selectedIndex;
+    final isSelected = widget.index == widget.selectedIndex;
     final scheme = Theme.of(context).colorScheme;
 
     return Expanded(
-      child: InkResponse(
-        onTap: onTap,
-        containedInkWell: true,
-        highlightShape: BoxShape.rectangle,
-        splashColor: scheme.primary.withValues(alpha: 0.12),
-        highlightColor: Colors.transparent,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isSelected ? activeIcon : inactiveIcon,
-              size: 22,
-              color: isSelected
-                  ? scheme.primary
-                  : Colors.white.withValues(alpha: 0.48),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected
-                    ? scheme.primary
-                    : Colors.white.withValues(alpha: 0.48),
-                letterSpacing: -0.1,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) {
+            setState(() => _isPressed = false);
+            widget.onTap();
+          },
+          onTapCancel: () => setState(() => _isPressed = false),
+          behavior: HitTestBehavior.opaque,
+          child: Center(
+            child: AnimatedScale(
+              scale: _isPressed ? 0.90 : (_isHovered ? 1.05 : 1.0),
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOutCubic,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (!isSelected && _isHovered)
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isSelected ? widget.activeIcon : widget.inactiveIcon,
+                      size: 20,
+                      color: isSelected
+                          ? scheme.primary
+                          : _isHovered
+                              ? Colors.white.withValues(alpha: 0.75)
+                              : Colors.white.withValues(alpha: 0.45),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.label,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                        color: isSelected
+                            ? scheme.primary
+                            : _isHovered
+                                ? Colors.white.withValues(alpha: 0.75)
+                                : Colors.white.withValues(alpha: 0.45),
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

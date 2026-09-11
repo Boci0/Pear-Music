@@ -361,13 +361,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                          ] else if (widget.isCurrent) ...[
-                            Icon(
-                              Icons.graphic_eq_rounded,
-                              size: 18,
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(width: 4),
                           ],
                           if (isFav) ...[
                             IconButton(

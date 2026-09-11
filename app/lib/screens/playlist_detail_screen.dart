@@ -6,7 +6,6 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
-import '../widgets/player_bar.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
 /// playlist order, remove a song from the playlist, rename or delete it.
@@ -51,11 +50,11 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
     final effectiveIds = _optimisticIds ?? playlist.songIds;
 
-    final songs = [
-      for (final id in effectiveIds)
-        if (controller.findSongById(id) != null)
-          controller.findSongById(id)!,
-    ];
+    final songs = <Song>[];
+    for (final id in effectiveIds) {
+      final s = controller.findSongById(id);
+      if (s != null) songs.add(s);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -73,9 +72,6 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           ),
         ],
       ),
-      // Surface the mini player here too (it's hidden behind this pushed
-      // screen) so playing from a playlist gives visible feedback.
-      bottomNavigationBar: const PlayerBar(),
       body: Column(
         children: [
           Padding(
@@ -319,7 +315,13 @@ class _SongRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final initialBytes = ArtworkPalette.cachedBytes(song);
+    final initialBytes = ArtworkPalette.cachedBytes(song) ??
+        (song.artwork != null &&
+                song.artwork!.isNotEmpty &&
+                !song.artwork!.startsWith('http') &&
+                song.artwork!.length < 65536
+            ? ArtworkPalette.bytes(song)
+            : null);
     final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
 
     Widget artworkWidget;
@@ -479,15 +481,6 @@ class _SongRow extends StatelessWidget {
                               ],
                             ),
                           ),
-                          if (isCurrent)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: Icon(
-                                Icons.graphic_eq_rounded,
-                                size: 18,
-                                color: theme.colorScheme.primary,
-                              ),
-                            ),
                           IconButton(
                             tooltip: 'Remove from playlist',
                             icon: Icon(

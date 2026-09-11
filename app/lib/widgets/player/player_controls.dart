@@ -278,29 +278,29 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                                 context.read<AppController?>()?.updateSynthesizerBar(!useSynthesizer);
                               },
                               behavior: HitTestBehavior.opaque,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        useSynthesizer ? Icons.graphic_eq_rounded : Icons.linear_scale_rounded,
-                                        size: 13,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      useSynthesizer ? Icons.graphic_eq_rounded : Icons.linear_scale_rounded,
+                                      size: 13,
+                                      color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      useSynthesizer ? 'Visualizer' : 'Standard',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
                                         color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
                                       ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        useSynthesizer ? 'Visualizer' : 'Standard',
-                                        style: theme.textTheme.labelSmall?.copyWith(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
-                                          color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                            ),
                             GestureDetector(
                               onTap: () => setState(() => _showRemaining = !_showRemaining),
                               behavior: HitTestBehavior.opaque,

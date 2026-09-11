@@ -6,6 +6,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
+import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import 'playlist_detail_screen.dart';
 
@@ -18,10 +19,32 @@ class PlaylistsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
     final playlists = controller.playlists;
+    final currentSongId = controller.player.currentSong?.id;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Playlists'),
+        automaticallyImplyLeading: false,
+        titleSpacing: 14,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/pear_logo.png',
+              width: 28,
+              height: 28,
+              filterQuality: FilterQuality.medium,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Playlists',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'New playlist',
@@ -36,13 +59,14 @@ class PlaylistsScreen extends StatelessWidget {
       body: playlists.isEmpty
           ? _EmptyPlaylists(onCreate: () => _createPlaylist(context, controller))
           : ListView.builder(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              itemExtent: 72.0,
               itemCount: playlists.length,
               itemBuilder: (context, i) => _PlaylistTile(
+                key: ValueKey(playlists[i].id),
                 playlist: playlists[i],
-                isActive: controller.player.currentSong != null &&
-                    playlists[i].songIds
-                        .contains(controller.player.currentSong!.id),
+                isActive: currentSongId != null &&
+                    playlists[i].songIds.contains(currentSongId),
                 onPlay: () => controller.playPlaylist(playlists[i]),
                 onDelete: () => _confirmDelete(context, controller, playlists[i]),
               ),
@@ -124,6 +148,7 @@ class _PlaylistTile extends StatelessWidget {
   final VoidCallback onDelete;
 
   const _PlaylistTile({
+    super.key,
     required this.playlist,
     required this.isActive,
     required this.onPlay,
@@ -135,13 +160,13 @@ class _PlaylistTile extends StatelessWidget {
     final theme = Theme.of(context);
     final controller = context.read<AppController>();
 
-    // Find up to 4 preview songs for artwork mosaic preview
-    final previewSongs = <Song>[];
+    // Find the first valid song for playlist artwork preview
+    Song? firstSong;
     for (final id in playlist.songIds) {
       final s = controller.findSongById(id);
       if (s != null) {
-        previewSongs.add(s);
-        if (previewSongs.length == 4) break;
+        firstSong = s;
+        break;
       }
     }
 
@@ -156,7 +181,7 @@ class _PlaylistTile extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
+              PearPageRoute(
                 builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
               ),
             ),
@@ -205,7 +230,7 @@ class _PlaylistTile extends StatelessWidget {
                       child: Row(
                         children: [
                           _PlaylistArtwork(
-                            songs: previewSongs,
+                            firstSong: firstSong,
                             isActive: isActive,
                           ),
                           const SizedBox(width: 14),
@@ -221,15 +246,27 @@ class _PlaylistTile extends StatelessWidget {
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontSize: 15,
                                     fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                                    color: isActive ? theme.colorScheme.primary : null,
+                                    letterSpacing: -0.1,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                    fontSize: 12.5,
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isActive
+                                        ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                                        : Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
+                                    style: TextStyle(
+                                      color: isActive
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -293,11 +330,11 @@ class _PlaylistTile extends StatelessWidget {
 }
 
 class _PlaylistArtwork extends StatelessWidget {
-  final List<Song> songs;
+  final Song? firstSong;
   final bool isActive;
 
   const _PlaylistArtwork({
-    required this.songs,
+    required this.firstSong,
     required this.isActive,
   });
 
@@ -307,7 +344,7 @@ class _PlaylistArtwork extends StatelessWidget {
     final scheme = theme.colorScheme;
 
     Widget content;
-    if (songs.isEmpty) {
+    if (firstSong == null) {
       content = Container(
         width: 46,
         height: 46,
@@ -322,18 +359,26 @@ class _PlaylistArtwork extends StatelessWidget {
         ),
       );
     } else {
-      final first = songs.first;
-      final bytes = ArtworkPalette.cachedBytes(first);
-      final isNetwork = first.artwork != null && first.artwork!.startsWith('http');
+      final song = firstSong!;
+      final bytes = ArtworkPalette.cachedBytes(song) ??
+          (song.artwork != null &&
+                  song.artwork!.isNotEmpty &&
+                  !song.artwork!.startsWith('http') &&
+                  song.artwork!.length < 65536
+              ? ArtworkPalette.bytes(song)
+              : null);
+      final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
       if (isNetwork) {
         content = ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: Image.network(
-            first.artwork!,
+            song.artwork!,
+            key: ValueKey('pl_net_${song.id}'),
             width: 46,
             height: 46,
             cacheWidth: 96,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
             errorBuilder: (_, _, _) => _fallback(scheme),
           ),
         );
@@ -342,27 +387,33 @@ class _PlaylistArtwork extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           child: Image.memory(
             bytes,
+            key: ValueKey('pl_mem_${song.id}'),
             width: 46,
             height: 46,
             cacheWidth: 96,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
             errorBuilder: (_, _, _) => _fallback(scheme),
           ),
         );
       } else {
         content = FutureBuilder<Uint8List?>(
-          future: ArtworkPalette.bytesAsync(first),
+          key: ValueKey('pl_async_${song.id}'),
+          initialData: bytes,
+          future: ArtworkPalette.bytesAsync(song),
           builder: (context, snap) {
-            final b = snap.data;
+            final b = snap.data ?? bytes;
             if (b != null && b.isNotEmpty) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Image.memory(
                   b,
+                  key: ValueKey('pl_mem_${song.id}'),
                   width: 46,
                   height: 46,
                   cacheWidth: 96,
                   fit: BoxFit.cover,
+                  gaplessPlayback: true,
                   errorBuilder: (_, _, _) => _fallback(scheme),
                 ),
               );
@@ -429,8 +480,12 @@ class _EmptyPlaylists extends StatelessWidget {
               width: 76,
               height: 76,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
-                shape: BoxShape.circle,
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                  width: 1,
+                ),
               ),
               child: Icon(
                 Icons.queue_music_rounded,
@@ -444,6 +499,7 @@ class _EmptyPlaylists extends StatelessWidget {
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 fontSize: 17,
+                letterSpacing: -0.2,
               ),
             ),
             const SizedBox(height: 6),
@@ -451,7 +507,7 @@ class _EmptyPlaylists extends StatelessWidget {
               'Group your favorite songs together into custom collections.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
                 fontSize: 13,
               ),
             ),
@@ -459,7 +515,7 @@ class _EmptyPlaylists extends StatelessWidget {
             FilledButton.icon(
               style: FilledButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
