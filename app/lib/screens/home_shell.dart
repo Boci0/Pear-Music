@@ -10,6 +10,7 @@ import '../services/session_diagnostics.dart';
 import '../widgets/player_bar.dart';
 import 'explore_screen.dart';
 import 'home_screen.dart';
+import 'playlists_screen.dart';
 import 'settings_screen.dart';
 
 /// Root shell with unified mobile-first layout (bottom navigation bar + mini player).
@@ -26,6 +27,7 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _screens = [
     HomeScreen(),
+    PlaylistsScreen(),
     ExploreScreen(),
     SettingsScreen(),
   ];
@@ -133,18 +135,26 @@ class _MinimalistNavBar extends StatelessWidget {
           _NavBarItem(
             index: 1,
             selectedIndex: selectedIndex,
-            label: 'Explore',
-            inactiveIcon: Icons.explore_outlined,
-            activeIcon: Icons.explore_rounded,
+            label: 'Playlists',
+            inactiveIcon: Icons.queue_music_outlined,
+            activeIcon: Icons.queue_music_rounded,
             onTap: () => onDestinationSelected(1),
           ),
           _NavBarItem(
             index: 2,
             selectedIndex: selectedIndex,
+            label: 'Explore',
+            inactiveIcon: Icons.explore_outlined,
+            activeIcon: Icons.explore_rounded,
+            onTap: () => onDestinationSelected(2),
+          ),
+          _NavBarItem(
+            index: 3,
+            selectedIndex: selectedIndex,
             label: 'Settings',
             inactiveIcon: Icons.settings_outlined,
             activeIcon: Icons.settings_rounded,
-            onTap: () => onDestinationSelected(2),
+            onTap: () => onDestinationSelected(3),
           ),
         ],
       ),

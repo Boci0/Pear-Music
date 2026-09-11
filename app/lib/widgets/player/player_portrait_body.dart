@@ -46,14 +46,15 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight;
+        final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
         final bottomInset = MediaQuery.paddingOf(context).bottom;
         final peekHeight = 62.0 + bottomInset;
         final minChildSize = (peekHeight / availableHeight).clamp(0.06, 0.22);
-        final maxHeight = availableHeight * 0.50;
+        final maxHeight = (availableHeight * 0.50).clamp(peekHeight, availableHeight * 0.50);
         // Allow artwork to sit comfortably with balanced margins
         // while bounding against available vertical space to prevent transport controls from being cramped.
         final maxByWidth = (constraints.maxWidth - 72.0).clamp(150.0, 305.0);
-        final maxByHeight = (availableHeight - peekHeight - 250.0).clamp(150.0, 305.0);
+        final maxByHeight = (availableHeight - topInset - peekHeight - 240.0).clamp(140.0, 305.0);
         final artSize = math.min(maxByWidth, maxByHeight);
 
         return Stack(
@@ -62,11 +63,12 @@ class _PlayerPortraitBodyState extends State<PlayerPortraitBody> {
             Positioned.fill(
               child: RepaintBoundary(
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(24, 8, 24, peekHeight + 12),
+                  physics: const ClampingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(24, topInset + 4, 24, peekHeight + 12),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       minHeight:
-                          (availableHeight - peekHeight - 20).clamp(0.0, double.infinity),
+                          (availableHeight - topInset - peekHeight - 16).clamp(0.0, double.infinity),
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,

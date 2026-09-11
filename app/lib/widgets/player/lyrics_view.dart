@@ -52,6 +52,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     final isForeground = state == AppLifecycleState.resumed;
     if (_isForeground != isForeground) {
       _isForeground = isForeground;
+      _updateSubscriptionState();
       if (_isForeground && widget.isVisible) {
         _snapToCurrentPosition();
       }
@@ -67,8 +68,26 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     }
     if (oldWidget.song.id != widget.song.id) {
       _loadLyrics();
-    } else if (widget.isVisible && !oldWidget.isVisible) {
-      _snapToCurrentPosition();
+    } else if (widget.isVisible != oldWidget.isVisible) {
+      _updateSubscriptionState();
+      if (widget.isVisible && _isForeground) {
+        _snapToCurrentPosition();
+      }
+    }
+  }
+
+  void _updateSubscriptionState() {
+    final sub = _positionSub;
+    if (sub == null) return;
+    final shouldListen = _isForeground && widget.isVisible;
+    if (shouldListen) {
+      if (sub.isPaused) {
+        sub.resume();
+      }
+    } else {
+      if (!sub.isPaused) {
+        sub.pause();
+      }
     }
   }
 
@@ -110,7 +129,10 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
 
     if (lyrics.isNotEmpty) {
       _positionSub = widget.player.positionStream.listen(_onPositionUpdate);
-      _snapToCurrentPosition();
+      _updateSubscriptionState();
+      if (_isForeground && widget.isVisible) {
+        _snapToCurrentPosition();
+      }
     }
   }
 

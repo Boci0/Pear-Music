@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
+import '../services/artwork_palette.dart';
 import '../widgets/player_bar.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
@@ -58,36 +60,80 @@ class PlaylistDetailScreen extends StatelessWidget {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Icon(Icons.queue_music,
-                        size: 18, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${songs.length} song${songs.length == 1 ? '' : 's'}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.queue_music_rounded,
+                            size: 15,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${songs.length} song${songs.length == 1 ? '' : 's'}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(44),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: songs.isEmpty
+                            ? null
+                            : () => controller.playPlaylist(playlist),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                        label: const Text(
+                          'Play all',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
                     ),
-                    onPressed: songs.isEmpty
-                        ? null
-                        : () => controller.playPlaylist(playlist),
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Play all'),
-                  ),
+                    const SizedBox(width: 10),
+                    IconButton.filledTonal(
+                      tooltip: 'Shuffle playlist',
+                      style: IconButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        minimumSize: const Size(44, 44),
+                      ),
+                      onPressed: songs.isEmpty
+                          ? null
+                          : () {
+                              if (!controller.player.shuffle) {
+                                controller.player.toggleShuffle();
+                              }
+                              controller.playPlaylist(playlist);
+                            },
+                      icon: const Icon(Icons.shuffle_rounded, size: 20),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -97,7 +143,8 @@ class PlaylistDetailScreen extends StatelessWidget {
                 ? const _EmptyPlaylist()
                 : ReorderableListView.builder(
                     padding: const EdgeInsets.only(bottom: 24),
-                    itemExtent: 64.0,
+                    itemExtent: 61.0,
+                    buildDefaultDragHandles: false,
                     itemCount: songs.length,
                     onReorderItem: (oldIndex, newIndex) =>
                         _reorder(context, controller, playlist, songs, oldIndex, newIndex),
@@ -110,6 +157,7 @@ class PlaylistDetailScreen extends StatelessWidget {
                         song: song,
                         isCurrent: isCurrent,
                         isPlaying: isPlaying,
+                        index: i,
                         onPlay: isPlaying
                             ? () => controller.togglePlayback()
                             : () => controller.player.playSong(
@@ -215,6 +263,7 @@ class _SongRow extends StatelessWidget {
   final Song song;
   final bool isCurrent;
   final bool isPlaying;
+  final int index;
   final VoidCallback onPlay;
   final VoidCallback onRemove;
 
@@ -223,6 +272,7 @@ class _SongRow extends StatelessWidget {
     required this.song,
     required this.isCurrent,
     required this.isPlaying,
+    required this.index,
     required this.onPlay,
     required this.onRemove,
   });
@@ -230,52 +280,230 @@ class _SongRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return RepaintBoundary(
-      child: ListTile(
-        tileColor: isCurrent
-            ? (theme.brightness == Brightness.dark
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-                : theme.colorScheme.primaryContainer.withValues(alpha: 0.40))
-            : null,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        leading: Icon(
-          isCurrent ? Icons.graphic_eq : Icons.audiotrack,
-          color: isCurrent
-              ? theme.colorScheme.primary
-              : theme.colorScheme.onSurfaceVariant,
+    final initialBytes = ArtworkPalette.cachedBytes(song);
+    final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
+
+    Widget artworkWidget;
+    if (isNetwork) {
+      artworkWidget = RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(
+            song.artwork!,
+            key: ValueKey('pl_net_${song.id}'),
+            width: 44,
+            height: 44,
+            cacheWidth: 96,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => _placeholder(theme.colorScheme),
+          ),
         ),
-        title: Text(
-          song.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: isCurrent
-              ? TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                )
-              : null,
+      );
+    } else if (initialBytes != null && initialBytes.isNotEmpty) {
+      artworkWidget = RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            initialBytes,
+            key: ValueKey('pl_mem_${song.id}'),
+            width: 44,
+            height: 44,
+            cacheWidth: 96,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => _placeholder(theme.colorScheme),
+          ),
         ),
-        subtitle: Text(song.sizeLabel, style: theme.textTheme.bodySmall),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: isPlaying ? 'Pause' : 'Play',
-              icon: Icon(
-                isPlaying ? Icons.pause_circle : Icons.play_circle,
-                color: theme.colorScheme.primary,
+      );
+    } else {
+      artworkWidget = RepaintBoundary(
+        child: FutureBuilder<Uint8List?>(
+          key: ValueKey('pl_async_${song.id}'),
+          initialData: initialBytes,
+          future: ArtworkPalette.bytesAsync(song),
+          builder: (context, snapshot) {
+            final bytes = snapshot.data ?? initialBytes;
+            if (bytes == null || bytes.isEmpty) return _placeholder(theme.colorScheme);
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.memory(
+                bytes,
+                key: ValueKey('pl_mem_${song.id}'),
+                width: 44,
+                height: 44,
+                cacheWidth: 96,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => _placeholder(theme.colorScheme),
               ),
-              onPressed: onPlay,
+            );
+          },
+        ),
+      );
+    }
+
+    if (isCurrent) {
+      artworkWidget = Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.65),
+            width: 1.5,
+          ),
+        ),
+        child: artworkWidget,
+      );
+    }
+
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
+        child: Material(
+          color: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onPlay,
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: isCurrent
+                    ? LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.02),
+                        ],
+                      )
+                    : null,
+                border: isCurrent
+                    ? Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.20),
+                        width: 1,
+                      )
+                    : null,
+              ),
+              child: SizedBox(
+                height: 58,
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    if (isCurrent)
+                      Positioned(
+                        left: 4,
+                        child: Container(
+                          width: 3.5,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 14, right: 6),
+                      child: Row(
+                        children: [
+                          artworkWidget,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  song.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontSize: 14.5,
+                                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+                                    color: isCurrent ? theme.colorScheme.primary : null,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  song.sizeLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isCurrent)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: Icon(
+                                Icons.graphic_eq_rounded,
+                                size: 18,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          IconButton(
+                            tooltip: 'Remove from playlist',
+                            icon: Icon(
+                              Icons.remove_circle_outline_rounded,
+                              size: 19,
+                              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            onPressed: onRemove,
+                          ),
+                          ReorderableDragStartListener(
+                            index: index,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                              child: Icon(
+                                Icons.drag_handle_rounded,
+                                size: 20,
+                                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            IconButton(
-              tooltip: 'Remove from playlist',
-              icon: Icon(Icons.remove_circle_outline,
-                  color: theme.colorScheme.error),
-              onPressed: onRemove,
-            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder(ColorScheme scheme) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.primaryContainer,
+            scheme.primary.withValues(alpha: 0.55),
           ],
         ),
-        onTap: onPlay,
+      ),
+      child: Icon(
+        isCurrent ? Icons.music_note_rounded : Icons.audiotrack_rounded,
+        color: scheme.onPrimaryContainer,
+        size: 22,
       ),
     );
   }

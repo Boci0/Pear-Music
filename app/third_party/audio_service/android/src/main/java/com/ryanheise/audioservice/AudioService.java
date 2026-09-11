@@ -751,6 +751,8 @@ public class AudioService extends MediaBrowserServiceCompat {
             notificationBuilder = new NotificationCompat.Builder(this, notificationChannelId)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setSilent(true)
                     .setDeleteIntent(buildDeletePendingIntent());
         }
         int iconId = getResourceId(config.androidNotificationIcon);
@@ -772,6 +774,8 @@ public class AudioService extends MediaBrowserServiceCompat {
             channel = new NotificationChannel(notificationChannelId, config.androidNotificationChannelName,
                     NotificationManager.IMPORTANCE_LOW);
             channel.setShowBadge(config.androidShowNotificationBadge);
+            channel.setSound(null, null);
+            channel.enableVibration(false);
             if (config.androidNotificationChannelDescription != null)
                 channel.setDescription(config.androidNotificationChannelDescription);
             notificationManager.createNotificationChannel(channel);

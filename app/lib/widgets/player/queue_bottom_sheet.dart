@@ -301,19 +301,25 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: const Color(0xFF141418),
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(22)),
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(lerpDouble(22, 28, _curvedAnimation.value)!),
+            ),
             border: Border(
               top: BorderSide(
-                color: Colors.white.withValues(alpha: 0.12),
+                color: Colors.white.withValues(
+                  alpha: lerpDouble(0.12, 0.05, _curvedAnimation.value)!,
+                ),
                 width: 1,
               ),
             ),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                color: Colors.black54,
-                blurRadius: 18,
-                offset: Offset(0, -4),
+                color: Colors.black.withValues(
+                  alpha: lerpDouble(0.40, 0.65, _curvedAnimation.value)!,
+                ),
+                blurRadius: lerpDouble(16, 28, _curvedAnimation.value)!,
+                spreadRadius: 1,
+                offset: const Offset(0, -4),
               ),
             ],
           ),

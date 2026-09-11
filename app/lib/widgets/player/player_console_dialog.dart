@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../../services/debug_log.dart';
 import '../../services/session_diagnostics.dart';
 import '../../services/stream_cache_manager.dart';
+import 'console_symbol_icon.dart';
 
 /// Interactive live terminal diagnostics console for real-time stream inspection.
 class PlayerConsoleDialog extends StatefulWidget {
@@ -41,24 +42,51 @@ class PlayerConsoleDialog extends StatefulWidget {
   State<PlayerConsoleDialog> createState() => _PlayerConsoleDialogState();
 }
 
+class _ConsoleStatsData {
+  final double rssMb;
+  final double peakRssMb;
+  final bool isPss;
+  final double cpuPercent;
+  final double gpuLoadPercent;
+  final double gpuRasterMs;
+  final int cacheTrackCount;
+  final double cacheMb;
+  final int inFlightCount;
+  final String uptimeStr;
+  final String lifecycleStr;
+  final String playbackStr;
+  final String batterySummary;
+  final bool isCharging;
+
+  const _ConsoleStatsData({
+    this.rssMb = 0.0,
+    this.peakRssMb = 0.0,
+    this.isPss = false,
+    this.cpuPercent = 0.0,
+    this.gpuLoadPercent = 0.0,
+    this.gpuRasterMs = 0.0,
+    this.cacheTrackCount = 0,
+    this.cacheMb = 0.0,
+    this.inFlightCount = 0,
+    this.uptimeStr = '',
+    this.lifecycleStr = '',
+    this.playbackStr = '',
+    this.batterySummary = 'Checking...',
+    this.isCharging = false,
+  });
+}
+
 class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
   final List<String> _logs = [];
+  final List<String> _pendingLogs = [];
   final ScrollController _scrollController = ScrollController();
+  final ValueNotifier<_ConsoleStatsData> _statsNotifier =
+      ValueNotifier<_ConsoleStatsData>(const _ConsoleStatsData());
+
   StreamSubscription<String>? _sub;
   Timer? _statsTimer;
+  Timer? _logFlushTimer;
   bool _autoScroll = true;
-
-  double _rssMb = 0.0;
-  double _peakRssMb = 0.0;
-  int _cacheTrackCount = 0;
-  double _cacheMb = 0.0;
-  int _inFlightCount = 0;
-  String _uptimeStr = '';
-  String _lifecycleStr = '';
-  String _playbackStr = '';
-  String _batterySummary = 'Checking...';
-  bool _isCharging = false;
-  bool _isPss = false;
 
   void _updateStats() async {
     if (!mounted) return;
@@ -76,6 +104,8 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
       }
     } catch (_) {}
     SessionDiagnostics.recordRss(rss);
+    final cpu = await SessionDiagnostics.sampleCpuUsage();
+    final gpu = SessionDiagnostics.getGpuSnapshot();
     await SessionDiagnostics.updateBatterySnapshot();
     if (!mounted) return;
 
@@ -86,43 +116,57 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
     final playback = SessionDiagnostics.totalPlaybackDuration;
     final latestBattery = SessionDiagnostics.latestBattery;
 
-    setState(() {
-      _rssMb = rss;
-      _isPss = isPss;
-      _peakRssMb = SessionDiagnostics.peakRssMb;
-      _cacheTrackCount = stats.trackCount;
-      _cacheMb = stats.totalBytes / (1024 * 1024);
-      _inFlightCount = stats.inFlightCount;
+    _statsNotifier.value = _ConsoleStatsData(
+      rssMb: rss,
+      isPss: isPss,
+      peakRssMb: SessionDiagnostics.peakRssMb,
+      cpuPercent: cpu,
+      gpuLoadPercent: gpu.rasterLoadPercent,
+      gpuRasterMs: gpu.avgRasterMs,
+      cacheTrackCount: stats.trackCount,
+      cacheMb: stats.totalBytes / (1024 * 1024),
+      inFlightCount: stats.inFlightCount,
+      uptimeStr: SessionDiagnostics.formatDuration(uptime),
+      lifecycleStr:
+          'FG: ${SessionDiagnostics.formatDuration(fg)} | BG: ${SessionDiagnostics.formatDuration(bg)}',
+      playbackStr: SessionDiagnostics.formatDuration(playback),
+      batterySummary: SessionDiagnostics.getBatterySummary(),
+      isCharging: latestBattery?.isCharging ?? false,
+    );
+  }
 
-      _uptimeStr = SessionDiagnostics.formatDuration(uptime);
-      _lifecycleStr = 'FG: ${SessionDiagnostics.formatDuration(fg)} | BG: ${SessionDiagnostics.formatDuration(bg)}';
-      _playbackStr = SessionDiagnostics.formatDuration(playback);
-      _batterySummary = SessionDiagnostics.getBatterySummary();
-      _isCharging = latestBattery?.isCharging ?? false;
+  void _flushPendingLogs() {
+    if (!mounted || _pendingLogs.isEmpty) return;
+    setState(() {
+      _logs.addAll(_pendingLogs);
+      _pendingLogs.clear();
+      if (_logs.length > 200) {
+        _logs.removeRange(0, _logs.length - 200);
+      }
     });
+    if (_autoScroll) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        }
+      });
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    SessionDiagnostics.startGpuTracking();
     _logs.addAll(DebugLog.recentLogs);
     _updateStats();
-    _statsTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) => _updateStats());
+    _statsTimer =
+        Timer.periodic(const Duration(milliseconds: 1500), (_) => _updateStats());
+    _logFlushTimer =
+        Timer.periodic(const Duration(milliseconds: 250), (_) => _flushPendingLogs());
+
     _sub = DebugLog.stream.listen((line) {
       if (!mounted) return;
-      setState(() {
-        _logs.add(line);
-        if (_logs.length > 200) {
-          _logs.removeAt(0);
-        }
-      });
-      if (_autoScroll) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients) {
-            _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-          }
-        });
-      }
+      _pendingLogs.add(line);
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -134,9 +178,12 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
 
   @override
   void dispose() {
+    SessionDiagnostics.stopGpuTracking();
     _statsTimer?.cancel();
+    _logFlushTimer?.cancel();
     _sub?.cancel();
     _scrollController.dispose();
+    _statsNotifier.dispose();
     super.dispose();
   }
 
@@ -189,15 +236,10 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Icon(
-                    Icons.terminal_rounded,
-                    size: 16,
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: ConsoleSymbolIcon(
+                    size: 15,
                     color: Colors.white70,
                   ),
                 ),
@@ -266,71 +308,89 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
               ],
             ),
           ),
-          // Live Resource Usage Bar (Lightweight O(1) in-memory stats, zero emojis)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF111111),
-              border: Border(
-                bottom: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.06),
+          // Live Resource Usage Bar (Lightweight O(1) in-memory stats, zero emojis, isolated repaint)
+          ValueListenableBuilder<_ConsoleStatsData>(
+            valueListenable: _statsNotifier,
+            builder: (context, stats, _) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111111),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Wrap(
-                  spacing: 14,
-                  runSpacing: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildStatItem(
-                      icon: _isCharging
-                          ? Icons.battery_charging_full_rounded
-                          : Icons.battery_std_rounded,
-                      label: 'Battery: $_batterySummary',
-                      color: _isCharging
-                          ? const Color(0xFF81C784)
-                          : const Color(0xFFFFD54F),
+                    Wrap(
+                      spacing: 14,
+                      runSpacing: 5,
+                      children: [
+                        _buildStatItem(
+                          icon: stats.isCharging
+                              ? Icons.battery_charging_full_rounded
+                              : Icons.battery_std_rounded,
+                          label: 'Battery: ${stats.batterySummary}',
+                          color: stats.isCharging
+                              ? const Color(0xFF81C784)
+                              : const Color(0xFFFFD54F),
+                        ),
+                        _buildStatItem(
+                          icon: Icons.timer_outlined,
+                          label: 'Uptime: ${stats.uptimeStr} (${stats.lifecycleStr})',
+                          color: const Color(0xFFE0E0E0),
+                        ),
+                        if (stats.playbackStr.isNotEmpty && stats.playbackStr != '0s')
+                          _buildStatItem(
+                            icon: Icons.music_note_rounded,
+                            label: 'Playback: ${stats.playbackStr}',
+                            color: const Color(0xFF4DD0E1),
+                          ),
+                      ],
                     ),
-                    _buildStatItem(
-                      icon: Icons.timer_outlined,
-                      label: 'Uptime: $_uptimeStr ($_lifecycleStr)',
-                      color: const Color(0xFFE0E0E0),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 14,
+                      runSpacing: 5,
+                      children: [
+                        _buildStatItem(
+                          icon: Icons.memory_rounded,
+                          label:
+                              'RAM (${stats.isPss ? "PSS" : "RSS"}): ${stats.rssMb.toStringAsFixed(1)} MB (Peak: ${stats.peakRssMb.toStringAsFixed(1)} MB)',
+                          color: const Color(0xFF81C784),
+                        ),
+                        _buildStatItem(
+                          icon: Icons.speed_rounded,
+                          label:
+                              'CPU: ${stats.cpuPercent.toStringAsFixed(1)}% | GPU (Raster): ${stats.gpuLoadPercent.toStringAsFixed(1)}% (${stats.gpuRasterMs.toStringAsFixed(1)}ms)',
+                          color: const Color(0xFFB388FF),
+                        ),
+                        _buildStatItem(
+                          icon: Icons.storage_rounded,
+                          label:
+                              'Cache: ${stats.cacheTrackCount} tracks (${stats.cacheMb.toStringAsFixed(1)} MB)',
+                          color: const Color(0xFF64B5F6),
+                        ),
+                        _buildStatItem(
+                          icon: stats.inFlightCount > 0
+                              ? Icons.downloading_rounded
+                              : Icons.check_circle_outline_rounded,
+                          label:
+                              'Preload: ${stats.inFlightCount > 0 ? "Buffering ${stats.inFlightCount}" : "Idle"}',
+                          color: stats.inFlightCount > 0
+                              ? const Color(0xFFFFB74D)
+                              : Colors.white60,
+                        ),
+                      ],
                     ),
-                    if (_playbackStr.isNotEmpty && _playbackStr != '0s')
-                      _buildStatItem(
-                        icon: Icons.music_note_rounded,
-                        label: 'Playback: $_playbackStr',
-                        color: const Color(0xFF4DD0E1),
-                      ),
                   ],
                 ),
-                const SizedBox(height: 5),
-                Wrap(
-                  spacing: 14,
-                  runSpacing: 5,
-                  children: [
-                    _buildStatItem(
-                      icon: Icons.memory_rounded,
-                      label: 'RAM (${_isPss ? "PSS" : "RSS"}): ${_rssMb.toStringAsFixed(1)} MB (Peak: ${_peakRssMb.toStringAsFixed(1)} MB)',
-                      color: const Color(0xFF81C784),
-                    ),
-                    _buildStatItem(
-                      icon: Icons.storage_rounded,
-                      label: 'Cache: $_cacheTrackCount tracks (${_cacheMb.toStringAsFixed(1)} MB)',
-                      color: const Color(0xFF64B5F6),
-                    ),
-                    _buildStatItem(
-                      icon: _inFlightCount > 0 ? Icons.downloading_rounded : Icons.check_circle_outline_rounded,
-                      label: 'Preload: ${_inFlightCount > 0 ? "Buffering $_inFlightCount" : "Idle"}',
-                      color: _inFlightCount > 0 ? const Color(0xFFFFB74D) : Colors.white60,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              );
+            },
           ),
           // Console Output Area
           Expanded(

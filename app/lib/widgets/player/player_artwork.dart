@@ -217,13 +217,20 @@ class _PlayerArtworkState extends State<PlayerArtwork> {
             ),
             child: ClipRRect(
               borderRadius: radius,
+              clipBehavior: Clip.antiAliasWithSaveLayer,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   if (_showLyrics && song != null && playerService != null) ...[
-                    ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                      child: crossfadeImage,
+                    RepaintBoundary(
+                      child: ClipRRect(
+                        borderRadius: radius,
+                        clipBehavior: Clip.antiAliasWithSaveLayer,
+                        child: ImageFiltered(
+                          imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                          child: crossfadeImage,
+                        ),
+                      ),
                     ),
                     Container(
                       color: Colors.black.withValues(alpha: 0.55),

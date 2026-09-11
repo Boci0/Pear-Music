@@ -145,6 +145,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final List<StreamSubscription> _subs = [];
   final List<VoidCallback> _removeNotifierListeners = [];
 
+  bool _isLifecycleObserved = false;
+  int _lastBackgroundFlushEpoch = 0;
+
   // ---------- lifecycle ----------
 
   Future<void> init() async {
@@ -158,9 +161,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     library.addListener(notifyListeners);
     player.addListener(notifyListeners);
 
-    try {
-      WidgetsBinding.instance.addObserver(this);
-    } catch (_) {}
+    if (!_isLifecycleObserved) {
+      try {
+        WidgetsBinding.instance.addObserver(this);
+        _isLifecycleObserved = true;
+      } catch (_) {}
+    }
 
     notifyListeners();
   }
@@ -174,6 +180,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastBackgroundFlushEpoch < 1500) {
+        debugPrint('[app] Debouncing rapid background save hook');
+        return;
+      }
+      _lastBackgroundFlushEpoch = now;
       debugPrint('[app] app backgrounded: flushing pending saves');
       library.flushSaveIndex();
       ArtworkPalette.compactMemory();
@@ -200,9 +212,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> disposeAll() async {
     if (_closing) return;
     _closing = true;
-    try {
-      WidgetsBinding.instance.removeObserver(this);
-    } catch (_) {}
+    if (_isLifecycleObserved) {
+      try {
+        WidgetsBinding.instance.removeObserver(this);
+        _isLifecycleObserved = false;
+      } catch (_) {}
+    }
     for (final s in _subs) {
       await s.cancel();
     }

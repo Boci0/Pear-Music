@@ -60,6 +60,9 @@ class PlayerService extends ChangeNotifier {
   bool _autoRerollSeed = false;
   Timer? _autoRerollDebounceTimer;
   String? _lastAutoRerolledSongId;
+  bool _isRerolling = false;
+  bool get isRerolling => _isRerolling;
+  Timer? _saveVolumeDebounceTimer;
 
   String? _continuationToken;
   bool _isLoadingRecommendations = false;
@@ -276,8 +279,8 @@ class PlayerService extends ChangeNotifier {
     // Never let the underlying player loop by itself: loop modes are
     // implemented in Dart (single-source loads). This is also what fixes the
     // "loops on 1 song" issue on backends that don't advance playlists.
-    _userVolume = 0.75;
-    unawaited(_player.setVolume(0.75));
+    _userVolume = identity?.playbackVolume ?? 0.75;
+    unawaited(_player.setVolume(_userVolume));
     unawaited(_player.setLoopMode(LoopMode.off));
 
     // NOTE: `positionStream` is deliberately NOT forwarded through
@@ -403,11 +406,12 @@ class PlayerService extends ChangeNotifier {
       if (firstOk && _queue.length < 25) {
         await fetchAndAppendRecommendations();
       }
+      if (isAlreadyPlayingSeed && !_isLoadingTrack && !_isAdvancing && !_isRerolling) {
+        _preloadUpcomingStreams();
+      }
     }());
 
-    if (isAlreadyPlayingSeed) {
-      _preloadUpcomingStreams();
-    } else {
+    if (!isAlreadyPlayingSeed) {
       await playSong(seedSong, sourceId: 'radio', sourceTitle: queueTitle);
     }
   }
@@ -473,7 +477,9 @@ class PlayerService extends ChangeNotifier {
 
         if (newSongs.isNotEmpty) {
           _queue = [..._queue, ...newSongs];
-          _preloadUpcomingStreams();
+          if (!_isLoadingTrack && !_isAdvancing && !_isRerolling) {
+            _preloadUpcomingStreams();
+          }
           DebugLog.write('[radio] Appended ${newSongs.length} unique tracks (queue size: ${_queue.length})');
           notifyListeners();
           completer.complete(true);
@@ -587,7 +593,9 @@ class PlayerService extends ChangeNotifier {
       }
 
       _queue = [...head, ...lockedUpcoming, ...freshSongs];
-      _preloadUpcomingStreams();
+      if (!_isLoadingTrack && !_isAdvancing) {
+        _preloadUpcomingStreams();
+      }
       DebugLog.write(
           '[radio] Reroll complete: queue now has ${_queue.length} tracks (${lockedUpcoming.length} locked, ${freshSongs.length} new)');
       notifyListeners();
@@ -604,8 +612,12 @@ class PlayerService extends ChangeNotifier {
   /// Auto-rerolls the single next track following the current song, and immediately
   /// caches it in the background so it is instantly ready when the current track finishes.
   Future<bool> rerollNextTrackOnly() async {
-    if (currentSong == null || _queue.isEmpty) return false;
-    if (_isLoadingRecommendations) return false;
+    if (currentSong == null || _queue.isEmpty || _isRerolling) return false;
+    _isRerolling = true;
+    if (_isLoadingRecommendations) {
+      _isRerolling = false;
+      return false;
+    }
     _isLoadingRecommendations = true;
     notifyListeners();
 
@@ -700,16 +712,8 @@ class PlayerService extends ChangeNotifier {
               nextSong.id.replaceFirst('stream_', '');
           if (vId.isNotEmpty && !StreamCacheManager.isStreamCachedSync(vId)) {
             DebugLog.write(
-                '[radio] Starting immediate caching for rerolled track: $vId');
-            StreamCacheManager.cancelPreload();
-            _isPreloadingUpcoming = true;
-            StreamCacheManager.preloadSlidingWindow([vId],
-                onTrackCached: (cachedId) {
-              if (cachedId == vId) {
-                _isPreloadingUpcoming = false;
-                notifyListeners();
-              }
-            });
+                '[radio] Scheduling preload for settled rerolled track: $vId');
+            _preloadUpcomingStreams(delay: Duration.zero);
           }
         }
         notifyListeners();
@@ -721,6 +725,7 @@ class PlayerService extends ChangeNotifier {
       return false;
     } finally {
       _isLoadingRecommendations = false;
+      _isRerolling = false;
       notifyListeners();
     }
   }
@@ -925,8 +930,6 @@ class PlayerService extends ChangeNotifier {
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;
       _publishNotificationState();
-      notifyListeners();
-      DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex, triggering preload');
       var willAutoReroll = false;
       if (_autoRerollSeed) {
         final hasUpcoming = _queueIndex < _queue.length - 1;
@@ -939,6 +942,7 @@ class PlayerService extends ChangeNotifier {
           }
         }
       }
+      DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex${willAutoReroll ? ", waiting for auto-reroll before preload" : ", triggering preload"}');
       if (!willAutoReroll) {
         _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
       }
@@ -986,7 +990,7 @@ class PlayerService extends ChangeNotifier {
     _autoRerollDebounceTimer?.cancel();
     _autoRerollDebounceTimer = Timer(const Duration(milliseconds: 350), () async {
       _autoRerollDebounceTimer = null;
-      if (token != _playRequestToken || !_autoRerollSeed || currentSong == null) {
+      if (token != _playRequestToken || !_autoRerollSeed || currentSong == null || _isRerolling) {
         return;
       }
       DebugLog.write('[radio] Auto-rerolling next track for "${currentSong!.title}"');
@@ -1006,6 +1010,10 @@ class PlayerService extends ChangeNotifier {
     _preloadDebounceTimer?.cancel();
     if (_queueIndex < 0 || _queue.isEmpty) {
       DebugLog.write('[preload] Skipping preload: queueIdx=$_queueIndex queueLen=${_queue.length}');
+      return;
+    }
+    if (_autoRerollSeed && (_isRerolling || _autoRerollDebounceTimer != null)) {
+      DebugLog.write('[preload] Auto-reroll option is ON (reroll active/pending); waiting for reroll before preloading');
       return;
     }
     const maxLookahead = 3;
@@ -1073,6 +1081,15 @@ class PlayerService extends ChangeNotifier {
     _preloadDebounceTimer = Timer(delay, () {
       if (token != _playRequestToken) return;
       if (!_player.playing && _queueIndex < 0) return;
+      if (_isRerolling || _isLoadingRecommendations || (_autoRerollSeed && _autoRerollDebounceTimer != null)) {
+        DebugLog.write('[preload] Reroll or recommendation in progress; deferring preload until settled');
+        _preloadDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+          if (token == _playRequestToken) {
+            _preloadUpcomingStreams(delay: Duration.zero);
+          }
+        });
+        return;
+      }
       if (_isBufferingNext || _bufferingVideoId != null || StreamCacheManager.isAnyDownloadActive) {
         DebugLog.write('[preload] Current track is still downloading/buffering; deferring preload until completion');
         final activeId = StreamCacheManager.activeDownloadingVideoId;
@@ -1340,8 +1357,26 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> _replayCurrent() async {
-    await _player.seek(Duration.zero);
-    await _player.play();
+    try {
+      await _player.seek(Duration.zero);
+      final shouldFade = _userVolume > 0.05;
+      if (shouldFade) {
+        await _player.setVolume(0.0);
+      } else {
+        await _player.setVolume(_userVolume);
+      }
+      await _player.play();
+      if (shouldFade) {
+        unawaited(_fadeVolume(_userVolume, duration: const Duration(milliseconds: 150)));
+      }
+      _publishNotificationState();
+      notifyListeners();
+    } catch (e) {
+      DebugLog.write('[player] _replayCurrent error: $e; reloading current song');
+      if (currentSong != null) {
+        await playSong(currentSong!);
+      }
+    }
   }
 
   /// Keep the notification's repeat / shuffle icons and playback state in sync with our state.
@@ -1378,6 +1413,10 @@ class PlayerService extends ChangeNotifier {
   Future<void> setVolume(double value) async {
     _userVolume = value.clamp(0.0, 1.0);
     await _player.setVolume(_userVolume);
+    _saveVolumeDebounceTimer?.cancel();
+    _saveVolumeDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+      identity?.setPlaybackVolume(_userVolume);
+    });
     notifyListeners();
   }
 

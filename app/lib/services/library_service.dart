@@ -242,10 +242,19 @@ class LibraryService extends ChangeNotifier {
   static String _encodeSongsJson(List<Song> songs) =>
       jsonEncode(songs.map((s) => s.toJson()).toList());
 
+  bool _isSavingIndex = false;
+  Completer<void>? _saveIndexCompleter;
+
   Future<void> _saveIndex() async {
     _saveIndexDebounce?.cancel();
     _saveIndexDebounce = null;
     if (_indexFile == null) return;
+    if (_isSavingIndex) {
+      return _saveIndexCompleter?.future;
+    }
+    _isSavingIndex = true;
+    final completer = Completer<void>();
+    _saveIndexCompleter = completer;
     try {
       if (!await _indexFile!.parent.exists()) {
         await _indexFile!.parent.create(recursive: true);
@@ -254,6 +263,10 @@ class LibraryService extends ChangeNotifier {
       await _indexFile!.writeAsString(jsonStr);
     } catch (e) {
       debugPrint('[library] error saving index: $e');
+    } finally {
+      _isSavingIndex = false;
+      _saveIndexCompleter = null;
+      if (!completer.isCompleted) completer.complete();
     }
   }
 
@@ -281,7 +294,7 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<void> flushSaveIndex() async {
-    if (_saveIndexDebounce != null) {
+    if (_saveIndexDebounce != null || _isSavingIndex) {
       await _saveIndex();
     }
   }

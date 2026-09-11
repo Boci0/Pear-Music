@@ -87,6 +87,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             child: Column(
               children: [
+                ListTile(
+                  leading: Icon(
+                    controller.player.volume == 0
+                        ? Icons.volume_off_rounded
+                        : controller.player.volume < 0.5
+                            ? Icons.volume_down_rounded
+                            : Icons.volume_up_rounded,
+                  ),
+                  title: const Text('Master Volume'),
+                  subtitle: Slider(
+                    value: controller.player.volume.clamp(0.0, 1.0),
+                    onChanged: (val) => controller.player.setVolume(val),
+                  ),
+                  trailing: Text(
+                    '${(controller.player.volume * 100).round()}%',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+                const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.equalizer_rounded),
                   title: const Text('Loudness Normalization'),
