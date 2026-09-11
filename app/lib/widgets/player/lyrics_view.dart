@@ -303,7 +303,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: AnimatedSwitcher(
-          duration: isScrubbing ? Duration.zero : const Duration(milliseconds: 200),
+          duration: isScrubbing ? Duration.zero : const Duration(milliseconds: 120),
           layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
             return Stack(
               alignment: Alignment.center,
@@ -322,13 +322,13 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
               return FadeTransition(
                 opacity: CurvedAnimation(
                   parent: animation,
-                  curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+                  curve: Curves.easeOutQuad,
                 ),
                 child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.92, end: 1.0).animate(
+                  scale: Tween<double>(begin: 0.97, end: 1.0).animate(
                     CurvedAnimation(
                       parent: animation,
-                      curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+                      curve: Curves.easeOutQuad,
                     ),
                   ),
                   child: child,
@@ -338,17 +338,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
               return FadeTransition(
                 opacity: CurvedAnimation(
                   parent: animation,
-                  curve: const Interval(0.65, 1.0, curve: Curves.easeInCubic),
+                  curve: const Interval(0.0, 0.70, curve: Curves.easeInQuad),
                 ),
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 1.0, end: 0.94).animate(
-                    CurvedAnimation(
-                      parent: animation,
-                      curve: const Interval(0.65, 1.0, curve: Curves.easeInCubic),
-                    ),
-                  ),
-                  child: child,
-                ),
+                child: child,
               );
             }
           },

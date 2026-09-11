@@ -57,9 +57,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerService>();
+    final player = context.read<PlayerService>();
     final controller = context.read<AppController>();
-    final song = player.currentSong;
+    final song = context.select<PlayerService, Song?>((p) => p.currentSong);
+    final duration = context.select<PlayerService, Duration>((p) => p.duration ?? Duration.zero);
     final themePrimary = Theme.of(context).colorScheme.primary;
 
     if (song != null) {
@@ -73,15 +74,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       scrolledUnderElevation: 0,
       elevation: 0,
       notificationPredicate: (_) => false,
-      leading: BackButton(
-        onPressed: () {
-          if (PlayerArtwork.isLyricsShowing) {
-            PlayerArtwork.closeLyrics();
-          } else {
-            Navigator.maybePop(context);
-          }
-        },
-      ),
+      leading: const BackButton(),
       actions: [
         IconButton(
           tooltip: 'Diagnostics Console',
@@ -100,32 +93,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    final duration = player.duration ?? Duration.zero;
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
 
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
     // changes.
-    return ValueListenableBuilder<bool>(
-      valueListenable: PlayerArtwork.showLyricsNotifier,
-      builder: (context, lyricsShowing, child) {
-        return PopScope(
-          canPop: !lyricsShowing,
-          onPopInvokedWithResult: (didPop, _) {
-            if (didPop) return;
-            if (lyricsShowing) {
-              PlayerArtwork.closeLyrics();
-            }
-          },
-          child: child!,
-        );
-      },
-      child: Scaffold(
+    return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: TweenAnimationBuilder<Color?>(
         tween: ColorTween(
+          begin: targetAccent,
           end: targetAccent,
         ),
         duration: const Duration(milliseconds: 450),
@@ -184,8 +163,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 
   @override

@@ -52,8 +52,8 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     super.initState();
     _lyricsAnimController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 170),
-      reverseDuration: const Duration(milliseconds: 130),
+      duration: const Duration(milliseconds: 140),
+      reverseDuration: const Duration(milliseconds: 110),
       value: PlayerArtwork.showLyricsNotifier.value ? 1.0 : 0.0,
     );
 
@@ -65,17 +65,17 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       reverseCurve: Curves.easeInQuad,
     );
 
-    // Lyrics fade in closely behind the blur (starting at ~25ms)
+    // Lyrics fade in closely behind the blur (starting at ~11ms)
     _lyricsAnimation = CurvedAnimation(
       parent: _lyricsAnimController,
-      curve: const Interval(0.12, 1.0, curve: Curves.easeOutQuad),
+      curve: const Interval(0.08, 1.0, curve: Curves.easeOutQuad),
       reverseCurve: const Interval(0.0, 0.70, curve: Curves.easeInQuad),
     );
 
     // Sync button animates with lyrics
     _syncAnimation = CurvedAnimation(
       parent: _lyricsAnimController,
-      curve: const Interval(0.12, 1.0, curve: Curves.easeOutQuad),
+      curve: const Interval(0.08, 1.0, curve: Curves.easeOutQuad),
       reverseCurve: const Interval(0.0, 0.70, curve: Curves.easeInQuad),
     );
 
@@ -257,6 +257,44 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       );
     }
 
+    final Widget? glassBackdrop = (song != null && playerService != null)
+        ? RepaintBoundary(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: radius,
+                  clipBehavior: Clip.antiAlias,
+                  child: Transform.scale(
+                    scale: 1.15,
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: imageWidget,
+                    ),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        const Color(0xB2000000), // ~70% black
+                        Color.alphaBlend(
+                          baseShadowColor.withValues(alpha: 0.20),
+                          const Color(0xA6000000), // ~65% black
+                        ),
+                        const Color(0xC2000000), // ~76% black
+                      ],
+                      stops: const [0.0, 0.50, 1.0],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : null;
+
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -281,10 +319,11 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
             ),
             child: ClipRRect(
               borderRadius: radius,
-              clipBehavior: Clip.antiAliasWithSaveLayer,
+              clipBehavior: Clip.antiAlias,
               child: AnimatedBuilder(
                 animation: _lyricsAnimController,
-                builder: (context, _) {
+                child: glassBackdrop,
+                builder: (context, cachedBackdrop) {
                   final isLyricsActive = _lyricsAnimController.value > 0.0;
                   final isLyricsFullyOpen = PlayerArtwork.showLyricsNotifier.value;
 
@@ -292,20 +331,12 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                     fit: StackFit.expand,
                     children: [
                       crossfadeImage,
-                      if (song != null && playerService != null && isLyricsActive)
+                      if (cachedBackdrop != null && isLyricsActive)
                         FadeTransition(
                           opacity: _blurAnimation,
                           child: IgnorePointer(
                             ignoring: !isLyricsFullyOpen,
-                            child: _buildBlurredGlassBackdrop(
-                              scheme: scheme,
-                              baseShadowColor: baseShadowColor,
-                              radius: radius,
-                              size: size,
-                              song: song,
-                              initialBytes: initialBytes,
-                              effectiveNetworkUrl: effectiveNetworkUrl,
-                            ),
+                            child: cachedBackdrop,
                           ),
                         ),
                       if (song != null && playerService != null)
@@ -423,93 +454,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
   }
 
-  Widget _buildBlurredGlassBackdrop({
-    required ColorScheme scheme,
-    required Color baseShadowColor,
-    required BorderRadius radius,
-    required double size,
-    required Song? song,
-    required Uint8List? initialBytes,
-    required String? effectiveNetworkUrl,
-  }) {
-    const lowResPx = 64;
-    final Widget lowResImage;
-    if (effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty) {
-      lowResImage = Image.network(
-        effectiveNetworkUrl,
-        width: size,
-        height: size,
-        cacheWidth: lowResPx,
-        fit: BoxFit.cover,
-        alignment: Alignment.center,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => _placeholder(scheme),
-      );
-    } else if (initialBytes != null && initialBytes.isNotEmpty) {
-      lowResImage = Image.memory(
-        initialBytes,
-        width: size,
-        height: size,
-        cacheWidth: lowResPx,
-        fit: BoxFit.cover,
-        alignment: Alignment.center,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => _placeholder(scheme),
-      );
-    } else if (song != null) {
-      final cached = ArtworkPalette.bytes(song);
-      if (cached != null && cached.isNotEmpty) {
-        lowResImage = Image.memory(
-          cached,
-          width: size,
-          height: size,
-          cacheWidth: lowResPx,
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-          gaplessPlayback: true,
-          errorBuilder: (_, _, _) => _placeholder(scheme),
-        );
-      } else {
-        lowResImage = _placeholder(scheme);
-      }
-    } else {
-      lowResImage = _placeholder(scheme);
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        RepaintBoundary(
-          child: ClipRRect(
-            borderRadius: radius,
-            clipBehavior: Clip.antiAliasWithSaveLayer,
-            child: Transform.scale(
-              scale: 1.12,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                child: lowResImage,
-              ),
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: 0.15),
-                baseShadowColor.withValues(alpha: 0.14),
-                Colors.black.withValues(alpha: 0.40),
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _placeholder(ColorScheme scheme) {
     final size = widget.size;
     return Container(
@@ -545,17 +489,14 @@ class PlayerArtworkHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
-    return Hero(
-      tag: 'player_artwork_${song.id}',
-      child: Material(
-        type: MaterialType.transparency,
-        child: PlayerArtwork(
-          song: song,
-          artwork: isNetwork ? null : artwork,
-          networkUrl: isNetwork ? song.artwork : null,
-          size: size,
-          accent: accent,
-        ),
+    return Material(
+      type: MaterialType.transparency,
+      child: PlayerArtwork(
+        song: song,
+        artwork: isNetwork ? null : artwork,
+        networkUrl: isNetwork ? song.artwork : null,
+        size: size,
+        accent: accent,
       ),
     );
   }
@@ -788,6 +729,8 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
   Widget build(BuildContext context) {
     final pillRadius = widget.isCircle ? BorderRadius.circular(20) : BorderRadius.circular(16);
 
+    final accent = widget.activeColor ?? Theme.of(context).colorScheme.primary;
+
     Widget button = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -801,7 +744,7 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
         onTapCancel: () => setState(() => _isPressed = false),
         behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
-          scale: _isPressed ? 0.90 : (_isHovered ? 1.06 : 1.0),
+          scale: _isPressed ? 0.92 : (_isHovered ? 1.05 : 1.0),
           duration: const Duration(milliseconds: 90),
           curve: Curves.easeOutQuad,
           child: AnimatedContainer(
@@ -813,20 +756,18 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
             decoration: BoxDecoration(
               shape: widget.isCircle ? BoxShape.circle : BoxShape.rectangle,
               borderRadius: widget.isCircle ? null : pillRadius,
-              color: _isPressed
-                  ? Colors.black.withValues(alpha: 0.70)
-                  : (_isHovered
-                      ? Colors.black.withValues(alpha: 0.58)
-                      : Colors.black.withValues(alpha: 0.46)),
+              color: accent.withValues(
+                alpha: _isPressed ? 0.36 : (_isHovered ? 0.28 : 0.22),
+              ),
               border: Border.all(
-                color: _isHovered
-                    ? Colors.white.withValues(alpha: 0.45)
-                    : Colors.white.withValues(alpha: 0.22),
+                color: accent.withValues(
+                  alpha: _isHovered ? 0.55 : 0.38,
+                ),
                 width: 1.0,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
+                  color: Colors.black.withValues(alpha: 0.22),
                   blurRadius: 6.0,
                   offset: const Offset(0, 2),
                 ),

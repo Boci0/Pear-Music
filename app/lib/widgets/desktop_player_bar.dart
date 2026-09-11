@@ -7,6 +7,7 @@ import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
+import 'pear_page_route.dart';
 
 /// Full-width 3-section desktop player bar (Spotify / Apple Music style).
 class DesktopPlayerBar extends StatefulWidget {
@@ -391,13 +392,8 @@ class _DesktopPlayerBarState extends State<DesktopPlayerBar> {
 
   void _openPlayerScreen(BuildContext context) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 150),
-        reverseTransitionDuration: const Duration(milliseconds: 150),
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const PlayerScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            FadeTransition(opacity: animation, child: child),
+      PearPageRoute(
+        builder: (_) => const PlayerScreen(),
       ),
     );
   }

@@ -245,10 +245,7 @@ class _Thumb extends StatelessWidget {
       }
     }
 
-    return Hero(
-      tag: 'player_artwork_${song.id}',
-      child: Material(type: MaterialType.transparency, child: imageWidget),
-    );
+    return imageWidget;
   }
 }
 
