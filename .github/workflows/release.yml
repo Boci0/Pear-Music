@@ -33,7 +33,9 @@ jobs:
         working-directory: app
 
       - name: Package Windows build
-        run: Compress-Archive -Path "app/build/windows/x64/runner/Release/*" -DestinationPath "PearMusic-Windows-x64.zip" -Force
+        run: |
+          Copy-Item "tool/install.ps1" "app/build/windows/x64/runner/Release/install.ps1"
+          Compress-Archive -Path "app/build/windows/x64/runner/Release/*" -DestinationPath "PearMusic-Windows-x64.zip" -Force
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
