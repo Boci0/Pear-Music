@@ -20,123 +20,134 @@ class PlayerTransport extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final loopIcon = switch (player.loopMode) {
-      LoopSetting.one => Icons.repeat_one,
-      _ => Icons.repeat,
-    };
-    final loopActive = player.loopMode != LoopSetting.off;
-    final loopLabel = switch (player.loopMode) {
-      LoopSetting.one => 'Repeat one (this song)',
-      LoopSetting.all => 'Repeat all (album)',
-      LoopSetting.off => 'No repeat',
-    };
-    final stateLabel = player.isBufferingNext
-        ? 'Buffering track...'
-        : [
-            if (player.shuffle) 'Shuffle on',
-            loopLabel,
-          ].join(' · ');
+    return ListenableBuilder(
+      listenable: player,
+      builder: (context, _) {
+        final scheme = Theme.of(context).colorScheme;
+        final loopIcon = switch (player.loopMode) {
+          LoopSetting.one => Icons.repeat_one,
+          _ => Icons.repeat,
+        };
+        final loopActive = player.loopMode != LoopSetting.off;
+        final loopLabel = switch (player.loopMode) {
+          LoopSetting.one => 'Repeat one (this song)',
+          LoopSetting.all => 'Repeat all (album)',
+          LoopSetting.off => 'No repeat',
+        };
+        final stateLabel = player.isBufferingNext
+            ? 'Buffering track...'
+            : [
+                if (player.shuffle) 'Shuffle on',
+                loopLabel,
+              ].join(' · ');
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        return Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              iconSize: 32,
-              icon: Icon(
-                Icons.shuffle,
-                color: player.shuffle
-                    ? scheme.primary
-                    : scheme.onSurfaceVariant,
-              ),
-              tooltip: player.shuffle ? 'Shuffle on' : 'Shuffle',
-              onPressed: controller.toggleShuffle,
-            ),
-            IconButton(
-              iconSize: 44,
-              icon: const Icon(Icons.skip_previous_rounded),
-              onPressed: () => controller.previousTrack(),
-            ),
-            Stack(
-              alignment: Alignment.center,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                RhythmPulseBuilder(
-                  player: player,
-                  builder: (context, aura, _) {
-                    final alpha = (aura * 0.495).clamp(0.0, 1.0);
-                    if (alpha <= 0.005) {
-                      return const SizedBox(width: 52, height: 52);
-                    }
-                    return Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: scheme.primary.withValues(alpha: alpha),
-                            blurRadius: 24.0,
-                            spreadRadius: 2.0,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                IconButton(
+                  iconSize: 32,
+                  icon: Icon(
+                    Icons.shuffle,
+                    color: player.shuffle
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant,
+                  ),
+                  tooltip: player.shuffle ? 'Shuffle on' : 'Shuffle',
+                  onPressed: controller.toggleShuffle,
                 ),
                 IconButton(
-                  padding: EdgeInsets.zero,
-                  iconSize: 72,
-                  icon: player.isBufferingNext
-                      ? Center(
-                          child: SizedBox(
-                            width: 52,
-                            height: 52,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 3.5,
+                  iconSize: 44,
+                  icon: const Icon(Icons.skip_previous_rounded),
+                  onPressed: () => controller.previousTrack(),
+                ),
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    RhythmPulseBuilder(
+                      player: player,
+                      child: RepaintBoundary(
+                        child: Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: scheme.primary.withValues(alpha: 0.50),
+                                blurRadius: 24.0,
+                                spreadRadius: 2.0,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      builder: (context, aura, child) {
+                        final alpha = aura.clamp(0.0, 1.0);
+                        if (alpha <= 0.005) {
+                          return const SizedBox(width: 52, height: 52);
+                        }
+                        return Opacity(
+                          opacity: alpha,
+                          child: child,
+                        );
+                      },
+                    ),
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      iconSize: 72,
+                      icon: player.isBufferingNext
+                          ? Center(
+                              child: SizedBox(
+                                width: 52,
+                                height: 52,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3.5,
+                                  color: scheme.primary,
+                                ),
+                              ),
+                            )
+                          : Icon(
+                              player.playing
+                                  ? Icons.pause_circle_filled
+                                  : Icons.play_circle_filled,
+                              size: 72,
                               color: scheme.primary,
                             ),
-                          ),
-                        )
-                      : Icon(
-                          player.playing
-                              ? Icons.pause_circle_filled
-                              : Icons.play_circle_filled,
-                          size: 72,
-                          color: scheme.primary,
-                        ),
-                  onPressed: () => controller.togglePlayback(),
+                      onPressed: () => controller.togglePlayback(),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  iconSize: 44,
+                  icon: const Icon(Icons.skip_next_rounded),
+                  onPressed: () => controller.nextTrack(),
+                ),
+                IconButton(
+                  iconSize: 32,
+                  icon: Icon(
+                    loopIcon,
+                    color: loopActive ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                  tooltip: loopLabel,
+                  onPressed: controller.toggleLoop,
                 ),
               ],
             ),
-            IconButton(
-              iconSize: 44,
-              icon: const Icon(Icons.skip_next_rounded),
-              onPressed: () => controller.nextTrack(),
-            ),
-            IconButton(
-              iconSize: 32,
-              icon: Icon(
-                loopIcon,
-                color: loopActive ? scheme.primary : scheme.onSurfaceVariant,
+            const SizedBox(height: 2),
+            Text(
+              stateLabel,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: (player.isLoadingTrack && !player.playing) || loopActive || player.shuffle
+                    ? scheme.primary
+                    : scheme.onSurfaceVariant,
               ),
-              tooltip: loopLabel,
-              onPressed: controller.toggleLoop,
             ),
           ],
-        ),
-        const SizedBox(height: 2),
-        Text(
-          stateLabel,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: (player.isLoadingTrack && !player.playing) || loopActive || player.shuffle
-                ? scheme.primary
-                : scheme.onSurfaceVariant,
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }

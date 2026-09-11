@@ -159,6 +159,30 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
           ),
         ));
         break;
+      case 'peerm_shuffle':
+        _lastShuffle = !_lastShuffle;
+        playbackState.add(playbackState.value.copyWith(
+          controls: _buildControls(
+            playing: playbackState.value.playing,
+            shuffle: _lastShuffle,
+            loopMode: _lastLoopMode,
+          ),
+        ));
+        break;
+      case 'peerm_repeat':
+        _lastLoopMode = switch (_lastLoopMode) {
+          LoopSetting.off => LoopSetting.all,
+          LoopSetting.all => LoopSetting.one,
+          LoopSetting.one => LoopSetting.off,
+        };
+        playbackState.add(playbackState.value.copyWith(
+          controls: _buildControls(
+            playing: playbackState.value.playing,
+            shuffle: _lastShuffle,
+            loopMode: _lastLoopMode,
+          ),
+        ));
+        break;
     }
     if (onCustomAction != null) {
       await onCustomAction!(name);

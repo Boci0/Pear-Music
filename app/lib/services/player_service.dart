@@ -222,10 +222,16 @@ class PlayerService extends ChangeNotifier {
     final stepDuration =
         Duration(milliseconds: math.max(1, (duration.inMilliseconds / steps).round()));
     final volumeDelta = (targetVolume - startVolume) / steps;
-    for (var i = 1; i <= steps; i++) {
-      await Future<void>.delayed(stepDuration);
-      if (!_player.playing && targetVolume == 0) break;
-      await _player.setVolume((startVolume + volumeDelta * i).clamp(0.0, 1.0));
+    try {
+      for (var i = 1; i <= steps; i++) {
+        await Future<void>.delayed(stepDuration);
+        if (!_player.playing && targetVolume == 0) break;
+        await _player.setVolume((startVolume + volumeDelta * i).clamp(0.0, 1.0));
+      }
+    } finally {
+      if (_player.playing || targetVolume == 0) {
+        await _player.setVolume(targetVolume.clamp(0.0, 1.0));
+      }
     }
   }
 
@@ -1171,13 +1177,13 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.setActiveQueueVideoIds(vIds);
   }
 
-  Future<void> pause({bool smooth = true}) async {
+  Future<void> pause({bool smooth = false}) async {
     _lastInteraction = DateTime.now();
     _preloadDebounceTimer?.cancel();
     StreamCacheManager.cancelPreload();
     if (_player.playing) {
       if (smooth && _userVolume > 0.05) {
-        await _fadeVolume(0.0, duration: const Duration(milliseconds: 150));
+        await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
       }
       await _player.pause();
       await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
@@ -1197,17 +1203,9 @@ class PlayerService extends ChangeNotifier {
     if (_player.processingState == ProcessingState.completed) {
       await _player.seek(Duration.zero);
     }
-    final shouldFade = _userVolume > 0.05;
-    if (shouldFade) {
-      await _player.setVolume(0.0);
-    } else {
-      await _player.setVolume(_userVolume);
-    }
+    await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
     try {
       await _player.play();
-      if (shouldFade) {
-        unawaited(_fadeVolume(_userVolume, duration: const Duration(milliseconds: 150)));
-      }
     } catch (e) {
       DebugLog.write('[player] resume failed ($e), reloading track: ${currentSong?.title}');
       if (currentSong != null) {
@@ -1227,10 +1225,9 @@ class PlayerService extends ChangeNotifier {
       return;
     }
     if (_player.playing) {
-      await pause(smooth: true);
+      await pause(smooth: false);
     } else {
-      await _player.play();
-      notifyListeners();
+      await resume();
     }
   }
 

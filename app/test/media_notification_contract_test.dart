@@ -99,6 +99,30 @@ void main() {
       expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_play'));
     });
 
+    test('customAction peerm_shuffle and peerm_repeat update state and icons optimistically', () async {
+      handler.updateState(
+        playing: true,
+        processingState: ProcessingState.ready,
+        position: Duration.zero,
+        bufferedPosition: Duration.zero,
+        speed: 1.0,
+        loopMode: LoopSetting.off,
+        shuffle: false,
+      );
+
+      expect(handler.playbackState.value.controls[0].androidIcon, contains('drawable/pear_shuffle_off'));
+      await handler.customAction('peerm_shuffle');
+      expect(handler.playbackState.value.controls[0].androidIcon, contains('drawable/pear_shuffle'));
+
+      expect(handler.playbackState.value.controls[4].androidIcon, contains('drawable/pear_repeat_off'));
+      await handler.customAction('peerm_repeat');
+      expect(handler.playbackState.value.controls[4].androidIcon, contains('drawable/pear_repeat'));
+      await handler.customAction('peerm_repeat');
+      expect(handler.playbackState.value.controls[4].androidIcon, contains('drawable/pear_repeat_one'));
+      await handler.customAction('peerm_repeat');
+      expect(handler.playbackState.value.controls[4].androidIcon, contains('drawable/pear_repeat_off'));
+    });
+
     test('systemActions contains all required media transport actions', () {
       handler.updateState(
         playing: true,

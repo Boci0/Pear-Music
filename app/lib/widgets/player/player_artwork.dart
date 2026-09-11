@@ -203,58 +203,45 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
     final playerService = context.watch<PlayerService?>();
-    final Widget glowWidget;
-    if (playerService != null) {
-      glowWidget = RhythmPulseBuilder(
-        player: playerService,
-        builder: (context, aura, _) {
-          final alpha1 = (0.175 + (0.325 * aura)).clamp(0.0, 1.0);
-          final alpha2 = (0.105 + (0.195 * aura)).clamp(0.0, 1.0);
-          return Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              borderRadius: radius,
-              boxShadow: [
-                BoxShadow(
-                  color: baseShadowColor.withValues(alpha: alpha1),
-                  blurRadius: 36.0,
-                  spreadRadius: 2.0,
-                  offset: const Offset(0, 10),
-                ),
-                BoxShadow(
-                  color: baseShadowColor.withValues(alpha: alpha2),
-                  blurRadius: 18.0,
-                  spreadRadius: 1.0,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    } else {
-      glowWidget = Container(
+    final staticGlow = RepaintBoundary(
+      child: Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
           borderRadius: radius,
           boxShadow: [
             BoxShadow(
-              color: baseShadowColor.withValues(alpha: 0.30),
+              color: baseShadowColor.withValues(alpha: 0.45),
               blurRadius: 36.0,
               spreadRadius: 2.0,
               offset: const Offset(0, 10),
             ),
             BoxShadow(
-              color: baseShadowColor.withValues(alpha: 0.18),
+              color: baseShadowColor.withValues(alpha: 0.28),
               blurRadius: 18.0,
               spreadRadius: 1.0,
               offset: const Offset(0, 4),
             ),
           ],
         ),
+      ),
+    );
+
+    final Widget glowWidget;
+    if (playerService != null) {
+      glowWidget = RhythmPulseBuilder(
+        player: playerService,
+        child: staticGlow,
+        builder: (context, aura, child) {
+          final opacity = (0.38 + (0.62 * aura)).clamp(0.0, 1.0);
+          return Opacity(
+            opacity: opacity,
+            child: child,
+          );
+        },
       );
+    } else {
+      glowWidget = staticGlow;
     }
 
     final Widget? glassBackdrop = (song != null && playerService != null)

@@ -1203,21 +1203,11 @@ public class AudioService extends MediaBrowserServiceCompat {
             } else if (CUSTOM_ACTION_REWIND.equals(action)) {
                 listener.onRewind();
             } else if ("peerm_repeat".equals(action)) {
-                // PeerM: notification repeat button cycles none -> all -> one.
-                // Routed through the standard setRepeatMode channel so the app
-                // (PlayerService) receives it exactly like a media-session tap.
-                int next = repeatMode == PlaybackStateCompat.REPEAT_MODE_NONE
-                        ? PlaybackStateCompat.REPEAT_MODE_ALL
-                        : repeatMode == PlaybackStateCompat.REPEAT_MODE_ALL
-                                ? PlaybackStateCompat.REPEAT_MODE_ONE
-                                : PlaybackStateCompat.REPEAT_MODE_NONE;
-                listener.onSetRepeatMode(next);
+                // PeerM: route repeat custom action directly to Dart onCustomAction
+                listener.onCustomAction(action, extras);
             } else if ("peerm_shuffle".equals(action)) {
-                // PeerM: notification shuffle button toggles on/off.
-                int next = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
-                        ? PlaybackStateCompat.SHUFFLE_MODE_NONE
-                        : PlaybackStateCompat.SHUFFLE_MODE_ALL;
-                listener.onSetShuffleMode(next);
+                // PeerM: route shuffle custom action directly to Dart onCustomAction
+                listener.onCustomAction(action, extras);
             } else if ("peerm_play".equals(action)) {
                 // PeerM: notification transport buttons use direct custom-action
                 // broadcasts instead of the media-button keycode scheme, whose
