@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song.dart';
@@ -12,6 +13,7 @@ import 'artwork_service.dart';
 import 'debug_log.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
+import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
 import 'recommendation_service.dart';
 import 'session_diagnostics.dart';
@@ -89,6 +91,9 @@ class PlayerService extends ChangeNotifier {
     if (identity != null) {
       _autoRerollSeed = identity!.autoRerollSeed;
       _autoplay = identity!.autoplay;
+      StreamCacheManager.currentQuality = identity!.streamingQuality;
+      LyricsService.onlineLyricsEnabled = identity!.onlineLyrics;
+      ArtworkService.onlineArtworkEnabled = identity!.onlineArtwork;
     }
     _initAudioHandler();
   }
@@ -97,6 +102,48 @@ class PlayerService extends ChangeNotifier {
   StreamRouteType get currentRouteType => _currentRouteType;
   int _lastTrackLoadMs = 0;
   int get lastTrackLoadMs => _lastTrackLoadMs;
+
+  File? _currentLoadedFile;
+  int? _currentLoadedFileSize;
+  StreamingQuality? _currentLoadedQuality;
+  String? _currentLoadedFormat;
+
+  File? get currentLoadedFile => _currentLoadedFile;
+  int? get currentLoadedFileSize => _currentLoadedFileSize;
+  StreamingQuality? get currentLoadedQuality => _currentLoadedQuality;
+  String? get currentLoadedFormat => _currentLoadedFormat;
+
+  /// Inspects disk storage to ensure current loaded file metadata is resolved.
+  Future<File?> resolveCurrentLoadedFile() async {
+    if (_currentLoadedFile != null && await _currentLoadedFile!.exists()) {
+      return _currentLoadedFile;
+    }
+    if (currentSong == null) return null;
+    if (currentSong!.sourceDeviceId == 'stream') {
+      final videoId = RecommendationService.extractVideoId(currentSong!.id) ??
+          currentSong!.id.replaceFirst('stream_', '');
+      final inspected = await StreamCacheManager.inspectTrackCache(videoId);
+      if (inspected.isCached && inspected.filePath != null) {
+        _currentLoadedFile = File(inspected.filePath!);
+        _currentLoadedFileSize = inspected.fileSize;
+        _currentLoadedQuality = inspected.quality;
+        _currentLoadedFormat = inspected.ext;
+        notifyListeners();
+        return _currentLoadedFile;
+      }
+    } else {
+      final file = library.songFile(currentSong!);
+      if (await file.exists()) {
+        _currentLoadedFile = file;
+        _currentLoadedFileSize = await file.length();
+        _currentLoadedQuality = null;
+        _currentLoadedFormat = p.extension(file.path).replaceFirst('.', '');
+        notifyListeners();
+        return file;
+      }
+    }
+    return null;
+  }
 
   Song? get song => currentSong;
   Duration? get position => _player.position;
@@ -864,6 +911,10 @@ class PlayerService extends ChangeNotifier {
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
           _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+          _currentLoadedFile = cachedFile;
+          _currentLoadedFileSize = await cachedFile.length();
+          _currentLoadedQuality = StreamCacheManager.parseQualityFromPath(cachedFile.path);
+          _currentLoadedFormat = p.extension(cachedFile.path).replaceFirst('.', '');
           _isBufferingNext = false;
           _bufferingVideoId = null;
           notifyListeners();
@@ -899,6 +950,10 @@ class PlayerService extends ChangeNotifier {
           if (downloadedFile != null && await downloadedFile.exists()) {
             _currentRouteType = StreamRouteType.direct;
             _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+            _currentLoadedFile = downloadedFile;
+            _currentLoadedFileSize = await downloadedFile.length();
+            _currentLoadedQuality = StreamCacheManager.currentQuality;
+            _currentLoadedFormat = p.extension(downloadedFile.path).replaceFirst('.', '');
             notifyListeners();
             DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             await _player.setAudioSource(
@@ -934,7 +989,6 @@ class PlayerService extends ChangeNotifier {
         _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
         _isBufferingNext = false;
         _bufferingVideoId = null;
-        notifyListeners();
         DebugLog.write('[player] Playing LOCAL file (${_lastTrackLoadMs}ms): ${song.title}');
         final file = library.songFile(song);
         if (!await file.exists()) {
@@ -944,6 +998,11 @@ class PlayerService extends ChangeNotifier {
           notifyListeners();
           return;
         }
+        _currentLoadedFile = file;
+        _currentLoadedFileSize = await file.length();
+        _currentLoadedQuality = null;
+        _currentLoadedFormat = p.extension(file.path).replaceFirst('.', '');
+        notifyListeners();
         await _player.setAudioSource(
           AudioSource.file(file.path),
         );
@@ -1013,6 +1072,24 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.resetFailureCounter();
   }
 
+  /// Seamlessly reloads the currently playing track with the chosen or active [StreamingQuality],
+  /// preserving playback position.
+  Future<void> reloadCurrentSongAtQuality([StreamingQuality? quality]) async {
+    if (currentSong == null) return;
+    if (quality != null) {
+      StreamCacheManager.setStreamingQuality(quality);
+      identity?.setStreamingQuality(quality);
+    }
+    final song = currentSong!;
+    final savedPos = _player.position;
+    await playSong(song, sourceId: queueSourceId, sourceTitle: queueTitle);
+    if (savedPos > Duration.zero) {
+      try {
+        await _player.seek(savedPos);
+      } catch (_) {}
+    }
+  }
+
   void _scheduleAutoReroll(int token) {
     _autoRerollDebounceTimer?.cancel();
     _autoRerollDebounceTimer = Timer(const Duration(milliseconds: 350), () async {
@@ -1035,6 +1112,10 @@ class PlayerService extends ChangeNotifier {
   /// before initiating background download so rapid song skips consume 0 KB of data.
   void _preloadUpcomingStreams({Duration delay = const Duration(seconds: 2)}) {
     _preloadDebounceTimer?.cancel();
+    if (identity?.preloadUpcoming == false) {
+      DebugLog.write('[preload] Background preload disabled by user preference');
+      return;
+    }
     if (_queueIndex < 0 || _queue.isEmpty) {
       DebugLog.write('[preload] Skipping preload: queueIdx=$_queueIndex queueLen=${_queue.length}');
       return;
@@ -1094,9 +1175,11 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final uncachedTrackIds = upcomingVideoIds.where((id) => !StreamCacheManager.isStreamCachedSync(id)).toList();
+    final uncachedTrackIds = upcomingVideoIds
+        .where((id) => !StreamCacheManager.isStreamCachedForQualitySync(id, StreamCacheManager.currentQuality))
+        .toList();
     if (uncachedTrackIds.isEmpty) {
-      DebugLog.write('[preload] All upcoming stream tracks already cached on disk');
+      DebugLog.write('[preload] All upcoming stream tracks already cached on disk at ${StreamCacheManager.currentQuality.label}');
       _isPreloadingUpcoming = false;
       notifyListeners();
       return;
@@ -1582,6 +1665,17 @@ class PlayerService extends ChangeNotifier {
     currentSong = null;
     _queue = [];
     _queueIndex = -1;
+    notifyListeners();
+  }
+
+  /// Called when streaming audio quality setting is changed.
+  /// If [reloadCurrent] is true and a stream track is currently active,
+  /// reloads it seamlessly at the new quality tier preserving position.
+  Future<void> onStreamingQualityChanged({bool reloadCurrent = false}) async {
+    if (reloadCurrent && currentSong != null && currentSong!.sourceDeviceId == 'stream') {
+      await reloadCurrentSongAtQuality();
+    }
+    _preloadUpcomingStreams(delay: Duration.zero);
     notifyListeners();
   }
 

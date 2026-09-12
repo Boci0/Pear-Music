@@ -157,9 +157,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     _removeNotifierListeners.addAll([
       () => library.removeListener(notifyListeners),
       () => player.removeListener(notifyListeners),
+      () => identity.removeListener(notifyListeners),
     ]);
     library.addListener(notifyListeners);
     player.addListener(notifyListeners);
+    identity.addListener(notifyListeners);
 
     if (!_isLifecycleObserved) {
       try {

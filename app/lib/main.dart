@@ -149,6 +149,7 @@ class PearMusicApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<AppController>.value(value: controller),
+        ChangeNotifierProvider<IdentityService>.value(value: controller.identity),
         ChangeNotifierProvider<LibraryService>.value(value: controller.library),
         ChangeNotifierProvider<PlayerService>.value(value: controller.player),
         ChangeNotifierProvider<PlayerTheme>.value(value: playerTheme),

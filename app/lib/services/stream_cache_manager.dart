@@ -10,6 +10,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
+import 'identity_service.dart';
 import 'library_service.dart';
 import 'youtube_service.dart';
 
@@ -19,6 +20,31 @@ class StreamCacheManager {
   static const int maxCacheBytes = 500 * 1024 * 1024; // 500 MB cap
   static const int targetEvictionBytes = 400 * 1024 * 1024; // prune to 400 MB
   static const int maxTrackCount = 100;
+
+  static StreamingQuality currentQuality = StreamingQuality.standard;
+
+  /// Updates active streaming quality, clears pre-extracted RAM URL caches,
+  /// and cancels background preloads so upcoming tracks immediately apply the new tier.
+  static void setStreamingQuality(StreamingQuality newQuality) {
+    if (currentQuality == newQuality) return;
+    currentQuality = newQuality;
+    _streamUrlMemoryCache.clear();
+    _streamUrlPrefetchCache.clear();
+    cancelPreload();
+  }
+
+  /// Returns the yt-dlp format selection argument based on the current quality setting.
+  static String getAudioFormatArg({StreamingQuality? quality}) {
+    final q = quality ?? currentQuality;
+    switch (q) {
+      case StreamingQuality.high:
+        return 'bestaudio/ba/b/best';
+      case StreamingQuality.dataSaver:
+        return '250/249/worst[ext=m4a]/ba';
+      case StreamingQuality.standard:
+        return '140/ba[ext=m4a]/ba/bestaudio';
+    }
+  }
 
   static Set<String> _activeQueueVideoIds = {};
   /// Protects all tracks currently in the active queue from being evicted.
@@ -47,6 +73,7 @@ class StreamCacheManager {
 
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
+  static final Map<String, Set<StreamingQuality>> _cachedVideoIdQualities = {};
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
   static int _slidingWindowSequence = 0;
   // In-flight / completed direct stream URL resolutions, so a prefetch
@@ -85,8 +112,13 @@ class StreamCacheManager {
         }
         final len = await f.length();
         if (len > 50000) {
-          final id = p.basenameWithoutExtension(name);
+          final rawName = p.basenameWithoutExtension(name);
+          final id = rawName.contains('.') ? rawName.split('.').first : rawName;
           _cachedVideoIds.add(id);
+          final q = parseQualityFromPath(name);
+          if (q != null) {
+            _cachedVideoIdQualities.putIfAbsent(id, () => {}).add(q);
+          }
           total += len;
         }
       }
@@ -103,27 +135,151 @@ class StreamCacheManager {
     return _cachedVideoIds.contains(videoId);
   }
 
+  /// Synchronous check whether a track is cached on disk satisfying [quality].
+  static bool isStreamCachedForQualitySync(String videoId, [StreamingQuality? quality]) {
+    final target = quality ?? currentQuality;
+    final cached = _cachedVideoIdQualities[videoId];
+    if (cached != null && cached.isNotEmpty) {
+      switch (target) {
+        case StreamingQuality.high:
+          return cached.contains(StreamingQuality.high);
+        case StreamingQuality.standard:
+          return cached.contains(StreamingQuality.standard) || cached.contains(StreamingQuality.high);
+        case StreamingQuality.dataSaver:
+          return true;
+      }
+    }
+    if (_cachedVideoIds.contains(videoId)) {
+      return target != StreamingQuality.high;
+    }
+    return false;
+  }
+
   /// Returns the in-flight download future if this track is currently being cached.
   static Future<File?>? getInFlightDownload(String videoId) {
     return _inFlightDownloads[videoId]?.future;
   }
 
-  /// Quick cache-only check: returns the cached file if it exists, null otherwise.
-  static Future<File?> getCachedFile(String videoId) async {
+  /// Quick cache check: returns the cached file if it exists and satisfies the requested quality.
+  /// If [exactQualityOnly] is true, only files matching the target tier are returned.
+  /// If false, any valid cached audio file for this video will be returned to guarantee instant 0ms playback.
+  static Future<File?> getCachedFile(
+    String videoId, {
+    StreamingQuality? targetQuality,
+    bool exactQualityOnly = false,
+  }) async {
+    final quality = targetQuality ?? currentQuality;
     final dir = await getCacheDirectory();
+
+    // 1. Exact quality match: $videoId.${quality.name}.$ext
+    for (final ext in ['opus', 'm4a', 'webm', 'mp4', 'ogg', 'mp3']) {
+      final f = File(p.join(dir.path, '$videoId.${quality.name}.$ext'));
+      if (await f.exists() && (await f.length()) > 50000) {
+        _cachedVideoIds.add(videoId);
+        _cachedVideoIdQualities.putIfAbsent(videoId, () => {}).add(quality);
+        return f;
+      }
+    }
+
+    // 2. Quality compatibility:
+    if (quality == StreamingQuality.dataSaver) {
+      // For Data Saver, any existing cached quality prevents bandwidth usage
+      for (final q in ['standard', 'high']) {
+        for (final ext in ['opus', 'm4a', 'webm', 'mp4', 'ogg', 'mp3']) {
+          final f = File(p.join(dir.path, '$videoId.$q.$ext'));
+          if (await f.exists() && (await f.length()) > 50000) {
+            _cachedVideoIds.add(videoId);
+            final parsed = parseQualityFromPath(f.path);
+            if (parsed != null) {
+              _cachedVideoIdQualities.putIfAbsent(videoId, () => {}).add(parsed);
+            }
+            return f;
+          }
+        }
+      }
+    } else if (quality == StreamingQuality.standard) {
+      // High quality also satisfies Standard
+      for (final ext in ['opus', 'm4a', 'webm', 'mp4', 'ogg', 'mp3']) {
+        final f = File(p.join(dir.path, '$videoId.high.$ext'));
+        if (await f.exists() && (await f.length()) > 50000) {
+          _cachedVideoIds.add(videoId);
+          _cachedVideoIdQualities.putIfAbsent(videoId, () => {}).add(StreamingQuality.high);
+          return f;
+        }
+      }
+    }
+
+    // 3. Legacy untagged cache files: $videoId.$ext
     for (final ext in ['m4a', 'mp4', 'webm', 'opus', 'ogg', 'mp3']) {
       final f = File(p.join(dir.path, '$videoId.$ext'));
       if (await f.exists() && (await f.length()) > 50000) {
         _cachedVideoIds.add(videoId);
-        return f;
+        if (!exactQualityOnly || quality != StreamingQuality.high) {
+          return f;
+        }
       }
     }
     final bare = File(p.join(dir.path, videoId));
     if (await bare.exists() && (await bare.length()) > 50000) {
       _cachedVideoIds.add(videoId);
-      return bare;
+      if (!exactQualityOnly || quality != StreamingQuality.high) {
+        return bare;
+      }
     }
+
+    // 4. Instant playback fallback: If not exactQualityOnly, return ANY existing audio file
+    // for this videoId so that playback never stalls waiting for network downloads.
+    if (!exactQualityOnly) {
+      for (final q in StreamingQuality.values) {
+        for (final ext in ['opus', 'm4a', 'webm', 'mp4', 'ogg', 'mp3']) {
+          final f = File(p.join(dir.path, '$videoId.${q.name}.$ext'));
+          if (await f.exists() && (await f.length()) > 50000) {
+            _cachedVideoIds.add(videoId);
+            return f;
+          }
+        }
+      }
+    }
+
     return null;
+  }
+
+  /// Extracts the tagged StreamingQuality from a cache file path, or null if untagged.
+  static StreamingQuality? parseQualityFromPath(String filePath) {
+    final name = p.basename(filePath);
+    if (name.contains('.high.')) return StreamingQuality.high;
+    if (name.contains('.standard.')) return StreamingQuality.standard;
+    if (name.contains('.dataSaver.')) return StreamingQuality.dataSaver;
+    return null;
+  }
+
+  /// Inspects any cached file details on disk for a given [videoId].
+  static Future<({bool isCached, StreamingQuality? quality, String? filePath, int? fileSize, String? ext})> inspectTrackCache(String videoId) async {
+    try {
+      final dir = await getCacheDirectory();
+      final files = await dir.list().where((e) => e is File).cast<File>().toList();
+      for (final f in files) {
+        final name = p.basename(f.path);
+        if (name.startsWith('$videoId.') || name == videoId) {
+          final len = await f.length();
+          final ext = p.extension(f.path).replaceFirst('.', '');
+          return (
+            isCached: true,
+            quality: parseQualityFromPath(f.path),
+            filePath: f.path,
+            fileSize: len,
+            ext: ext,
+          );
+        }
+      }
+    } catch (_) {}
+    return (
+      isCached: false,
+      quality: null,
+      filePath: null,
+      fileSize: null,
+      ext: null,
+    );
   }
 
   static String? _activeDownloadingVideoId;
@@ -218,7 +374,7 @@ class StreamCacheManager {
           break;
         }
         if (id.isEmpty) continue;
-        final diskCached = await getCachedFile(id);
+        final diskCached = await getCachedFile(id, targetQuality: currentQuality, exactQualityOnly: true);
         if (diskCached != null) {
           _cachedVideoIds.add(id);
           onTrackCached?.call(id);
@@ -248,7 +404,7 @@ class StreamCacheManager {
   /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
   /// Strictly enforces single-concurrency to prevent multiple downloads from splitting bandwidth.
   static Future<File?> ensureStreamCached(String videoId, {bool isPreload = false}) async {
-    final existing = await getCachedFile(videoId);
+    final existing = await getCachedFile(videoId, targetQuality: currentQuality, exactQualityOnly: isPreload);
     if (existing != null) {
       DebugLog.write('[cache] Disk cache HIT for $videoId (0ms)');
       return existing;
@@ -319,7 +475,7 @@ class StreamCacheManager {
 
       // Android embedded yt-dlp
       if (YoutubeService.isEmbeddedYtDlpSupported) {
-        final tempPart = File(p.join(dir.path, '$videoId.m4a'));
+        final tempPart = File(p.join(dir.path, '$videoId.${currentQuality.name}.m4a'));
         final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
         _activeProcessId = processId;
         try {
@@ -329,13 +485,15 @@ class StreamCacheManager {
             'url': 'https://www.youtube.com/watch?v=$videoId',
             'outputPath': tempPart.path,
             'processId': processId,
+            'format': getAudioFormatArg(),
           }).timeout(const Duration(seconds: 120));
 
-          final cached = await getCachedFile(videoId);
+          final cached = await getCachedFile(videoId, targetQuality: currentQuality);
           if (cached != null) {
             final len = await cached.length();
             _cachedVideoIds.add(videoId);
             _cachedTotalBytes += len;
+            unawaited(_pruneAlternativeQualities(dir, videoId, currentQuality));
             unawaited(enforceCacheQuota());
             stopwatch.stop();
             DebugLog.write(
@@ -359,10 +517,10 @@ class StreamCacheManager {
       final bin = await YoutubeService.ytDlpPath();
       if (bin != null) {
         DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
-        final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
+        final outputTemplate = p.join(dir.path, '$videoId.${currentQuality.name}.%(ext)s');
         final args = [
           '-f',
-          '140/ba[ext=m4a]/ba/bestaudio',
+          getAudioFormatArg(),
           '-o',
           outputTemplate,
           '--no-playlist',
@@ -416,10 +574,11 @@ class StreamCacheManager {
           }
         }
 
-        final cached = await getCachedFile(videoId);
+        final cached = await getCachedFile(videoId, targetQuality: currentQuality);
         if (cached != null) {
           final len = await cached.length();
           _cachedTotalBytes += len;
+          unawaited(_pruneAlternativeQualities(dir, videoId, currentQuality));
           unawaited(enforceCacheQuota());
           stopwatch.stop();
           DebugLog.write(
@@ -448,6 +607,41 @@ class StreamCacheManager {
       _inFlightDownloads.remove(videoId);
     }
     return null;
+  }
+
+  /// Removes older or different-quality cache files for [videoId] so the same track
+  /// does not occupy multiple copies of disk space when upgraded or changed.
+  static Future<void> _pruneAlternativeQualities(
+    Directory dir,
+    String videoId,
+    StreamingQuality keptQuality,
+  ) async {
+    for (final q in StreamingQuality.values) {
+      if (q == keptQuality) continue;
+      for (final ext in ['opus', 'm4a', 'webm', 'mp4', 'ogg', 'mp3']) {
+        final oldFile = File(p.join(dir.path, '$videoId.${q.name}.$ext'));
+        if (await oldFile.exists()) {
+          try {
+            final len = await oldFile.length();
+            await oldFile.delete();
+            _cachedTotalBytes -= len;
+            DebugLog.write('[cache] Pruned alternative quality ($q) cache file: ${oldFile.path}');
+          } catch (_) {}
+        }
+      }
+    }
+    // Prune legacy untagged files for this track
+    for (final ext in ['m4a', 'mp4', 'webm', 'opus', 'ogg', 'mp3']) {
+      final legacy = File(p.join(dir.path, '$videoId.$ext'));
+      if (await legacy.exists()) {
+        try {
+          final len = await legacy.length();
+          await legacy.delete();
+          _cachedTotalBytes -= len;
+          DebugLog.write('[cache] Pruned legacy untagged cache file: ${legacy.path}');
+        } catch (_) {}
+      }
+    }
   }
 
   /// Trims stream cache directory to remain strictly under the [maxCacheBytes] and
@@ -665,7 +859,7 @@ class StreamCacheManager {
         url,
         [
           '-g',
-          '-f', 'ba/ba*/bestaudio/b/best',
+          '-f', getAudioFormatArg(),
           '--no-playlist',
           '--force-ipv4',
           '--no-warnings',
@@ -785,6 +979,7 @@ class StreamCacheManager {
         }
       }
       _cachedVideoIds.clear();
+      _cachedVideoIdQualities.clear();
       _streamUrlMemoryCache.clear();
       _streamUrlPrefetchCache.clear();
       _cachedTotalBytes = 0;

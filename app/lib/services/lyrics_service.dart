@@ -91,6 +91,7 @@ class LyricsService {
   static final RegExp _topicRegex = RegExp(r'\s+-\s+Topic$', caseSensitive: false);
 
   static const int _maxMemoryEntries = 50;
+  static bool onlineLyricsEnabled = true;
   static final LinkedHashMap<String, List<LyricLine>> _memoryCache =
       LinkedHashMap<String, List<LyricLine>>();
   static final LinkedHashMap<String, String> _rawLrcCache =
@@ -285,19 +286,21 @@ class LyricsService {
     }
 
     // 3. Fetch from LRCLIB
-    try {
-      final fetchedLrc = await _fetchFromLrclib(song, duration: duration);
-      if (fetchedLrc != null && fetchedLrc.isNotEmpty) {
-        final parsed = parseLrc(fetchedLrc);
-        if (parsed.isNotEmpty) {
-          _setMemoryCache(cacheKey, parsed, rawContent: fetchedLrc);
-          // Save to disk cache
-          _saveToDiskCache(song.id, fetchedLrc);
-          return parsed;
+    if (onlineLyricsEnabled) {
+      try {
+        final fetchedLrc = await _fetchFromLrclib(song, duration: duration);
+        if (fetchedLrc != null && fetchedLrc.isNotEmpty) {
+          final parsed = parseLrc(fetchedLrc);
+          if (parsed.isNotEmpty) {
+            _setMemoryCache(cacheKey, parsed, rawContent: fetchedLrc);
+            // Save to disk cache
+            _saveToDiskCache(song.id, fetchedLrc);
+            return parsed;
+          }
         }
+      } catch (e) {
+        debugPrint('[LyricsService] Online fetch error: $e');
       }
-    } catch (e) {
-      debugPrint('[LyricsService] Online fetch error: $e');
     }
 
     return const [];

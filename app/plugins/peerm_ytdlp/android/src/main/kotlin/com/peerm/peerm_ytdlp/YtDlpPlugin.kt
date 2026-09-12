@@ -142,11 +142,12 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 val url = call.argument<String>("url")
                 val outputPath = call.argument<String>("outputPath")
                 val processId = call.argument<String>("processId")
+                val format = call.argument<String>("format")
                 if (url == null || outputPath == null || processId == null) {
                     result.error("bad_args", "url/outputPath/processId required", null)
                     return
                 }
-                startAudioFastDownload(ctx, url, outputPath, processId, result)
+                startAudioFastDownload(ctx, url, outputPath, processId, format, result)
             }
             "getStreamUrl" -> {
                 val url = call.argument<String>("url")
@@ -679,6 +680,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         url: String,
         outputPath: String,
         processId: String,
+        format: String?,
         result: MethodChannel.Result,
     ) {
         // Supersede and cancel any previous in-flight audio download to free native Python memory
@@ -698,7 +700,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 ensureInit(ctx)
                 fun makeAudioReq(): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
-                    req.addOption("-f", "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba")
+                    req.addOption("-f", format ?: "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba")
                     req.addOption("-o", outputPath)
                     req.addOption("--no-playlist")
                     req.addOption("--no-part")

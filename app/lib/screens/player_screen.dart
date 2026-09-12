@@ -11,6 +11,7 @@ import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
 import '../widgets/player/queue_bottom_sheet.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
+import '../widgets/player/stream_quality_info_dialog.dart';
 
 /// Full-screen player with seek bar, transport controls, sleep timer, and
 /// volume.
@@ -103,6 +104,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           onPressed: () => PlayerConsoleDialog.show(context),
         ),
         SleepTimerButton(player: player),
+        StreamQualityInfoButton(player: player),
       ],
     );
 

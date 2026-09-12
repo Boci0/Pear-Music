@@ -45,9 +45,6 @@ class _ConsoleStatsData {
   final double rssMb;
   final double peakRssMb;
   final bool isPss;
-  final double cpuPercent;
-  final double gpuLoadPercent;
-  final double gpuRasterMs;
   final int cacheTrackCount;
   final double cacheMb;
   final int inFlightCount;
@@ -61,9 +58,6 @@ class _ConsoleStatsData {
     this.rssMb = 0.0,
     this.peakRssMb = 0.0,
     this.isPss = false,
-    this.cpuPercent = 0.0,
-    this.gpuLoadPercent = 0.0,
-    this.gpuRasterMs = 0.0,
     this.cacheTrackCount = 0,
     this.cacheMb = 0.0,
     this.inFlightCount = 0,
@@ -103,8 +97,6 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
       }
     } catch (_) {}
     SessionDiagnostics.recordRss(rss);
-    final cpu = await SessionDiagnostics.sampleCpuUsage();
-    final gpu = SessionDiagnostics.getGpuSnapshot();
     await SessionDiagnostics.updateBatterySnapshot();
     if (!mounted) return;
 
@@ -119,9 +111,6 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
       rssMb: rss,
       isPss: isPss,
       peakRssMb: SessionDiagnostics.peakRssMb,
-      cpuPercent: cpu,
-      gpuLoadPercent: gpu.rasterLoadPercent,
-      gpuRasterMs: gpu.avgRasterMs,
       cacheTrackCount: stats.trackCount,
       cacheMb: stats.totalBytes / (1024 * 1024),
       inFlightCount: stats.inFlightCount,
@@ -155,7 +144,6 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
   @override
   void initState() {
     super.initState();
-    SessionDiagnostics.startGpuTracking();
     _logs.addAll(DebugLog.recentLogs);
     _updateStats();
     _statsTimer =
@@ -177,7 +165,6 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
 
   @override
   void dispose() {
-    SessionDiagnostics.stopGpuTracking();
     _statsTimer?.cancel();
     _logFlushTimer?.cancel();
     _sub?.cancel();
@@ -362,12 +349,6 @@ class _PlayerConsoleDialogState extends State<PlayerConsoleDialog> {
                           label:
                               'RAM (${stats.isPss ? "PSS" : "RSS"}): ${stats.rssMb.toStringAsFixed(1)} MB (Peak: ${stats.peakRssMb.toStringAsFixed(1)} MB)',
                           color: const Color(0xFF81C784),
-                        ),
-                        _buildStatItem(
-                          icon: Icons.speed_rounded,
-                          label:
-                              'CPU: ${stats.cpuPercent.toStringAsFixed(1)}% | GPU (Raster): ${stats.gpuLoadPercent.toStringAsFixed(1)}% (${stats.gpuRasterMs.toStringAsFixed(1)}ms)',
-                          color: const Color(0xFFB388FF),
                         ),
                         _buildStatItem(
                           icon: Icons.storage_rounded,

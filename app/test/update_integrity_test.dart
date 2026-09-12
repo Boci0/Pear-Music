@@ -59,8 +59,8 @@ void main() {
 
       final matchingInfo = UpdateInfo(
         hasUpdate: true,
-        currentVersion: '3.3.8',
-        latestVersion: '3.3.9',
+        currentVersion: '3.3.9',
+        latestVersion: '3.4.0',
         releaseNotes: 'notes',
         htmlUrl: 'https://example.com',
         zipUrl: 'https://example.com/peerm_update.zip',
@@ -69,8 +69,8 @@ void main() {
 
       final mismatchInfo = UpdateInfo(
         hasUpdate: true,
-        currentVersion: '3.3.8',
-        latestVersion: '3.3.9',
+        currentVersion: '3.3.9',
+        latestVersion: '3.4.0',
         releaseNotes: 'notes',
         htmlUrl: 'https://example.com',
         zipUrl: 'https://example.com/peerm_update.zip',

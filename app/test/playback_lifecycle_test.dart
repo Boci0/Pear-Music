@@ -160,6 +160,7 @@ void main() {
     });
 
     test('StreamCacheManager download concurrency state tracking', () async {
+      StreamCacheManager.cancelActiveDownload();
       StreamCacheManager.cancelPreload();
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(StreamCacheManager.isAnyDownloadActive, isFalse);
@@ -170,6 +171,7 @@ void main() {
     });
 
     test('StreamCacheManager foreground vs preload state tracking', () {
+      StreamCacheManager.cancelActiveDownload();
       expect(StreamCacheManager.isForegroundDownloadActive, isFalse);
       expect(StreamCacheManager.isActiveDownloadPreload, isFalse);
     });

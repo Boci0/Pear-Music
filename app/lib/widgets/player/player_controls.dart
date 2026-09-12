@@ -405,24 +405,16 @@ class PlayerVolumeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(
-          Icons.volume_down,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        const Expanded(child: PlayerVolumeSlider()),
-        Icon(
-          Icons.volume_up,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ],
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: PlayerVolumeSlider(),
     );
   }
 }
 
-/// Volume slider with real-time volume adjustment and mouse scroll wheel
-/// control.
+/// Volume slider styled as a modern capsule pill.
+/// The volume symbol is embedded inside on the left, and the volume percentage
+/// number is embedded on the right.
 class PlayerVolumeSlider extends StatefulWidget {
   const PlayerVolumeSlider({super.key});
 
@@ -432,51 +424,204 @@ class PlayerVolumeSlider extends StatefulWidget {
 
 class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
   double? _dragValue;
+  double _lastNonZeroVolume = 0.75;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final player = context.watch<PlayerService>();
-    final value = _dragValue ?? player.volume.clamp(0.0, 1.0);
-    return Listener(
-      onPointerSignal: (event) {
-        if (event is PointerScrollEvent) {
-          final delta = event.scrollDelta.dy > 0 ? -0.05 : 0.05;
-          final next = (player.volume + delta).clamp(0.0, 1.0);
-          player.setVolume(next);
-          setState(() => _dragValue = next);
-        }
-      },
-      // RepaintBoundary keeps drag-tick repaints on the slider layer.
-      child: RepaintBoundary(
-        child: SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 4.0,
-            trackShape: const RoundedRectSliderTrackShape(),
-            thumbShape: const RoundSliderThumbShape(
-              enabledThumbRadius: 6.0,
-              elevation: 1.0,
-            ),
-            overlayShape: const RoundSliderOverlayShape(
-              overlayRadius: 12.0,
-            ),
-            activeTrackColor: scheme.primary,
-            inactiveTrackColor: scheme.outlineVariant.withValues(alpha: 0.35),
-            thumbColor: scheme.primary,
-          ),
-          child: Slider(
-            value: value,
-            onChangeStart: (_) =>
-                setState(() => _dragValue = player.volume.clamp(0.0, 1.0)),
-            onChanged: (v) {
-              setState(() => _dragValue = v);
-              player.setVolume(v);
+    final value = (_dragValue ?? player.volume).clamp(0.0, 1.0);
+
+    final volumeIcon = value == 0
+        ? Icons.volume_off_rounded
+        : (value < 0.5 ? Icons.volume_down_rounded : Icons.volume_up_rounded);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalWidth = constraints.maxWidth;
+        final fillWidth = (totalWidth * value).clamp(0.0, totalWidth);
+        final pctText = '${(value * 100).round()}%';
+
+        const inactiveTextColor = Colors.white70;
+        final activeTextColor = scheme.onPrimary;
+
+        final inactiveTextStyle = theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+          fontSize: 11.5,
+          letterSpacing: 0.2,
+          fontFeatures: const [FontFeature.tabularFigures()],
+          color: inactiveTextColor,
+        );
+
+        final activeTextStyle = theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+          fontSize: 11.5,
+          letterSpacing: 0.2,
+          fontFeatures: const [FontFeature.tabularFigures()],
+          color: activeTextColor,
+        );
+
+        return RepaintBoundary(
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent) {
+                final delta = event.scrollDelta.dy > 0 ? -0.05 : 0.05;
+                final next = (player.volume + delta).clamp(0.0, 1.0);
+                if (next > 0) _lastNonZeroVolume = next;
+                player.setVolume(next);
+                setState(() => _dragValue = next);
+              }
             },
-            onChangeEnd: (_) => setState(() => _dragValue = null),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (details) {
+                  if (totalWidth <= 0) return;
+                  if (details.localPosition.dx <= 40) {
+                    if (value > 0) {
+                      _lastNonZeroVolume = value;
+                      player.setVolume(0.0);
+                      setState(() => _dragValue = 0.0);
+                    } else {
+                      final restore = _lastNonZeroVolume > 0 ? _lastNonZeroVolume : 0.5;
+                      player.setVolume(restore);
+                      setState(() => _dragValue = restore);
+                    }
+                    return;
+                  }
+                  final fraction =
+                      (details.localPosition.dx / totalWidth).clamp(0.0, 1.0);
+                  if (fraction > 0) _lastNonZeroVolume = fraction;
+                  player.setVolume(fraction);
+                  setState(() => _dragValue = fraction);
+                },
+                onHorizontalDragStart: (details) {
+                  if (totalWidth <= 0) return;
+                  final fraction =
+                      (details.localPosition.dx / totalWidth).clamp(0.0, 1.0);
+                  if (fraction > 0) _lastNonZeroVolume = fraction;
+                  player.setVolume(fraction);
+                  setState(() => _dragValue = fraction);
+                },
+                onHorizontalDragUpdate: (details) {
+                  if (totalWidth <= 0) return;
+                  final fraction =
+                      (details.localPosition.dx / totalWidth).clamp(0.0, 1.0);
+                  if (fraction > 0) _lastNonZeroVolume = fraction;
+                  player.setVolume(fraction);
+                  setState(() => _dragValue = fraction);
+                },
+                onHorizontalDragEnd: (_) {
+                  setState(() => _dragValue = null);
+                },
+                onHorizontalDragCancel: () {
+                  setState(() => _dragValue = null);
+                },
+                child: SizedBox(
+                  height: 36,
+                  child: Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      // Inactive track container
+                      Container(
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.08),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Inactive base layer: icon on left, percentage on right
+                      Positioned(
+                        left: 12,
+                        child: Icon(
+                          volumeIcon,
+                          size: 18,
+                          color: inactiveTextColor,
+                        ),
+                      ),
+                      Positioned(
+                        right: 14,
+                        child: Text(
+                          pctText,
+                          style: inactiveTextStyle,
+                        ),
+                      ),
+
+                      // Active accent fill (clipped to fillWidth)
+                      if (fillWidth > 0)
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: fillWidth,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.horizontal(
+                              left: const Radius.circular(18),
+                              right: Radius.circular(value >= 0.96 ? 18 : 6),
+                            ),
+                            child: Container(
+                              color: scheme.primary,
+                            ),
+                          ),
+                        ),
+
+                      // Active text & icon layer clipped to fillWidth
+                      if (fillWidth > 0)
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: fillWidth,
+                          child: ClipRect(
+                            child: OverflowBox(
+                              alignment: Alignment.centerLeft,
+                              minWidth: totalWidth,
+                              maxWidth: totalWidth,
+                              child: Stack(
+                                alignment: Alignment.centerLeft,
+                                children: [
+                                  Positioned(
+                                    left: 12,
+                                    child: Icon(
+                                      volumeIcon,
+                                      size: 18,
+                                      color: scheme.onPrimary,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: 14,
+                                    child: Text(
+                                      pctText,
+                                      style: activeTextStyle,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

@@ -2,10 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/song.dart';
+import 'artwork_service.dart';
+import 'lyrics_service.dart';
+import 'stream_cache_manager.dart';
 
 enum SortOption {
   dateAdded('Date Added'),
@@ -16,8 +20,18 @@ enum SortOption {
   const SortOption(this.label);
 }
 
+enum StreamingQuality {
+  high('High Quality', 'Opus ~160 kbps / best audio dynamic range'),
+  standard('Standard', '128 kbps AAC / fast & balanced'),
+  dataSaver('Data Saver', '50–70 kbps / minimal bandwidth');
+
+  final String label;
+  final String subtitle;
+  const StreamingQuality(this.label, this.subtitle);
+}
+
 /// Persistent identity + preferences for this device.
-class IdentityService {
+class IdentityService extends ChangeNotifier {
   static const _deviceIdKey = 'peerm_device_id';
   static const _deviceNameKey = 'peerm_device_name';
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
@@ -30,6 +44,10 @@ class IdentityService {
   static const _autoplayKey = 'peerm_autoplay';
   static const _popLyricsKey = 'peerm_pop_lyrics';
   static const _playbackVolumeKey = 'peerm_playback_volume';
+  static const _onlineLyricsKey = 'peerm_online_lyrics';
+  static const _streamingQualityKey = 'peerm_streaming_quality';
+  static const _preloadUpcomingKey = 'peerm_preload_upcoming';
+  static const _onlineArtworkKey = 'peerm_online_artwork';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -44,6 +62,10 @@ class IdentityService {
   late bool _autoplay;
   late bool _popLyrics;
   late double _playbackVolume;
+  late bool _onlineLyrics;
+  late StreamingQuality _streamingQuality;
+  late bool _preloadUpcoming;
+  late bool _onlineArtwork;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -76,6 +98,14 @@ class IdentityService {
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
     _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
     _playbackVolume = _prefs.getDouble(_playbackVolumeKey) ?? 0.75;
+    _onlineLyrics = _prefs.getBool(_onlineLyricsKey) ?? true;
+    final qualityStr = _prefs.getString(_streamingQualityKey);
+    _streamingQuality = StreamingQuality.values.firstWhere(
+      (e) => e.name == qualityStr,
+      orElse: () => StreamingQuality.standard,
+    );
+    _preloadUpcoming = _prefs.getBool(_preloadUpcomingKey) ?? true;
+    _onlineArtwork = _prefs.getBool(_onlineArtworkKey) ?? true;
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -107,6 +137,7 @@ class IdentityService {
     if (trimmed.isEmpty) return;
     deviceName = trimmed;
     await _prefs.setString(_deviceNameKey, trimmed);
+    notifyListeners();
   }
 
   Set<String> get favoriteSongIds => Set.unmodifiable(_favoriteSongIds);
@@ -130,6 +161,7 @@ class IdentityService {
       }
     }
     await _saveFavorites();
+    notifyListeners();
   }
 
   Future<void> cacheFavoriteSongMetadata(Song song) async {
@@ -139,6 +171,7 @@ class IdentityService {
           _favoriteOnlineSongs[song.id]!.artwork != song.artwork) {
         _favoriteOnlineSongs[song.id] = song;
         await _saveFavorites();
+        notifyListeners();
       }
     }
   }
@@ -158,6 +191,7 @@ class IdentityService {
   Future<void> setSortOption(SortOption option) async {
     _sortOption = option;
     await _prefs.setString(_sortOptionKey, option.name);
+    notifyListeners();
   }
 
   bool get loudnessNormalization => _loudnessNormalization;
@@ -165,6 +199,7 @@ class IdentityService {
   Future<void> setLoudnessNormalization(bool value) async {
     _loudnessNormalization = value;
     await _prefs.setBool(_loudnessNormKey, value);
+    notifyListeners();
   }
 
   bool get synthesizerBar => _synthesizerBar;
@@ -172,6 +207,7 @@ class IdentityService {
   Future<void> setSynthesizerBar(bool value) async {
     _synthesizerBar = value;
     await _prefs.setBool(_synthesizerBarKey, value);
+    notifyListeners();
   }
 
   bool get visualizerGlow => _visualizerGlow;
@@ -180,6 +216,7 @@ class IdentityService {
     if (_visualizerGlow == value) return;
     _visualizerGlow = value;
     await _prefs.setBool(_visualizerGlowKey, value);
+    notifyListeners();
   }
 
   bool get autoRerollSeed => _autoRerollSeed;
@@ -188,6 +225,7 @@ class IdentityService {
     if (_autoRerollSeed == value) return;
     _autoRerollSeed = value;
     await _prefs.setBool(_autoRerollSeedKey, value);
+    notifyListeners();
   }
 
   bool get autoplay => _autoplay;
@@ -196,6 +234,7 @@ class IdentityService {
     if (_autoplay == value) return;
     _autoplay = value;
     await _prefs.setBool(_autoplayKey, value);
+    notifyListeners();
   }
 
   bool get popLyrics => _popLyrics;
@@ -204,6 +243,7 @@ class IdentityService {
     if (_popLyrics == value) return;
     _popLyrics = value;
     await _prefs.setBool(_popLyricsKey, value);
+    notifyListeners();
   }
 
   double get playbackVolume => _playbackVolume;
@@ -212,5 +252,48 @@ class IdentityService {
     final clamped = value.clamp(0.0, 1.0);
     _playbackVolume = clamped;
     await _prefs.setDouble(_playbackVolumeKey, clamped);
+    notifyListeners();
+  }
+
+  bool get onlineLyrics => _onlineLyrics;
+
+  Future<void> setOnlineLyrics(bool value) async {
+    if (_onlineLyrics == value) return;
+    _onlineLyrics = value;
+    LyricsService.onlineLyricsEnabled = value;
+    await _prefs.setBool(_onlineLyricsKey, value);
+    notifyListeners();
+  }
+
+  StreamingQuality get streamingQuality => _streamingQuality;
+
+  Future<void> setStreamingQuality(StreamingQuality value) async {
+    if (_streamingQuality == value) return;
+    _streamingQuality = value;
+    StreamCacheManager.setStreamingQuality(value);
+    await _prefs.setString(_streamingQualityKey, value.name);
+    notifyListeners();
+  }
+
+  bool get preloadUpcoming => _preloadUpcoming;
+
+  Future<void> setPreloadUpcoming(bool value) async {
+    if (_preloadUpcoming == value) return;
+    _preloadUpcoming = value;
+    if (!value) {
+      StreamCacheManager.cancelPreload();
+    }
+    await _prefs.setBool(_preloadUpcomingKey, value);
+    notifyListeners();
+  }
+
+  bool get onlineArtwork => _onlineArtwork;
+
+  Future<void> setOnlineArtwork(bool value) async {
+    if (_onlineArtwork == value) return;
+    _onlineArtwork = value;
+    ArtworkService.onlineArtworkEnabled = value;
+    await _prefs.setBool(_onlineArtworkKey, value);
+    notifyListeners();
   }
 }
