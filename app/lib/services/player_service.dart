@@ -124,21 +124,23 @@ class PlayerService extends ChangeNotifier {
           currentSong!.id.replaceFirst('stream_', '');
       final inspected = await StreamCacheManager.inspectTrackCache(videoId);
       if (inspected.isCached && inspected.filePath != null) {
+        final changed = _currentLoadedFile?.path != inspected.filePath;
         _currentLoadedFile = File(inspected.filePath!);
         _currentLoadedFileSize = inspected.fileSize;
         _currentLoadedQuality = inspected.quality;
         _currentLoadedFormat = inspected.ext;
-        notifyListeners();
+        if (changed) notifyListeners();
         return _currentLoadedFile;
       }
     } else {
       final file = library.songFile(currentSong!);
       if (await file.exists()) {
+        final changed = _currentLoadedFile?.path != file.path;
         _currentLoadedFile = file;
         _currentLoadedFileSize = await file.length();
         _currentLoadedQuality = null;
         _currentLoadedFormat = p.extension(file.path).replaceFirst('.', '');
-        notifyListeners();
+        if (changed) notifyListeners();
         return file;
       }
     }
@@ -1583,8 +1585,10 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> setVolume(double value) async {
+    final clamped = value.clamp(0.0, 1.0);
+    if ((_userVolume - clamped).abs() < 0.001) return;
     _volumeFadeToken++;
-    _userVolume = value.clamp(0.0, 1.0);
+    _userVolume = clamped;
     await _player.setVolume(_userVolume);
     _saveVolumeDebounceTimer?.cancel();
     _saveVolumeDebounceTimer = Timer(const Duration(milliseconds: 400), () {

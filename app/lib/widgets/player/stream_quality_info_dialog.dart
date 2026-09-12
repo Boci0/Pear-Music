@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
+import '../../models/song.dart';
 import '../../services/identity_service.dart';
 import '../../services/player_service.dart';
 import '../../services/stream_cache_manager.dart';
@@ -35,7 +36,10 @@ class StreamQualityInfoDialog extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => const StreamQualityInfoDialog(),
+      barrierColor: Colors.black54,
+      builder: (ctx) => const RepaintBoundary(
+        child: StreamQualityInfoDialog(),
+      ),
     );
   }
 
@@ -44,14 +48,33 @@ class StreamQualityInfoDialog extends StatefulWidget {
 }
 
 class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
+  bool _canOpen = false;
+  String? _lastCheckedPath;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<PlayerService>().resolveCurrentLoadedFile();
-      }
-    });
+    _initFileMetadata();
+  }
+
+  Future<void> _initFileMetadata() async {
+    final player = context.read<PlayerService>();
+    final file = await player.resolveCurrentLoadedFile();
+    if (mounted && file != null) {
+      _checkCanOpen(file.path);
+      setState(() {});
+    }
+  }
+
+  void _checkCanOpen(String? path) {
+    if (path == _lastCheckedPath) return;
+    _lastCheckedPath = path;
+    if (path == null || path.isEmpty) {
+      _canOpen = false;
+      return;
+    }
+    _canOpen = (Platform.isWindows || Platform.isMacOS || Platform.isLinux) &&
+        File(path).existsSync();
   }
 
   String _formatBytes(int bytes) {
@@ -67,10 +90,26 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
     return '$minutes:$seconds';
   }
 
-  bool _canOpenLocation(String? path) {
-    if (path == null || path.isEmpty) return false;
-    return (Platform.isWindows || Platform.isMacOS || Platform.isLinux) &&
-        File(path).existsSync();
+  String _formatAudioCodecAndContainer(String? format, String? path) {
+    final ext = (format ?? (path != null ? p.extension(path).replaceFirst('.', '') : '')).toLowerCase();
+    switch (ext) {
+      case 'webm':
+        return 'Opus (WebM container)';
+      case 'm4a':
+        return 'AAC (M4A container)';
+      case 'opus':
+        return 'Opus (Ogg container)';
+      case 'mp3':
+        return 'MP3';
+      case 'flac':
+        return 'FLAC (Lossless)';
+      case 'ogg':
+        return 'Ogg Vorbis / Opus';
+      case 'wav':
+        return 'WAV (PCM)';
+      default:
+        return ext.isNotEmpty ? ext.toUpperCase() : 'Unknown';
+    }
   }
 
   Future<void> _openFileLocation(String filePath) async {
@@ -101,25 +140,27 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerService>();
+    final player = context.read<PlayerService>();
+    final currentSong = context.select<PlayerService, Song?>((p) => p.currentSong);
     final identity = context.watch<IdentityService?>();
     final activeQuality = identity?.streamingQuality ?? StreamCacheManager.currentQuality;
-    final currentSong = player.currentSong;
     final isStream = currentSong?.sourceDeviceId == 'stream';
 
-    final loadedQuality = player.currentLoadedQuality;
-    final loadedFile = player.currentLoadedFile;
-    final loadedSize = player.currentLoadedFileSize;
-    final loadedFormat = player.currentLoadedFormat;
+    final loadedQuality = context.select<PlayerService, StreamingQuality?>((p) => p.currentLoadedQuality);
+    final loadedFile = context.select<PlayerService, File?>((p) => p.currentLoadedFile);
+    final loadedSize = context.select<PlayerService, int?>((p) => p.currentLoadedFileSize);
+    final loadedFormat = context.select<PlayerService, String?>((p) => p.currentLoadedFormat);
 
     final filePath = loadedFile?.path ??
         (currentSong != null && !isStream ? player.library.songFile(currentSong).path : null);
     final copyTarget = filePath ?? (currentSong?.id ?? '');
+    _checkCanOpen(filePath);
 
-    return Material(
-      color: const Color(0xFF0D0D0D),
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      clipBehavior: Clip.antiAlias,
+    return RepaintBoundary(
+      child: Material(
+        color: const Color(0xFF0D0D0D),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -202,7 +243,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                           ),
                           onPressed: () => _copyToClipboard(context, copyTarget),
                         ),
-                        if (_canOpenLocation(filePath))
+                        if (_canOpen && filePath != null)
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
@@ -219,7 +260,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                               'Open location',
                               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                             ),
-                            onPressed: () => _openFileLocation(filePath!),
+                            onPressed: () => _openFileLocation(filePath),
                           ),
                       ],
                     ),
@@ -280,7 +321,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                               if (loadedFormat != null || (filePath != null && p.extension(filePath).isNotEmpty))
                                 _buildPropertyRow(
                                   'Audio Format',
-                                  (loadedFormat ?? p.extension(filePath!).replaceFirst('.', '')).toUpperCase(),
+                                  _formatAudioCodecAndContainer(loadedFormat, filePath),
                                 ),
                             ],
                           ),
@@ -344,7 +385,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildSectionHeader(String title) {

@@ -430,17 +430,28 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final player = context.watch<PlayerService>();
-    final value = (_dragValue ?? player.volume).clamp(0.0, 1.0);
+    final player = context.read<PlayerService>();
+    final currentVolume = context.select<PlayerService, double>((p) => p.volume);
+    final value = (_dragValue ?? currentVolume).clamp(0.0, 1.0);
 
     final volumeIcon = value == 0
         ? Icons.volume_off_rounded
         : (value < 0.5 ? Icons.volume_down_rounded : Icons.volume_up_rounded);
 
+    const double sliderHeight = 36.0;
+    const double radius = sliderHeight / 2; // 18.0
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final totalWidth = constraints.maxWidth;
-        final fillWidth = (totalWidth * value).clamp(0.0, totalWidth);
+        if (totalWidth <= 0) return const SizedBox(height: sliderHeight);
+
+        final usableWidth = totalWidth - (radius * 2);
+        final activeWidth = value <= 0
+            ? 0.0
+            : (radius * 2 + (usableWidth > 0 ? usableWidth * value : 0.0))
+                .clamp(radius * 2, totalWidth);
+
         final pctText = '${(value * 100).round()}%';
 
         const inactiveTextColor = Colors.white70;
@@ -462,6 +473,15 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
           color: activeTextColor,
         );
 
+        void handleDragUpdate(double localDx) {
+          final fraction = usableWidth > 0
+              ? ((localDx - radius) / usableWidth).clamp(0.0, 1.0)
+              : (localDx / totalWidth).clamp(0.0, 1.0);
+          if (fraction > 0) _lastNonZeroVolume = fraction;
+          setState(() => _dragValue = fraction);
+          player.setVolume(fraction);
+        }
+
         return RepaintBoundary(
           child: Listener(
             onPointerSignal: (event) {
@@ -469,8 +489,8 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                 final delta = event.scrollDelta.dy > 0 ? -0.05 : 0.05;
                 final next = (player.volume + delta).clamp(0.0, 1.0);
                 if (next > 0) _lastNonZeroVolume = next;
-                player.setVolume(next);
                 setState(() => _dragValue = next);
+                player.setVolume(next);
               }
             },
             child: MouseRegion(
@@ -478,143 +498,93 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTapDown: (details) {
-                  if (totalWidth <= 0) return;
-                  if (details.localPosition.dx <= 40) {
+                  final dx = details.localPosition.dx;
+                  if (dx <= 38) {
                     if (value > 0) {
                       _lastNonZeroVolume = value;
-                      player.setVolume(0.0);
                       setState(() => _dragValue = 0.0);
+                      player.setVolume(0.0);
                     } else {
                       final restore = _lastNonZeroVolume > 0 ? _lastNonZeroVolume : 0.5;
-                      player.setVolume(restore);
                       setState(() => _dragValue = restore);
+                      player.setVolume(restore);
                     }
                     return;
                   }
-                  final fraction =
-                      (details.localPosition.dx / totalWidth).clamp(0.0, 1.0);
-                  if (fraction > 0) _lastNonZeroVolume = fraction;
-                  player.setVolume(fraction);
-                  setState(() => _dragValue = fraction);
+                  handleDragUpdate(dx);
                 },
-                onHorizontalDragStart: (details) {
-                  if (totalWidth <= 0) return;
-                  final fraction =
-                      (details.localPosition.dx / totalWidth).clamp(0.0, 1.0);
-                  if (fraction > 0) _lastNonZeroVolume = fraction;
-                  player.setVolume(fraction);
-                  setState(() => _dragValue = fraction);
-                },
-                onHorizontalDragUpdate: (details) {
-                  if (totalWidth <= 0) return;
-                  final fraction =
-                      (details.localPosition.dx / totalWidth).clamp(0.0, 1.0);
-                  if (fraction > 0) _lastNonZeroVolume = fraction;
-                  player.setVolume(fraction);
-                  setState(() => _dragValue = fraction);
-                },
-                onHorizontalDragEnd: (_) {
-                  setState(() => _dragValue = null);
-                },
-                onHorizontalDragCancel: () {
-                  setState(() => _dragValue = null);
-                },
-                child: SizedBox(
-                  height: 36,
-                  child: Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      // Inactive track container
-                      Container(
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.08),
-                            width: 1,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Inactive base layer: icon on left, percentage on right
-                      Positioned(
-                        left: 12,
-                        child: Icon(
-                          volumeIcon,
-                          size: 18,
-                          color: inactiveTextColor,
-                        ),
-                      ),
-                      Positioned(
-                        right: 14,
-                        child: Text(
-                          pctText,
-                          style: inactiveTextStyle,
-                        ),
-                      ),
-
-                      // Active accent fill (clipped to fillWidth)
-                      if (fillWidth > 0)
+                onHorizontalDragStart: (details) => handleDragUpdate(details.localPosition.dx),
+                onHorizontalDragUpdate: (details) => handleDragUpdate(details.localPosition.dx),
+                onHorizontalDragEnd: (_) => setState(() => _dragValue = null),
+                onHorizontalDragCancel: () => setState(() => _dragValue = null),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(radius),
+                  clipBehavior: Clip.antiAlias,
+                  child: Container(
+                    height: sliderHeight,
+                    color: Colors.white.withValues(alpha: 0.12),
+                    child: Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        // Inactive base layer: icon on left, percentage on right
                         Positioned(
-                          left: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: fillWidth,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.horizontal(
-                              left: const Radius.circular(18),
-                              right: Radius.circular(value >= 0.96 ? 18 : 6),
-                            ),
-                            child: Container(
-                              color: scheme.primary,
-                            ),
+                          left: 12,
+                          child: Icon(
+                            volumeIcon,
+                            size: 18,
+                            color: inactiveTextColor,
+                          ),
+                        ),
+                        Positioned(
+                          right: 14,
+                          child: Text(
+                            pctText,
+                            style: inactiveTextStyle,
                           ),
                         ),
 
-                      // Active text & icon layer clipped to fillWidth
-                      if (fillWidth > 0)
-                        Positioned(
-                          left: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: fillWidth,
-                          child: ClipRect(
-                            child: OverflowBox(
-                              alignment: Alignment.centerLeft,
-                              minWidth: totalWidth,
-                              maxWidth: totalWidth,
-                              child: Stack(
-                                alignment: Alignment.centerLeft,
-                                children: [
-                                  Positioned(
-                                    left: 12,
-                                    child: Icon(
-                                      volumeIcon,
-                                      size: 18,
-                                      color: scheme.onPrimary,
-                                    ),
+                        // Active accent fill pill with fully rounded semicircular cap and contrast text/icon
+                        if (value > 0)
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: activeWidth,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(radius),
+                              clipBehavior: Clip.antiAlias,
+                              child: Container(
+                                color: scheme.primary,
+                                child: OverflowBox(
+                                  alignment: Alignment.centerLeft,
+                                  minWidth: totalWidth,
+                                  maxWidth: totalWidth,
+                                  child: Stack(
+                                    alignment: Alignment.centerLeft,
+                                    children: [
+                                      Positioned(
+                                        left: 12,
+                                        child: Icon(
+                                          volumeIcon,
+                                          size: 18,
+                                          color: scheme.onPrimary,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        right: 14,
+                                        child: Text(
+                                          pctText,
+                                          style: activeTextStyle,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Positioned(
-                                    right: 14,
-                                    child: Text(
-                                      pctText,
-                                      style: activeTextStyle,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

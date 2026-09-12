@@ -256,21 +256,17 @@ class StreamCacheManager {
   /// Inspects any cached file details on disk for a given [videoId].
   static Future<({bool isCached, StreamingQuality? quality, String? filePath, int? fileSize, String? ext})> inspectTrackCache(String videoId) async {
     try {
-      final dir = await getCacheDirectory();
-      final files = await dir.list().where((e) => e is File).cast<File>().toList();
-      for (final f in files) {
-        final name = p.basename(f.path);
-        if (name.startsWith('$videoId.') || name == videoId) {
-          final len = await f.length();
-          final ext = p.extension(f.path).replaceFirst('.', '');
-          return (
-            isCached: true,
-            quality: parseQualityFromPath(f.path),
-            filePath: f.path,
-            fileSize: len,
-            ext: ext,
-          );
-        }
+      final file = await getCachedFile(videoId);
+      if (file != null && await file.exists()) {
+        final len = await file.length();
+        final ext = p.extension(file.path).replaceFirst('.', '');
+        return (
+          isCached: true,
+          quality: parseQualityFromPath(file.path),
+          filePath: file.path,
+          fileSize: len,
+          ext: ext,
+        );
       }
     } catch (_) {}
     return (
