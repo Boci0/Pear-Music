@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../services/player_service.dart';
-import 'rhythm_pulse.dart';
 import 'visual_synthesizer_bar.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
@@ -65,66 +64,10 @@ class PlayerTransport extends StatelessWidget {
                   icon: const Icon(Icons.skip_previous_rounded),
                   onPressed: () => controller.previousTrack(),
                 ),
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    RhythmPulseBuilder(
-                      player: player,
-                      child: RepaintBoundary(
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: scheme.primary.withValues(alpha: 0.50),
-                                blurRadius: 24.0,
-                                spreadRadius: 2.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      builder: (context, aura, child) {
-                        final alpha = aura.clamp(0.0, 1.0);
-                        if (alpha <= 0.005) {
-                          return const SizedBox(width: 64, height: 64);
-                        }
-                        return Opacity(
-                          opacity: alpha,
-                          child: child,
-                        );
-                      },
-                    ),
-                    SizedBox(
-                      width: 72,
-                      height: 72,
-                      child: IconButton(
-                        padding: EdgeInsets.zero,
-                        iconSize: 72,
-                        icon: player.isBuffering
-                            ? Center(
-                                child: SizedBox(
-                                  width: 64,
-                                  height: 64,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 4.0,
-                                    color: scheme.primary,
-                                  ),
-                                ),
-                              )
-                            : Icon(
-                                player.playing
-                                    ? Icons.pause_circle_filled
-                                    : Icons.play_circle_filled,
-                                size: 72,
-                                color: scheme.primary,
-                              ),
-                        onPressed: () => controller.togglePlayback(),
-                      ),
-                    ),
-                  ],
+                _PlayPauseButton(
+                  player: player,
+                  controller: controller,
+                  scheme: scheme,
                 ),
                 IconButton(
                   iconSize: 44,
@@ -154,6 +97,111 @@ class PlayerTransport extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _PlayPauseButton extends StatefulWidget {
+  final PlayerService player;
+  final AppController controller;
+  final ColorScheme scheme;
+
+  const _PlayPauseButton({
+    required this.player,
+    required this.controller,
+    required this.scheme,
+  });
+
+  @override
+  State<_PlayPauseButton> createState() => _PlayPauseButtonState();
+}
+
+class _PlayPauseButtonState extends State<_PlayPauseButton> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = widget.scheme;
+    final player = widget.player;
+    final isBuffering = player.isBuffering;
+    final isPlaying = player.playing;
+
+    final bgColor = scheme.primary.withValues(
+      alpha: _isPressed
+          ? 0.35
+          : _isHovered
+              ? 0.28
+              : 0.22,
+    );
+    final borderColor = scheme.primary.withValues(
+      alpha: _isHovered ? 0.55 : 0.38,
+    );
+
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: Center(
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _isPressed = true),
+            onTapUp: (_) {
+              setState(() => _isPressed = false);
+              widget.controller.togglePlayback();
+            },
+            onTapCancel: () => setState(() => _isPressed = false),
+            behavior: HitTestBehavior.opaque,
+            child: Tooltip(
+              message: isBuffering
+                  ? 'Buffering...'
+                  : isPlaying
+                      ? 'Pause'
+                      : 'Play',
+              child: AnimatedScale(
+                scale: _isPressed ? 0.90 : (_isHovered ? 1.05 : 1.0),
+                duration: const Duration(milliseconds: 140),
+                curve: Curves.easeOutCubic,
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: bgColor,
+                    border: Border.all(
+                      color: borderColor,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Center(
+                    child: isBuffering
+                        ? SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3.0,
+                              color: scheme.primary,
+                            ),
+                          )
+                        : Padding(
+                            padding: EdgeInsets.only(left: isPlaying ? 0.0 : 2.5),
+                            child: Icon(
+                              isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: isPlaying ? 34 : 38,
+                              color: scheme.primary,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

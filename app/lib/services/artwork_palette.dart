@@ -43,12 +43,18 @@ class ArtworkPalette {
     _cache.clear();
   }
 
+  /// Notifier bumped whenever an artwork dominant color successfully resolves.
+  static final ValueNotifier<int> paletteNotifier = ValueNotifier<int>(0);
+
+  /// Checks whether a song's dominant color has been successfully resolved from its artwork.
+  static bool hasResolved(Song song) => _resolvedColors.containsKey(song.id);
+
   /// Last resolved accent colour. Kept across cache clears so the UI never
   /// flashes back to fallback while colours re-resolve.
   static Color? _lastAccent;
 
   static final HttpClient _httpClient = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 4)
+    ..connectionTimeout = const Duration(seconds: 10)
     ..idleTimeout = const Duration(seconds: 15)
     ..maxConnectionsPerHost = 6;
 
@@ -64,18 +70,33 @@ class ArtworkPalette {
   /// then returns the resolved colour instantly on every subsequent build.
   static Future<Color> dominant(Song song, {Color? fallbackColor}) {
     final id = song.id;
-    final cached = _cache[id];
-    if (cached != null) return cached;
+    final cached = _resolvedColors[id];
+    if (cached != null) return Future.value(cached);
+
+    final inFlight = _cache[id];
+    if (inFlight != null) return inFlight;
+
     final art = song.artwork;
     if (art == null || art.isEmpty) {
       return Future.value(fallbackColor ?? _lastAccent ?? fallback);
     }
 
     final future = _extract(art).then((color) {
-      _resolvedColors[id] = color;
-      _trim(_resolvedColors, _maxColorEntries);
-      _lastAccent = color;
-      return color;
+      if (color != null && color != fallback) {
+        _resolvedColors[id] = color;
+        _trim(_resolvedColors, _maxColorEntries);
+        _lastAccent = color;
+        paletteNotifier.value++;
+        return color;
+      } else {
+        // Extraction failed (e.g. timeout on slow internet).
+        // Evict in-flight cache so a subsequent retry or image-load callback can succeed!
+        _cache.remove(id);
+        return fallbackColor ?? _lastAccent ?? fallback;
+      }
+    }).catchError((_) {
+      _cache.remove(id);
+      return fallbackColor ?? _lastAccent ?? fallback;
     });
 
     _cache[id] = future;
@@ -179,9 +200,9 @@ class ArtworkPalette {
     }
   }
 
-  static final Map<String, Future<Color>> _inFlightHttpExtracts = {};
+  static final Map<String, Future<Color?>> _inFlightHttpExtracts = {};
 
-  static Future<Color> _extract(String art) async {
+  static Future<Color?> _extract(String art) async {
     try {
       if (art.startsWith('http')) {
         final existing = _inFlightHttpExtracts[art];
@@ -196,18 +217,64 @@ class ArtworkPalette {
       } else {
         return await compute(computeDominant, art);
       }
-    } catch (_) {}
-    return _lastAccent ?? fallback;
+    } catch (_) {
+      return null;
+    }
   }
 
-  static Future<Color> _fetchAndComputeDominant(String url) async {
-    final req = await _httpClient.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 4));
-    final resp = await req.close().timeout(const Duration(seconds: 4));
-    if (resp.statusCode == 200) {
-      final bytes = await consolidateHttpClientResponseBytes(resp);
-      return await compute(computeDominantFromBytes, bytes);
+  /// Converts heavy image URLs to lightweight micro-thumbnails (~1-3 KB) for
+  /// near-instant download even on congested or slow mobile connections.
+  static String microThumbnailUrl(String url) {
+    if (url.isEmpty) return url;
+    if (url.contains('googleusercontent.com') || url.contains('ggpht.com')) {
+      return url
+          .replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w96-h96-c')
+          .replaceAll(RegExp(r'=s\d+.*$'), '=s96-c');
     }
-    return _lastAccent ?? fallback;
+    if (url.contains('i.ytimg.com/') || url.contains('img.youtube.com/')) {
+      return url
+          .replaceAll('sddefault.jpg', 'default.jpg')
+          .replaceAll('hqdefault.jpg', 'default.jpg')
+          .replaceAll('mqdefault.jpg', 'default.jpg')
+          .replaceAll('maxresdefault.jpg', 'default.jpg')
+          .replaceAll('sddefault.webp', 'default.jpg')
+          .replaceAll('hqdefault.webp', 'default.jpg')
+          .replaceAll('mqdefault.webp', 'default.jpg');
+    }
+    return url;
+  }
+
+  static Future<Uint8List?> _downloadBytes(String url) async {
+    try {
+      final req = await _httpClient
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+      final resp = await req.close().timeout(const Duration(seconds: 12));
+      if (resp.statusCode == 200) {
+        return await consolidateHttpClientResponseBytes(resp);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<Color?> _fetchAndComputeDominant(String url) async {
+    // 1. Try micro-thumbnail first (1-3 KB) for instantaneous download on slow internet
+    final microUrl = microThumbnailUrl(url);
+    final microBytes = await _downloadBytes(microUrl);
+    if (microBytes != null && microBytes.isNotEmpty) {
+      final color = await compute(computeDominantFromBytes, microBytes);
+      if (color != fallback) return color;
+    }
+
+    // 2. Fallback to original URL if micro-thumbnail returned fallback or failed
+    if (microUrl != url) {
+      final originalBytes = await _downloadBytes(url);
+      if (originalBytes != null && originalBytes.isNotEmpty) {
+        final color = await compute(computeDominantFromBytes, originalBytes);
+        if (color != fallback) return color;
+      }
+    }
+    return null;
   }
 
   /// A softened, readable accent for controls (play button, sliders, active

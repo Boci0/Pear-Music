@@ -76,4 +76,39 @@ void main() {
 
     expect(hsl.lightness, greaterThanOrEqualTo(0.50));
   });
+
+  test('microThumbnailUrl converts heavy artwork URLs into lightweight thumbnails', () {
+    const ytSd = 'https://i.ytimg.com/vi/abc123xyz/sddefault.jpg';
+    expect(ArtworkPalette.microThumbnailUrl(ytSd), 'https://i.ytimg.com/vi/abc123xyz/default.jpg');
+
+    const ytHq = 'https://i.ytimg.com/vi/abc123xyz/hqdefault.jpg';
+    expect(ArtworkPalette.microThumbnailUrl(ytHq), 'https://i.ytimg.com/vi/abc123xyz/default.jpg');
+
+    const googleUser = 'https://lh3.googleusercontent.com/abc=w544-h544-l90-rj';
+    expect(ArtworkPalette.microThumbnailUrl(googleUser), 'https://lh3.googleusercontent.com/abc=w96-h96-c');
+  });
+
+  test('hasResolved tracks extraction and paletteNotifier fires on success', () async {
+    final song = Song(
+      id: 'test_resolve',
+      title: 'Resolved Test',
+      fileName: 'f.mp3',
+      size: 1,
+      checksum: 'c',
+      addedAt: DateTime(2026),
+      artwork: _solidImage(const Color(0xFFFF9900)),
+    );
+
+    expect(ArtworkPalette.hasResolved(song), isFalse);
+
+    var notified = false;
+    ArtworkPalette.paletteNotifier.addListener(() {
+      notified = true;
+    });
+
+    final color = await ArtworkPalette.dominant(song);
+    expect(color, isNot(ArtworkPalette.fallback));
+    expect(ArtworkPalette.hasResolved(song), isTrue);
+    expect(notified, isTrue);
+  });
 }

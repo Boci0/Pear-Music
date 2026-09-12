@@ -129,6 +129,12 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
         fit: BoxFit.cover,
         alignment: Alignment.center,
         gaplessPlayback: true,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (frame != null && song != null && !ArtworkPalette.hasResolved(song)) {
+            ArtworkPalette.dominant(song);
+          }
+          return child;
+        },
         errorBuilder: (_, _, _) {
           if (rawNetworkUrl != null && rawNetworkUrl != effectiveNetworkUrl) {
             return Image.network(

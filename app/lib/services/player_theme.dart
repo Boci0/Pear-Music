@@ -14,6 +14,7 @@ import 'player_service.dart';
 class PlayerTheme extends ChangeNotifier {
   PlayerTheme(PlayerService player) : _player = player {
     _player.addListener(_onPlayerChanged);
+    ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
     _onPlayerChanged();
   }
 
@@ -165,6 +166,13 @@ class PlayerTheme extends ChangeNotifier {
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
       ),
+      listTileTheme: ListTileThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      iconTheme: IconThemeData(color: scheme.onSurface),
+      primaryColor: scheme.primary,
     );
   }
 
@@ -185,10 +193,18 @@ class PlayerTheme extends ChangeNotifier {
     return built;
   }
 
+  void _onPaletteUpdated() {
+    final song = _player.currentSong;
+    if (song != null && ArtworkPalette.hasResolved(song)) {
+      final color = ArtworkPalette.dominantSync(song);
+      _apply(color);
+    }
+  }
+
   void _onPlayerChanged() {
     final song = _player.currentSong;
     final id = song?.id;
-    if (id == _appliedSongId) return; // same song — colour already applied
+    if (id == _appliedSongId && (song == null || ArtworkPalette.hasResolved(song))) return;
     _appliedSongId = id;
     if (song == null) {
       // Nothing playing -> back to the default purple theme.
@@ -216,6 +232,7 @@ class PlayerTheme extends ChangeNotifier {
   @override
   void dispose() {
     _player.removeListener(_onPlayerChanged);
+    ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     super.dispose();
   }
 }
