@@ -6,9 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../../models/song.dart';
-import '../../services/identity_service.dart';
 import '../../services/player_service.dart';
-import '../../services/stream_cache_manager.dart';
 
 /// Top bar button displaying a simple info icon next to the sleep timer.
 class StreamQualityInfoButton extends StatelessWidget {
@@ -142,11 +140,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
     final currentSong = context.select<PlayerService, Song?>((p) => p.currentSong);
-    final identity = context.watch<IdentityService?>();
-    final activeQuality = identity?.streamingQuality ?? StreamCacheManager.currentQuality;
     final isStream = currentSong?.sourceDeviceId == 'stream';
 
-    final loadedQuality = context.select<PlayerService, StreamingQuality?>((p) => p.currentLoadedQuality);
     final loadedFile = context.select<PlayerService, File?>((p) => p.currentLoadedFile);
     final loadedSize = context.select<PlayerService, int?>((p) => p.currentLoadedFileSize);
     final loadedFormat = context.select<PlayerService, String?>((p) => p.currentLoadedFormat);
@@ -352,20 +347,10 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                                   : 'Live Stream via yt-dlp')
                               : 'Local Music Library',
                         ),
-                        _buildPropertyRow(
-                          'Active Setting',
-                          '${activeQuality.label} (${activeQuality.subtitle})',
-                        ),
                         if (isStream) ...[
                           _buildPropertyRow(
-                            'Loaded Quality',
-                            loadedQuality != null
-                                ? loadedQuality.label
-                                : (loadedFile != null ? 'Legacy Cache' : 'Resolving...'),
-                          ),
-                          _buildPropertyRow(
-                            'Resolver Rule',
-                            StreamCacheManager.getAudioFormatArg(quality: activeQuality),
+                            'Stream Engine',
+                            'Embedded yt-dlp resolver',
                           ),
                           _buildPropertyRow(
                             'Load Latency',

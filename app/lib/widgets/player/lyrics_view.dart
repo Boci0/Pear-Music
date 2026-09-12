@@ -114,13 +114,14 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       localAudioPath = library.songFile(widget.song).path;
     }
 
+    final songId = widget.song.id;
     final lyrics = await LyricsService.getLyrics(
       widget.song,
       localAudioPath: localAudioPath,
       duration: widget.player.duration,
     );
 
-    if (!mounted) return;
+    if (!mounted || widget.song.id != songId) return;
 
     setState(() {
       _lyrics = lyrics;

@@ -15,7 +15,6 @@ import 'artwork_palette.dart';
 class ArtworkService {
   static const int _size = 600;
 
-  static bool onlineArtworkEnabled = true;
   static Future<Uri>? _pending;
 
   /// Returns a file [Uri] to the default artwork. The first caller renders it;
@@ -56,7 +55,7 @@ class ArtworkService {
   /// Resolves the best artwork [Uri] for a specific [song] for notification display.
   static Future<Uri> songArtworkUri(Song song) async {
     final art = song.artwork;
-    if (onlineArtworkEnabled && art != null && art.startsWith('http')) {
+    if (art != null && art.startsWith('http')) {
       final optimized = optimizeArtworkUrl(art);
       final parsed = Uri.tryParse(optimized) ?? Uri.tryParse(art);
       if (parsed != null) return parsed;

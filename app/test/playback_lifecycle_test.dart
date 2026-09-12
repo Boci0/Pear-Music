@@ -20,6 +20,16 @@ void main() {
     });
   });
 
+  setUp(() {
+    StreamCacheManager.cancelActiveDownload();
+    StreamCacheManager.cancelPreload();
+  });
+
+  tearDown(() {
+    StreamCacheManager.cancelActiveDownload();
+    StreamCacheManager.cancelPreload();
+  });
+
   group('StreamCacheManager Lifecycle & Deduplication Tests', () {
     test('isStreamCachedSync returns false for uncached track', () {
       expect(StreamCacheManager.isStreamCachedSync('test_video_999'), isFalse);

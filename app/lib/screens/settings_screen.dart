@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
-import '../services/artwork_service.dart';
-import '../services/identity_service.dart';
-import '../services/lyrics_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
@@ -19,65 +16,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  Future<void> _showQualityDialog(BuildContext context, IdentityService identity) async {
-    final selected = await showDialog<StreamingQuality>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Streaming Audio Quality'),
-        children: StreamingQuality.values.map((q) {
-          final isSelected = identity.streamingQuality == q;
-          return SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, q),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Icon(
-                    isSelected
-                        ? Icons.radio_button_checked_rounded
-                        : Icons.radio_button_off_rounded,
-                    color: isSelected
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          q.label,
-                          style: TextStyle(
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        Text(
-                          q.subtitle,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-
-    if (selected != null && selected != identity.streamingQuality) {
-      await identity.setStreamingQuality(selected);
-      StreamCacheManager.setStreamingQuality(selected);
-      if (context.mounted) {
-        await context.read<AppController>().player.onStreamingQualityChanged(reloadCurrent: true);
-      }
-      if (mounted) setState(() {});
-    }
-  }
   String _cacheSizeLabel() {
     final bytes = StreamCacheManager.getCacheStats().totalBytes;
     if (bytes <= 0) return '0.0 MB used';
@@ -199,67 +137,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: controller.player.autoRerollSeed,
                   onChanged: (val) {
                     controller.player.setAutoRerollSeed(val);
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          _sectionTitle(context, 'Data & Internet'),
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
-            ),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.high_quality_rounded),
-                  title: const Text('Streaming Audio Quality'),
-                  subtitle: Text(
-                    '${identity.streamingQuality.label} (${identity.streamingQuality.subtitle})',
-                  ),
-                  trailing: const Icon(Icons.chevron_right, size: 20),
-                  onTap: () => _showQualityDialog(context, identity),
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.lyrics_rounded),
-                  title: const Text('Fetch Online Lyrics'),
-                  subtitle: const Text('Download synchronized lyrics from LRCLIB'),
-                  value: identity.onlineLyrics,
-                  onChanged: (val) async {
-                    await identity.setOnlineLyrics(val);
-                    LyricsService.onlineLyricsEnabled = val;
-                    setState(() {});
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.downloading_rounded),
-                  title: const Text('Preload Next Track'),
-                  subtitle: const Text('Buffer upcoming track in background for gapless play'),
-                  value: identity.preloadUpcoming,
-                  onChanged: (val) async {
-                    await identity.setPreloadUpcoming(val);
-                    if (!val) {
-                      StreamCacheManager.cancelPreload();
-                    } else {
-                      controller.player.onStreamingQualityChanged();
-                    }
-                    setState(() {});
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.image_outlined),
-                  title: const Text('Online Album Artwork'),
-                  subtitle: const Text('Load high-resolution artwork and thumbnails over internet'),
-                  value: identity.onlineArtwork,
-                  onChanged: (val) async {
-                    await identity.setOnlineArtwork(val);
-                    ArtworkService.onlineArtworkEnabled = val;
-                    setState(() {});
                   },
                 ),
               ],

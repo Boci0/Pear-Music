@@ -40,6 +40,10 @@ void main() {
       player = PlayerService(library);
     });
 
+    tearDown(() {
+      player.dispose();
+    });
+
     test('updateQueue updates queue and preserves current song index', () {
       // Initial queue: [A, B, C]
       player.updateQueue([songA, songB, songC], sourceId: 'library', sourceTitle: 'Library');

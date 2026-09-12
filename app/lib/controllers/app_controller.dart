@@ -48,8 +48,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   SortOption? _lastSortOption;
   List<Song>? _lastSortResult;
 
+  bool _disposed = false;
+
   @override
   void notifyListeners() {
+    if (_disposed) return;
     _cachedFavoriteSongs = null;
     _lastSortInput = null;
     _lastSortResult = null;
@@ -484,7 +487,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
   Future<void> togglePlayback() => player.toggle();
-  Future<void> nextTrack() => player.next();
+  Future<void> nextTrack() => player.next(userAction: true);
   Future<void> previousTrack() => player.previous();
   Future<void> toggleLoop() => player.toggleLoop();
   void toggleShuffle() => player.toggleShuffle();
@@ -496,5 +499,26 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _postMessage(String text) {
     if (!_messages.isClosed) _messages.add(text);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    if (_isLifecycleObserved) {
+      try {
+        WidgetsBinding.instance.removeObserver(this);
+        _isLifecycleObserved = false;
+      } catch (_) {}
+    }
+    for (final remove in _removeNotifierListeners) {
+      remove();
+    }
+    _removeNotifierListeners.clear();
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs.clear();
+    _messages.close();
+    super.dispose();
   }
 }

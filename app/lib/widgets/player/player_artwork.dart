@@ -208,7 +208,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       ),
     );
 
-    final playerService = context.watch<PlayerService?>();
+    final playerService = context.read<PlayerService?>();
     final staticGlow = RepaintBoundary(
       child: Container(
         width: size,
@@ -502,13 +502,19 @@ class PlayerSongInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<AppController>();
-    final player = context.watch<PlayerService>();
-    final isFav = controller.isFavorite(song.id);
+    final controller = context.read<AppController>();
+    final isFav = context.select<AppController, bool>(
+      (c) => c.isFavorite(song.id),
+    );
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isStream = song.sourceDeviceId == 'stream';
-    final route = player.currentRouteType;
+    final route = context.select<PlayerService, StreamRouteType>(
+      (p) => p.currentRouteType,
+    );
+    final isConnecting = context.select<PlayerService, bool>(
+      (p) => p.isBufferingNext,
+    );
 
     return SizedBox(
       height: 96,
@@ -578,7 +584,7 @@ class PlayerSongInfo extends StatelessWidget {
             context,
             isStream,
             route,
-            player.isBufferingNext,
+            isConnecting,
             scheme,
             theme,
           ),

@@ -6,7 +6,6 @@ import 'package:peerm_app/screens/playlists_screen.dart';
 import 'package:peerm_app/screens/settings_screen.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
-import 'package:peerm_app/services/lyrics_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 import 'package:peerm_app/services/youtube_service.dart';
@@ -214,61 +213,31 @@ void main() {
     });
   });
 
-  group('IdentityService and Network / Internet Usage Settings', () {
-    test('IdentityService defaults and persistence for network settings', () async {
-      SharedPreferences.setMockInitialValues({});
+  group('Simplified Audio Pipeline and Stream Diagnostics', () {
+    test('IdentityService removes legacy network preference keys', () async {
+      SharedPreferences.setMockInitialValues({
+        'peerm_streaming_quality': 'high',
+        'peerm_online_lyrics': false,
+        'peerm_preload_upcoming': false,
+        'peerm_online_artwork': false,
+      });
       final prefs = await SharedPreferences.getInstance();
-      final identity = IdentityService(prefs);
+      IdentityService(prefs);
 
-      // Verify defaults
-      expect(identity.onlineLyrics, isTrue);
-      expect(identity.streamingQuality, StreamingQuality.standard);
-      expect(identity.preloadUpcoming, isTrue);
-      expect(identity.onlineArtwork, isTrue);
-
-      // Update values
-      await identity.setStreamingQuality(StreamingQuality.high);
-      await identity.setOnlineLyrics(false);
-      await identity.setPreloadUpcoming(false);
-      await identity.setOnlineArtwork(false);
-
-      expect(identity.streamingQuality, StreamingQuality.high);
-      expect(identity.onlineLyrics, isFalse);
-      expect(identity.preloadUpcoming, isFalse);
-      expect(identity.onlineArtwork, isFalse);
-
-      // Verify reloaded from prefs
-      final reloaded = IdentityService(prefs);
-      expect(reloaded.streamingQuality, StreamingQuality.high);
-      expect(reloaded.onlineLyrics, isFalse);
-      expect(reloaded.preloadUpcoming, isFalse);
-      expect(reloaded.onlineArtwork, isFalse);
+      expect(prefs.containsKey('peerm_streaming_quality'), isFalse);
+      expect(prefs.containsKey('peerm_online_lyrics'), isFalse);
+      expect(prefs.containsKey('peerm_preload_upcoming'), isFalse);
+      expect(prefs.containsKey('peerm_online_artwork'), isFalse);
     });
 
-    test('StreamCacheManager getAudioFormatArg returns expected yt-dlp format selectors', () {
+    test('StreamCacheManager getAudioFormatArg returns optimal universal format selector', () {
       expect(
-        StreamCacheManager.getAudioFormatArg(quality: StreamingQuality.high),
-        'bestaudio/ba/b/best',
-      );
-      expect(
-        StreamCacheManager.getAudioFormatArg(quality: StreamingQuality.standard),
-        '140/ba[ext=m4a]/ba/bestaudio',
-      );
-      expect(
-        StreamCacheManager.getAudioFormatArg(quality: StreamingQuality.dataSaver),
-        '250/249/worst[ext=m4a]/ba',
+        StreamCacheManager.getAudioFormatArg(),
+        'ba/ba*/bestaudio/b/best',
       );
     });
 
-    test('LyricsService onlineLyricsEnabled controls online fetch behavior', () {
-      LyricsService.onlineLyricsEnabled = true;
-      expect(LyricsService.onlineLyricsEnabled, isTrue);
-      LyricsService.onlineLyricsEnabled = false;
-      expect(LyricsService.onlineLyricsEnabled, isFalse);
-      LyricsService.onlineLyricsEnabled = true;
-    });
-
-    testWidgets('SettingsScreen displays Data & Internet section and changes quality', (tester) async {
+    testWidgets('SettingsScreen does not display legacy Data & Internet customization section', (tester) async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
       final identity = IdentityService(prefs);
@@ -294,32 +263,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('DATA & INTERNET'), findsOneWidget);
-      expect(find.text('Streaming Audio Quality'), findsOneWidget);
-      expect(find.text('Fetch Online Lyrics'), findsOneWidget);
-      expect(find.text('Preload Next Track'), findsOneWidget);
-      expect(find.text('Online Album Artwork'), findsOneWidget);
-
-      // Open quality dialog
-      await tester.tap(find.text('Streaming Audio Quality'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('High Quality'), findsOneWidget);
-      expect(find.text('Data Saver'), findsOneWidget);
-
-      // Select High Quality
-      await tester.tap(find.text('High Quality'));
-      await tester.pumpAndSettle();
-
-      expect(identity.streamingQuality, StreamingQuality.high);
-      expect(StreamCacheManager.currentQuality, StreamingQuality.high);
+      expect(find.text('DATA & INTERNET'), findsNothing);
+      expect(find.text('Streaming Audio Quality'), findsNothing);
+      expect(find.text('Fetch Online Lyrics'), findsNothing);
+      expect(find.text('Preload Next Track'), findsNothing);
+      expect(find.text('Online Album Artwork'), findsNothing);
     });
 
     testWidgets('StreamQualityInfoButton renders simple icon and opens read-only info dialog', (tester) async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
       final identity = IdentityService(prefs);
-      await identity.setStreamingQuality(StreamingQuality.high);
       final library = LibraryService();
       final player = PlayerService(library, identity: identity);
 
@@ -353,13 +307,6 @@ void main() {
       expect(find.text('Info'), findsOneWidget);
       expect(find.text('TRACK & FILE PROPERTIES'), findsOneWidget);
       expect(find.text('STREAM & RESOLVER DIAGNOSTICS'), findsOneWidget);
-    });
-
-    test('StreamCacheManager.parseQualityFromPath identifies quality tags in filenames', () {
-      expect(StreamCacheManager.parseQualityFromPath('cache/abc.high.opus'), StreamingQuality.high);
-      expect(StreamCacheManager.parseQualityFromPath('cache/abc.standard.m4a'), StreamingQuality.standard);
-      expect(StreamCacheManager.parseQualityFromPath('cache/abc.dataSaver.opus'), StreamingQuality.dataSaver);
-      expect(StreamCacheManager.parseQualityFromPath('cache/abc.m4a'), isNull);
     });
   });
 }

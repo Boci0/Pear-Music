@@ -228,7 +228,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final player = context.watch<PlayerService>();
+    final player = context.read<PlayerService>();
+    final currentSongId = context.select<PlayerService, String?>(
+      (p) => p.currentSong?.id,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -464,7 +467,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       itemBuilder: (context, index) {
                         final item = _results[index];
                         final isCurrent =
-                            player.currentSong?.id == 'stream_${item.videoId}';
+                            currentSongId == 'stream_${item.videoId}';
                         return YouTubeSongTile(
                           result: item,
                           allResults: _results,
@@ -669,7 +672,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final item = _recommendedResults[index];
-                            final isCurrent = player.currentSong?.id ==
+                            final isCurrent = currentSongId ==
                                 'stream_${item.videoId}';
                             return YouTubeSongTile(
                               key: ValueKey('rec_${item.videoId}'),

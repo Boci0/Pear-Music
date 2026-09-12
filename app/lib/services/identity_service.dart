@@ -7,9 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/song.dart';
-import 'artwork_service.dart';
-import 'lyrics_service.dart';
-import 'stream_cache_manager.dart';
 
 enum SortOption {
   dateAdded('Date Added'),
@@ -18,16 +15,6 @@ enum SortOption {
 
   final String label;
   const SortOption(this.label);
-}
-
-enum StreamingQuality {
-  high('High Quality', 'Opus ~160 kbps / best audio dynamic range'),
-  standard('Standard', '128 kbps AAC / fast & balanced'),
-  dataSaver('Data Saver', '50–70 kbps / minimal bandwidth');
-
-  final String label;
-  final String subtitle;
-  const StreamingQuality(this.label, this.subtitle);
 }
 
 /// Persistent identity + preferences for this device.
@@ -44,10 +31,6 @@ class IdentityService extends ChangeNotifier {
   static const _autoplayKey = 'peerm_autoplay';
   static const _popLyricsKey = 'peerm_pop_lyrics';
   static const _playbackVolumeKey = 'peerm_playback_volume';
-  static const _onlineLyricsKey = 'peerm_online_lyrics';
-  static const _streamingQualityKey = 'peerm_streaming_quality';
-  static const _preloadUpcomingKey = 'peerm_preload_upcoming';
-  static const _onlineArtworkKey = 'peerm_online_artwork';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -62,10 +45,6 @@ class IdentityService extends ChangeNotifier {
   late bool _autoplay;
   late bool _popLyrics;
   late double _playbackVolume;
-  late bool _onlineLyrics;
-  late StreamingQuality _streamingQuality;
-  late bool _preloadUpcoming;
-  late bool _onlineArtwork;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -98,14 +77,10 @@ class IdentityService extends ChangeNotifier {
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
     _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
     _playbackVolume = _prefs.getDouble(_playbackVolumeKey) ?? 0.75;
-    _onlineLyrics = _prefs.getBool(_onlineLyricsKey) ?? true;
-    final qualityStr = _prefs.getString(_streamingQualityKey);
-    _streamingQuality = StreamingQuality.values.firstWhere(
-      (e) => e.name == qualityStr,
-      orElse: () => StreamingQuality.standard,
-    );
-    _preloadUpcoming = _prefs.getBool(_preloadUpcomingKey) ?? true;
-    _onlineArtwork = _prefs.getBool(_onlineArtworkKey) ?? true;
+    _prefs.remove('peerm_online_lyrics');
+    _prefs.remove('peerm_streaming_quality');
+    _prefs.remove('peerm_preload_upcoming');
+    _prefs.remove('peerm_online_artwork');
 
     if (_prefs.getString(_deviceIdKey) == null) {
       _prefs.setString(_deviceIdKey, deviceId);
@@ -252,48 +227,6 @@ class IdentityService extends ChangeNotifier {
     final clamped = value.clamp(0.0, 1.0);
     _playbackVolume = clamped;
     await _prefs.setDouble(_playbackVolumeKey, clamped);
-    notifyListeners();
-  }
-
-  bool get onlineLyrics => _onlineLyrics;
-
-  Future<void> setOnlineLyrics(bool value) async {
-    if (_onlineLyrics == value) return;
-    _onlineLyrics = value;
-    LyricsService.onlineLyricsEnabled = value;
-    await _prefs.setBool(_onlineLyricsKey, value);
-    notifyListeners();
-  }
-
-  StreamingQuality get streamingQuality => _streamingQuality;
-
-  Future<void> setStreamingQuality(StreamingQuality value) async {
-    if (_streamingQuality == value) return;
-    _streamingQuality = value;
-    StreamCacheManager.setStreamingQuality(value);
-    await _prefs.setString(_streamingQualityKey, value.name);
-    notifyListeners();
-  }
-
-  bool get preloadUpcoming => _preloadUpcoming;
-
-  Future<void> setPreloadUpcoming(bool value) async {
-    if (_preloadUpcoming == value) return;
-    _preloadUpcoming = value;
-    if (!value) {
-      StreamCacheManager.cancelPreload();
-    }
-    await _prefs.setBool(_preloadUpcomingKey, value);
-    notifyListeners();
-  }
-
-  bool get onlineArtwork => _onlineArtwork;
-
-  Future<void> setOnlineArtwork(bool value) async {
-    if (_onlineArtwork == value) return;
-    _onlineArtwork = value;
-    ArtworkService.onlineArtworkEnabled = value;
-    await _prefs.setBool(_onlineArtworkKey, value);
     notifyListeners();
   }
 }

@@ -127,16 +127,11 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
     final isBuffering = player.isBuffering;
     final isPlaying = player.playing;
 
-    final bgColor = scheme.primary.withValues(
-      alpha: _isPressed
-          ? 0.35
-          : _isHovered
-              ? 0.28
-              : 0.22,
-    );
-    final borderColor = scheme.primary.withValues(
-      alpha: _isHovered ? 0.55 : 0.38,
-    );
+    final bgColor = _isPressed
+        ? scheme.primary.withValues(alpha: 0.86)
+        : (_isHovered
+            ? scheme.primary.withValues(alpha: 0.94)
+            : scheme.primary);
 
     return SizedBox(
       width: 72,
@@ -161,7 +156,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                       ? 'Pause'
                       : 'Play',
               child: AnimatedScale(
-                scale: _isPressed ? 0.90 : (_isHovered ? 1.05 : 1.0),
+                scale: _isPressed ? 0.92 : (_isHovered ? 1.04 : 1.0),
                 duration: const Duration(milliseconds: 140),
                 curve: Curves.easeOutCubic,
                 child: Container(
@@ -170,10 +165,13 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: bgColor,
-                    border: Border.all(
-                      color: borderColor,
-                      width: 1.2,
-                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: _isHovered ? 0.38 : 0.22),
+                        blurRadius: _isHovered ? 14 : 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
                   child: Center(
                     child: isBuffering
@@ -182,7 +180,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                             height: 28,
                             child: CircularProgressIndicator(
                               strokeWidth: 3.0,
-                              color: scheme.primary,
+                              color: scheme.onPrimary,
                             ),
                           )
                         : Padding(
@@ -192,7 +190,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                                   ? Icons.pause_rounded
                                   : Icons.play_arrow_rounded,
                               size: isPlaying ? 34 : 38,
-                              color: scheme.primary,
+                              color: scheme.onPrimary,
                             ),
                           ),
                   ),
