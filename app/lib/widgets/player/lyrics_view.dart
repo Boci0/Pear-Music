@@ -174,7 +174,8 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final glowColor = widget.accent ?? scheme.primary;
 
     if (_isLoading) {
@@ -193,7 +194,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
             const SizedBox(height: 12),
             Text(
               'Finding lyrics...',
-              style: TextStyle(
+              style: theme.textTheme.bodyMedium?.copyWith(
                 color: Colors.white.withValues(alpha: 0.70),
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -220,7 +221,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
               Text(
                 'No lyrics available',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: theme.textTheme.titleSmall?.copyWith(
                   color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -232,7 +233,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                style: theme.textTheme.bodySmall?.copyWith(
                   color: Colors.white.withValues(alpha: 0.50),
                   fontSize: 12,
                 ),
@@ -353,13 +354,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
               textAlign: TextAlign.center,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamilyFallback: const [
-                  'Segoe UI Variable Text',
-                  'Segoe UI',
-                  'Roboto',
-                  'sans-serif',
-                ],
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 fontSize: fontSize,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.2,

@@ -208,7 +208,7 @@ class YoutubeService {
       if (!await tempDir.exists()) return;
       final threshold = DateTime.now().subtract(const Duration(hours: 2));
       await for (final entity in tempDir.list(followLinks: false)) {
-        if (entity is Directory && p.basename(entity.path).startsWith('peerm-ytdlp-')) {
+        if (entity is Directory && p.basename(entity.path).startsWith('peerm-')) {
           try {
             final stat = await entity.stat();
             if (stat.modified.isBefore(threshold)) {
@@ -649,8 +649,9 @@ class YoutubeService {
     ];
 
     for (final u in urls) {
+      HttpClient? client;
       try {
-        final client = HttpClient()
+        client = HttpClient()
           ..connectionTimeout = const Duration(seconds: 5)
           ..autoUncompress = true;
         final req = await client.getUrl(Uri.parse(u));
@@ -658,18 +659,20 @@ class YoutubeService {
         req.maxRedirects = 5;
         final resp = await req.close().timeout(const Duration(seconds: 5));
         if (resp.statusCode == 200) {
-          final bytes = await resp.fold<List<int>>([], (p, e) => p..addAll(e));
-          client.close();
+          final bytes = await resp
+              .fold<List<int>>([], (p, e) => p..addAll(e))
+              .timeout(const Duration(seconds: 5));
           if (bytes.isNotEmpty) {
             final downscaled = downscaleToBase64(bytes, size: size, quality: quality);
             if (downscaled != null && downscaled.isNotEmpty) {
               return downscaled;
             }
           }
-        } else {
-          client.close();
         }
-      } catch (_) {}
+      } catch (_) {
+      } finally {
+        client?.close(force: true);
+      }
     }
     return null;
   }

@@ -193,9 +193,9 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                         size: 20,
                       ),
                       const SizedBox(width: 10),
-                      const Text(
+                      Text(
                         'Info',
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: Colors.white,
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
@@ -232,9 +232,12 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                             visualDensity: VisualDensity.compact,
                           ),
                           icon: const Icon(Icons.content_copy_rounded, size: 14, color: Colors.white70),
-                          label: const Text(
+                          label: Text(
                             'Copy path',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                           onPressed: () => _copyToClipboard(context, copyTarget),
                         ),
@@ -251,9 +254,12 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                               visualDensity: VisualDensity.compact,
                             ),
                             icon: const Icon(Icons.folder_open_rounded, size: 14, color: Colors.white70),
-                            label: const Text(
+                            label: Text(
                               'Open location',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                             onPressed: () => _openFileLocation(filePath),
                           ),
@@ -275,16 +281,19 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                       border: Border.all(color: const Color(0xFF262626)),
                     ),
                     child: currentSong == null
-                        ? const Text(
+                        ? Text(
                             'No track currently loaded.',
-                            style: TextStyle(color: Color(0xFF888888), fontSize: 12),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF888888),
+                              fontSize: 12,
+                            ),
                           )
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 currentSong.title,
-                                style: const TextStyle(
+                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13.5,
@@ -379,8 +388,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
       child: Text(
         title,
-        style: const TextStyle(
-          color: Color(0xFF888888),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: const Color(0xFF888888),
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.1,
@@ -390,6 +399,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
   }
 
   Widget _buildPropertyRow(String label, String value) {
+    final textTheme = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
@@ -399,8 +409,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
             width: 135,
             child: Text(
               label,
-              style: const TextStyle(
-                color: Color(0xFF9E9E9E),
+              style: textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF9E9E9E),
                 fontSize: 12,
                 fontWeight: FontWeight.w400,
               ),
@@ -409,7 +419,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: textTheme.bodySmall?.copyWith(
                 color: Colors.white,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,

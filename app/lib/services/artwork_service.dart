@@ -48,6 +48,9 @@ class ArtworkService {
       if (url.contains('hqdefault.jpg')) {
         return url.replaceAll('hqdefault.jpg', 'sddefault.jpg');
       }
+      if (url.contains('maxresdefault.jpg')) {
+        return url.replaceAll('maxresdefault.jpg', 'sddefault.jpg');
+      }
     }
     return url;
   }

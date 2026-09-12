@@ -244,7 +244,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   widget.song.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Colors.white.withValues(alpha: 0.65),
                     fontSize: 12,
                   ),
@@ -265,7 +265,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     children: [
                       Text(
                         'Sync Offset',
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
                           color: Colors.white.withValues(alpha: 0.70),
@@ -278,7 +278,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                             : (_currentOffsetMs == 0
                                 ? '0.0s (In Sync)'
                                 : '${_currentOffsetMs > 0 ? '+' : ''}${(_currentOffsetMs / 1000.0).toStringAsFixed(1)}s (${_currentOffsetMs > 0 ? '+' : ''}${_currentOffsetMs}ms)'),
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: _currentOffsetMs == 0
@@ -296,7 +296,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                             children: [
                               Text(
                                 'Earlier',
-                                style: TextStyle(
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white.withValues(alpha: 0.50),
@@ -320,7 +320,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                               visualDensity: VisualDensity.compact,
                               padding: const EdgeInsets.symmetric(horizontal: 10),
                             ),
-                            child: const Text('Reset', style: TextStyle(fontSize: 11.5)),
+                            child: Text('Reset', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
                           ),
                           const SizedBox(width: 8),
                           Column(
@@ -328,7 +328,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                             children: [
                               Text(
                                 'Later',
-                                style: TextStyle(
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white.withValues(alpha: 0.50),
@@ -350,7 +350,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                       const SizedBox(height: 8),
                       Text(
                         'Negative shows lyrics earlier; positive delays them.',
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 10.5,
                           color: Colors.white.withValues(alpha: 0.45),
                         ),
@@ -394,11 +394,11 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                               Expanded(
                                 child: Text(
                                   'Search Alternate Lyrics',
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white.withValues(alpha: 0.85),
-                                  ),
+                                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white.withValues(alpha: 0.85),
+                                      ),
                                 ),
                               ),
                               Icon(
@@ -425,13 +425,13 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   Expanded(
                                     child: TextField(
                                       controller: _searchController,
-                                      style: const TextStyle(fontSize: 12.5),
+                                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12.5),
                                       decoration: InputDecoration(
                                         hintText: 'Song or artist name...',
-                                        hintStyle: TextStyle(
-                                          fontSize: 12.5,
-                                          color: Colors.white.withValues(alpha: 0.35),
-                                        ),
+                                        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                              fontSize: 12.5,
+                                              color: Colors.white.withValues(alpha: 0.35),
+                                            ),
                                         isDense: true,
                                         contentPadding: const EdgeInsets.symmetric(
                                           horizontal: 12,
@@ -454,7 +454,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                             child: CircularProgressIndicator(strokeWidth: 2),
                                           )
                                         : const Icon(Icons.search_rounded, size: 15),
-                                    label: const Text('Search', style: TextStyle(fontSize: 12)),
+                                    label: Text('Search', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 12)),
                                     style: FilledButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
                                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -470,10 +470,10 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                     child: Center(
                                       child: Text(
                                         'No alternate lyrics found on LRCLIB.',
-                                        style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.50),
-                                          fontSize: 12,
-                                        ),
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                              color: Colors.white.withValues(alpha: 0.50),
+                                              fontSize: 12,
+                                            ),
                                       ),
                                     ),
                                   )
@@ -543,11 +543,11 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                       : widget.song.title,
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 12.5,
-                                                    color: isCurrent ? scheme.primary : Colors.white,
-                                                  ),
+                                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                        fontWeight: FontWeight.w600,
+                                                        fontSize: 12.5,
+                                                        color: isCurrent ? scheme.primary : Colors.white,
+                                                      ),
                                                 ),
                                               ),
                                               const SizedBox(width: 8),
@@ -565,13 +565,13 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                 ),
                                                 child: Text(
                                                   durBadgeText,
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: isCloseDuration
-                                                        ? scheme.primary
-                                                        : Colors.white.withValues(alpha: 0.60),
-                                                  ),
+                                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: isCloseDuration
+                                                            ? scheme.primary
+                                                            : Colors.white.withValues(alpha: 0.60),
+                                                      ),
                                                 ),
                                               ),
                                               const SizedBox(width: 4),
@@ -589,13 +589,13 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                 ),
                                                 child: Text(
                                                   c.hasSyncedLyrics ? 'Synced' : 'Plain',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: c.hasSyncedLyrics
-                                                        ? scheme.secondary
-                                                        : Colors.white.withValues(alpha: 0.60),
-                                                  ),
+                                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: c.hasSyncedLyrics
+                                                            ? scheme.secondary
+                                                            : Colors.white.withValues(alpha: 0.60),
+                                                      ),
                                                 ),
                                               ),
                                             ],
@@ -608,10 +608,10 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                 '${c.artistName}${c.albumName.isNotEmpty ? ' • ${c.albumName}' : ''}',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Colors.white.withValues(alpha: 0.65),
-                                                ),
+                                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                                      fontSize: 11,
+                                                      color: Colors.white.withValues(alpha: 0.65),
+                                                    ),
                                               ),
                                               if (c.snippet.isNotEmpty) ...[
                                                 const SizedBox(height: 2),
@@ -619,11 +619,11 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                   '"${c.snippet}"',
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    fontSize: 10.5,
-                                                    fontStyle: FontStyle.italic,
-                                                    color: Colors.white.withValues(alpha: 0.40),
-                                                  ),
+                                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                                        fontSize: 10.5,
+                                                        fontStyle: FontStyle.italic,
+                                                        color: Colors.white.withValues(alpha: 0.40),
+                                                      ),
                                                 ),
                                               ],
                                             ],
@@ -649,11 +649,11 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                       const SizedBox(width: 4),
                                                       Text(
                                                         'Active',
-                                                        style: TextStyle(
-                                                          fontSize: 11,
-                                                          fontWeight: FontWeight.w600,
-                                                          color: scheme.primary,
-                                                        ),
+                                                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                                              fontSize: 11,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: scheme.primary,
+                                                            ),
                                                       ),
                                                     ],
                                                   ),
@@ -664,7 +664,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                     visualDensity: VisualDensity.compact,
                                                     padding: const EdgeInsets.symmetric(horizontal: 10),
                                                   ),
-                                                  child: const Text('Apply', style: TextStyle(fontSize: 11.5)),
+                                                  child: Text('Apply', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
                                                 ),
                                         ),
                                       );
@@ -692,7 +692,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 11.5)),
+      child: Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
     );
   }
 }

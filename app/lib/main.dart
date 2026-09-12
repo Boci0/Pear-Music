@@ -194,9 +194,9 @@ class PearMusicErrorWidget extends StatelessWidget {
                 size: 28,
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'Unable to display this item',
-                style: TextStyle(
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                   color: Colors.white70,
@@ -295,10 +295,9 @@ class _PearMusicBootstrapErrorAppState extends State<PearMusicBootstrapErrorApp>
                       color: Colors.orangeAccent,
                     ),
                     const SizedBox(height: 16),
-                    const Text(
+                    Text(
                       'Unable to Start Pear Music',
-                      style: TextStyle(
-                        fontSize: 20,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                       textAlign: TextAlign.center,
@@ -306,7 +305,7 @@ class _PearMusicBootstrapErrorAppState extends State<PearMusicBootstrapErrorApp>
                     const SizedBox(height: 12),
                     Text(
                       _retryError ?? widget.error.toString(),
-                      style: const TextStyle(
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         fontSize: 13,
                         color: Colors.white70,
                       ),

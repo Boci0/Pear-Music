@@ -470,7 +470,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
         const SizedBox(width: 8),
         Text(
           'UP NEXT',
-          style: TextStyle(
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
             fontSize: 11.5,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.8,
@@ -486,7 +486,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
           ),
           child: Text(
             '$queueLength',
-            style: TextStyle(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontSize: 10,
               fontWeight: FontWeight.bold,
               color: _readableAccent,
@@ -501,7 +501,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.end,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontSize: 12,
                 color: Colors.white.withValues(alpha: 0.65),
               ),
@@ -535,7 +535,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
           ),
           child: Text(
             '$queueLength',
-            style: TextStyle(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontSize: 11,
               fontWeight: FontWeight.bold,
               color: _readableAccent,
@@ -575,7 +575,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                 const SizedBox(width: 4),
                 Text(
                   'Endless Play',
-                  style: TextStyle(
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     color: widget.player.autoplay
@@ -661,10 +661,10 @@ class _QueueListView extends StatelessWidget {
         final currentIndex = player.queueIndex;
 
         if (queue.isEmpty) {
-          return const Center(
+          return Center(
             child: Text(
               'Queue is empty',
-              style: TextStyle(color: Colors.white54),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white54),
             ),
           );
         }
@@ -759,7 +759,7 @@ class _QueueRow extends StatelessWidget {
                           )
                         : Text(
                             '${index + 1}',
-                            style: TextStyle(
+                            style: theme.textTheme.labelSmall?.copyWith(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: Colors.white.withValues(alpha: 0.40),

@@ -80,6 +80,7 @@ class PlayerTheme extends ChangeNotifier {
         scrolledUnderElevation: 0,
         elevation: 0,
         centerTitle: false,
+        titleSpacing: 16,
       ),
       cardTheme: CardThemeData(
         color: surfaceDark,

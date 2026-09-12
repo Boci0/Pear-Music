@@ -131,8 +131,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
         } catch (_) {}
 
         if (items.isEmpty) {
-          final clean = RecommendationService.cleanSongQuery(seed);
-          items = await YouTubeSearchService.search('$clean songs', limit: 15);
+          try {
+            final clean = RecommendationService.cleanSongQuery(seed);
+            items = await YouTubeSearchService.search('$clean songs', limit: 15);
+          } catch (_) {}
         }
       }
 
@@ -235,6 +237,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        titleSpacing: 16,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -260,18 +264,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
               hintText: 'Search songs, artists, or paste link...',
               leading: const Icon(Icons.search_rounded),
               trailing: [
-                if (_searchController.text.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.clear_rounded),
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() {
-                        _results = [];
-                        _lastQuery = '';
-                        _selectedGenre = null;
-                      });
-                    },
-                  ),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, value, _) {
+                    if (value.text.isEmpty) return const SizedBox.shrink();
+                    return IconButton(
+                      icon: const Icon(Icons.clear_rounded),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _results = [];
+                          _lastQuery = '';
+                          _selectedGenre = null;
+                        });
+                      },
+                    );
+                  },
+                ),
               ],
               onChanged: _onQueryChanged,
               onSubmitted: _performSearch,
@@ -412,7 +421,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       Text(
                         _error!,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: scheme.error),
+                        style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.tonal(
@@ -466,8 +475,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       itemCount: _results.length,
                       itemBuilder: (context, index) {
                         final item = _results[index];
-                        final isCurrent =
-                            currentSongId == 'stream_${item.videoId}';
+                        final isCurrent = currentSongId == 'stream_${item.videoId}' ||
+                            (currentSongId != null &&
+                                RecommendationService.extractVideoId(currentSongId) == item.videoId);
                         return YouTubeSongTile(
                           result: item,
                           allResults: _results,
@@ -672,8 +682,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final item = _recommendedResults[index];
-                            final isCurrent = currentSongId ==
-                                'stream_${item.videoId}';
+                            final isCurrent = currentSongId == 'stream_${item.videoId}' ||
+                                (currentSongId != null &&
+                                    RecommendationService.extractVideoId(currentSongId) == item.videoId);
                             return YouTubeSongTile(
                               key: ValueKey('rec_${item.videoId}'),
                               result: item,

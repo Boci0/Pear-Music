@@ -25,7 +25,7 @@ class PlaylistsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        titleSpacing: 14,
+        titleSpacing: 16,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -36,14 +36,7 @@ class PlaylistsScreen extends StatelessWidget {
               filterQuality: FilterQuality.medium,
             ),
             const SizedBox(width: 8),
-            const Text(
-              'Playlists',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.3,
-              ),
-            ),
+            const Text('Playlists'),
           ],
         ),
         actions: [
@@ -60,7 +53,7 @@ class PlaylistsScreen extends StatelessWidget {
       body: playlists.isEmpty
           ? _EmptyPlaylists(onCreate: () => _createPlaylist(context, controller))
           : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemExtent: 72.0,
               itemCount: playlists.length,
               itemBuilder: (context, i) => _PlaylistTile(
@@ -81,35 +74,39 @@ class PlaylistsScreen extends StatelessWidget {
     AppController controller,
   ) async {
     final nameController = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      useRootNavigator: true,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New playlist'),
-        content: TextField(
-          controller: nameController,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'Playlist name',
-            border: OutlineInputBorder(),
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        useRootNavigator: true,
+        builder: (ctx) => AlertDialog(
+          title: const Text('New playlist'),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              hintText: 'Playlist name',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
           ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameController.text),
+              child: const Text('Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, nameController.text),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.trim().isEmpty) return;
-    await controller.createPlaylist(name);
+      );
+      if (name == null || name.trim().isEmpty) return;
+      await controller.createPlaylist(name);
+    } finally {
+      nameController.dispose();
+    }
   }
 
   Future<void> _confirmDelete(
@@ -150,35 +147,39 @@ class PlaylistsScreen extends StatelessWidget {
     Playlist playlist,
   ) async {
     final nameController = TextEditingController(text: playlist.name);
-    final name = await showDialog<String>(
-      context: context,
-      useRootNavigator: true,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename playlist'),
-        content: TextField(
-          controller: nameController,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'Playlist name',
-            border: OutlineInputBorder(),
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        useRootNavigator: true,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Rename playlist'),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              hintText: 'Playlist name',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
           ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameController.text),
+              child: const Text('Rename'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, nameController.text),
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.trim().isEmpty) return;
-    await controller.renamePlaylist(playlist.id, name.trim());
+      );
+      if (name == null || name.trim().isEmpty) return;
+      await controller.renamePlaylist(playlist.id, name.trim());
+    } finally {
+      nameController.dispose();
+    }
   }
 }
 
@@ -215,7 +216,7 @@ class _PlaylistTile extends StatelessWidget {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2.5),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.0),
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
@@ -303,7 +304,7 @@ class _PlaylistTile extends StatelessWidget {
                                   ),
                                   child: Text(
                                     '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
-                                    style: TextStyle(
+                                    style: theme.textTheme.labelSmall?.copyWith(
                                       color: isActive
                                           ? theme.colorScheme.primary
                                           : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
@@ -396,7 +397,7 @@ class _PlaylistTile extends StatelessWidget {
               ),
               title: Text(
                 'Delete playlist',
-                style: TextStyle(color: theme.colorScheme.error),
+                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error),
               ),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
@@ -613,9 +614,9 @@ class _EmptyPlaylists extends StatelessWidget {
               ),
               onPressed: onCreate,
               icon: const Icon(Icons.add_rounded, size: 20),
-              label: const Text(
+              label: Text(
                 'New playlist',
-                style: TextStyle(fontWeight: FontWeight.w600),
+                style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
           ],

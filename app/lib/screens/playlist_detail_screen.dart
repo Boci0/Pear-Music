@@ -124,9 +124,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             ? null
                             : () => controller.playPlaylist(playlist),
                         icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                        label: const Text(
+                        label: Text(
                           'Play all',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ),
@@ -235,31 +235,35 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     Playlist playlist,
   ) async {
     final controller_ = TextEditingController(text: playlist.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename playlist'),
-        content: TextField(
-          controller: controller_,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Rename playlist'),
+          content: TextField(
+            controller: controller_,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller_.text),
+              child: const Text('Rename'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller_.text),
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.trim().isEmpty) return;
-    await controller.renamePlaylist(playlist.id, name);
+      );
+      if (name == null || name.trim().isEmpty) return;
+      await controller.renamePlaylist(playlist.id, name);
+    } finally {
+      controller_.dispose();
+    }
   }
 
   Future<void> _confirmDelete(

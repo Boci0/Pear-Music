@@ -260,7 +260,7 @@ class LibraryService extends ChangeNotifier {
         await _indexFile!.parent.create(recursive: true);
       }
       final jsonStr = await compute(_encodeSongsJson, _songs);
-      await _indexFile!.writeAsString(jsonStr);
+      await _indexFile!.writeAsString(jsonStr, flush: true);
     } catch (e) {
       debugPrint('[library] error saving index: $e');
     } finally {
@@ -319,13 +319,16 @@ class LibraryService extends ChangeNotifier {
       if (!await _playlistsFile!.parent.exists()) {
         await _playlistsFile!.parent.create(recursive: true);
       }
-      await _playlistsFile!.writeAsString(jsonEncode({
-        'playlists': _playlists.map((pl) => pl.toJson()).toList(),
-        'deleted': {
-          for (final e in _deletedPlaylistsAt.entries)
-            e.key: e.value.toIso8601String(),
-        },
-      }));
+      await _playlistsFile!.writeAsString(
+        jsonEncode({
+          'playlists': _playlists.map((pl) => pl.toJson()).toList(),
+          'deleted': {
+            for (final e in _deletedPlaylistsAt.entries)
+              e.key: e.value.toIso8601String(),
+          },
+        }),
+        flush: true,
+      );
     } catch (e) {
       debugPrint('[library] error saving playlists: $e');
     }
@@ -642,7 +645,11 @@ class LibraryService extends ChangeNotifier {
     final id = const Uuid().v4();
     final ext =
         p.extension(file.path).isEmpty ? '.mp3' : p.extension(file.path);
-    final fileName = '$id$ext';
+    final m = RegExp(r'\[([a-zA-Z0-9_-]{11})\]').firstMatch(file.path);
+    final rawBase = p.basenameWithoutExtension(file.path);
+    final videoId = m?.group(1) ??
+        (rawBase.length == 11 && RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(rawBase) ? rawBase : null);
+    final fileName = videoId != null ? '$id [$videoId]$ext' : '$id$ext';
     await file.copy(p.join(_libraryDir!.path, fileName));
 
     String? effectiveArtwork = await YoutubeService.downloadArtworkAsBase64(artwork);
@@ -706,6 +713,26 @@ class LibraryService extends ChangeNotifier {
     final f = songFile(song);
     if (await f.exists()) await f.delete();
     _stripSongFromPlaylists(id);
+    await _saveIndex();
+    await _savePlaylists();
+    notifyListeners();
+  }
+
+  /// Batch removes multiple songs in a single disk save pass.
+  Future<void> removeSongs(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    final toRemove = _songs.where((s) => idSet.contains(s.id)).toList();
+    if (toRemove.isEmpty) return;
+    for (final song in toRemove) {
+      _songs.remove(song);
+      _unindexSong(song);
+      _filesOnDisk.remove(song.id);
+      try {
+        final f = songFile(song);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+      _stripSongFromPlaylists(song.id);
+    }
     await _saveIndex();
     await _savePlaylists();
     notifyListeners();

@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
+import 'package:peerm_app/services/recommendation_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -284,6 +286,92 @@ void main() {
       player.setScrubbingPosition(null);
       expect(player.scrubbingPosition, isNull);
       expect(receivedPos, isNull);
+    });
+
+    test('volume setting preserves low and zero levels without blasting to 1.0', () async {
+      await player.setVolume(0.02);
+      expect(player.volume, closeTo(0.02, 0.001));
+
+      await player.setVolume(0.0);
+      expect(player.volume, 0.0);
+    });
+
+    test('removeFromQueue and stop clean up shuffle and locked tracks cleanly', () async {
+      player.updateQueue([songA, songB, songC]);
+      player.currentSong = songA;
+      player.toggleShuffle();
+      expect(player.shuffle, isTrue);
+      player.toggleSongLock('b');
+      expect(player.isSongLocked('b'), isTrue);
+
+      player.removeFromQueue(1); // removes songB
+      expect(player.queue.length, 2);
+      expect(player.isSongLocked('b'), isFalse);
+
+      await player.stop();
+      expect(player.queue.isEmpty, isTrue);
+      expect(player.currentSong, isNull);
+    });
+
+    test('removeSongsFromQueue removes multiple tracks atomically and updates queue bounds', () {
+      player.updateQueue([songA, songB, songC]);
+      player.currentSong = songA;
+
+      player.removeSongsFromQueue({'b', 'c'});
+      expect(player.queue.length, 1);
+      expect(player.queue.first.id, 'a');
+    });
+
+    test('setSleepTimer and cancelSleepTimer manage state cleanly', () {
+      expect(player.isSleepTimerActive, isFalse);
+
+      player.setSleepTimer(null, endOfSong: true);
+      expect(player.isSleepTimerActive, isTrue);
+      expect(player.sleepTimerEndOfSong, isTrue);
+
+      player.cancelSleepTimer();
+      expect(player.isSleepTimerActive, isFalse);
+      expect(player.sleepTimerEndOfSong, isFalse);
+    });
+
+    test('previous() wraps around to end of queue when LoopSetting.all is active at index 0', () async {
+      player.currentSong = songA;
+      player.updateQueue([songA, songB, songC]);
+      expect(player.queueIndex, 0);
+
+      // Loop setting all
+      player.toggleLoop();
+      expect(player.loopMode, LoopSetting.all);
+
+      await player.previous();
+      expect(player.queueIndex, 2);
+      expect(player.currentSong?.id, 'c');
+    });
+
+    test('RecommendationService.extractVideoId extracts 11-char IDs from raw, bracketed, and stream formats', () {
+      expect(RecommendationService.extractVideoId('dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+      expect(RecommendationService.extractVideoId('Song [dQw4w9WgXcQ].m4a'), 'dQw4w9WgXcQ');
+      expect(RecommendationService.extractVideoId('stream_dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+      expect(RecommendationService.extractVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+    });
+
+    test('stop() clears currentSong, queue, and synchronizes with PearAudioHandler', () async {
+      final handler = PearAudioHandler();
+      final playerWithHandler = PlayerService(library, audioHandler: handler);
+
+      playerWithHandler.currentSong = songA;
+      playerWithHandler.updateQueue([songA, songB]);
+      expect(playerWithHandler.queue.length, 2);
+      expect(playerWithHandler.currentSong?.id, 'a');
+
+      await handler.stop();
+
+      expect(playerWithHandler.currentSong, isNull);
+      expect(playerWithHandler.queue, isEmpty);
+      expect(playerWithHandler.queueIndex, -1);
+      expect(handler.mediaItem.valueOrNull, isNull);
+
+      playerWithHandler.dispose();
     });
   });
 }

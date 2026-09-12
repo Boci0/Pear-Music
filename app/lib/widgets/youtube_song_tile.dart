@@ -87,7 +87,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 widget.result.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               subtitle: Text(
                 widget.result.author,

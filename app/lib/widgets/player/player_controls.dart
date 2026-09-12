@@ -314,80 +314,80 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                     );
                   },
                 ),
-                  ValueListenableBuilder<double?>(
-                    valueListenable: _dragNotifier,
-                    builder: (context, dragMs, _) {
-                      final effectiveMs = (dragMs ?? pos.inMilliseconds.toDouble()).clamp(0.0, maxMs);
-                      final currentDuration = Duration(milliseconds: effectiveMs.round());
-                      final remainingDuration = widget.duration > currentDuration
-                          ? widget.duration - currentDuration
-                          : Duration.zero;
+              ValueListenableBuilder<double?>(
+                valueListenable: _dragNotifier,
+                builder: (context, dragMs, _) {
+                  final effectiveMs = (dragMs ?? pos.inMilliseconds.toDouble()).clamp(0.0, maxMs);
+                  final currentDuration = Duration(milliseconds: effectiveMs.round());
+                  final remainingDuration = widget.duration > currentDuration
+                      ? widget.duration - currentDuration
+                      : Duration.zero;
 
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _fmt(currentDuration),
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                                color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
-                                fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () {
-                                context.read<AppController?>()?.updateSynthesizerBar(!useSynthesizer);
-                              },
-                              behavior: HitTestBehavior.opaque,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      useSynthesizer ? Icons.graphic_eq_rounded : Icons.linear_scale_rounded,
-                                      size: 13,
-                                      color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      useSynthesizer ? 'Visualizer' : 'Standard',
-                                      style: theme.textTheme.labelSmall?.copyWith(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () => setState(() => _showRemaining = !_showRemaining),
-                              behavior: HitTestBehavior.opaque,
-                              child: Text(
-                                _showRemaining
-                                    ? '-${_fmt(remainingDuration)}'
-                                    : _fmt(widget.duration),
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  fontFeatures: const [FontFeature.tabularFigures()],
-                                  color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
-                                  fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _fmt(currentDuration),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                            fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
+                          ),
                         ),
-                      );
-                    },
-                  ),
-                ],
+                        GestureDetector(
+                          onTap: () {
+                            context.read<AppController?>()?.updateSynthesizerBar(!useSynthesizer);
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  useSynthesizer ? Icons.graphic_eq_rounded : Icons.linear_scale_rounded,
+                                  size: 13,
+                                  color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  useSynthesizer ? 'Visualizer' : 'Standard',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => setState(() => _showRemaining = !_showRemaining),
+                          behavior: HitTestBehavior.opaque,
+                          child: Text(
+                            _showRemaining
+                                ? '-${_fmt(remainingDuration)}'
+                                : _fmt(widget.duration),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                              fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-            );
-          },
+            ],
+          ),
         );
+      },
+    );
   }
 
   String _fmt(Duration d) {

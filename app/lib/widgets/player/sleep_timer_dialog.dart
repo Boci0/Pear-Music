@@ -61,7 +61,7 @@ Future<void> showSleepTimerDialog(
                     player.sleepTimerEndOfSong
                         ? 'Stopping playback at the end of this song'
                         : 'Stopping playback in ${(remaining?.inMinutes ?? 0) + 1} minutes',
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.primary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -194,7 +194,7 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
                   const SizedBox(width: 4),
                   Text(
                     label,
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       color: scheme.primary,

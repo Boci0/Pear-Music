@@ -139,6 +139,28 @@ class IdentityService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> removeFavorite(String songId) async {
+    if (_favoriteSongIds.remove(songId)) {
+      _favoriteOnlineSongs.remove(songId);
+      await _saveFavorites();
+      notifyListeners();
+    }
+  }
+
+  Future<void> removeFavorites(Iterable<String> songIds) async {
+    var changed = false;
+    for (final id in songIds) {
+      if (_favoriteSongIds.remove(id)) {
+        _favoriteOnlineSongs.remove(id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _saveFavorites();
+      notifyListeners();
+    }
+  }
+
   Future<void> cacheFavoriteSongMetadata(Song song) async {
     if (_favoriteSongIds.contains(song.id) &&
         (song.sourceDeviceId == 'stream' || song.id.startsWith('stream_'))) {

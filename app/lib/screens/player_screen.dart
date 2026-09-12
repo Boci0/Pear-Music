@@ -96,7 +96,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       scrolledUnderElevation: 0,
       elevation: 0,
       notificationPredicate: (_) => false,
-      leading: const BackButton(),
+      leading: BackButton(
+        onPressed: () {
+          if (_sheetController.progress > 0.001) {
+            _sheetController.collapse();
+          } else {
+            Navigator.of(context).pop();
+          }
+        },
+      ),
       actions: [
         IconButton(
           tooltip: 'Diagnostics Console',
@@ -122,12 +130,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
     // changes.
-    return PopScope(
-      canPop: _sheetController.progress <= 0.001,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _sheetController.progress > 0.001) {
-          _sheetController.collapse();
-        }
+    return ListenableBuilder(
+      listenable: _sheetController,
+      builder: (context, child) {
+        final isCollapsed = _sheetController.progress <= 0.001;
+        return PopScope(
+          canPop: isCollapsed,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (_sheetController.progress > 0.001) {
+              _sheetController.collapse();
+            } else {
+              Navigator.of(context).pop();
+            }
+          },
+          child: child!,
+        );
       },
       child: Scaffold(
         key: _scaffoldKey,

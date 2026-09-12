@@ -67,6 +67,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        titleSpacing: 16,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -219,7 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     padding: const EdgeInsets.only(left: 6, bottom: 8, top: 4),
     child: Text(
       title.toUpperCase(),
-      style: TextStyle(
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
         fontSize: 11,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.8,

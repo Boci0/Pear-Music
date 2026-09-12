@@ -35,15 +35,17 @@ void main() {
     });
 
     test('computeFileSha256 matches the known empty-string digest', () async {
-      final tmp = File(
-        '${Directory.systemTemp.createTempSync('peerm-hash-').path}/empty.bin',
-      );
-      await tmp.writeAsBytes(<int>[]);
-      expect(
-        await UpdateService.computeFileSha256(tmp),
-        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      );
-      tmp.deleteSync();
+      final tempDir = Directory.systemTemp.createTempSync('peerm-hash-');
+      try {
+        final tmp = File('${tempDir.path}/empty.bin');
+        await tmp.writeAsBytes(<int>[]);
+        expect(
+          await UpdateService.computeFileSha256(tmp),
+          'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        );
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
     });
 
     test('aria2cPath never throws and returns null or a path', () async {
@@ -53,35 +55,37 @@ void main() {
 
     test('getVerifiedDownloadedUpdate verifies cached package against expected digest', () async {
       final tempDir = Directory.systemTemp.createTempSync('peerm-update-test-');
-      final testFile = File('${tempDir.path}/peerm_update.zip');
-      await testFile.writeAsString('test package content');
-      final hash = await UpdateService.computeFileSha256(testFile);
+      try {
+        final testFile = File('${tempDir.path}/peerm_update.zip');
+        await testFile.writeAsString('test package content');
+        final hash = await UpdateService.computeFileSha256(testFile);
 
-      final matchingInfo = UpdateInfo(
-        hasUpdate: true,
-        currentVersion: '3.3.9',
-        latestVersion: '3.4.0',
-        releaseNotes: 'notes',
-        htmlUrl: 'https://example.com',
-        zipUrl: 'https://example.com/peerm_update.zip',
-        sha256ByName: {'peerm_update.zip': hash},
-      );
+        final matchingInfo = UpdateInfo(
+          hasUpdate: true,
+          currentVersion: '3.3.9',
+          latestVersion: '3.4.0',
+          releaseNotes: 'notes',
+          htmlUrl: 'https://example.com',
+          zipUrl: 'https://example.com/peerm_update.zip',
+          sha256ByName: {'peerm_update.zip': hash},
+        );
 
-      final mismatchInfo = UpdateInfo(
-        hasUpdate: true,
-        currentVersion: '3.3.9',
-        latestVersion: '3.4.0',
-        releaseNotes: 'notes',
-        htmlUrl: 'https://example.com',
-        zipUrl: 'https://example.com/peerm_update.zip',
-        sha256ByName: {'peerm_update.zip': '0000000000000000000000000000000000000000000000000000000000000000'},
-      );
+        final mismatchInfo = UpdateInfo(
+          hasUpdate: true,
+          currentVersion: '3.3.9',
+          latestVersion: '3.4.0',
+          releaseNotes: 'notes',
+          htmlUrl: 'https://example.com',
+          zipUrl: 'https://example.com/peerm_update.zip',
+          sha256ByName: {'peerm_update.zip': '0000000000000000000000000000000000000000000000000000000000000000'},
+        );
 
-      expect(await UpdateService.computeFileSha256(testFile), hash);
-      expect(matchingInfo.sha256ByName['peerm_update.zip'], hash);
-      expect(mismatchInfo.sha256ByName['peerm_update.zip'] != hash, isTrue);
-
-      tempDir.deleteSync(recursive: true);
+        expect(await UpdateService.computeFileSha256(testFile), hash);
+        expect(matchingInfo.sha256ByName['peerm_update.zip'], hash);
+        expect(mismatchInfo.sha256ByName['peerm_update.zip'] != hash, isTrue);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
     });
   });
 }

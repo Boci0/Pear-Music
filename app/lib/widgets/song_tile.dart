@@ -85,7 +85,7 @@ class SongTile extends StatelessWidget {
                 leading: Icon(Icons.delete_outline,
                     color: Theme.of(ctx).colorScheme.error),
                 title: Text('Remove from library',
-                    style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(color: Theme.of(ctx).colorScheme.error)),
                 onTap: () => Navigator.pop(ctx, 'remove'),
               ),
             const SizedBox(height: 8),
@@ -161,7 +161,7 @@ class SongTile extends StatelessWidget {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(

@@ -306,7 +306,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                             )
                           : Text(
                               '${i + 1}',
-                              style: TextStyle(
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                 fontSize: 11,
                                 color: scheme.onSurfaceVariant
                                     .withValues(alpha: 0.6),
@@ -323,7 +323,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: isCurrent
-                      ? TextStyle(
+                      ? Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: scheme.primary,
                           fontWeight: FontWeight.bold,
                         )
@@ -341,7 +341,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                                   : 'Shared'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 12,
                           color: isCurrent
                               ? scheme.primary.withValues(alpha: 0.8)
@@ -500,10 +500,10 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
         SizedBox(
           height: 120,
           child: playlists.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'No playlists yet',
-                    style: TextStyle(fontSize: 12),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 12),
                   ),
                 )
               : ListView.builder(
@@ -601,11 +601,11 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: isCurrent
-                              ? TextStyle(
-                                  color: scheme.primary,
-                                  fontWeight: FontWeight.bold,
-                                )
-                              : null,
+                            ? Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.bold,
+                              )
+                            : null,
                         ),
                         onTap: () {
                           player.playSong(

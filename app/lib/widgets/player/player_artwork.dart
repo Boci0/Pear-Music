@@ -387,18 +387,18 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                     },
                                   );
                                 },
-                                child: const Row(
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(
+                                    const Icon(
                                       Icons.tune_rounded,
                                       size: 13,
                                       color: Colors.white,
                                     ),
-                                    SizedBox(width: 4.5),
+                                    const SizedBox(width: 4.5),
                                     Text(
                                       'Sync',
-                                      style: TextStyle(
+                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.white,

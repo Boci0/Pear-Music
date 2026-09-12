@@ -85,9 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (ok == true) {
-      for (final song in selectedSongs) {
-        await controller.removeSong(song);
-      }
+      await controller.removeSongs(selectedSongs);
       if (mounted) {
         setState(() {
           _isSelecting = false;
@@ -158,43 +156,48 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showCreatePlaylistDialog(
       AppController controller, List<Song> selectedSongs) async {
     final nameController = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Playlist'),
-        content: TextField(
-          controller: nameController,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Playlist name'),
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('New Playlist'),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'Playlist name'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
+              child: const Text('Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (name != null && name.isNotEmpty) {
-      final p = await controller.library.createPlaylist(name);
-      for (final song in selectedSongs) {
-        await controller.library.addSongToPlaylist(p.id, song.id);
+      );
+      if (name != null && name.isNotEmpty) {
+        final p = await controller.library.createPlaylist(name);
+        for (final song in selectedSongs) {
+          await controller.library.addSongToPlaylist(p.id, song.id);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Added ${selectedSongs.length} songs to ${p.name}'),
+            ),
+          );
+          setState(() {
+            _isSelecting = false;
+            _selectedIds.clear();
+          });
+        }
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-                Text('Created "$name" with ${selectedSongs.length} songs')),
-        );
-        setState(() {
-          _isSelecting = false;
-          _selectedIds.clear();
-        });
-      }
+    } finally {
+      nameController.dispose();
     }
   }
 
@@ -278,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SliverToBoxAdapter(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
               child: Row(
                 children: [
                   _FilterPill(
@@ -443,10 +446,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: TextField(
                 controller: _searchController,
                 autofocus: true,
-                style: const TextStyle(fontSize: 14),
+                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'Search library...',
-                  hintStyle: TextStyle(
+                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
                     fontSize: 14,
                     color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                   ),
@@ -502,7 +505,9 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
           Text(
             '${_selectedIds.length} selected',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const Spacer(),
           IconButton(
@@ -533,14 +538,7 @@ class _HomeScreenState extends State<HomeScreen> {
             filterQuality: FilterQuality.medium,
           ),
           const SizedBox(width: 8),
-          const Text(
-            'Library',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.3,
-            ),
-          ),
+          const Text('Library'),
           const Spacer(),
           IconButton(
             tooltip: 'Search library',
@@ -587,7 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        titleSpacing: 14,
+        titleSpacing: 16,
         centerTitle: false,
         title: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
@@ -683,8 +681,7 @@ class _FilterPillState extends State<_FilterPill> {
                 ],
                 Text(
                   widget.label,
-                  style: TextStyle(
-                    fontSize: 12,
+                  style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
                     color: widget.isSelected
                         ? primary

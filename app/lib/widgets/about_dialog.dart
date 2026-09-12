@@ -21,13 +21,16 @@ void showPearMusicAboutDialog(BuildContext context) {
         style: Theme.of(context).textTheme.bodyMedium,
       ),
       const SizedBox(height: 16),
-      const Text(
+      Text(
         'MIT License:\n'
         'Permission is hereby granted, free of charge, to any person obtaining a copy '
         'of this software and associated documentation files, to deal in the Software '
         'without restriction, including without limitation the rights to use, copy, modify, '
         'merge, publish, distribute, sublicense, and/or sell copies of the Software.',
-        style: TextStyle(fontSize: 11, color: Colors.grey),
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
       ),
       const SizedBox(height: 12),
       SelectableText(

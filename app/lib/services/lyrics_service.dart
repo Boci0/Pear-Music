@@ -500,7 +500,7 @@ class LyricsService {
       try {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
         if (await lrcFile.exists()) {
-          await lrcFile.writeAsString(updatedRaw);
+          await lrcFile.writeAsString(updatedRaw, flush: true);
         }
       } catch (_) {}
     }
@@ -535,7 +535,7 @@ class LyricsService {
     if (localAudioPath != null && localAudioPath.isNotEmpty) {
       try {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
-        await lrcFile.writeAsString(content);
+        await lrcFile.writeAsString(content, flush: true);
       } catch (_) {}
     }
 
@@ -551,9 +551,9 @@ class LyricsService {
       final uri = Uri.parse(baseUrl).replace(queryParameters: queryParameters);
       final req = await _client.getUrl(uri);
       req.headers.set('User-Agent', 'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)');
-      final res = await req.close();
+      final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join();
+        final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
         final data = jsonDecode(body);
         if (data is Map<String, dynamic>) {
           final synced = data['syncedLyrics'] as String?;
@@ -574,9 +574,9 @@ class LyricsService {
     try {
       final req = await _client.getUrl(uri);
       req.headers.set('User-Agent', 'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)');
-      final res = await req.close();
+      final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join();
+        final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
         final data = jsonDecode(body);
         if (data is List) {
           return data;
@@ -601,7 +601,7 @@ class LyricsService {
     try {
       final cacheDir = await _getCacheDir();
       final cacheFile = File(p.join(cacheDir.path, '${_safeFileName(songId)}.lrc'));
-      await cacheFile.writeAsString(lrcContent);
+      await cacheFile.writeAsString(lrcContent, flush: true);
     } catch (_) {}
   }
 

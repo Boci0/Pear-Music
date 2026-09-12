@@ -433,11 +433,19 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> removeSong(Song song) async {
-    if (player.currentSong?.id == song.id) {
-      await player.stop();
-    }
+    player.removeSongsFromQueue({song.id});
+    await identity.removeFavorite(song.id);
     await library.removeSong(song.id);
     _postMessage('Removed "${song.title}"');
+  }
+
+  Future<void> removeSongs(List<Song> songs) async {
+    final songIds = songs.map((s) => s.id).toSet();
+    player.removeSongsFromQueue(songIds);
+    await identity.removeFavorites(songIds);
+    await library.removeSongs(songIds);
+    _postMessage('Removed ${songs.length} ${songs.length == 1 ? "song" : "songs"}');
+    notifyListeners();
   }
 
   // ---------- settings ----------
@@ -496,6 +504,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void removeFromQueue(int index) => player.removeFromQueue(index);
   Future<void> seek(Duration d) => player.seek(d);
   Future<void> setVolume(double v) => player.setVolume(v);
+
 
   void _postMessage(String text) {
     if (!_messages.isClosed) _messages.add(text);

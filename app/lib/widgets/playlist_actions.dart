@@ -35,32 +35,37 @@ class _PlaylistPickerSheet extends StatefulWidget {
 class _PlaylistPickerSheetState extends State<_PlaylistPickerSheet> {
   Future<void> _promptNewPlaylistName() async {
     final nameController = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New playlist'),
-        content: TextField(
-          controller: nameController,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'Playlist name',
-            border: OutlineInputBorder(),
+    final String? name;
+    try {
+      name = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('New playlist'),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              hintText: 'Playlist name',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
           ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameController.text),
+              child: const Text('Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, nameController.text),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      nameController.dispose();
+    }
     if (name == null || name.trim().isEmpty || !mounted) return;
 
     final playlist = await widget.controller.createPlaylist(name);

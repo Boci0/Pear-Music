@@ -105,13 +105,17 @@ class RecommendationService {
 
   /// Tries to extract an 11-character YouTube video ID from a song ID, fileName, or title.
   static String? extractVideoId(String text) {
-    final m = RegExp(r'\[([a-zA-Z0-9_-]{11})\]').firstMatch(text);
+    final trimmed = text.trim();
+    if (trimmed.length == 11 && RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(trimmed)) {
+      return trimmed;
+    }
+    final m = RegExp(r'\[([a-zA-Z0-9_-]{11})\]').firstMatch(trimmed);
     if (m != null) return m.group(1);
-    if (text.startsWith('stream_')) {
-      final sub = text.replaceFirst('stream_', '');
+    if (trimmed.startsWith('stream_')) {
+      final sub = trimmed.replaceFirst('stream_', '');
       if (sub.length == 11) return sub;
     }
-    final m2 = RegExp(r'(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|\b)').firstMatch(text);
+    final m2 = RegExp(r'(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|\b)').firstMatch(trimmed);
     if (m2 != null) return m2.group(1);
     return null;
   }
@@ -405,7 +409,7 @@ class RecommendationService {
           continue;
         }
 
-        final respText = await response.transform(utf8.decoder).join();
+        final respText = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
         final data = jsonDecode(respText) as Map<String, dynamic>;
 
         final panel = data['contents']?['singleColumnMusicWatchNextResultsRenderer']
@@ -512,7 +516,7 @@ class RecommendationService {
         final response = await request.close().timeout(const Duration(seconds: 6));
         if (response.statusCode != 200) continue;
 
-        final respText = await response.transform(utf8.decoder).join();
+        final respText = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
         final data = jsonDecode(respText) as Map<String, dynamic>;
 
         final items = <RecommendationItem>[];
@@ -680,7 +684,7 @@ class RecommendationService {
         final response = await request.close().timeout(const Duration(seconds: 6));
         if (response.statusCode != 200) continue;
 
-        final respText = await response.transform(utf8.decoder).join();
+        final respText = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
         final data = jsonDecode(respText) as Map<String, dynamic>;
 
         final continuations = data['continuationContents']?['playlistPanelContinuation'];

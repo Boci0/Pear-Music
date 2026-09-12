@@ -180,7 +180,7 @@ class _MinimalistNavBar extends StatelessWidget {
                   child: Container(
                     decoration: BoxDecoration(
                       color: scheme.primary.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(24),
                       border: Border.all(
                         color: scheme.primary.withValues(alpha: 0.38),
                         width: 1,
@@ -277,19 +277,27 @@ class _NavBarItemState extends State<_NavBarItem> {
           },
           onTapCancel: () => setState(() => _isPressed = false),
           behavior: HitTestBehavior.opaque,
-          child: Center(
-            child: AnimatedScale(
-              scale: _isPressed ? 0.90 : (_isHovered ? 1.05 : 1.0),
-              duration: const Duration(milliseconds: 140),
-              curve: Curves.easeOutCubic,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: (!isSelected && _isHovered)
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(22),
-                ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutCubic,
+            margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+            decoration: BoxDecoration(
+              color: (!isSelected && _isHovered)
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: (!isSelected && _isHovered)
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.transparent,
+                width: 1,
+              ),
+            ),
+            child: Center(
+              child: AnimatedScale(
+                scale: _isPressed ? 0.90 : (_isHovered ? 1.05 : 1.0),
+                duration: const Duration(milliseconds: 140),
+                curve: Curves.easeOutCubic,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -300,19 +308,19 @@ class _NavBarItemState extends State<_NavBarItem> {
                       color: isSelected
                           ? scheme.primary
                           : _isHovered
-                              ? Colors.white.withValues(alpha: 0.75)
+                              ? Colors.white.withValues(alpha: 0.85)
                               : Colors.white.withValues(alpha: 0.45),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       widget.label,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         fontSize: 10,
                         fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                         color: isSelected
                             ? scheme.primary
                             : _isHovered
-                                ? Colors.white.withValues(alpha: 0.75)
+                                ? Colors.white.withValues(alpha: 0.85)
                                 : Colors.white.withValues(alpha: 0.45),
                         letterSpacing: -0.1,
                       ),

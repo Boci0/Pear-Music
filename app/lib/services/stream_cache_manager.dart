@@ -53,6 +53,7 @@ class StreamCacheManager {
   static final Set<String> _cachedVideoIds = {};
   static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
   static int _slidingWindowSequence = 0;
+  static int _downloadInvocationToken = 0;
   // In-flight / completed direct stream URL resolutions, so a prefetch
   // started while the previous track plays satisfies the next track's
   // immediate look-up with 0ms of yt-dlp latency.
@@ -225,6 +226,7 @@ class StreamCacheManager {
   /// if it does not match [exceptVideoId], releasing native heap, CPU, and network immediately.
   static void cancelActiveDownload({String? exceptVideoId}) {
     _slidingWindowSequence++;
+    _downloadInvocationToken++;
     if (exceptVideoId == null || _activeDownloadingVideoId != exceptVideoId) {
       final abandonedId = _activeDownloadingVideoId;
       final activeId = _activeProcessId;
@@ -308,11 +310,16 @@ class StreamCacheManager {
   /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
   /// Strictly enforces single-concurrency to prevent multiple downloads from splitting bandwidth.
   static Future<File?> ensureStreamCached(String videoId, {bool isPreload = false}) async {
+    final token = ++_downloadInvocationToken;
+    final preloadSeq = _slidingWindowSequence;
+
     final existing = await getCachedFile(videoId);
     if (existing != null) {
       DebugLog.write('[cache] Disk cache HIT for $videoId (0ms)');
       return existing;
     }
+    if (token != _downloadInvocationToken) return null;
+    if (isPreload && preloadSeq != _slidingWindowSequence) return null;
 
     // Single-flight deduplication: join existing download if already in progress for this videoId
     if (_inFlightDownloads.containsKey(videoId)) {
@@ -345,11 +352,13 @@ class StreamCacheManager {
       if (cachedAfterWait != null) {
         return cachedAfterWait;
       }
-      if (_activeDownloadingVideoId != null) {
-        DebugLog.write('[cache] Another download took concurrency lock after wait, deferring $videoId');
+      if (token != _downloadInvocationToken || (isPreload && preloadSeq != _slidingWindowSequence) || _activeDownloadingVideoId != null) {
+        DebugLog.write('[cache] Another download took concurrency lock after wait or sequence cancelled, deferring $videoId');
         return null;
       }
     }
+    if (token != _downloadInvocationToken) return null;
+    if (isPreload && preloadSeq != _slidingWindowSequence) return null;
 
     // If direct playback is requested while another download is running, abort the active download to
     // dedicate 100% bandwidth to the track the user is actively waiting to hear.
@@ -451,11 +460,14 @@ class StreamCacheManager {
 
         const timeoutDuration = Duration(seconds: 120);
 
-        process.stdout.drain();
+        process.stdout.drain().catchError((_) => null);
         final stderrBuffer = StringBuffer();
-        process.stderr.transform(utf8.decoder).listen((data) {
-          stderrBuffer.write(data);
-        });
+        process.stderr.transform(utf8.decoder).listen(
+          (data) {
+            stderrBuffer.write(data);
+          },
+          onError: (_) {},
+        );
 
         int exitCode = -1;
         try {
@@ -528,12 +540,14 @@ class StreamCacheManager {
         final stat = await f.stat();
         final name = p.basename(f.path);
 
-        // Delete dangling temp files older than 1 minute
-        if ((name.contains('.tmp.') || name.contains('.part.') || name.startsWith('tmp_')) &&
-            now.difference(stat.modified) > const Duration(minutes: 1)) {
-          try {
-            await f.delete();
-          } catch (_) {}
+        // Temporary and partial files are not completed cached tracks.
+        // Clean up dangling temp files older than 2 minutes, and skip active ones.
+        if (name.contains('.tmp.') || name.contains('.part.') || name.startsWith('tmp_')) {
+          if (now.difference(stat.modified) > const Duration(minutes: 2)) {
+            try {
+              await f.delete();
+            } catch (_) {}
+          }
           continue;
         }
 
@@ -557,7 +571,8 @@ class StreamCacheManager {
       int currentTrackCount = validFiles.length;
       for (final f in validFiles) {
         if (totalSize <= targetEvictionBytes && currentTrackCount <= maxTrackCount) break;
-        final vId = p.basenameWithoutExtension(f.path);
+        final rawName = p.basenameWithoutExtension(f.path);
+        final vId = rawName.contains('.') ? rawName.split('.').first : rawName;
         if (_activeQueueVideoIds.contains(vId)) continue;
 
         final size = fileStats[f]?.size ?? 0;
@@ -654,7 +669,9 @@ class StreamCacheManager {
       // Remove from prefetch cache after a short delay so the memory cache has time
       // to serve subsequent lookups without re-triggering extraction.
       Future.delayed(const Duration(seconds: 30), () {
-        _streamUrlPrefetchCache.remove(videoId);
+        if (_streamUrlPrefetchCache[videoId] == future) {
+          _streamUrlPrefetchCache.remove(videoId);
+        }
       });
     });
   }
@@ -803,8 +820,11 @@ class StreamCacheManager {
       final bin = await YoutubeService.ytDlpPath() ?? 'yt-dlp';
       proc = await Process.start(bin, [...args, url]);
       final outBuf = StringBuffer();
-      final outSub = proc.stdout.transform(utf8.decoder).listen(outBuf.write);
-      proc.stderr.drain();
+      final outSub = proc.stdout.transform(utf8.decoder).listen(
+        outBuf.write,
+        onError: (_) {},
+      );
+      proc.stderr.drain().catchError((_) => null);
       int exitCode;
       try {
         exitCode = await proc.exitCode.timeout(timeout);

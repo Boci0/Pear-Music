@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '3.4.2';
+  static const String currentVersion = '3.4.3';
 
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.
@@ -789,7 +789,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           const SizedBox(height: 12),
           Text(
             'Current: v${widget.info.currentVersion}  ->  Latest: v${widget.info.latestVersion}',
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           if (isReadyToInstall) ...[
             const SizedBox(height: 10),
@@ -810,7 +810,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                   Expanded(
                     child: Text(
                       'Update package already downloaded and verified.',
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                         color: Theme.of(context).colorScheme.primary,

@@ -9,6 +9,7 @@ import 'player_service.dart';
 class PearAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> Function()? onPlay;
   Future<void> Function()? onPause;
+  Future<void> Function()? onStop;
   Future<void> Function()? onSkipToNext;
   Future<void> Function()? onSkipToPrevious;
   Future<void> Function(Duration)? onSeek;
@@ -80,6 +81,19 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
     if (onPause != null) {
       await onPause!();
     }
+  }
+
+  @override
+  Future<void> stop() async {
+    playbackState.add(playbackState.value.copyWith(
+      playing: false,
+      processingState: AudioProcessingState.idle,
+    ));
+    if (onStop != null) {
+      await onStop!();
+      return;
+    }
+    await super.stop();
   }
 
   @override
