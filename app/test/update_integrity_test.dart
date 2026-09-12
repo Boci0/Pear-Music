@@ -50,5 +50,38 @@ void main() {
       final result = await YoutubeService.aria2cPath();
       expect(result == null || File(result).existsSync(), isTrue);
     });
+
+    test('getVerifiedDownloadedUpdate verifies cached package against expected digest', () async {
+      final tempDir = Directory.systemTemp.createTempSync('peerm-update-test-');
+      final testFile = File('${tempDir.path}/peerm_update.zip');
+      await testFile.writeAsString('test package content');
+      final hash = await UpdateService.computeFileSha256(testFile);
+
+      final matchingInfo = UpdateInfo(
+        hasUpdate: true,
+        currentVersion: '3.3.8',
+        latestVersion: '3.3.9',
+        releaseNotes: 'notes',
+        htmlUrl: 'https://example.com',
+        zipUrl: 'https://example.com/peerm_update.zip',
+        sha256ByName: {'peerm_update.zip': hash},
+      );
+
+      final mismatchInfo = UpdateInfo(
+        hasUpdate: true,
+        currentVersion: '3.3.8',
+        latestVersion: '3.3.9',
+        releaseNotes: 'notes',
+        htmlUrl: 'https://example.com',
+        zipUrl: 'https://example.com/peerm_update.zip',
+        sha256ByName: {'peerm_update.zip': '0000000000000000000000000000000000000000000000000000000000000000'},
+      );
+
+      expect(await UpdateService.computeFileSha256(testFile), hash);
+      expect(matchingInfo.sha256ByName['peerm_update.zip'], hash);
+      expect(mismatchInfo.sha256ByName['peerm_update.zip'] != hash, isTrue);
+
+      tempDir.deleteSync(recursive: true);
+    });
   });
 }

@@ -69,6 +69,7 @@ class PlaylistsScreen extends StatelessWidget {
                 isActive: currentSongId != null &&
                     playlists[i].songIds.contains(currentSongId),
                 onPlay: () => controller.playPlaylist(playlists[i]),
+                onRename: () => _renamePlaylist(context, controller, playlists[i]),
                 onDelete: () => _confirmDelete(context, controller, playlists[i]),
               ),
             ),
@@ -82,6 +83,7 @@ class PlaylistsScreen extends StatelessWidget {
     final nameController = TextEditingController();
     final name = await showDialog<String>(
       context: context,
+      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: const Text('New playlist'),
         content: TextField(
@@ -117,6 +119,7 @@ class PlaylistsScreen extends StatelessWidget {
   ) async {
     final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: Text('Delete "${playlist.name}"?'),
         content: const Text('The songs stay in your library; only the playlist '
@@ -140,12 +143,50 @@ class PlaylistsScreen extends StatelessWidget {
       await controller.deletePlaylist(playlist.id);
     }
   }
+
+  Future<void> _renamePlaylist(
+    BuildContext context,
+    AppController controller,
+    Playlist playlist,
+  ) async {
+    final nameController = TextEditingController(text: playlist.name);
+    final name = await showDialog<String>(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename playlist'),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Playlist name',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, nameController.text),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    await controller.renamePlaylist(playlist.id, name.trim());
+  }
 }
 
 class _PlaylistTile extends StatelessWidget {
   final Playlist playlist;
   final bool isActive;
   final VoidCallback onPlay;
+  final VoidCallback onRename;
   final VoidCallback onDelete;
 
   const _PlaylistTile({
@@ -153,6 +194,7 @@ class _PlaylistTile extends StatelessWidget {
     required this.playlist,
     required this.isActive,
     required this.onPlay,
+    required this.onRename,
     required this.onDelete,
   });
 
@@ -284,37 +326,14 @@ class _PlaylistTile extends StatelessWidget {
                             ),
                             onPressed: onPlay,
                           ),
-                          PopupMenuButton<String>(
+                          IconButton(
                             icon: Icon(
                               Icons.more_vert_rounded,
                               size: 20,
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            onSelected: (v) {
-                              if (v == 'delete') onDelete();
-                            },
-                            itemBuilder: (_) => [
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.delete_outline_rounded,
-                                      size: 18,
-                                      color: theme.colorScheme.error,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      'Delete playlist',
-                                      style: TextStyle(color: theme.colorScheme.error),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                            tooltip: 'Playlist options',
+                            onPressed: () => _showMenu(context),
                           ),
                         ],
                       ),
@@ -327,6 +346,78 @@ class _PlaylistTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _showMenu(BuildContext context) async {
+    final controller = context.read<AppController>();
+    final theme = Theme.of(context);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                playlist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall,
+              ),
+              subtitle: Text(
+                '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              dense: true,
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.play_arrow_rounded),
+              title: const Text('Play all'),
+              onTap: () => Navigator.pop(ctx, 'play'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.shuffle_rounded),
+              title: const Text('Shuffle'),
+              onTap: () => Navigator.pop(ctx, 'shuffle'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Rename playlist'),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_outline_rounded,
+                color: theme.colorScheme.error,
+              ),
+              title: Text(
+                'Delete playlist',
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    if (action == 'play') {
+      onPlay();
+    } else if (action == 'shuffle') {
+      if (!controller.player.shuffle) {
+        controller.player.toggleShuffle();
+      }
+      controller.playPlaylist(playlist);
+    } else if (action == 'rename') {
+      onRename();
+    } else if (action == 'delete') {
+      onDelete();
+    }
   }
 }
 

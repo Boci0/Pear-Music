@@ -25,11 +25,12 @@ import java.util.concurrent.Executors
  * hosts the engine (AudioServiceActivity) — no launcher-activity changes
  * needed.
  */
-class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler, android.content.ComponentCallbacks2 {
+class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler, android.content.ComponentCallbacks2, io.flutter.embedding.engine.plugins.activity.ActivityAware {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var messenger: BinaryMessenger? = null
     private var context: Context? = null
+    private var activity: android.app.Activity? = null
     private var eventSink: EventChannel.EventSink? = null
     private val executors = mutableMapOf<String, ExecutorService>()
     private val audioDownloadExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -67,6 +68,22 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         currentAudioProcessId = null
         initialized = false
         ffmpegInitialized = false
+    }
+
+    override fun onAttachedToActivity(binding: io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
     }
 
     override fun onTrimMemory(level: Int) {
@@ -181,6 +198,28 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     result.error("install_failed", e.message, null)
                 }
             }
+            "canRequestPackageInstalls" -> {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    result.success(ctx.packageManager.canRequestPackageInstalls())
+                } else {
+                    result.success(true)
+                }
+            }
+            "openInstallPermissionSettings" -> {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        android.net.Uri.parse("package:${ctx.packageName}")
+                    ).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val targetCtx = activity ?: ctx
+                    targetCtx.startActivity(intent)
+                    result.success(true)
+                } else {
+                    result.success(false)
+                }
+            }
             "downloadApkWithNotification" -> {
                 val url = call.argument<String>("url")
                 val fileName = call.argument<String>("fileName") ?: "update.apk"
@@ -190,6 +229,19 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     return
                 }
                 startApkDownloadWithNotification(ctx, url, fileName, expectedSha256, result)
+            }
+            "installApk" -> {
+                val path = call.argument<String>("path")
+                if (path == null) {
+                    result.error("bad_args", "path required", null)
+                    return
+                }
+                try {
+                    installApk(activity ?: ctx, path)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("install_error", e.message, null)
+                }
             }
             else -> result.notImplemented()
         }
@@ -228,8 +280,40 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
 
         val executor = Executors.newSingleThreadExecutor()
         executor.execute {
+            val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            val wakeLock = powerManager?.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "peerm:apk_update_wakelock"
+            )?.apply {
+                setReferenceCounted(false)
+                acquire(10 * 60 * 1000L)
+            }
+
             try {
                 val destFile = File(ctx.cacheDir, fileName)
+
+                // Reuse already downloaded and verified APK if present
+                if (!expectedSha256.isNullOrBlank() && destFile.exists() && destFile.length() > 0) {
+                    try {
+                        val digest = java.security.MessageDigest.getInstance("SHA-256")
+                        destFile.inputStream().use { stream ->
+                            val buf = ByteArray(16384)
+                            var n: Int
+                            while (stream.read(buf).also { n = it } != -1) {
+                                digest.update(buf, 0, n)
+                            }
+                        }
+                        val currentHash = digest.digest().joinToString("") { "%02x".format(it) }
+                        if (currentHash.equals(expectedSha256.trim().lowercase(), ignoreCase = false)) {
+                            android.util.Log.i(TAG, "Cached APK already verified: ${destFile.absolutePath}")
+                            handleApkReady(ctx, destFile, notificationId, result)
+                            return@execute
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w(TAG, "Cached APK verification failed: ${e.message}")
+                    }
+                }
+
                 var currentUrl = url
                 var connection: java.net.HttpURLConnection? = null
                 var redirects = 0
@@ -299,7 +383,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                             notificationManager.notify(notificationId, builder.build())
                         }
                     } else {
-                        // Unknown total length: show indeterminate ticker
                         val mb = String.format("%.1f MB", total / (1024.0 * 1024.0))
                         builder.setProgress(0, 0, true)
                             .setContentText(mb)
@@ -318,7 +401,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     android.util.Log.e(TAG, "APK checksum mismatch: $actualHash != $expectedSha256")
                     destFile.delete()
                     builder.setContentTitle("Update verification failed")
-                        .setContentText("Checksum mismatch — download deleted.")
+                        .setContentText("Checksum mismatch; download deleted.")
                         .setOngoing(false)
                         .setProgress(0, 0, false)
                         .setSmallIcon(android.R.drawable.stat_notify_error)
@@ -329,45 +412,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     return@execute
                 }
 
-                val apkUri = androidx.core.content.FileProvider.getUriForFile(
-                    ctx,
-                    "${ctx.packageName}.fileprovider",
-                    destFile
-                )
-                val installIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                    setDataAndType(apkUri, "application/vnd.android.package-archive")
-                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-
-                val pendingIntent = android.app.PendingIntent.getActivity(
-                    ctx,
-                    notificationId,
-                    installIntent,
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                    } else {
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT
-                    }
-                )
-
-                builder.setContentTitle("Pear Music update ready")
-                    .setContentText("Tap to install")
-                    .setOngoing(false)
-                    .setProgress(0, 0, false)
-                    .setContentIntent(pendingIntent)
-                    .setAutoCancel(true)
-                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                notificationManager.notify(notificationId, builder.build())
-
-                mainHandler.post {
-                    try {
-                        installApk(ctx, destFile.absolutePath)
-                        result.success(destFile.absolutePath)
-                    } catch (err: Exception) {
-                        result.error("install_error", err.message, null)
-                    }
-                }
+                handleApkReady(ctx, destFile, notificationId, result)
             } catch (e: Exception) {
                 builder.setContentTitle("Update download failed")
                     .setContentText(e.message ?: "Unknown error")
@@ -379,7 +424,98 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     result.error("download_failed", e.message, null)
                 }
             } finally {
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (_: Exception) {}
                 executor.shutdown()
+            }
+        }
+    }
+
+    private fun handleApkReady(
+        ctx: Context,
+        destFile: File,
+        notificationId: Int,
+        result: MethodChannel.Result?
+    ) {
+        val notificationManager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channelId = "peerm_updates"
+        val apkUri = androidx.core.content.FileProvider.getUriForFile(
+            ctx,
+            "${ctx.packageName}.fileprovider",
+            destFile
+        )
+
+        val canInstall = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            ctx.packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+
+        val launchIntent = if (!canInstall && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                android.net.Uri.parse("package:${ctx.packageName}")
+            ).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        } else {
+            android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                clipData = android.content.ClipData.newRawUri("", apkUri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+        }
+
+        val resInfoList = ctx.packageManager.queryIntentActivities(
+            android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+            },
+            android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+        )
+        for (resolveInfo in resInfoList) {
+            val packageName = resolveInfo.activityInfo.packageName
+            try {
+                ctx.grantUriPermission(packageName, apkUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {}
+        }
+
+        val pendingFlags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        } else {
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            ctx,
+            notificationId,
+            launchIntent,
+            pendingFlags
+        )
+
+        val builder = androidx.core.app.NotificationCompat.Builder(ctx, channelId)
+            .setContentTitle("Pear Music update ready")
+            .setContentText(if (canInstall) "Tap to install" else "Tap to allow installs from unknown sources")
+            .setOngoing(false)
+            .setProgress(0, 0, false)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+        notificationManager.notify(notificationId, builder.build())
+
+        mainHandler.post {
+            result?.success(destFile.absolutePath)
+            if (activity != null) {
+                try {
+                    installApk(activity ?: ctx, destFile.absolutePath)
+                } catch (err: Exception) {
+                    android.util.Log.e(TAG, "Foreground installApk error: ${err.message}")
+                }
             }
         }
     }
@@ -396,7 +532,8 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 ).apply {
                     addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                ctx.startActivity(settingsIntent)
+                val target = activity ?: ctx
+                target.startActivity(settingsIntent)
                 return
             }
         }
@@ -408,10 +545,22 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         )
         val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
             setDataAndType(apkUri, "application/vnd.android.package-archive")
+            clipData = android.content.ClipData.newRawUri("", apkUri)
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-        ctx.startActivity(intent)
+
+        val resInfoList = ctx.packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        for (resolveInfo in resInfoList) {
+            val packageName = resolveInfo.activityInfo.packageName
+            try {
+                ctx.grantUriPermission(packageName, apkUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {}
+        }
+
+        val target = activity ?: ctx
+        target.startActivity(intent)
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {

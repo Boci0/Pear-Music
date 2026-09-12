@@ -38,7 +38,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '3.3.8';
+  static const String currentVersion = '3.3.9';
 
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.
@@ -338,68 +338,179 @@ class UpdateService {
     );
   }
 
+  static Future<File?> getVerifiedDownloadedUpdate(UpdateInfo info) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          info.apkUrl != null) {
+        final expected = _findExpectedHash(info, p.basename(info.apkUrl!));
+        if (expected == null || expected.isEmpty) return null;
+        final apkFile = File(p.join(tempDir.path, 'PearMusic-update.apk'));
+        if (await apkFile.exists() && await apkFile.length() > 0) {
+          final actual = await computeFileSha256(apkFile);
+          if (actual.toLowerCase() == expected.trim().toLowerCase()) {
+            return apkFile;
+          }
+        }
+      } else if (defaultTargetPlatform == TargetPlatform.windows &&
+          info.zipUrl != null) {
+        final expected = _findExpectedHash(info, p.basename(info.zipUrl!));
+        if (expected == null || expected.isEmpty) return null;
+        final zipFile = File(p.join(tempDir.path, 'peerm_update.zip'));
+        if (await zipFile.exists() && await zipFile.length() > 0) {
+          final actual = await computeFileSha256(zipFile);
+          if (actual.toLowerCase() == expected.trim().toLowerCase()) {
+            return zipFile;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Check cached update failed: $e');
+    }
+    return null;
+  }
+
+  static Future<bool> canRequestPackageInstalls() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return true;
+    try {
+      const channel = MethodChannel('peerm/ytdlp');
+      final res = await channel.invokeMethod<bool>('canRequestPackageInstalls');
+      return res ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<bool> openInstallPermissionSettings() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      const channel = MethodChannel('peerm/ytdlp');
+      final res =
+          await channel.invokeMethod<bool>('openInstallPermissionSettings');
+      return res ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> installApkDirectly(String path) async {
+    const channel = MethodChannel('peerm/ytdlp');
+    await channel.invokeMethod('installApk', {'path': path});
+  }
+
+  static Future<void> showPermissionPrompt(BuildContext context) async {
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Install Permission Required'),
+        content: const Text(
+          'Pear Music needs permission to install downloaded app updates. '
+          'Please enable "Allow from this source" in Settings to continue.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openInstallPermissionSettings();
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
   static Future<void> downloadAndApplyWindowsZip(
     BuildContext context,
     UpdateInfo info,
   ) async {
     final zipUrl = info.zipUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    scaffoldMessenger.showSnackBar(
-      const SnackBar(
-        content: Text('Downloading update package...'),
-        duration: Duration(seconds: 5),
-      ),
-    );
 
     try {
       final tempDir = await getTemporaryDirectory();
       final zipFile = File(p.join(tempDir.path, 'peerm_update.zip'));
-      if (await zipFile.exists()) await zipFile.delete();
 
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(zipUrl));
-      final response = await request.close();
-
-      if (response.statusCode == 200) {
-        final sink = zipFile.openWrite();
-        await response.pipe(sink);
-        await sink.close();
-
-        // Integrity gate: never extract/relaunch without a matching SHA-256.
-        final expected = _findExpectedHash(info, p.basename(zipUrl));
-        if (expected == null || expected.isEmpty) {
-          debugPrint(
-            '[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}',
-          );
-          await zipFile.delete();
-          if (context.mounted) {
-            await _showMissingHashDialog(context, info);
-          }
-          return;
+      // Integrity gate: never extract/relaunch without a matching SHA-256.
+      final expected = _findExpectedHash(info, p.basename(zipUrl));
+      if (expected == null || expected.isEmpty) {
+        debugPrint(
+          '[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}',
+        );
+        if (await zipFile.exists()) await zipFile.delete();
+        if (context.mounted) {
+          await _showMissingHashDialog(context, info);
         }
-        final actual = await computeFileSha256(zipFile);
-        if (actual != expected) {
-          debugPrint('[UpdateService] Checksum mismatch: $actual != $expected');
-          try {
-            await zipFile.delete();
-          } catch (_) {}
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Checksum mismatch — the downloaded update failed verification '
-                'and was deleted.',
+        return;
+      }
+
+      bool needDownload = true;
+      if (await zipFile.exists() && await zipFile.length() > 0) {
+        final existingHash = await computeFileSha256(zipFile);
+        if (existingHash.toLowerCase() == expected.trim().toLowerCase()) {
+          needDownload = false;
+          debugPrint('[UpdateService] Reusing verified cached ZIP update.');
+        }
+      }
+
+      if (needDownload) {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Downloading update package...'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+        if (await zipFile.exists()) await zipFile.delete();
+
+        final client = HttpClient();
+        final request = await client.getUrl(Uri.parse(zipUrl));
+        final response = await request.close();
+
+        if (response.statusCode == 200) {
+          final sink = zipFile.openWrite();
+          await response.pipe(sink);
+          await sink.close();
+
+          final actual = await computeFileSha256(zipFile);
+          if (actual.toLowerCase() != expected.trim().toLowerCase()) {
+            debugPrint(
+              '[UpdateService] Checksum mismatch: $actual != $expected',
+            );
+            try {
+              await zipFile.delete();
+            } catch (_) {}
+            scaffoldMessenger.showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Checksum mismatch: the downloaded update failed verification '
+                  'and was deleted.',
+                ),
+                duration: Duration(seconds: 6),
               ),
-              duration: Duration(seconds: 6),
+            );
+            return;
+          }
+        } else {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text('Download failed (HTTP ${response.statusCode})'),
             ),
           );
           return;
         }
+      }
 
-        final exePath = Platform.resolvedExecutable;
-        final appDir = p.dirname(exePath);
+      final exePath = Platform.resolvedExecutable;
+      final appDir = p.dirname(exePath);
 
-        final updaterScript = File(p.join(tempDir.path, 'peerm_updater.ps1'));
-        await updaterScript.writeAsString('''
+      final updaterScript = File(p.join(tempDir.path, 'peerm_updater.ps1'));
+      await updaterScript.writeAsString('''
 param(
     [int]\$AppPid,
     [string]\$ZipPath,
@@ -442,51 +553,44 @@ if (\$extracted) {
 Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''');
 
-        final currentPid = pid;
-        final cmdLine =
-            'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
-            '-File "${updaterScript.path}" -AppPid $currentPid -ZipPath "${zipFile.path}" '
-            '-AppDir "$appDir" -ExePath "$exePath"';
+      final currentPid = pid;
+      final cmdLine =
+          'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+          '-File "${updaterScript.path}" -AppPid $currentPid -ZipPath "${zipFile.path}" '
+          '-AppDir "$appDir" -ExePath "$exePath"';
 
-        bool launchedViaChannel = false;
-        try {
-          const channel = MethodChannel('peerm/windows_updater');
-          final ok = await channel.invokeMethod<bool>('startDetachedProcess', {
-            'commandLine': cmdLine,
-          });
-          launchedViaChannel = ok ?? false;
-        } catch (e) {
-          debugPrint('[UpdateService] Native breakaway launch failed: $e');
-        }
-
-        if (!launchedViaChannel) {
-          await Process.start('powershell.exe', [
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-WindowStyle',
-            'Hidden',
-            '-File',
-            updaterScript.path,
-            '-AppPid',
-            '$currentPid',
-            '-ZipPath',
-            zipFile.path,
-            '-AppDir',
-            appDir,
-            '-ExePath',
-            exePath,
-          ], mode: ProcessStartMode.detached);
-        }
-
-        exit(0);
-      } else {
-        scaffoldMessenger.showSnackBar(
-          SnackBar(
-            content: Text('Download failed (HTTP ${response.statusCode})'),
-          ),
-        );
+      bool launchedViaChannel = false;
+      try {
+        const channel = MethodChannel('peerm/windows_updater');
+        final ok = await channel.invokeMethod<bool>('startDetachedProcess', {
+          'commandLine': cmdLine,
+        });
+        launchedViaChannel = ok ?? false;
+      } catch (e) {
+        debugPrint('[UpdateService] Native breakaway launch failed: $e');
       }
+
+      if (!launchedViaChannel) {
+        await Process.start('powershell.exe', [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-WindowStyle',
+          'Hidden',
+          '-File',
+          updaterScript.path,
+          '-AppPid',
+          '$currentPid',
+          '-ZipPath',
+          zipFile.path,
+          '-AppDir',
+          appDir,
+          '-ExePath',
+          exePath,
+        ], mode: ProcessStartMode.detached);
+      }
+
+      exit(0);
     } catch (e) {
       debugPrint('[UpdateService] Native ZIP update failed: $e');
       scaffoldMessenger.showSnackBar(
@@ -510,6 +614,21 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
       return;
     }
 
+    final cachedApk = await getVerifiedDownloadedUpdate(info);
+    if (cachedApk != null) {
+      final canInstall = await canRequestPackageInstalls();
+      if (!canInstall && context.mounted) {
+        await showPermissionPrompt(context);
+        return;
+      }
+      try {
+        await installApkDirectly(cachedApk.path);
+        return;
+      } catch (e) {
+        debugPrint('[UpdateService] Direct install error: $e');
+      }
+    }
+
     scaffoldMessenger.showSnackBar(
       const SnackBar(
         content: Text('Downloading update in notifications...'),
@@ -531,7 +650,7 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
         scaffoldMessenger.showSnackBar(
           const SnackBar(
             content: Text(
-              'Checksum mismatch — the downloaded APK failed verification '
+              'Checksum mismatch: the downloaded APK failed verification '
               'and was deleted.',
             ),
             duration: Duration(seconds: 6),
@@ -551,29 +670,68 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
   }
 }
 
-class _UpdateDialog extends StatelessWidget {
+class _UpdateDialog extends StatefulWidget {
   final UpdateInfo info;
   const _UpdateDialog({required this.info});
 
+  @override
+  State<_UpdateDialog> createState() => _UpdateDialogState();
+}
+
+class _UpdateDialogState extends State<_UpdateDialog> {
+  File? _cachedFile;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCache();
+  }
+
+  Future<void> _checkCache() async {
+    final cached = await UpdateService.getVerifiedDownloadedUpdate(widget.info);
+    if (mounted) {
+      setState(() {
+        _cachedFile = cached;
+      });
+    }
+  }
+
   Future<void> _handleUpdate(BuildContext context) async {
     if (defaultTargetPlatform == TargetPlatform.windows &&
-        info.zipUrl != null) {
+        widget.info.zipUrl != null) {
       Navigator.pop(context);
-      await UpdateService.downloadAndApplyWindowsZip(context, info);
+      await UpdateService.downloadAndApplyWindowsZip(context, widget.info);
       return;
     }
 
     if (defaultTargetPlatform == TargetPlatform.android &&
-        info.apkUrl != null) {
+        widget.info.apkUrl != null) {
+      if (_cachedFile != null) {
+        final canInstall = await UpdateService.canRequestPackageInstalls();
+        if (!canInstall) {
+          if (context.mounted) {
+            await UpdateService.showPermissionPrompt(context);
+          }
+          return;
+        }
+        if (!context.mounted) return;
+        Navigator.pop(context);
+        try {
+          await UpdateService.installApkDirectly(_cachedFile!.path);
+        } catch (e) {
+          debugPrint('[UpdateService] Direct cached APK install failed: $e');
+        }
+        return;
+      }
       Navigator.pop(context);
-      await UpdateService.downloadAndInstallAndroidApk(context, info);
+      await UpdateService.downloadAndInstallAndroidApk(context, widget.info);
       return;
     }
 
-    String targetUrl = info.htmlUrl;
+    String targetUrl = widget.info.htmlUrl;
     if (defaultTargetPlatform == TargetPlatform.windows) {
-      if (info.setupUrl != null) {
-        targetUrl = info.setupUrl!;
+      if (widget.info.setupUrl != null) {
+        targetUrl = widget.info.setupUrl!;
       }
     }
 
@@ -584,13 +742,13 @@ class _UpdateDialog extends StatelessWidget {
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        final fallbackUri = Uri.parse(info.htmlUrl);
+        final fallbackUri = Uri.parse(widget.info.htmlUrl);
         await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
       debugPrint('[UpdateService] Failed to launch $targetUrl: $e');
       try {
-        final fallbackUri = Uri.parse(info.htmlUrl);
+        final fallbackUri = Uri.parse(widget.info.htmlUrl);
         await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
       } catch (_) {}
     }
@@ -600,19 +758,29 @@ class _UpdateDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAndroidWithApk =
-        defaultTargetPlatform == TargetPlatform.android && info.apkUrl != null;
+        defaultTargetPlatform == TargetPlatform.android &&
+        widget.info.apkUrl != null;
     final isWindowsWithZip =
-        defaultTargetPlatform == TargetPlatform.windows && info.zipUrl != null;
+        defaultTargetPlatform == TargetPlatform.windows &&
+        widget.info.zipUrl != null;
+    final isReadyToInstall = _cachedFile != null;
 
     String buttonLabel = 'Get Update';
-    if (isAndroidWithApk) {
+    IconData buttonIcon = Icons.file_download;
+
+    if (isReadyToInstall) {
+      buttonLabel = isWindowsWithZip ? 'Install & Restart' : 'Install Update';
+      buttonIcon = Icons.system_update_rounded;
+    } else if (isAndroidWithApk) {
       buttonLabel = 'Download APK';
+      buttonIcon = Icons.file_download;
     } else if (isWindowsWithZip) {
       buttonLabel = 'Update Automatically';
+      buttonIcon = Icons.system_update;
     }
 
     return AlertDialog(
-      title: Text('Update Available (${info.latestVersion})'),
+      title: Text('Update Available (${widget.info.latestVersion})'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -620,15 +788,45 @@ class _UpdateDialog extends StatelessWidget {
           const Text('A new version of Pear Music is available!'),
           const SizedBox(height: 12),
           Text(
-            'Current: v${info.currentVersion}  ->  Latest: v${info.latestVersion}',
+            'Current: v${widget.info.currentVersion}  ->  Latest: v${widget.info.latestVersion}',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
+          if (isReadyToInstall) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withAlpha(80),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Update package already downloaded and verified.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 140),
             child: SingleChildScrollView(
               child: Text(
-                info.releaseNotes,
+                widget.info.releaseNotes,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -642,9 +840,7 @@ class _UpdateDialog extends StatelessWidget {
         ),
         FilledButton.icon(
           onPressed: () => _handleUpdate(context),
-          icon: Icon(
-            isWindowsWithZip ? Icons.system_update : Icons.file_download,
-          ),
+          icon: Icon(buttonIcon),
           label: Text(buttonLabel),
         ),
       ],

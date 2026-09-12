@@ -65,7 +65,6 @@ class PlayerBar extends StatelessWidget {
           ),
           child: Material(
             color: barColor,
-            borderRadius: BorderRadius.circular(20),
             clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
@@ -91,26 +90,33 @@ class PlayerBar extends StatelessWidget {
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
                                 song.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
-                              ),
-                              Text(
-                                player.isLoadingRecommendations
-                                    ? 'Finding next tracks...'
-                                    : player.isBuffering
-                                        ? 'Buffering track...'
-                                        : 'Playing on this device',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: player.isBuffering
-                                      ? theme.colorScheme.primary
-                                      : null,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.1,
                                 ),
                               ),
+                              if (player.isLoadingRecommendations ||
+                                  player.isBuffering) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  player.isLoadingRecommendations
+                                      ? 'Finding next tracks...'
+                                      : 'Buffering track...',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

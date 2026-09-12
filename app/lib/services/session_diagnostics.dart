@@ -397,8 +397,6 @@ class SessionDiagnostics {
     return _currentCpuPercent;
   }
 
-  static int _lastGpuRasterUs = 0;
-  static int _lastGpuSampleUs = 0;
   static double _currentGpuDutyCycle = 0.0;
   static double _currentGpuRasterMs = 0.0;
   static final List<FrameTiming> _recentTimings = [];
@@ -407,8 +405,6 @@ class SessionDiagnostics {
   static void startGpuTracking() {
     if (_timingsCallback != null) return;
     _recentTimings.clear();
-    _lastGpuRasterUs = 0;
-    _lastGpuSampleUs = DateTime.now().microsecondsSinceEpoch;
     _timingsCallback = (timings) {
       _recentTimings.addAll(timings);
       if (_recentTimings.length > 50) {
@@ -427,8 +423,6 @@ class SessionDiagnostics {
       } catch (_) {}
       _timingsCallback = null;
       _recentTimings.clear();
-      _lastGpuRasterUs = 0;
-      _lastGpuSampleUs = 0;
       _currentGpuDutyCycle = 0.0;
       _currentGpuRasterMs = 0.0;
     }
@@ -447,7 +441,6 @@ class SessionDiagnostics {
       );
     }
 
-    final nowUs = DateTime.now().microsecondsSinceEpoch;
     int totalRasterUs = 0;
     for (final t in _recentTimings) {
       totalRasterUs += t.rasterDuration.inMicroseconds;
@@ -459,8 +452,6 @@ class SessionDiagnostics {
     // Direct frame budget duty cycle: fraction of the 16.666ms (60 FPS) raster budget consumed
     const targetFrameMs = 1000.0 / 60.0;
     _currentGpuDutyCycle = ((_currentGpuRasterMs / targetFrameMs) * 100.0).clamp(0.0, 100.0);
-    _lastGpuRasterUs = totalRasterUs;
-    _lastGpuSampleUs = nowUs;
 
     return GpuTimingSnapshot(
       rasterLoadPercent: _currentGpuDutyCycle,

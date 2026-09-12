@@ -722,7 +722,7 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
   Widget build(BuildContext context) {
     final pillRadius = widget.isCircle ? BorderRadius.circular(20) : BorderRadius.circular(16);
 
-    final accent = widget.activeColor ?? Theme.of(context).colorScheme.primary;
+    final accent = widget.activeColor;
 
     Widget button = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),

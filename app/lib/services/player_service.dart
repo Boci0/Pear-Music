@@ -124,6 +124,12 @@ class PlayerService extends ChangeNotifier {
   bool get isBuffering => _isLoadingTrack || _isBufferingNext;
   String? get bufferingVideoId => _bufferingVideoId;
 
+  @visibleForTesting
+  void setBufferingForTesting(bool buffering) {
+    _isLoadingTrack = buffering;
+    notifyListeners();
+  }
+
   bool get isPreloadingUpcoming => _isPreloadingUpcoming;
 
   bool get hasNextTrack => _queueIndex >= 0 && _queueIndex + 1 < _queue.length;
@@ -217,10 +223,13 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _volumeFadeToken = 0;
+
   Future<void> _fadeVolume(
     double targetVolume, {
     Duration duration = const Duration(milliseconds: 150),
   }) async {
+    final fadeToken = ++_volumeFadeToken;
     final startVolume = _player.volume;
     if ((startVolume - targetVolume).abs() < 0.01) return;
     final steps = (duration.inMilliseconds / 25).round().clamp(6, 40);
@@ -230,12 +239,15 @@ class PlayerService extends ChangeNotifier {
     try {
       for (var i = 1; i <= steps; i++) {
         await Future<void>.delayed(stepDuration);
+        if (fadeToken != _volumeFadeToken) return;
         if (!_player.playing && targetVolume == 0) break;
         await _player.setVolume((startVolume + volumeDelta * i).clamp(0.0, 1.0));
       }
     } finally {
-      if (_player.playing || targetVolume == 0) {
-        await _player.setVolume(targetVolume.clamp(0.0, 1.0));
+      if (fadeToken == _volumeFadeToken) {
+        if (_player.playing || targetVolume == 0) {
+          await _player.setVolume(targetVolume.clamp(0.0, 1.0));
+        }
       }
     }
   }
@@ -772,10 +784,11 @@ class PlayerService extends ChangeNotifier {
     _isAdvancing = true;
     _isLoadingTrack = true;
 
-    // Immediately pause existing playback so the previous track does not
-    // continue playing while the new track is resolving, downloading, or buffering.
+    // Immediately mute and pause existing playback so the previous track does not
+    // produce an audio pop, crackle, or continue playing while the new track is resolving.
     if (_player.playing) {
-      unawaited(_player.pause());
+      await _player.setVolume(0.0);
+      await _player.pause();
     }
 
     // Android 13+ blocks the media notification unless the app holds the
@@ -940,8 +953,10 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write('[player] Token stale before play() ($token != $_playRequestToken), aborting');
         return;
       }
-      await _player.setVolume(_userVolume > 0.05 ? _userVolume : 1.0);
+      final targetVol = _userVolume > 0.05 ? _userVolume : 1.0;
+      await _player.setVolume(0.0);
       unawaited(_player.play());
+      unawaited(_fadeVolume(targetVol, duration: const Duration(milliseconds: 80)));
       _isManuallyPaused = false;
       _isLoadingTrack = false;
       _isAdvancing = false;
@@ -1288,7 +1303,7 @@ class PlayerService extends ChangeNotifier {
     if (_queue.isEmpty || _isAdvancing) return;
     _isAdvancing = true;
     if (_player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 120));
+      await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
     }
     try {
       if (_loopMode == LoopSetting.one) {
@@ -1349,7 +1364,7 @@ class PlayerService extends ChangeNotifier {
     if (_queue.isEmpty || _isAdvancing) return;
     _isAdvancing = true;
     if (_player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 120));
+      await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
     }
     try {
       if (_loopMode == LoopSetting.one) {
@@ -1485,6 +1500,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> setVolume(double value) async {
+    _volumeFadeToken++;
     _userVolume = value.clamp(0.0, 1.0);
     await _player.setVolume(_userVolume);
     _saveVolumeDebounceTimer?.cancel();
