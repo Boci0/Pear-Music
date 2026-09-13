@@ -105,6 +105,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
@@ -125,6 +127,46 @@ jobs:
           h3=$(sha256sum PearMusic-Android-armv7.apk | cut -d' ' -f1)
           printf '%s *PearMusic-Windows-x64.zip\n%s *PearMusic-Android-arm64.apk\n%s *PearMusic-Android-armv7.apk' "$h1" "$h2" "$h3" > SHA256SUMS
 
+      - name: Generate release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          TAG_SUBJECT=$(git tag -l --format='%(contents:subject)' "$TAG")
+          TAG_BODY=$(git tag -l --format='%(contents:body)' "$TAG")
+          CLEAN_SUBJECT=$(echo "$TAG_SUBJECT" | sed -E 's/^release:[[:space:]]*v?[0-9.]+[[:space:]]*-[[:space:]]*//I')
+
+          {
+            echo "## Overview"
+            if [ -n "$CLEAN_SUBJECT" ]; then
+              echo "$CLEAN_SUBJECT"
+            else
+              echo "Pear Music ${TAG#v} release."
+            fi
+
+            if [ -n "$TAG_BODY" ]; then
+              echo ""
+              echo "$TAG_BODY"
+            fi
+            echo ""
+
+            echo "## Key Changes"
+            if [ -n "$PREV_TAG" ]; then
+              git log "${PREV_TAG}..${TAG}" --no-merges --pretty=format:"* %s (%h)"
+              echo ""
+              echo ""
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
+            else
+              git log -n 15 --no-merges --pretty=format:"* %s (%h)"
+            fi
+            echo ""
+            echo ""
+            echo "## Verification (SHA-256)"
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } > RELEASE_NOTES.md
+
       - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -136,15 +178,16 @@ jobs:
               PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md --draft=false --latest --repo "$GITHUB_REPOSITORY"
           else
             echo "Creating release $TAG"
             gh release create "$TAG" \
               PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-x64.zip SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" \
               --title "Pear Music ${TAG#v}" \
-              --generate-notes
+              --notes-file RELEASE_NOTES.md
             gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
           fi
+
 
 
