@@ -208,6 +208,11 @@ class PlayerService extends ChangeNotifier {
   /// or defaults to -1 if empty.
   void _syncQueueIndexWithCurrentSong() {
     if (currentSong != null && _queue.isNotEmpty) {
+      if (_queueIndex >= 0 &&
+          _queueIndex < _queue.length &&
+          _queue[_queueIndex].id == currentSong!.id) {
+        return;
+      }
       final idx = _queue.indexWhere((s) => s.id == currentSong!.id);
       if (idx >= 0) {
         _queueIndex = idx;

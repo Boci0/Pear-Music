@@ -103,6 +103,16 @@ class RecommendationService {
     DebugLog.write('[radio] Cleared session history');
   }
 
+  @visibleForTesting
+  static void setRadioBatchForTesting(String videoId, RecommendationBatch batch) {
+    _radioCache[videoId] = batch;
+  }
+
+  @visibleForTesting
+  static void setSeedVideoIdForTesting(String key, String videoId) {
+    _seedVideoIdCache[key] = videoId;
+  }
+
   /// Tries to extract an 11-character YouTube video ID from a song ID, fileName, or title.
   static String? extractVideoId(String text) {
     final trimmed = text.trim();

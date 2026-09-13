@@ -39,10 +39,12 @@ class SongTile extends StatelessWidget {
     final isFav = controller.isFavorite(song.id);
     final action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             ListTile(
               title: Text(song.title,
                   maxLines: 1,
@@ -102,7 +104,8 @@ class SongTile extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+  );
     if (!context.mounted) return;
     if (action == 'play_next') {
       controller.playNext(song);

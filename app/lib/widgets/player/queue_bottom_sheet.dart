@@ -687,7 +687,7 @@ class _QueueListView extends StatelessWidget {
                 : i == currentIndex;
 
             return _QueueRow(
-              key: ValueKey('queue_row_${song.id}'),
+              key: ValueKey('queue_row_${song.id}_$i'),
               song: song,
               index: i,
               isCurrent: isCurrent,
