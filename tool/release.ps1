@@ -147,7 +147,7 @@ if ($SkipPush) {
 # ---- Step 5: commit, tag, push ----
 Write-Step "Committing and tagging $tag"
 $commitMessage = "release: $tag - $Notes"
-git add -A
+git add app/pubspec.yaml app/lib/services/update_service.dart tool/installer.iss
 if ($LASTEXITCODE -ne 0) { throw 'git add failed' }
 git commit -m $commitMessage
 if ($LASTEXITCODE -ne 0) { throw 'git commit failed' }
