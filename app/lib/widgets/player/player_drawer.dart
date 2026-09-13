@@ -226,9 +226,15 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           },
           itemBuilder: (context, i) {
             final song = queue[i];
-            final isCurrent = i == player.queueIndex;
+            final currentSongId = player.currentSong?.id;
+            final isCurrent = currentSongId != null
+                ? song.id == currentSongId
+                : i == player.queueIndex;
             final isStream = song.sourceDeviceId == 'stream';
-            final isUpcoming = i > player.queueIndex;
+            final currentIndex = currentSongId != null
+                ? queue.indexWhere((s) => s.id == currentSongId)
+                : player.queueIndex;
+            final isUpcoming = currentIndex >= 0 ? i > currentIndex : i > player.queueIndex;
             final isLocked = player.isSongLocked(song.id);
             final isNetwork =
                 song.artwork != null && song.artwork!.startsWith('http');

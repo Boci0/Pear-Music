@@ -263,4 +263,70 @@ void main() {
     expect(sheetController.isExpanded, isTrue);
     expect(sheetController.size, closeTo(0.50, 0.01));
   });
+
+  testWidgets('peek bar and row highlight correctly track currentSong identity', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+
+    final songs = [for (var i = 1; i <= 5; i++) _song('s$i', 'Song $i')];
+    player.updateQueue(
+      songs,
+      sourceId: 'test',
+      sourceTitle: 'Test',
+    );
+
+    // Set current song to s3 (Song 3 at index 2)
+    player.currentSong = songs[2];
+
+    final sheetController = QueueSheetController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Positioned.fill(child: Placeholder()),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExpandableQueueSheet(
+                  player: player,
+                  controller: controller,
+                  accent: const Color(0xFF101014),
+                  minChildSize: 0.08,
+                  sheetController: sheetController,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // The next track after Song 3 (index 2) is Song 4 (index 3).
+    // Peek bar should display Song 4 even if internal queueIndex was not manually set.
+    expect(find.text('Song 4'), findsOneWidget);
+    expect(player.queueIndex, equals(2));
+
+    // Expand sheet and verify Song 3 row exists
+    await tester.tap(find.text('UP NEXT'));
+    await tester.pumpAndSettle();
+    expect(sheetController.isExpanded, isTrue);
+    expect(find.text('Song 3'), findsOneWidget);
+  });
 }
+

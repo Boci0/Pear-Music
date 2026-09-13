@@ -442,9 +442,13 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                   listenable: widget.player,
                   builder: (context, _) {
                     final queue = widget.player.queue;
-                    final nextIndex = widget.player.queueIndex + 1;
+                    final currentSongId = widget.player.currentSong?.id;
+                    final currentIndex = currentSongId != null
+                        ? queue.indexWhere((s) => s.id == currentSongId)
+                        : widget.player.queueIndex;
+                    final nextIndex = currentIndex >= 0 ? currentIndex + 1 : -1;
                     final nextSong =
-                        (nextIndex < queue.length) ? queue[nextIndex] : null;
+                        (nextIndex >= 0 && nextIndex < queue.length) ? queue[nextIndex] : null;
 
                     if (widget.isExpanded) {
                       return _buildExpandedToolbar(context, queue.length);
@@ -658,6 +662,7 @@ class _QueueListView extends StatelessWidget {
       listenable: player,
       builder: (context, _) {
         final queue = player.queue;
+        final currentSongId = player.currentSong?.id;
         final currentIndex = player.queueIndex;
 
         if (queue.isEmpty) {
@@ -676,7 +681,9 @@ class _QueueListView extends StatelessWidget {
           itemCount: queue.length,
           itemBuilder: (context, i) {
             final song = queue[i];
-            final isCurrent = i == currentIndex;
+            final isCurrent = currentSongId != null
+                ? song.id == currentSongId
+                : i == currentIndex;
 
             return _QueueRow(
               key: ValueKey('queue_row_${song.id}'),

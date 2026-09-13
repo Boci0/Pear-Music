@@ -198,7 +198,26 @@ class PlayerService extends ChangeNotifier {
   bool get sleepTimerEndOfQueue => _sleepTimerEndOfQueue;
 
   List<Song> get queue => List.unmodifiable(_queue);
-  int get queueIndex => _queueIndex;
+  int get queueIndex {
+    _syncQueueIndexWithCurrentSong();
+    return _queueIndex;
+  }
+
+  /// Synchronizes [_queueIndex] to the exact index of [currentSong] in [_queue].
+  /// If the current song cannot be found in the queue, retains the existing valid index
+  /// or defaults to -1 if empty.
+  void _syncQueueIndexWithCurrentSong() {
+    if (currentSong != null && _queue.isNotEmpty) {
+      final idx = _queue.indexWhere((s) => s.id == currentSong!.id);
+      if (idx >= 0) {
+        _queueIndex = idx;
+        return;
+      }
+    }
+    if (_queue.isEmpty) {
+      _queueIndex = -1;
+    }
+  }
   LoopSetting get loopMode => _loopMode;
   bool get shuffle => _shuffle;
   bool get autoplay => _autoplay;
@@ -533,8 +552,10 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final token = _playRequestToken;
       final excludeIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
       final seed = currentSong ?? _queue.last;
+      final seedId = seed.id;
       DebugLog.write('[radio] Fetching recommendations for seed "${seed.title}" (${excludeIds.length} excluded)');
 
       RecommendationBatch batch;
@@ -557,6 +578,12 @@ class PlayerService extends ChangeNotifier {
         );
       }
 
+      if (token != _playRequestToken || currentSong?.id != seedId) {
+        DebugLog.write('[radio] Recommendations discarded: session changed during fetch (token=$token vs $_playRequestToken)');
+        completer.complete(false);
+        return false;
+      }
+
       if (batch.items.isNotEmpty) {
         _continuationToken = batch.continuationToken;
         final existingVideoIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
@@ -577,6 +604,7 @@ class PlayerService extends ChangeNotifier {
 
         if (newSongs.isNotEmpty) {
           _queue = [..._queue, ...newSongs];
+          _syncQueueIndexWithCurrentSong();
           _updateActiveQueueCacheProtection();
           if (!_isLoadingTrack && !_isAdvancing && !_isRerolling && !_isManuallyPaused && playing) {
             _preloadUpcomingStreams();
@@ -596,7 +624,12 @@ class PlayerService extends ChangeNotifier {
       );
       final boundedOffline = offlineSongs.take(maxRecommendationsPerAppend).toList();
       if (boundedOffline.isNotEmpty) {
+        if (token != _playRequestToken || currentSong?.id != seedId) {
+          completer.complete(false);
+          return false;
+        }
         _queue = [..._queue, ...boundedOffline];
+        _syncQueueIndexWithCurrentSong();
         _updateActiveQueueCacheProtection();
         DebugLog.write('[radio] Appended ${boundedOffline.length} offline library recommendations');
         notifyListeners();
@@ -627,6 +660,8 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final token = _playRequestToken;
+      _syncQueueIndexWithCurrentSong();
       final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
       final head = _queue.sublist(0, activeIndex + 1);
       final upcoming = _queue.length > activeIndex + 1 ? _queue.sublist(activeIndex + 1) : <Song>[];
@@ -645,6 +680,7 @@ class PlayerService extends ChangeNotifier {
       ]);
 
       final seed = currentSong ?? head.last;
+      final seedId = seed.id;
       DebugLog.write(
           '[radio] Rerolling seed for "${seed.title}" (target: $targetCount, preserving ${lockedUpcoming.length} locked tracks)');
 
@@ -657,6 +693,11 @@ class PlayerService extends ChangeNotifier {
       } catch (e) {
         DebugLog.write('[radio] Online reroll error ($e), falling back to offline library');
         batch = const RecommendationBatch(items: []);
+      }
+
+      if (token != _playRequestToken || currentSong?.id != seedId) {
+        DebugLog.write('[radio] Reroll discarded: playback session changed during fetch');
+        return false;
       }
 
       final freshSongs = <Song>[];
@@ -694,13 +735,24 @@ class PlayerService extends ChangeNotifier {
         freshSongs.addAll(offline.take(targetCount));
       }
 
-      _queue = [...head, ...lockedUpcoming, ...freshSongs];
+      if (token != _playRequestToken || currentSong?.id != seedId) {
+        return false;
+      }
+
+      _syncQueueIndexWithCurrentSong();
+      final currentActiveIndex = _queueIndex >= 0 ? _queueIndex : 0;
+      final currentHead = _queue.sublist(0, currentActiveIndex + 1);
+      final currentUpcoming = _queue.length > currentActiveIndex + 1 ? _queue.sublist(currentActiveIndex + 1) : <Song>[];
+      final currentLockedUpcoming = currentUpcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
+
+      _queue = [...currentHead, ...currentLockedUpcoming, ...freshSongs];
+      _syncQueueIndexWithCurrentSong();
       _updateActiveQueueCacheProtection();
       if (!_isLoadingTrack && !_isAdvancing && !_isManuallyPaused && playing) {
         _preloadUpcomingStreams();
       }
       DebugLog.write(
-          '[radio] Reroll complete: queue now has ${_queue.length} tracks (${lockedUpcoming.length} locked, ${freshSongs.length} new)');
+          '[radio] Reroll complete: queue now has ${_queue.length} tracks (${currentLockedUpcoming.length} locked, ${freshSongs.length} new)');
       notifyListeners();
       return true;
     } catch (e) {
@@ -726,6 +778,8 @@ class PlayerService extends ChangeNotifier {
     bool changed = false;
 
     try {
+      final token = _playRequestToken;
+      _syncQueueIndexWithCurrentSong();
       final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
       final head = _queue.sublist(0, activeIndex + 1);
       final upcoming = _queue.length > activeIndex + 1
@@ -754,6 +808,7 @@ class PlayerService extends ChangeNotifier {
       ]);
 
       final seed = currentSong ?? head.last;
+      final seedId = seed.id;
       DebugLog.write(
           '[radio] Auto-rerolling next track for "${seed.title}" (preserving ${tail.length} following tracks)');
 
@@ -767,6 +822,11 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write(
             '[radio] Online reroll error ($e), falling back to offline library');
         batch = const RecommendationBatch(items: []);
+      }
+
+      if (token != _playRequestToken || currentSong?.id != seedId) {
+        DebugLog.write('[radio] Auto-reroll discarded: playback session changed during fetch');
+        return false;
       }
 
       Song? nextSong;
@@ -805,8 +865,21 @@ class PlayerService extends ChangeNotifier {
         }
       }
 
+      if (token != _playRequestToken || currentSong?.id != seedId) {
+        return false;
+      }
+
       if (nextSong != null) {
-        _queue = [...head, nextSong, ...tail];
+        _syncQueueIndexWithCurrentSong();
+        final currentActiveIndex = _queueIndex >= 0 ? _queueIndex : 0;
+        final currentHead = _queue.sublist(0, currentActiveIndex + 1);
+        final currentUpcoming = _queue.length > currentActiveIndex + 1
+            ? _queue.sublist(currentActiveIndex + 1)
+            : <Song>[];
+        final currentTail = currentUpcoming.isNotEmpty ? currentUpcoming.sublist(1) : <Song>[];
+
+        _queue = [...currentHead, nextSong, ...currentTail];
+        _syncQueueIndexWithCurrentSong();
         _updateActiveQueueCacheProtection();
         DebugLog.write(
             '[radio] Auto-reroll changed next track: "${oldNextSong.title}" -> "${nextSong.title}". Queue length remains ${_queue.length}.');
@@ -1545,9 +1618,7 @@ class PlayerService extends ChangeNotifier {
       await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
     }
     try {
-      if (_queueIndex < 0 && currentSong != null) {
-        _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-      }
+      _syncQueueIndexWithCurrentSong();
       final pos = _player.position;
       if (pos > const Duration(seconds: 3)) {
         await seek(Duration.zero);
@@ -1608,9 +1679,7 @@ class PlayerService extends ChangeNotifier {
   /// "stop" (loop off and at the end of the queue).
   int? _pickNextIndex() {
     if (_queue.isEmpty) return null;
-    if (_queueIndex < 0 && currentSong != null) {
-      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-    }
+    _syncQueueIndexWithCurrentSong();
     if (_shuffle) {
       if (_queue.length <= 1) return _queue.isEmpty ? null : 0;
       final unplayed = [
@@ -1735,16 +1804,17 @@ class PlayerService extends ChangeNotifier {
       unawaited(playSong(song, queue: [song]));
       return;
     }
-    if (_queueIndex < 0 && currentSong != null) {
-      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-    }
+    _syncQueueIndexWithCurrentSong();
     _shufflePlayedSongIds.remove(song.id);
     final mutableQueue = List<Song>.from(_queue);
+    mutableQueue.removeWhere((s) => s.id == song.id);
+    _syncQueueIndexWithCurrentSong();
     final insertIndex = (_queueIndex >= 0 && _queueIndex < mutableQueue.length)
         ? _queueIndex + 1
         : mutableQueue.length;
     mutableQueue.insert(insertIndex, song);
     _queue = mutableQueue;
+    _syncQueueIndexWithCurrentSong();
     _updateActiveQueueCacheProtection();
     _preloadUpcomingStreams();
     notifyListeners();
@@ -1757,11 +1827,10 @@ class PlayerService extends ChangeNotifier {
       unawaited(playSong(song, queue: [song]));
       return;
     }
-    if (_queueIndex < 0 && currentSong != null) {
-      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-    }
+    _syncQueueIndexWithCurrentSong();
     _shufflePlayedSongIds.remove(song.id);
     _queue = [..._queue, song];
+    _syncQueueIndexWithCurrentSong();
     _updateActiveQueueCacheProtection();
     _preloadUpcomingStreams();
     notifyListeners();
@@ -1774,9 +1843,7 @@ class PlayerService extends ChangeNotifier {
       unawaited(playSong(songs.first, queue: songs));
       return;
     }
-    if (_queueIndex < 0 && currentSong != null) {
-      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-    }
+    _syncQueueIndexWithCurrentSong();
     for (final s in songs) {
       _shufflePlayedSongIds.remove(s.id);
     }
@@ -1790,6 +1857,7 @@ class PlayerService extends ChangeNotifier {
       mutableQueue.addAll(songs);
     }
     _queue = mutableQueue;
+    _syncQueueIndexWithCurrentSong();
     _updateActiveQueueCacheProtection();
     _preloadUpcomingStreams();
     notifyListeners();
@@ -1809,9 +1877,7 @@ class PlayerService extends ChangeNotifier {
     final item = mutableQueue.removeAt(oldIndex);
     mutableQueue.insert(newIndex, item);
     _queue = mutableQueue;
-    if (currentSong != null) {
-      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-    }
+    _syncQueueIndexWithCurrentSong();
     _updateActiveQueueCacheProtection();
     _preloadUpcomingStreams();
     notifyListeners();
@@ -1825,11 +1891,13 @@ class PlayerService extends ChangeNotifier {
       unawaited(stop());
       return;
     }
+    _syncQueueIndexWithCurrentSong();
     final isRemovingCurrent = index == _queueIndex;
     final removedSong = _queue[index];
     final mutableQueue = List<Song>.from(_queue);
     mutableQueue.removeAt(index);
     _queue = mutableQueue;
+    _syncQueueIndexWithCurrentSong();
     _shufflePlayedSongIds.remove(removedSong.id);
     _lockedSongIds.remove(removedSong.id);
     _updateActiveQueueCacheProtection();
@@ -1842,9 +1910,7 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
       unawaited(playSong(nextSong, queue: _queue));
     } else {
-      if (index < _queueIndex) {
-        _queueIndex--;
-      }
+      _syncQueueIndexWithCurrentSong();
       _preloadUpcomingStreams();
       notifyListeners();
     }
