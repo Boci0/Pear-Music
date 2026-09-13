@@ -461,6 +461,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     queue: queue,
                     sourceId: player.queueSourceId,
                     sourceTitle: player.queueTitle,
+                    initialIndex: i,
                   );
                 },
               ),

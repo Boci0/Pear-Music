@@ -508,6 +508,8 @@ class PlayerService extends ChangeNotifier {
   Future<void> startRadio(Song seedSong) async {
     _lastInteraction = DateTime.now();
     _continuationToken = null;
+    _isLoadingRecommendations = false;
+    _recommendationsCompleter = null;
     queueSourceId = 'radio';
     queueTitle = 'Radio (${seedSong.title})';
 
@@ -519,19 +521,28 @@ class PlayerService extends ChangeNotifier {
     currentSong = seedSong;
     notifyListeners();
 
+    // Allocate session token once so recommendation fetching and track playback
+    // participate in the exact same active session without invalidating each other.
+    final token = ++_playRequestToken;
+
     // Trigger initial background fetch of recommended tracks
     unawaited(() async {
       final firstOk = await fetchAndAppendRecommendations();
       if (firstOk && _queue.length < 25) {
         await fetchAndAppendRecommendations();
       }
-      if (isAlreadyPlayingSeed && !_isLoadingTrack && !_isAdvancing && !_isRerolling) {
+      if (!_isLoadingTrack && !_isAdvancing && !_isRerolling) {
         _preloadUpcomingStreams();
       }
     }());
 
     if (!isAlreadyPlayingSeed) {
-      await playSong(seedSong, sourceId: 'radio', sourceTitle: queueTitle);
+      await playSong(
+        seedSong,
+        sourceId: 'radio',
+        sourceTitle: queueTitle,
+        requestToken: token,
+      );
     }
   }
 
@@ -917,13 +928,15 @@ class PlayerService extends ChangeNotifier {
     List<Song>? queue,
     String? sourceId,
     String? sourceTitle,
+    int? requestToken,
+    int? initialIndex,
   }) async {
     _lastInteraction = DateTime.now();
     RecommendationService.markPlayed(song.id);
     if (identity != null && identity!.isFavorite(song.id)) {
       unawaited(identity!.cacheFavoriteSongMetadata(song));
     }
-    final token = ++_playRequestToken;
+    final token = requestToken ?? ++_playRequestToken;
     _isManuallyPaused = false;
     _pendingNaturalAdvance = false;
     _preloadDebounceTimer?.cancel();
@@ -955,7 +968,14 @@ class PlayerService extends ChangeNotifier {
       queueTitle = 'Library';
     }
     if (_queue.isEmpty) _queue = [song];
-    _queueIndex = _queue.indexWhere((s) => s.id == song.id);
+    if (initialIndex != null &&
+        initialIndex >= 0 &&
+        initialIndex < _queue.length &&
+        _queue[initialIndex].id == song.id) {
+      _queueIndex = initialIndex;
+    } else {
+      _queueIndex = _queue.indexWhere((s) => s.id == song.id);
+    }
     if (_queueIndex < 0) {
       _queue = [song, ..._queue];
       _queueIndex = 0;
@@ -1603,7 +1623,7 @@ class PlayerService extends ChangeNotifier {
       DebugLog.write('[player] Advancing to track ${_queueIndex + 1}/${_queue.length}: ${nextTrack.title}');
       notifyListeners();
 
-      await playSong(nextTrack, queue: _queue);
+      await playSong(nextTrack, queue: _queue, initialIndex: nextIndex);
     } catch (e) {
       DebugLog.write('[player] next error: $e');
     } finally {
@@ -1633,13 +1653,13 @@ class PlayerService extends ChangeNotifier {
         final prevTrack = _queue[_queueIndex];
         currentSong = prevTrack;
         notifyListeners();
-        await playSong(prevTrack, queue: _queue);
+        await playSong(prevTrack, queue: _queue, initialIndex: _queueIndex);
       } else if (_loopMode == LoopSetting.all && _queue.length > 1) {
         _queueIndex = _queue.length - 1;
         final prevTrack = _queue[_queueIndex];
         currentSong = prevTrack;
         notifyListeners();
-        await playSong(prevTrack, queue: _queue);
+        await playSong(prevTrack, queue: _queue, initialIndex: _queueIndex);
       } else if (_queue.isNotEmpty) {
         await seek(Duration.zero);
       }
@@ -1804,17 +1824,20 @@ class PlayerService extends ChangeNotifier {
       unawaited(playSong(song, queue: [song]));
       return;
     }
-    _syncQueueIndexWithCurrentSong();
     _shufflePlayedSongIds.remove(song.id);
+    _lockedSongIds.add(song.id);
+
     final mutableQueue = List<Song>.from(_queue);
     mutableQueue.removeWhere((s) => s.id == song.id);
-    _syncQueueIndexWithCurrentSong();
-    final insertIndex = (_queueIndex >= 0 && _queueIndex < mutableQueue.length)
-        ? _queueIndex + 1
-        : mutableQueue.length;
+
+    // Compute insertion position directly against mutableQueue so any prior
+    // index shift cannot cause an off-by-one or N+2 displacement.
+    final currentIdx = mutableQueue.indexWhere((s) => s.id == currentSong!.id);
+    final insertIndex = (currentIdx >= 0) ? currentIdx + 1 : 0;
+
     mutableQueue.insert(insertIndex, song);
     _queue = mutableQueue;
-    _syncQueueIndexWithCurrentSong();
+    _queueIndex = currentIdx >= 0 ? currentIdx : _queue.indexWhere((s) => s.id == currentSong!.id);
     _updateActiveQueueCacheProtection();
     _preloadUpcomingStreams();
     notifyListeners();
@@ -1827,8 +1850,8 @@ class PlayerService extends ChangeNotifier {
       unawaited(playSong(song, queue: [song]));
       return;
     }
-    _syncQueueIndexWithCurrentSong();
     _shufflePlayedSongIds.remove(song.id);
+    _lockedSongIds.add(song.id);
     _queue = [..._queue, song];
     _syncQueueIndexWithCurrentSong();
     _updateActiveQueueCacheProtection();
@@ -1843,15 +1866,16 @@ class PlayerService extends ChangeNotifier {
       unawaited(playSong(songs.first, queue: songs));
       return;
     }
-    _syncQueueIndexWithCurrentSong();
     for (final s in songs) {
       _shufflePlayedSongIds.remove(s.id);
+      if (playNext) {
+        _lockedSongIds.add(s.id);
+      }
     }
     final mutableQueue = List<Song>.from(_queue);
     if (playNext) {
-      final insertIndex = (_queueIndex >= 0 && _queueIndex < mutableQueue.length)
-          ? _queueIndex + 1
-          : mutableQueue.length;
+      final currentIdx = mutableQueue.indexWhere((s) => s.id == currentSong!.id);
+      final insertIndex = (currentIdx >= 0) ? currentIdx + 1 : mutableQueue.length;
       mutableQueue.insertAll(insertIndex, songs);
     } else {
       mutableQueue.addAll(songs);
@@ -1908,7 +1932,7 @@ class PlayerService extends ChangeNotifier {
       final nextSong = _queue[_queueIndex];
       currentSong = nextSong;
       notifyListeners();
-      unawaited(playSong(nextSong, queue: _queue));
+      unawaited(playSong(nextSong, queue: _queue, initialIndex: nextIdx));
     } else {
       _syncQueueIndexWithCurrentSong();
       _preloadUpcomingStreams();

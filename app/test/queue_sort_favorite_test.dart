@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
@@ -7,6 +9,14 @@ import 'package:peerm_app/services/recommendation_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+      return Directory.systemTemp.path;
+    });
+  });
 
   group('PlayerService queue updates and context isolation', () {
     final songA = Song(
@@ -32,6 +42,14 @@ void main() {
       size: 300,
       checksum: 'chk_c',
       addedAt: DateTime(2026, 1, 3),
+    );
+    final songD = Song(
+      id: 'd',
+      title: 'Delta',
+      fileName: 'd.mp3',
+      size: 400,
+      checksum: 'chk_d',
+      addedAt: DateTime(2026, 1, 4),
     );
 
     late LibraryService library;
@@ -484,5 +502,77 @@ void main() {
       expect(player.sleepTimerRemaining, isNull);
       expect(notified, isTrue);
     });
+
+    test('playNext places prior track immediately after currentSong (at N+1) on the first invocation and locks it', () {
+      // Queue: [songA, songB, songC]
+      player.updateQueue([songA, songB, songC]);
+      player.currentSong = songB;
+      expect(player.queueIndex, 1);
+
+      // Play Next on songA (which is at index 0, prior to currentSong at index 1)
+      player.playNext(songA);
+
+      // In the resulting queue, songB is current (index 0), songA is immediately next (index 1), and songC follows (index 2)
+      expect(player.queue.length, 3);
+      expect(player.queue[0].id, 'b');
+      expect(player.queue[1].id, 'a');
+      expect(player.queue[2].id, 'c');
+      expect(player.queueIndex, 0);
+      expect(player.isSongLocked('a'), isTrue);
+    });
+
+    test('playNext on upcoming track moves it to N+1 and locks it', () {
+      // Queue: [songA, songB, songC, songD]
+      player.updateQueue([songA, songB, songC, songD]);
+      player.currentSong = songA;
+      expect(player.queueIndex, 0);
+
+      // Play Next on songD (which was at the end of queue)
+      player.playNext(songD);
+
+      // songA remains at 0, songD is inserted at index 1 (N+1)
+      expect(player.queue.length, 4);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'd');
+      expect(player.queue[2].id, 'b');
+      expect(player.queue[3].id, 'c');
+      expect(player.queueIndex, 0);
+      expect(player.isSongLocked('d'), isTrue);
+    });
+
+    test('addSongsToQueue with playNext: true places batch at N+1 and locks them', () {
+      player.updateQueue([songA, songB]);
+      player.currentSong = songA;
+      expect(player.queueIndex, 0);
+
+      player.addSongsToQueue([songC, songD], playNext: true);
+
+      expect(player.queue.length, 4);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'c');
+      expect(player.queue[2].id, 'd');
+      expect(player.queue[3].id, 'b');
+      expect(player.isSongLocked('c'), isTrue);
+      expect(player.isSongLocked('d'), isTrue);
+    });
+
+    test('startRadio initializes radio queue and populates recommendations without session cancellation', () async {
+      library.setSongsForTesting([songA, songB, songC, songD]);
+
+      // Seed songA is currently not playing
+      await player.startRadio(songA);
+
+      expect(player.queueSourceId, 'radio');
+      expect(player.queue.isNotEmpty, isTrue);
+      expect(player.queue.first.id, 'a');
+      expect(player.currentSong?.id, 'a');
+
+      // Allow background recommendations to run
+      final ok = await player.fetchAndAppendRecommendations();
+      expect(ok, isTrue);
+      expect(player.queue.length, greaterThan(1));
+      expect(player.queueIndex, 0);
+    });
   });
 }
+

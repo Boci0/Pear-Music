@@ -345,12 +345,13 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
                     player: widget.player,
                     accent: widget.accent,
                     scrollController: _scrollController,
-                    onSelectSong: (song, queue) {
+                    onSelectSong: (song, queue, index) {
                       _collapse();
                       widget.player.playSong(
                         song,
                         queue: queue,
                         sourceId: widget.player.queueSourceId,
+                        initialIndex: index,
                       );
                     },
                   ),
@@ -647,7 +648,7 @@ class _QueueListView extends StatelessWidget {
   final PlayerService player;
   final Color accent;
   final ScrollController scrollController;
-  final void Function(Song song, List<Song> queue) onSelectSong;
+  final void Function(Song song, List<Song> queue, int index) onSelectSong;
 
   const _QueueListView({
     required this.player,
@@ -691,7 +692,7 @@ class _QueueListView extends StatelessWidget {
               index: i,
               isCurrent: isCurrent,
               accent: accent,
-              onTap: () => onSelectSong(song, queue),
+              onTap: () => onSelectSong(song, queue, i),
               onRemove: () => player.removeFromQueue(i),
             );
           },
