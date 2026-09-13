@@ -80,16 +80,23 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
   void _syncTicker() {
     if (widget.player.playing && _isAppForeground) {
       if (!_tickerController.isAnimating) {
+        _basePositionMs = widget.player.position?.inMilliseconds ?? widget.currentPosition.inMilliseconds;
+        _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
         _tickerController.repeat();
       }
     } else {
       if (_tickerController.isAnimating) {
         _tickerController.stop();
       }
+      _tickerController.reset();
     }
   }
 
   void _onPlayerStateChanged() {
+    if (widget.player.playing) {
+      _basePositionMs = widget.player.position?.inMilliseconds ?? widget.currentPosition.inMilliseconds;
+      _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+    }
     _syncTicker();
     if (mounted) setState(() {});
   }
@@ -107,8 +114,13 @@ class _VisualSynthesizerBarState extends State<VisualSynthesizerBar>
       return _basePositionMs.toDouble();
     }
     final now = DateTime.now().millisecondsSinceEpoch;
-    final delta = (now - _lastPositionUpdateEpoch).clamp(0, 1000);
-    return (_basePositionMs + delta).toDouble();
+    final delta = math.max(0, now - _lastPositionUpdateEpoch);
+    final totalMs = widget.totalDuration.inMilliseconds;
+    final est = (_basePositionMs + delta).toDouble();
+    if (totalMs > 0 && est > totalMs) {
+      return totalMs.toDouble();
+    }
+    return est;
   }
 
   void _handleDragUpdate(Offset localPosition, double width) {

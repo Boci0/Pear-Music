@@ -81,6 +81,9 @@ class PlayerService extends ChangeNotifier {
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
   bool _sleepTimerEndOfSong = false;
+  bool _sleepTimerEndOfQueue = false;
+  double _speed = 1.0;
+  double get speed => _speed;
 
   final List<StreamSubscription> _subs = [];
   final PearAudioHandler? audioHandler;
@@ -90,6 +93,10 @@ class PlayerService extends ChangeNotifier {
     if (identity != null) {
       _autoRerollSeed = identity!.autoRerollSeed;
       _autoplay = identity!.autoplay;
+      _speed = identity!.playbackSpeed;
+    }
+    if ((_speed - 1.0).abs() > 0.01) {
+      unawaited(_player.setSpeed(_speed));
     }
     _initAudioHandler();
   }
@@ -183,10 +190,12 @@ class PlayerService extends ChangeNotifier {
     return StreamCacheManager.isStreamCachedSync(videoId);
   }
 
-  bool get isSleepTimerActive => _sleepTimer != null || _sleepTimerEndOfSong;
+  bool get isSleepTimerActive =>
+      _sleepTimer != null || _sleepTimerEndOfSong || _sleepTimerEndOfQueue;
   Duration? get sleepTimerRemaining =>
       _sleepTimerEndTime?.difference(DateTime.now());
   bool get sleepTimerEndOfSong => _sleepTimerEndOfSong;
+  bool get sleepTimerEndOfQueue => _sleepTimerEndOfQueue;
 
   List<Song> get queue => List.unmodifiable(_queue);
   int get queueIndex => _queueIndex;
@@ -236,13 +245,18 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setSleepTimer(Duration? duration, {bool endOfSong = false}) {
+  void setSleepTimer(
+    Duration? duration, {
+    bool endOfSong = false,
+    bool endOfQueue = false,
+  }) {
     _sleepTimer?.cancel();
     _sleepTimer = null;
     _sleepTimerEndTime = null;
     _sleepTimerEndOfSong = endOfSong;
+    _sleepTimerEndOfQueue = endOfQueue;
 
-    if (endOfSong) {
+    if (endOfSong || endOfQueue) {
       notifyListeners();
       return;
     }
@@ -261,6 +275,20 @@ class PlayerService extends ChangeNotifier {
     _sleepTimer = null;
     _sleepTimerEndTime = null;
     _sleepTimerEndOfSong = false;
+    _sleepTimerEndOfQueue = false;
+    notifyListeners();
+  }
+
+  Future<void> setSpeed(double speed) async {
+    final clamped = speed.clamp(0.25, 3.0);
+    if ((_speed - clamped).abs() < 0.01) return;
+    _speed = clamped;
+    try {
+      await _player.setSpeed(_speed);
+    } catch (e) {
+      DebugLog.write('[player] setSpeed error: $e');
+    }
+    identity?.setPlaybackSpeed(_speed);
     notifyListeners();
   }
 
@@ -294,15 +322,11 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> _triggerSleepTimerStop() async {
-    final originalVol = _userVolume;
-    if (_player.playing && originalVol > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(seconds: 3));
-      await _player.pause();
-      await _player.setVolume(originalVol);
-    } else {
-      await _player.pause();
-    }
     cancelSleepTimer();
+    if (_player.playing && _userVolume > 0.05) {
+      await _fadeVolume(0.0, duration: const Duration(seconds: 3));
+    }
+    await pause(smooth: false);
   }
 
   Future<void> setLoudnessNormalization(bool enabled) async {
@@ -383,6 +407,10 @@ class PlayerService extends ChangeNotifier {
         }
         DebugLog.write('[player] Track completed naturally; advancing next');
         if (_sleepTimerEndOfSong) {
+          cancelSleepTimer();
+          unawaited(pause(smooth: true));
+        } else if (_sleepTimerEndOfQueue &&
+            (_queueIndex >= _queue.length - 1 || _queueIndex < 0)) {
           cancelSleepTimer();
           unawaited(pause(smooth: true));
         } else {
@@ -1048,6 +1076,11 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write('[player] Token stale before play() ($token != $_playRequestToken), aborting');
         return;
       }
+      if ((_speed - 1.0).abs() > 0.01) {
+        try {
+          await _player.setSpeed(_speed);
+        } catch (_) {}
+      }
       final targetVol = _userVolume.clamp(0.0, 1.0);
       await _player.setVolume(0.0);
       unawaited(_player.play());
@@ -1377,6 +1410,10 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
 
     if (_player.processingState == ProcessingState.completed) {
+      if (currentSong != null) {
+        await playSong(currentSong!, queue: _queue, sourceId: queueSourceId, sourceTitle: queueTitle);
+        return;
+      }
       await _player.seek(Duration.zero);
     }
     final targetVol = _userVolume.clamp(0.0, 1.0);
@@ -1443,6 +1480,13 @@ class PlayerService extends ChangeNotifier {
       }
       final nextIndex = _pickNextIndex();
       if (nextIndex == null) {
+        if (_sleepTimerEndOfQueue) {
+          cancelSleepTimer();
+          await _player.pause();
+          await _player.seek(Duration.zero);
+          notifyListeners();
+          return;
+        }
         // Check 2-hour inactivity guard
         if (DateTime.now().difference(_lastInteraction) > const Duration(hours: 2)) {
           debugPrint('[PlayerService] Autoplay paused due to 2-hour inactivity guard.');
@@ -1564,6 +1608,9 @@ class PlayerService extends ChangeNotifier {
   /// "stop" (loop off and at the end of the queue).
   int? _pickNextIndex() {
     if (_queue.isEmpty) return null;
+    if (_queueIndex < 0 && currentSong != null) {
+      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    }
     if (_shuffle) {
       if (_queue.length <= 1) return _queue.isEmpty ? null : 0;
       final unplayed = [
@@ -1571,6 +1618,7 @@ class PlayerService extends ChangeNotifier {
           if (!_shufflePlayedSongIds.contains(_queue[i].id) && i != _queueIndex) i,
       ];
       if (unplayed.isEmpty) {
+        if (_sleepTimerEndOfQueue) return null;
         if (_loopMode == LoopSetting.all) {
           _shufflePlayedSongIds.clear();
           if (currentSong != null) _shufflePlayedSongIds.add(currentSong!.id);
@@ -1592,6 +1640,7 @@ class PlayerService extends ChangeNotifier {
     }
     final next = _queueIndex + 1;
     if (next < _queue.length) return next;
+    if (_sleepTimerEndOfQueue) return null;
     if (_loopMode == LoopSetting.all) return 0;
     return null;
   }
@@ -1677,6 +1726,73 @@ class PlayerService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[player] notification permission request failed: $e');
     }
+  }
+
+  /// Inserts [song] immediately after the currently playing track.
+  /// If the queue is empty or playback has stopped, starts playback of [song].
+  void playNext(Song song) {
+    if (_queue.isEmpty || currentSong == null) {
+      unawaited(playSong(song, queue: [song]));
+      return;
+    }
+    if (_queueIndex < 0 && currentSong != null) {
+      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    }
+    _shufflePlayedSongIds.remove(song.id);
+    final mutableQueue = List<Song>.from(_queue);
+    final insertIndex = (_queueIndex >= 0 && _queueIndex < mutableQueue.length)
+        ? _queueIndex + 1
+        : mutableQueue.length;
+    mutableQueue.insert(insertIndex, song);
+    _queue = mutableQueue;
+    _updateActiveQueueCacheProtection();
+    _preloadUpcomingStreams();
+    notifyListeners();
+  }
+
+  /// Appends [song] to the end of the active queue.
+  /// If the queue is empty or playback has stopped, starts playback of [song].
+  void addToQueue(Song song) {
+    if (_queue.isEmpty || currentSong == null) {
+      unawaited(playSong(song, queue: [song]));
+      return;
+    }
+    if (_queueIndex < 0 && currentSong != null) {
+      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    }
+    _shufflePlayedSongIds.remove(song.id);
+    _queue = [..._queue, song];
+    _updateActiveQueueCacheProtection();
+    _preloadUpcomingStreams();
+    notifyListeners();
+  }
+
+  /// Batch inserts multiple [songs] into the active queue.
+  void addSongsToQueue(List<Song> songs, {bool playNext = false}) {
+    if (songs.isEmpty) return;
+    if (_queue.isEmpty || currentSong == null) {
+      unawaited(playSong(songs.first, queue: songs));
+      return;
+    }
+    if (_queueIndex < 0 && currentSong != null) {
+      _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
+    }
+    for (final s in songs) {
+      _shufflePlayedSongIds.remove(s.id);
+    }
+    final mutableQueue = List<Song>.from(_queue);
+    if (playNext) {
+      final insertIndex = (_queueIndex >= 0 && _queueIndex < mutableQueue.length)
+          ? _queueIndex + 1
+          : mutableQueue.length;
+      mutableQueue.insertAll(insertIndex, songs);
+    } else {
+      mutableQueue.addAll(songs);
+    }
+    _queue = mutableQueue;
+    _updateActiveQueueCacheProtection();
+    _preloadUpcomingStreams();
+    notifyListeners();
   }
 
   void reorderQueue(int oldIndex, int newIndex) {

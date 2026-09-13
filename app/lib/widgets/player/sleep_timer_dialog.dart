@@ -16,103 +16,118 @@ Future<void> showSleepTimerDialog(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (context) {
-      final scheme = Theme.of(context).colorScheme;
-      final remaining = player.sleepTimerRemaining;
-      final isActive = player.isSleepTimerActive;
+      return ListenableBuilder(
+        listenable: player,
+        builder: (context, _) {
+          final scheme = Theme.of(context).colorScheme;
+          final remaining = player.sleepTimerRemaining;
+          final isActive = player.isSleepTimerActive;
 
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.bedtime_rounded, color: scheme.primary),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Sleep Timer',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
+                  Row(
+                    children: [
+                      Icon(Icons.bedtime_rounded, color: scheme.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Sleep Timer',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ),
+                      if (isActive)
+                        TextButton(
+                          onPressed: () {
+                            player.cancelSleepTimer();
+                            Navigator.pop(context);
+                          },
+                          child: const Text('Turn Off'),
+                        ),
+                    ],
                   ),
-                  if (isActive)
-                    TextButton(
-                      onPressed: () {
-                        player.cancelSleepTimer();
-                        Navigator.pop(context);
-                      },
-                      child: const Text('Turn Off'),
+                  if (isActive) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        player.sleepTimerEndOfSong
+                            ? 'Stopping playback at the end of this song'
+                            : player.sleepTimerEndOfQueue
+                                ? 'Stopping playback at the end of the queue'
+                                : 'Stopping playback in ${(remaining?.inMinutes ?? 0) + 1} minutes',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
+                  ],
+                  const SizedBox(height: 8),
+                  _timerTile(
+                    context,
+                    title: '15 minutes',
+                    onTap: () {
+                      player.setSleepTimer(const Duration(minutes: 15));
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _timerTile(
+                    context,
+                    title: '30 minutes',
+                    onTap: () {
+                      player.setSleepTimer(const Duration(minutes: 30));
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _timerTile(
+                    context,
+                    title: '45 minutes',
+                    onTap: () {
+                      player.setSleepTimer(const Duration(minutes: 45));
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _timerTile(
+                    context,
+                    title: '1 hour',
+                    onTap: () {
+                      player.setSleepTimer(const Duration(hours: 1));
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _timerTile(
+                    context,
+                    title: 'End of current song',
+                    onTap: () {
+                      player.setSleepTimer(null, endOfSong: true);
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _timerTile(
+                    context,
+                    title: 'End of queue / album',
+                    onTap: () {
+                      player.setSleepTimer(null, endOfQueue: true);
+                      Navigator.pop(context);
+                    },
+                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
-              if (isActive) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    player.sleepTimerEndOfSong
-                        ? 'Stopping playback at the end of this song'
-                        : 'Stopping playback in ${(remaining?.inMinutes ?? 0) + 1} minutes',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              _timerTile(
-                context,
-                title: '15 minutes',
-                onTap: () {
-                  player.setSleepTimer(const Duration(minutes: 15));
-                  Navigator.pop(context);
-                },
-              ),
-              _timerTile(
-                context,
-                title: '30 minutes',
-                onTap: () {
-                  player.setSleepTimer(const Duration(minutes: 30));
-                  Navigator.pop(context);
-                },
-              ),
-              _timerTile(
-                context,
-                title: '45 minutes',
-                onTap: () {
-                  player.setSleepTimer(const Duration(minutes: 45));
-                  Navigator.pop(context);
-                },
-              ),
-              _timerTile(
-                context,
-                title: '1 hour',
-                onTap: () {
-                  player.setSleepTimer(const Duration(hours: 1));
-                  Navigator.pop(context);
-                },
-              ),
-              _timerTile(
-                context,
-                title: 'End of current song',
-                onTap: () {
-                  player.setSleepTimer(null, endOfSong: true);
-                  Navigator.pop(context);
-                },
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       );
     },
   );
@@ -147,6 +162,7 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
   @override
   void initState() {
     super.initState();
+    widget.player.addListener(_onPlayerChanged);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (widget.player.isSleepTimerActive && mounted) {
         setState(() {});
@@ -154,9 +170,23 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
     });
   }
 
+  void _onPlayerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant SleepTimerButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      oldWidget.player.removeListener(_onPlayerChanged);
+      widget.player.addListener(_onPlayerChanged);
+    }
+  }
+
   @override
   void dispose() {
     _ticker?.cancel();
+    widget.player.removeListener(_onPlayerChanged);
     super.dispose();
   }
 
@@ -171,6 +201,8 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
     if (isActive) {
       if (player.sleepTimerEndOfSong) {
         label = 'End of song';
+      } else if (player.sleepTimerEndOfQueue) {
+        label = 'End of queue';
       } else if (remaining != null) {
         final m = remaining.inMinutes;
         final s = remaining.inSeconds % 60;

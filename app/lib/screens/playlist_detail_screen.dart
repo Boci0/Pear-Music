@@ -62,6 +62,11 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         title: Text(playlist.name),
         actions: [
           IconButton(
+            tooltip: 'Export playlist (.m3u8)',
+            icon: const Icon(Icons.file_upload_outlined),
+            onPressed: () => controller.exportPlaylistToM3u(playlist),
+          ),
+          IconButton(
             tooltip: 'Rename',
             icon: const Icon(Icons.edit_outlined),
             onPressed: () => _rename(context, controller, playlist),
@@ -115,6 +120,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     Expanded(
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
                           minimumSize: const Size.fromHeight(44),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -123,10 +130,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         onPressed: songs.isEmpty
                             ? null
                             : () => controller.playPlaylist(playlist),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                        icon: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 22,
+                          color: theme.colorScheme.onPrimary,
+                        ),
                         label: Text(
                           'Play all',
-                          style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: theme.colorScheme.onPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),

@@ -106,6 +106,24 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.playlist_play_rounded),
+              title: const Text('Play next'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final song = widget.result.toSong();
+                controller.playNext(song);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.queue_music_rounded),
+              title: const Text('Add to queue'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final song = widget.result.toSong();
+                controller.addToQueue(song);
+              },
+            ),
+            ListTile(
               leading: _isDownloading
                   ? const SizedBox(
                       width: 24,

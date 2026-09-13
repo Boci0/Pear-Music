@@ -41,6 +41,11 @@ class PlaylistsScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
+            tooltip: 'Import playlist (.m3u8)',
+            icon: const Icon(Icons.file_download_outlined),
+            onPressed: () => controller.importPlaylistFromM3u(),
+          ),
+          IconButton(
             tooltip: 'New playlist',
             icon: const Icon(Icons.add),
             onPressed: () => _createPlaylist(context, controller),
@@ -51,7 +56,10 @@ class PlaylistsScreen extends StatelessWidget {
       // inside HomeShell, HomeShell's own PlayerBar handles playback controls.
       bottomNavigationBar: showPlayerBar ? const PlayerBar() : null,
       body: playlists.isEmpty
-          ? _EmptyPlaylists(onCreate: () => _createPlaylist(context, controller))
+          ? _EmptyPlaylists(
+              onCreate: () => _createPlaylist(context, controller),
+              onImport: () => controller.importPlaylistFromM3u(),
+            )
           : ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemExtent: 72.0,
@@ -356,53 +364,60 @@ class _PlaylistTile extends StatelessWidget {
       context: context,
       useRootNavigator: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(
-                playlist.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall,
-              ),
-              subtitle: Text(
-                '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  playlist.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall,
                 ),
+                subtitle: Text(
+                  '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                dense: true,
               ),
-              dense: true,
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.play_arrow_rounded),
-              title: const Text('Play all'),
-              onTap: () => Navigator.pop(ctx, 'play'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.shuffle_rounded),
-              title: const Text('Shuffle'),
-              onTap: () => Navigator.pop(ctx, 'shuffle'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Rename playlist'),
-              onTap: () => Navigator.pop(ctx, 'rename'),
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.delete_outline_rounded,
-                color: theme.colorScheme.error,
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.play_arrow_rounded),
+                title: const Text('Play all'),
+                onTap: () => Navigator.pop(ctx, 'play'),
               ),
-              title: Text(
-                'Delete playlist',
-                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error),
+              ListTile(
+                leading: const Icon(Icons.shuffle_rounded),
+                title: const Text('Shuffle'),
+                onTap: () => Navigator.pop(ctx, 'shuffle'),
               ),
-              onTap: () => Navigator.pop(ctx, 'delete'),
-            ),
-            const SizedBox(height: 8),
-          ],
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Rename playlist'),
+                onTap: () => Navigator.pop(ctx, 'rename'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.file_upload_outlined),
+                title: const Text('Export playlist (.m3u8)'),
+                onTap: () => Navigator.pop(ctx, 'export'),
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.delete_outline_rounded,
+                  color: theme.colorScheme.error,
+                ),
+                title: Text(
+                  'Delete playlist',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error),
+                ),
+                onTap: () => Navigator.pop(ctx, 'delete'),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -416,6 +431,8 @@ class _PlaylistTile extends StatelessWidget {
       controller.playPlaylist(playlist);
     } else if (action == 'rename') {
       onRename();
+    } else if (action == 'export') {
+      controller.exportPlaylistToM3u(playlist);
     } else if (action == 'delete') {
       onDelete();
     }
@@ -558,7 +575,11 @@ class _PlaylistArtwork extends StatelessWidget {
 
 class _EmptyPlaylists extends StatelessWidget {
   final VoidCallback onCreate;
-  const _EmptyPlaylists({required this.onCreate});
+  final VoidCallback onImport;
+  const _EmptyPlaylists({
+    required this.onCreate,
+    required this.onImport,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -597,7 +618,7 @@ class _EmptyPlaylists extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Group your favorite songs together into custom collections.',
+              'Group your favorite songs into collections or import an existing .m3u8 playlist.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
@@ -605,19 +626,52 @@ class _EmptyPlaylists extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 22),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  ),
+                  onPressed: onCreate,
+                  icon: Icon(Icons.add_rounded, size: 20, color: theme.colorScheme.onPrimary),
+                  label: Text(
+                    'New playlist',
+                    style: TextStyle(
+                      color: theme.colorScheme.onPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              ),
-              onPressed: onCreate,
-              icon: const Icon(Icons.add_rounded, size: 20),
-              label: Text(
-                'New playlist',
-                style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-              ),
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    foregroundColor: theme.colorScheme.onSurface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  ),
+                  onPressed: onImport,
+                  icon: Icon(Icons.file_download_outlined, size: 20, color: theme.colorScheme.onSurface),
+                  label: Text(
+                    'Import playlist (.m3u8)',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

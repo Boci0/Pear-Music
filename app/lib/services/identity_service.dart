@@ -31,6 +31,7 @@ class IdentityService extends ChangeNotifier {
   static const _autoplayKey = 'peerm_autoplay';
   static const _popLyricsKey = 'peerm_pop_lyrics';
   static const _playbackVolumeKey = 'peerm_playback_volume';
+  static const _playbackSpeedKey = 'peerm_playback_speed';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -45,6 +46,7 @@ class IdentityService extends ChangeNotifier {
   late bool _autoplay;
   late bool _popLyrics;
   late double _playbackVolume;
+  late double _playbackSpeed;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -77,6 +79,7 @@ class IdentityService extends ChangeNotifier {
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
     _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
     _playbackVolume = _prefs.getDouble(_playbackVolumeKey) ?? 0.75;
+    _playbackSpeed = _prefs.getDouble(_playbackSpeedKey) ?? 1.0;
     _prefs.remove('peerm_online_lyrics');
     _prefs.remove('peerm_streaming_quality');
     _prefs.remove('peerm_preload_upcoming');
@@ -249,6 +252,16 @@ class IdentityService extends ChangeNotifier {
     final clamped = value.clamp(0.0, 1.0);
     _playbackVolume = clamped;
     await _prefs.setDouble(_playbackVolumeKey, clamped);
+    notifyListeners();
+  }
+
+  double get playbackSpeed => _playbackSpeed;
+
+  Future<void> setPlaybackSpeed(double value) async {
+    final clamped = value.clamp(0.25, 3.0);
+    if ((_playbackSpeed - clamped).abs() < 0.01) return;
+    _playbackSpeed = clamped;
+    await _prefs.setDouble(_playbackSpeedKey, clamped);
     notifyListeners();
   }
 }

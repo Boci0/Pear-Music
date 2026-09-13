@@ -95,6 +95,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _batchAddToQueue(AppController controller, List<Song> songs) {
+    if (_selectedIds.isEmpty) return;
+    final selectedSongs = songs.where((s) => _selectedIds.contains(s.id)).toList();
+    controller.addSongsToQueue(selectedSongs);
+    setState(() {
+      _isSelecting = false;
+      _selectedIds.clear();
+    });
+  }
+
   Future<void> _batchAddToPlaylist(
       AppController controller, List<Song> songs) async {
     if (_selectedIds.isEmpty) return;
@@ -514,6 +524,11 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: _selectedIds.length == songs.length ? 'Deselect all' : 'Select all',
             icon: Icon(_selectedIds.length == songs.length ? Icons.deselect : Icons.select_all),
             onPressed: () => _selectAll(songs),
+          ),
+          IconButton(
+            tooltip: 'Add to queue',
+            icon: const Icon(Icons.queue_music_rounded),
+            onPressed: _selectedIds.isEmpty ? null : () => _batchAddToQueue(controller, songs),
           ),
           IconButton(
             tooltip: 'Add to playlist',

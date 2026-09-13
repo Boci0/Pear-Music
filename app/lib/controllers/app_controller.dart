@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path/path.dart' as p;
 
 import '../models/playlist.dart';
 import '../models/song.dart';
@@ -294,6 +296,160 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     await library.setPlaylistSongIds(playlistId, songIds);
   }
 
+  Future<void> exportPlaylistToM3u(Playlist playlist) async {
+    final buffer = StringBuffer();
+    buffer.writeln('#EXTM3U');
+    buffer.writeln('#PLAYLIST:${playlist.name}');
+    for (final songId in playlist.songIds) {
+      final song = findSongById(songId);
+      if (song == null) continue;
+      buffer.writeln('#EXTINF:-1,${song.title}');
+      if (song.sourceDeviceId == 'stream') {
+        final videoId = song.id.replaceFirst('stream_', '');
+        buffer.writeln('https://www.youtube.com/watch?v=$videoId');
+      } else {
+        final file = library.songFile(song);
+        buffer.writeln(file.path);
+      }
+    }
+
+    final bytes = Uint8List.fromList(utf8.encode(buffer.toString()));
+    final safeName = playlist.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final fileName = safeName.isEmpty ? 'playlist.m3u8' : '$safeName.m3u8';
+    try {
+      final uri = await FilePicker.saveFile(
+        dialogTitle: 'Export Playlist',
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (uri != null) {
+        _postMessage('Exported "${playlist.name}" successfully.');
+      }
+    } catch (e) {
+      debugPrint('[controller] Error exporting playlist: $e');
+      _postMessage('Failed to export playlist.');
+    }
+  }
+
+  Future<void> importPlaylistFromM3u() async {
+    try {
+      final picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['m3u', 'm3u8'],
+        dialogTitle: 'Import Playlist',
+      );
+      if (picked.isEmpty) return;
+      final filePath = picked.first.path;
+      if (filePath == null) return;
+      final file = File(filePath);
+      if (!await file.exists()) return;
+
+      final content = await file.readAsString();
+      final lines = content.split(RegExp(r'\r?\n'));
+      final songIds = <String>[];
+      String playlistName = p.basenameWithoutExtension(file.path);
+
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+        if (line.startsWith('#PLAYLIST:')) {
+          final name = line.replaceFirst('#PLAYLIST:', '').trim();
+          if (name.isNotEmpty) playlistName = name;
+        } else if (line.startsWith('#EXTINF:')) {
+          var targetLine = '';
+          for (var j = i + 1; j < lines.length; j++) {
+            final next = lines[j].trim();
+            if (next.isNotEmpty && !next.startsWith('#')) {
+              targetLine = next;
+              i = j;
+              break;
+            }
+          }
+          final s = await _matchOrRegisterSong(line, targetLine);
+          if (s != null && !songIds.contains(s.id)) {
+            songIds.add(s.id);
+          }
+        } else if (!line.startsWith('#')) {
+          final s = await _matchOrRegisterSong('', line);
+          if (s != null && !songIds.contains(s.id)) {
+            songIds.add(s.id);
+          }
+        }
+      }
+
+      if (songIds.isEmpty) {
+        _postMessage('No matching songs found in $playlistName');
+        return;
+      }
+
+      final created = await library.createPlaylist(playlistName);
+      await library.setPlaylistSongIds(created.id, songIds);
+      _postMessage('Imported "$playlistName" (${songIds.length} tracks)');
+    } catch (e) {
+      debugPrint('[controller] Error importing playlist: $e');
+      _postMessage('Failed to import playlist.');
+    }
+  }
+
+  Future<Song?> _matchOrRegisterSong(String extinf, String pathOrUrl) async {
+    if (pathOrUrl.isEmpty) return null;
+
+    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+      final videoId = RecommendationService.extractVideoId(pathOrUrl);
+      if (videoId != null) {
+        final streamId = 'stream_$videoId';
+        final existing = findSongById(streamId);
+        if (existing != null) return existing;
+        String title = videoId;
+        if (extinf.startsWith('#EXTINF:')) {
+          final commaIdx = extinf.indexOf(',');
+          if (commaIdx != -1) {
+            final raw = extinf.substring(commaIdx + 1).trim();
+            if (raw.isNotEmpty) title = raw;
+          }
+        }
+        return Song(
+          id: streamId,
+          title: title,
+          fileName: '$title [$videoId].m4a',
+          size: 200 * 16000,
+          checksum: streamId,
+          sourceDeviceId: 'stream',
+          addedAt: DateTime.now(),
+        );
+      }
+    }
+
+    final normalizedPath = p.normalize(pathOrUrl).toLowerCase();
+    final base = p.basename(pathOrUrl).toLowerCase();
+    for (final s in library.songs) {
+      final songFilePath = p.normalize(library.songFile(s).path).toLowerCase();
+      if (songFilePath == normalizedPath || p.basename(songFilePath) == base) {
+        return s;
+      }
+    }
+
+    final diskFile = File(pathOrUrl);
+    if (await diskFile.exists()) {
+      final added = await library.addLocalFiles([diskFile]);
+      if (added.isNotEmpty) return added.first;
+    }
+
+    if (extinf.startsWith('#EXTINF:')) {
+      final commaIdx = extinf.indexOf(',');
+      if (commaIdx != -1) {
+        final raw = extinf.substring(commaIdx + 1).trim().toLowerCase();
+        for (final s in library.songs) {
+          if (s.lowerTitle == raw || s.title.toLowerCase() == raw) {
+            return s;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   final Map<String, Future<String?>> _inFlightAddFromLink = {};
 
   Future<String?> addFromLink(
@@ -448,6 +604,22 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void playNext(Song song) {
+    player.playNext(song);
+    _postMessage('Playing "${song.title}" next');
+  }
+
+  void addToQueue(Song song) {
+    player.addToQueue(song);
+    _postMessage('Added "${song.title}" to queue');
+  }
+
+  void addSongsToQueue(List<Song> songs, {bool playNext = false}) {
+    if (songs.isEmpty) return;
+    player.addSongsToQueue(songs, playNext: playNext);
+    _postMessage('Added ${songs.length} ${songs.length == 1 ? "song" : "songs"} to queue');
+  }
+
   // ---------- settings ----------
 
   Future<void> updateSynthesizerBar(bool val) async {
@@ -504,6 +676,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void removeFromQueue(int index) => player.removeFromQueue(index);
   Future<void> seek(Duration d) => player.seek(d);
   Future<void> setVolume(double v) => player.setVolume(v);
+  Future<void> setPlaybackSpeed(double speed) => player.setSpeed(speed);
 
 
   void _postMessage(String text) {

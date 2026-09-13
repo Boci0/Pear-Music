@@ -9,6 +9,7 @@ import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
+import '../widgets/player/playback_speed_dialog.dart';
 import '../widgets/player/queue_bottom_sheet.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
 import '../widgets/player/stream_quality_info_dialog.dart';
@@ -111,6 +112,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           icon: const Icon(Icons.terminal_rounded),
           onPressed: () => PlayerConsoleDialog.show(context),
         ),
+        PlaybackSpeedButton(player: player),
         SleepTimerButton(player: player),
         StreamQualityInfoButton(player: player),
       ],

@@ -56,6 +56,16 @@ class SongTile extends StatelessWidget {
               title: const Text('Start Radio'),
               onTap: () => Navigator.pop(ctx, 'radio'),
             ),
+            ListTile(
+              leading: const Icon(Icons.playlist_play_rounded),
+              title: const Text('Play next'),
+              onTap: () => Navigator.pop(ctx, 'play_next'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.queue_music_rounded),
+              title: const Text('Add to queue'),
+              onTap: () => Navigator.pop(ctx, 'add_to_queue'),
+            ),
             if (song.sourceDeviceId == 'stream')
               ListTile(
                 leading: const Icon(Icons.download_rounded),
@@ -94,7 +104,11 @@ class SongTile extends StatelessWidget {
       ),
     );
     if (!context.mounted) return;
-    if (action == 'radio') {
+    if (action == 'play_next') {
+      controller.playNext(song);
+    } else if (action == 'add_to_queue') {
+      controller.addToQueue(song);
+    } else if (action == 'radio') {
       await controller.startRadio(song);
     } else if (action == 'save_stream') {
       await controller.saveStreamToLibrary(song);

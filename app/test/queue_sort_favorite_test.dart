@@ -373,5 +373,116 @@ void main() {
 
       playerWithHandler.dispose();
     });
+
+    test('playNext inserts track at queueIndex + 1 and preserves currentSong', () {
+      player.updateQueue([songA, songB]);
+      player.currentSong = songA;
+
+      player.playNext(songC);
+      expect(player.queue.length, 3);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'c');
+      expect(player.queue[2].id, 'b');
+      expect(player.currentSong?.id, 'a');
+      expect(player.queueIndex, 0);
+    });
+
+    test('addToQueue appends track to end of queue', () {
+      player.updateQueue([songA, songB]);
+      player.currentSong = songA;
+
+      player.addToQueue(songC);
+      expect(player.queue.length, 3);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'b');
+      expect(player.queue[2].id, 'c');
+      expect(player.currentSong?.id, 'a');
+    });
+
+    test('playNext and addToQueue unmark song from shufflePlayedSongIds', () {
+      player.updateQueue([songA, songB, songC]);
+      player.currentSong = songA;
+      player.toggleShuffle();
+      expect(player.shuffle, isTrue);
+
+      player.playNext(songB);
+      expect(player.queue[1].id, 'b');
+    });
+
+    test('addSongsToQueue batch inserts multiple songs correctly', () {
+      player.updateQueue([songA]);
+      player.currentSong = songA;
+
+      player.addSongsToQueue([songB, songC]);
+      expect(player.queue.length, 3);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'b');
+      expect(player.queue[2].id, 'c');
+
+      player.addSongsToQueue([songC], playNext: true);
+      expect(player.queue.length, 4);
+      expect(player.queue[0].id, 'a');
+      expect(player.queue[1].id, 'c');
+      expect(player.queue[2].id, 'b');
+      expect(player.queue[3].id, 'c');
+    });
+
+    test('PlayerService setSpeed clamps within bounds and updates state', () async {
+      expect(player.speed, 1.0);
+      await player.setSpeed(1.5);
+      expect(player.speed, 1.5);
+
+      await player.setSpeed(0.1);
+      expect(player.speed, 0.25);
+
+      await player.setSpeed(4.0);
+      expect(player.speed, 3.0);
+
+      await player.setSpeed(1.0);
+      expect(player.speed, 1.0);
+    });
+
+    test('PlayerService sleep timer endOfQueue manages active state and cancels cleanly', () {
+      expect(player.isSleepTimerActive, isFalse);
+      expect(player.sleepTimerEndOfQueue, isFalse);
+
+      player.setSleepTimer(null, endOfQueue: true);
+      expect(player.isSleepTimerActive, isTrue);
+      expect(player.sleepTimerEndOfQueue, isTrue);
+      expect(player.sleepTimerEndOfSong, isFalse);
+
+      player.cancelSleepTimer();
+      expect(player.isSleepTimerActive, isFalse);
+      expect(player.sleepTimerEndOfQueue, isFalse);
+    });
+
+    test('PlayerService sleep timer endOfQueue suppresses repeat-all loop wrap', () async {
+      player.updateQueue([songA, songB]);
+      player.currentSong = songB; // at end of queue
+      player.toggleLoop(); // LoopSetting.all
+      expect(player.loopMode, LoopSetting.all);
+
+      player.setSleepTimer(null, endOfQueue: true);
+      expect(player.sleepTimerEndOfQueue, isTrue);
+
+      // Advance at end of queue
+      await player.next();
+      expect(player.isSleepTimerActive, isFalse);
+    });
+
+    test('PlayerService cancelSleepTimer notifies listeners immediately', () {
+      player.setSleepTimer(const Duration(minutes: 30));
+      expect(player.isSleepTimerActive, isTrue);
+
+      var notified = false;
+      player.addListener(() {
+        notified = true;
+      });
+
+      player.cancelSleepTimer();
+      expect(player.isSleepTimerActive, isFalse);
+      expect(player.sleepTimerRemaining, isNull);
+      expect(notified, isTrue);
+    });
   });
 }
