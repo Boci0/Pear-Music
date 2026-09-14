@@ -46,6 +46,22 @@ class StreamCacheManager {
     return dir;
   }
 
+  static Directory? _ytdlpCacheDir;
+
+  /// Dedicated persistent cache directory for yt-dlp to preserve player JS functions and session tokens.
+  static Future<Directory> getYtDlpCacheDirectory() async {
+    if (_ytdlpCacheDir != null && await _ytdlpCacheDir!.exists()) {
+      return _ytdlpCacheDir!;
+    }
+    final baseDir = await getCacheDirectory();
+    final ytdlpCache = Directory(p.join(baseDir.path, '.ytdlp_cache'));
+    if (!await ytdlpCache.exists()) {
+      await ytdlpCache.create(recursive: true);
+    }
+    _ytdlpCacheDir = ytdlpCache;
+    return ytdlpCache;
+  }
+
   static YoutubeExplode? _ytExplode;
   static YoutubeExplode get _yt => _ytExplode ??= YoutubeExplode();
 
@@ -432,11 +448,12 @@ class StreamCacheManager {
       if (bin != null) {
         DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
         final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
+        final ytdlpCache = await getYtDlpCacheDirectory();
         final args = [
           '-f',
           getAudioFormatArg(),
-          '--extractor-args',
-          'youtube:player_skip=configs,webpage;player_client=android,web',
+          '--cache-dir',
+          ytdlpCache.path,
           '-o',
           outputTemplate,
           '--no-playlist',
@@ -444,11 +461,10 @@ class StreamCacheManager {
           '--no-mtime',
           '--no-warnings',
           '--no-check-certificates',
-          '--no-cache-dir',
           '--quiet',
           '--force-ipv4',
           '--concurrent-fragments',
-          '8',
+          '4',
           '--buffer-size',
           '256k',
           '--socket-timeout',
@@ -744,17 +760,17 @@ class StreamCacheManager {
       } catch (_) {}
     } else if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       // Tier 3: Desktop yt-dlp fallback
+      final ytdlpCache = await getYtDlpCacheDirectory();
       final result = await _runYtDlp(
         url,
         [
           '-g',
           '-f', getAudioFormatArg(),
-          '--extractor-args', 'youtube:player_skip=configs,webpage;player_client=android,web',
+          '--cache-dir', ytdlpCache.path,
           '--no-playlist',
           '--force-ipv4',
           '--no-warnings',
           '--no-check-certificates',
-          '--no-cache-dir',
           '--quiet',
           '--socket-timeout', '6',
           '--retries', '1',
@@ -775,13 +791,12 @@ class StreamCacheManager {
         url,
         [
           '-g',
-          '-f', 'bestaudio/ba/b/best',
-          '--extractor-args', 'youtube:player_skip=configs,webpage;player_client=android,web',
+          '-f', 'bestaudio/ba',
+          '--cache-dir', ytdlpCache.path,
           '--no-playlist',
           '--force-ipv4',
           '--no-warnings',
           '--no-check-certificates',
-          '--no-cache-dir',
           '--quiet',
           '--socket-timeout', '8',
         ],
