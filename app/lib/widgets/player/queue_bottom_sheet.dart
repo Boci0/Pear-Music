@@ -300,7 +300,7 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
           height: currentHeight,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: const Color(0xFF141418),
+            color: const Color(0xFF151518),
             borderRadius: BorderRadius.vertical(
               top: Radius.circular(lerpDouble(22, 28, _curvedAnimation.value)!),
             ),
@@ -397,7 +397,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
   Widget build(BuildContext context) {
     return Container(
       height: 60.0,
-      color: const Color(0xFF141418),
+      color: const Color(0xFF151518),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onVerticalDragStart: widget.onDragStart,
@@ -622,17 +622,12 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                       width: 1,
                     ),
                   ),
-                  child: Badge(
-                    isLabelVisible: active,
-                    smallSize: 7,
-                    backgroundColor: _readableAccent,
-                    child: Icon(
-                      active ? Icons.casino_rounded : Icons.casino_outlined,
-                      size: 18,
-                      color: active
-                          ? _readableAccent
-                          : _readableAccent.withValues(alpha: 0.6),
-                    ),
+                  child: Icon(
+                    active ? Icons.casino_rounded : Icons.casino_outlined,
+                    size: 18,
+                    color: active
+                        ? _readableAccent
+                        : _readableAccent.withValues(alpha: 0.6),
                   ),
                 ),
               ),
@@ -826,7 +821,7 @@ class _QueueRow extends StatelessWidget {
                     tooltip: 'Remove from queue',
                     icon: Icon(
                       Icons.close_rounded,
-                      color: Colors.white.withValues(alpha: 0.35),
+                      color: Colors.white.withValues(alpha: 0.60),
                     ),
                     onPressed: onRemove,
                   ),

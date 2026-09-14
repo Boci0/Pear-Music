@@ -61,7 +61,7 @@ class PlaylistsScreen extends StatelessWidget {
               onImport: () => controller.importPlaylistFromM3u(),
             )
           : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
               itemExtent: 72.0,
               itemCount: playlists.length,
               itemBuilder: (context, i) => _PlaylistTile(

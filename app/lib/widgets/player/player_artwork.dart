@@ -516,13 +516,13 @@ class PlayerSongInfo extends StatelessWidget {
       (p) => p.isBufferingNext,
     );
 
-    return SizedBox(
-      height: 96,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 96, maxHeight: 114),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(
-            height: 58,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 58, maxHeight: 72),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -552,14 +552,14 @@ class PlayerSongInfo extends StatelessWidget {
                       onTap: () => _copyTitle(context, song.title),
                       onLongPress: () => _copyTitle(context, song.title),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
                         child: Center(
                           child: Text(
                             song.title,
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.headlineSmall?.copyWith(height: 1.15),
+                            style: theme.textTheme.headlineSmall?.copyWith(height: 1.24),
                           ),
                         ),
                       ),

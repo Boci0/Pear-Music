@@ -241,7 +241,7 @@ class SongTile extends StatelessWidget {
                         ),
                       ),
                     Padding(
-                      padding: const EdgeInsets.only(left: 14, right: 8),
+                      padding: const EdgeInsets.only(left: 14, right: 12),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
@@ -256,7 +256,7 @@ class SongTile extends StatelessWidget {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
@@ -265,12 +265,13 @@ class SongTile extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontSize: 14.5,
+                                    height: 1.2,
                                     fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
                                     color: isCurrent ? theme.colorScheme.primary : null,
                                     letterSpacing: -0.2,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
+                                const SizedBox(height: 2),
                                 Row(
                                   children: [
                                     if (song.sourceDeviceId == 'stream') ...[
@@ -292,7 +293,8 @@ class SongTile extends StatelessWidget {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.bodySmall?.copyWith(
-                                          fontSize: 12,
+                                          fontSize: 11.5,
+                                          height: 1.2,
                                           color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
                                         ),
                                       ),
@@ -310,6 +312,7 @@ class SongTile extends StatelessWidget {
                               tooltip: 'Favorite',
                               onPressed: () => controller.toggleFavorite(song.id, song: song),
                             ),
+                            const SizedBox(width: 4),
                           ],
                           if (!isSelecting) ...[
                             _ActionButton(
@@ -406,19 +409,7 @@ class _Artwork extends StatelessWidget {
         ),
       );
     }
-    if (!isCurrent) return image;
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: scheme.primary.withValues(alpha: 0.65),
-          width: 1.5,
-        ),
-      ),
-      child: image,
-    );
+    return image;
   }
 
   Widget _placeholder(ColorScheme scheme) {

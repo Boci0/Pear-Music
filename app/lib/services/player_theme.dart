@@ -37,9 +37,9 @@ class PlayerTheme extends ChangeNotifier {
   /// always match the scheme being shown. That keeps the transition a smooth
   /// fade instead of a snap at the halfway point.
   static ThemeData buildFromScheme(ColorScheme scheme) {
-    const bgDark = Color(0xFF0B0B0E);
-    const surfaceDark = Color(0xFF14141A);
-    const surfaceHighlight = Color(0xFF1E1E26);
+    const bgDark = Color(0xFF0C0C0E);
+    const surfaceDark = Color(0xFF151518);
+    const surfaceHighlight = Color(0xFF1F1F23);
 
     return ThemeData(
       useMaterial3: true,
@@ -48,9 +48,10 @@ class PlayerTheme extends ChangeNotifier {
       highlightColor: Colors.transparent,
       colorScheme: scheme.copyWith(
         surface: bgDark,
-        surfaceContainerLow: const Color(0xFF101014),
+        surfaceContainerLow: const Color(0xFF101012),
         surfaceContainer: surfaceDark,
         surfaceContainerHigh: surfaceHighlight,
+        surfaceContainerHighest: const Color(0xFF26262B),
       ),
       scaffoldBackgroundColor: bgDark,
       iconButtonTheme: IconButtonThemeData(
@@ -152,7 +153,7 @@ class PlayerTheme extends ChangeNotifier {
         space: 1,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: const Color(0xFF0F0F14),
+        backgroundColor: const Color(0xFF131315),
         elevation: 0,
         height: 65,
         indicatorColor: scheme.primary.withValues(alpha: 0.2),
@@ -178,11 +179,10 @@ class PlayerTheme extends ChangeNotifier {
   }
 
   static ThemeData _build(Color accent) {
-    final control = ArtworkPalette.controlAccent(accent);
-    final cached = _cache[control];
+    final cached = _cache[accent];
     if (cached != null) return cached;
     final built = buildFromScheme(ColorScheme.fromSeed(
-      seedColor: control,
+      seedColor: accent,
       brightness: Brightness.dark,
     ));
     // Bounded cache: evict the oldest accent so the cache can't grow without
@@ -190,7 +190,7 @@ class PlayerTheme extends ChangeNotifier {
     if (_cache.length >= _cacheMax) {
       _cache.remove(_cache.keys.first);
     }
-    _cache[control] = built;
+    _cache[accent] = built;
     return built;
   }
 

@@ -302,12 +302,14 @@ class _MiniPlayerBackgroundProgress extends StatelessWidget {
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                     ),
-                    border: Border(
-                      right: BorderSide(
-                        color: color.withValues(alpha: 0.50),
-                        width: 1.5,
-                      ),
-                    ),
+                    border: fraction > 0.02
+                        ? Border(
+                            right: BorderSide(
+                              color: color.withValues(alpha: 0.35),
+                              width: 1.0,
+                            ),
+                          )
+                        : null,
                   ),
                 ),
               );

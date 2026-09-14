@@ -469,8 +469,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                   Expanded(
                     child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 140),
                       itemExtent: 61.0,
                       itemCount: _results.length,
                       itemBuilder: (context, index) {
@@ -705,7 +704,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ),
                     ),
                   const SliverToBoxAdapter(
-                    child: SizedBox(height: 16),
+                    child: SizedBox(height: 140),
                   ),
                 ],
               ),

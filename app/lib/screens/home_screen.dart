@@ -381,7 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.only(bottom: 140),
               sliver: SliverFixedExtentList.builder(
                 itemExtent: 61.0,
                 itemCount: songs.length,

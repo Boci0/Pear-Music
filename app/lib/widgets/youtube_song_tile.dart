@@ -329,7 +329,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
@@ -338,12 +338,13 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontSize: 14.5,
+                                    height: 1.2,
                                     fontWeight: widget.isCurrent ? FontWeight.w600 : FontWeight.w500,
                                     color: widget.isCurrent ? theme.colorScheme.primary : null,
                                     letterSpacing: -0.2,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
+                                const SizedBox(height: 2),
                                 Row(
                                   children: [
                                     Icon(Icons.sensors_rounded,
@@ -355,7 +356,8 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.bodySmall?.copyWith(
-                                          fontSize: 12,
+                                          fontSize: 11.5,
+                                          height: 1.2,
                                           color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
                                         ),
                                       ),

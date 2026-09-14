@@ -104,6 +104,7 @@ class _HomeShellState extends State<HomeShell> {
         }
       },
       child: Scaffold(
+        extendBody: true,
         body: IndexedStack(
           index: _index,
           children: _screens,
@@ -148,7 +149,7 @@ class _MinimalistNavBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 2, 16, 12),
       height: 58,
       decoration: BoxDecoration(
-        color: const Color(0xFF14141A),
+        color: const Color(0xFF151518),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.08),

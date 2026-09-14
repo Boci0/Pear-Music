@@ -109,17 +109,12 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                                 width: 1,
                               ),
                             ),
-                            child: Badge(
-                              isLabelVisible: active,
-                              smallSize: 7,
-                              backgroundColor: scheme.primary,
-                              child: Icon(
-                                active ? Icons.casino_rounded : Icons.casino_outlined,
-                                size: 19,
-                                color: active
-                                    ? scheme.primary
-                                    : scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                              ),
+                            child: Icon(
+                              active ? Icons.casino_rounded : Icons.casino_outlined,
+                              size: 19,
+                              color: active
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant.withValues(alpha: 0.6),
                             ),
                           ),
                         ),

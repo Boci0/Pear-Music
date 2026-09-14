@@ -173,7 +173,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             child: songs.isEmpty
                 ? const _EmptyPlaylist()
                 : ReorderableListView.builder(
-                    padding: const EdgeInsets.only(bottom: 24),
+                    padding: const EdgeInsets.only(bottom: 140),
                     itemExtent: 61.0,
                     buildDefaultDragHandles: false,
                     itemCount: songs.length,
