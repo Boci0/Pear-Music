@@ -708,12 +708,13 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-warnings")
                     req.addOption("--force-ipv4")
                     req.addOption("--no-check-certificates")
-                    req.addOption("--extractor-args", "youtube:skip=hls")
+                    req.addOption("--extractor-args", "youtube:skip=hls,translated_subs")
                     req.addOption("--concurrent-fragments", "2")
                     req.addOption("--http-chunk-size", "5M")
                     req.addOption("--buffer-size", "64k")
                     req.addOption("--socket-timeout", "10")
                     req.addOption("--retries", "2")
+                    req.addOption("--extractor-retries", "1")
                     req.addOption("--fragment-retries", "2")
                     return req
                 }
