@@ -1388,13 +1388,14 @@ class PlayerService extends ChangeNotifier {
         return;
       }
       DebugLog.write(
-        '[preload] Starting 1-track lookahead preloader: next=$nextTrackId',
+        '[preload] Starting 2-track sequential lookahead preloader: window=${uncachedTrackIds.take(2).toList()}',
       );
       _isPreloadingUpcoming = true;
       notifyListeners();
 
-      // Strict 1-track lookahead window to prevent clogging internet bandwidth
-      final nextTrackWindow = [nextTrackId];
+      // Sequential 2-track lookahead window: buffers upcoming tracks in the background
+      // without splitting bandwidth, guaranteeing 0ms latency even on multi-skips.
+      final nextTrackWindow = uncachedTrackIds.take(2).toList();
       StreamCacheManager.preloadSlidingWindow(
         nextTrackWindow,
         onTrackCached: (cachedId) {
