@@ -145,8 +145,8 @@ class SongTile extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         title: Text('Remove "${song.title}"?'),
         content: const Text(
-          'This deletes the song from this device and removes it from any '
-          'playlists. Paired devices keep their own copy.',
+          'This permanently deletes the song from this device and removes it from '
+          'your library and playlists.',
         ),
         actions: [
           TextButton(
