@@ -8,6 +8,7 @@ import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
+import '../tactile_button.dart';
 
 /// Controller coordinating expand/collapse state between the expandable queue sheet
 /// and external listeners such as the background dimming scrim.
@@ -551,7 +552,10 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
 
         // Autoplay toggle chip
         InkWell(
-          onTap: () => widget.player.setAutoplay(!widget.player.autoplay),
+          onTap: () {
+            TactileFeedback.selection();
+            widget.player.setAutoplay(!widget.player.autoplay);
+          },
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
@@ -562,8 +566,8 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: widget.player.autoplay
-                    ? _readableAccent.withValues(alpha: 0.4)
-                    : Colors.white.withValues(alpha: 0.08),
+                  ? _readableAccent.withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.08),
                 width: 1,
               ),
             ),
@@ -605,8 +609,14 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                   ? 'Auto-reroll seed: ON (tap to turn OFF)'
                   : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
               child: InkWell(
-                onTap: () => widget.player.toggleAutoRerollSeed(),
-                onLongPress: () => widget.player.rerollUpcomingQueue(),
+                onTap: () {
+                  TactileFeedback.click();
+                  widget.player.toggleAutoRerollSeed();
+                },
+                onLongPress: () {
+                  TactileFeedback.selection();
+                  widget.player.rerollUpcomingQueue();
+                },
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.all(5),
@@ -729,7 +739,10 @@ class _QueueRow extends StatelessWidget {
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          onTap: onTap,
+          onTap: () {
+            TactileFeedback.click();
+            onTap();
+          },
           borderRadius: BorderRadius.circular(10),
           child: Container(
             height: 55,
@@ -815,7 +828,7 @@ class _QueueRow extends StatelessWidget {
 
                 // Remove button for non-playing tracks
                 if (!isCurrent)
-                  IconButton(
+                  TactileIconButton(
                     iconSize: 18,
                     visualDensity: VisualDensity.compact,
                     tooltip: 'Remove from queue',

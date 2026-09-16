@@ -12,6 +12,7 @@ import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
 import 'player_console_dialog.dart';
 import 'rhythm_pulse.dart';
+import '../tactile_button.dart';
 
 /// Large album artwork container with rounded corners, ambient accent glow,
 /// and synchronized lyrics toggle display.
@@ -80,6 +81,11 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
     PlayerArtwork.showLyricsNotifier.addListener(_onLyricsVisibilityChanged);
+    ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
+  }
+
+  void _onPaletteUpdated() {
+    if (mounted) setState(() {});
   }
 
   void _onLyricsVisibilityChanged() {
@@ -94,6 +100,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   @override
   void dispose() {
     PlayerArtwork.showLyricsNotifier.removeListener(_onLyricsVisibilityChanged);
+    ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     _lyricsAnimController.dispose();
     super.dispose();
   }
@@ -107,6 +114,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final networkUrl = widget.networkUrl;
     final artwork = widget.artwork;
     final baseShadowColor = (widget.accent ?? scheme.primary);
+    final isLight = ArtworkPalette.isLightArtwork(song);
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -252,38 +260,16 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
     final Widget? glassBackdrop = (song != null && playerService != null)
         ? RepaintBoundary(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                ClipRRect(
-                  borderRadius: radius,
-                  clipBehavior: Clip.antiAlias,
-                  child: Transform.scale(
-                    scale: 1.15,
-                    child: ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: imageWidget,
-                    ),
-                  ),
+            child: ClipRRect(
+              borderRadius: radius,
+              clipBehavior: Clip.antiAlias,
+              child: Transform.scale(
+                scale: 1.15,
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: imageWidget,
                 ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        const Color(0x54000000), // ~33% black
-                        Color.alphaBlend(
-                          baseShadowColor.withValues(alpha: 0.18),
-                          const Color(0x48000000), // ~28% black
-                        ),
-                        const Color(0x60000000), // ~38% black
-                      ],
-                      stops: const [0.0, 0.50, 1.0],
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           )
         : null;
@@ -355,9 +341,11 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             decoration: BoxDecoration(
                               borderRadius: radius,
                               border: Border.all(
-                                color: isLyricsFullyOpen
-                                    ? Colors.white.withValues(alpha: 0.22)
-                                    : Colors.white.withValues(alpha: 0.16),
+                                color: (isLyricsFullyOpen && isLight)
+                                    ? Colors.black.withValues(alpha: 0.12)
+                                    : (isLyricsFullyOpen
+                                        ? Colors.white.withValues(alpha: 0.22)
+                                        : Colors.white.withValues(alpha: 0.16)),
                                 width: 1.0,
                               ),
                             ),
@@ -375,6 +363,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                               child: PlayerPillButton(
                                 tooltip: 'Lyrics timing & options',
                                 activeColor: baseShadowColor,
+                                isLight: isLight,
                                 onTap: () {
                                   showLyricSyncSheet(
                                     context,
@@ -390,10 +379,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(
+                                    Icon(
                                       Icons.tune_rounded,
                                       size: 13,
-                                      color: Colors.white,
+                                      color: isLight ? const Color(0xFF141416) : Colors.white,
                                     ),
                                     const SizedBox(width: 4.5),
                                     Text(
@@ -401,7 +390,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
-                                        color: Colors.white,
+                                        color: isLight ? const Color(0xFF141416) : Colors.white,
                                         letterSpacing: 0.2,
                                       ),
                                     ),
@@ -419,6 +408,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             isCircle: true,
                             tooltip: isLyricsFullyOpen ? 'Show album artwork' : 'Show lyrics',
                             activeColor: baseShadowColor,
+                            isLight: isLight,
                             onTap: () => PlayerArtwork.toggleLyrics(),
                             child: AnimatedSwitcher(
                               duration: const Duration(milliseconds: 90),
@@ -430,7 +420,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                 isLyricsFullyOpen ? Icons.image_rounded : Icons.lyrics_rounded,
                                 key: ValueKey(isLyricsFullyOpen),
                                 size: 16,
-                                color: Colors.white,
+                                color: isLight ? const Color(0xFF141416) : Colors.white,
                               ),
                             ),
                           ),
@@ -527,7 +517,7 @@ class PlayerSongInfo extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (isStream)
-                  IconButton(
+                  TactileIconButton(
                     icon: Icon(
                       Icons.download_rounded,
                       color: theme.colorScheme.tertiary,
@@ -536,7 +526,7 @@ class PlayerSongInfo extends StatelessWidget {
                     onPressed: () => controller.saveStreamToLibrary(song),
                   )
                 else
-                  IconButton(
+                  TactileIconButton(
                     icon: Icon(
                       Icons.sensors_rounded,
                       color: theme.colorScheme.onSurfaceVariant,
@@ -566,7 +556,7 @@ class PlayerSongInfo extends StatelessWidget {
                     ),
                   ),
                 ),
-                IconButton(
+                TactileIconButton(
                   icon: Icon(
                     isFav ? Icons.favorite : Icons.favorite_border,
                     color: isFav
@@ -705,6 +695,7 @@ class PlayerPillButton extends StatefulWidget {
   final Color activeColor;
   final bool isCircle;
   final bool isActive;
+  final bool isLight;
 
   const PlayerPillButton({
     super.key,
@@ -714,6 +705,7 @@ class PlayerPillButton extends StatefulWidget {
     this.tooltip,
     this.isCircle = false,
     this.isActive = true,
+    this.isLight = false,
   });
 
   @override
@@ -727,8 +719,28 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
   @override
   Widget build(BuildContext context) {
     final pillRadius = widget.isCircle ? BorderRadius.circular(20) : BorderRadius.circular(16);
-
     final accent = widget.activeColor;
+    final isLight = widget.isLight;
+
+    final bgColor = isLight
+        ? Colors.white.withValues(
+            alpha: _isPressed ? 0.90 : (_isHovered ? 0.82 : 0.72),
+          )
+        : accent.withValues(
+            alpha: _isPressed ? 0.36 : (_isHovered ? 0.28 : 0.22),
+          );
+
+    final borderColor = isLight
+        ? Colors.black.withValues(
+            alpha: _isHovered ? 0.22 : 0.14,
+          )
+        : accent.withValues(
+            alpha: _isHovered ? 0.55 : 0.38,
+          );
+
+    final shadowColor = isLight
+        ? Colors.black.withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.22);
 
     Widget button = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -737,6 +749,7 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
       child: GestureDetector(
         onTapDown: (_) => setState(() => _isPressed = true),
         onTapUp: (_) {
+          TactileFeedback.click();
           setState(() => _isPressed = false);
           widget.onTap();
         },
@@ -755,18 +768,14 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
             decoration: BoxDecoration(
               shape: widget.isCircle ? BoxShape.circle : BoxShape.rectangle,
               borderRadius: widget.isCircle ? null : pillRadius,
-              color: accent.withValues(
-                alpha: _isPressed ? 0.36 : (_isHovered ? 0.28 : 0.22),
-              ),
+              color: bgColor,
               border: Border.all(
-                color: accent.withValues(
-                  alpha: _isHovered ? 0.55 : 0.38,
-                ),
+                color: borderColor,
                 width: 1.0,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.22),
+                  color: shadowColor,
                   blurRadius: 6.0,
                   offset: const Offset(0, 2),
                 ),

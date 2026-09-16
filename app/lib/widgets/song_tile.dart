@@ -7,6 +7,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import 'playlist_actions.dart';
+import 'tactile_button.dart';
 
 /// One row in the library: artwork, title, meta, play button + a menu with
 /// "Add to playlist" and "Remove song".
@@ -187,6 +188,7 @@ class SongTile extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () {
+              TactileFeedback.click();
               if (isSelecting) {
                 onSelectionChanged?.call(!isSelected);
               } else {
@@ -451,21 +453,15 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      waitDuration: const Duration(milliseconds: 500),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(16),
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: Center(
-              child: Icon(icon, size: 19, color: color),
-            ),
-          ),
+    return TactileBounce(
+      onTap: onPressed,
+      tooltip: tooltip,
+      scaleDown: 0.86,
+      child: SizedBox(
+        width: 32,
+        height: 32,
+        child: Center(
+          child: Icon(icon, size: 19, color: color),
         ),
       ),
     );

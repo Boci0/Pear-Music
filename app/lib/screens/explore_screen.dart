@@ -9,12 +9,14 @@ import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_search_service.dart';
+import '../widgets/tactile_button.dart';
 import '../widgets/youtube_song_tile.dart';
 
 /// Middle section: Explore music with YouTube search, stream playback,
 /// mood/genre pills, and dynamic recommended music feeds.
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key});
+  final bool isActive;
+  const ExploreScreen({super.key, this.isActive = true});
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -65,9 +67,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadRecommendations();
-    });
+    if (widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadRecommendations();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ExploreScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      if (_recommendedResults.isEmpty && !_isLoadingRecommendations) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadRecommendations();
+        });
+      }
+    }
   }
 
   @override
@@ -268,7 +284,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   valueListenable: _searchController,
                   builder: (context, value, _) {
                     if (value.text.isEmpty) return const SizedBox.shrink();
-                    return IconButton(
+                    return TactileIconButton(
                       icon: const Icon(Icons.clear_rounded),
                       onPressed: () {
                         _searchController.clear();
@@ -290,10 +306,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Row(
               children: [
-                IconButton(
+                TactileIconButton(
                   iconSize: 20,
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
                   tooltip: 'Scroll left',
                   icon: const Icon(Icons.chevron_left_rounded),
                   onPressed: () => _scrollGenreBy(-200),
@@ -354,27 +368,31 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           itemBuilder: (context, index) {
                             final genre = _genres[index];
                             final isSelected = _selectedGenre == genre;
-                            return ChoiceChip(
-                              label: Text(genre),
-                              selected: isSelected,
-                              onSelected: (selected) {
-                                if (_genreDragDistance > 8.0) return;
-                                setState(() {
-                                  _selectedGenre = selected ? genre : null;
-                                });
-                                if (selected) {
-                                  final term =
-                                      _genreSearchQueries[genre] ?? genre;
-                                  _searchController.text = term;
-                                  _performSearch(term);
-                                } else {
-                                  _searchController.clear();
+                            return TactileBounce(
+                              scaleDown: 0.92,
+                              child: ChoiceChip(
+                                label: Text(genre),
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  if (_genreDragDistance > 8.0) return;
+                                  TactileFeedback.click();
                                   setState(() {
-                                    _results = [];
-                                    _lastQuery = '';
+                                    _selectedGenre = selected ? genre : null;
                                   });
-                                }
-                              },
+                                  if (selected) {
+                                    final term =
+                                        _genreSearchQueries[genre] ?? genre;
+                                    _searchController.text = term;
+                                    _performSearch(term);
+                                  } else {
+                                    _searchController.clear();
+                                    setState(() {
+                                      _results = [];
+                                      _lastQuery = '';
+                                    });
+                                  }
+                                },
+                              ),
                             );
                           },
                         ),
@@ -382,10 +400,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     ),
                   ),
                 ),
-                IconButton(
+                TactileIconButton(
                   iconSize: 20,
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
                   tooltip: 'Scroll right',
                   icon: const Icon(Icons.chevron_right_rounded),
                   onPressed: () => _scrollGenreBy(200),
@@ -587,15 +603,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 10),
-                                  ),
-                                  icon: const Icon(Icons.play_arrow_rounded,
-                                      size: 20),
-                                  label: const Text('Play'),
-                                  onPressed: _recommendedResults.isEmpty
+                                TactileBounce(
+                                  scaleDown: 0.94,
+                                  onTap: _recommendedResults.isEmpty
                                       ? null
                                       : () async {
                                           final queue = _recommendedResults
@@ -609,6 +619,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                                 'Explore: $_recommendationSeedLabel',
                                           );
                                         },
+                                  child: FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 10),
+                                    ),
+                                    icon: const Icon(Icons.play_arrow_rounded,
+                                        size: 20),
+                                    label: const Text('Play'),
+                                    onPressed: null, // Tap handled by TactileBounce
+                                  ),
                                 ),
                               ],
                             ),
@@ -636,7 +656,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                     ),
                                 ],
                               ),
-                              IconButton(
+                              TactileIconButton(
                                 icon: const Icon(Icons.refresh_rounded,
                                     size: 20),
                                 tooltip: 'Re-roll recommendations',

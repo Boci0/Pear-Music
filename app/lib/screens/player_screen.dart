@@ -13,6 +13,7 @@ import '../widgets/player/playback_speed_dialog.dart';
 import '../widgets/player/queue_bottom_sheet.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
 import '../widgets/player/stream_quality_info_dialog.dart';
+import '../widgets/tactile_button.dart';
 
 /// Full-screen player with seek bar, transport controls, sleep timer, and
 /// volume.
@@ -99,6 +100,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       notificationPredicate: (_) => false,
       leading: BackButton(
         onPressed: () {
+          TactileFeedback.click();
           if (_sheetController.progress > 0.001) {
             _sheetController.collapse();
           } else {
@@ -107,7 +109,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
       actions: [
-        IconButton(
+        TactileIconButton(
           tooltip: 'Diagnostics Console',
           icon: const Icon(Icons.terminal_rounded),
           onPressed: () => PlayerConsoleDialog.show(context),

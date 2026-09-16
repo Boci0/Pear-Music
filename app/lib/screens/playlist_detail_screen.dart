@@ -7,6 +7,7 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
+import '../widgets/tactile_button.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
 /// playlist order, remove a song from the playlist, rename or delete it.
@@ -61,17 +62,17 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       appBar: AppBar(
         title: Text(playlist.name),
         actions: [
-          IconButton(
+          TactileIconButton(
             tooltip: 'Export playlist (.m3u8)',
             icon: const Icon(Icons.file_upload_outlined),
             onPressed: () => controller.exportPlaylistToM3u(playlist),
           ),
-          IconButton(
+          TactileIconButton(
             tooltip: 'Rename',
             icon: const Icon(Icons.edit_outlined),
             onPressed: () => _rename(context, controller, playlist),
           ),
-          IconButton(
+          TactileIconButton(
             tooltip: 'Delete playlist',
             icon: const Icon(Icons.delete_outline),
             onPressed: () => _confirmDelete(context, controller, playlist),
@@ -118,43 +119,41 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: theme.colorScheme.onPrimary,
-                          minimumSize: const Size.fromHeight(44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        onPressed: songs.isEmpty
+                      child: TactileBounce(
+                        onTap: songs.isEmpty
                             ? null
                             : () => controller.playPlaylist(playlist),
-                        icon: Icon(
-                          Icons.play_arrow_rounded,
-                          size: 22,
-                          color: theme.colorScheme.onPrimary,
-                        ),
-                        label: Text(
-                          'Play all',
-                          style: TextStyle(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: theme.colorScheme.primary,
+                            foregroundColor: theme.colorScheme.onPrimary,
+                            minimumSize: const Size.fromHeight(44),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: songs.isEmpty
+                              ? null
+                              : () => controller.playPlaylist(playlist),
+                          icon: Icon(
+                            Icons.play_arrow_rounded,
+                            size: 22,
                             color: theme.colorScheme.onPrimary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                          ),
+                          label: Text(
+                            'Play all',
+                            style: TextStyle(
+                              color: theme.colorScheme.onPrimary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 10),
-                    IconButton.filledTonal(
-                      tooltip: 'Shuffle playlist',
-                      style: IconButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        minimumSize: const Size(44, 44),
-                      ),
-                      onPressed: songs.isEmpty
+                    TactileBounce(
+                      onTap: songs.isEmpty
                           ? null
                           : () {
                               if (!controller.player.shuffle) {
@@ -162,7 +161,24 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                               }
                               controller.playPlaylist(playlist);
                             },
-                      icon: const Icon(Icons.shuffle_rounded, size: 20),
+                      child: IconButton.filledTonal(
+                        tooltip: 'Shuffle playlist',
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          minimumSize: const Size(44, 44),
+                        ),
+                        onPressed: songs.isEmpty
+                            ? null
+                            : () {
+                                if (!controller.player.shuffle) {
+                                  controller.player.toggleShuffle();
+                                }
+                                controller.playPlaylist(playlist);
+                              },
+                        icon: const Icon(Icons.shuffle_rounded, size: 20),
+                      ),
                     ),
                   ],
                 ),
@@ -429,7 +445,10 @@ class _SongRow extends StatelessWidget {
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: onPlay,
+            onTap: () {
+              TactileFeedback.click();
+              onPlay();
+            },
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -501,7 +520,7 @@ class _SongRow extends StatelessWidget {
                               ],
                             ),
                           ),
-                          IconButton(
+                          TactileIconButton(
                             tooltip: 'Remove from playlist',
                             icon: Icon(
                               Icons.remove_circle_outline_rounded,

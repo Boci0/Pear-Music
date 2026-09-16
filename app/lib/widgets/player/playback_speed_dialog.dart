@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
+import '../tactile_button.dart';
 
 /// Modal bottom sheet allowing the user to select playback speed.
 Future<void> showPlaybackSpeedDialog(
@@ -40,12 +41,18 @@ Future<void> showPlaybackSpeedDialog(
                     ),
                   ),
                   if ((currentSpeed - 1.0).abs() > 0.01)
-                    TextButton(
-                      onPressed: () {
+                    TactileBounce(
+                      onTap: () {
                         player.setSpeed(1.0);
                         Navigator.pop(context);
                       },
-                      child: const Text('Reset'),
+                      child: TextButton(
+                        onPressed: () {
+                          player.setSpeed(1.0);
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Reset'),
+                      ),
                     ),
                 ],
               ),
@@ -72,6 +79,7 @@ Future<void> showPlaybackSpeedDialog(
                       ? Icon(Icons.check_rounded, color: scheme.primary)
                       : null,
                   onTap: () {
+                    TactileFeedback.selection();
                     player.setSpeed(s);
                     Navigator.pop(context);
                   },
@@ -102,7 +110,7 @@ class PlaybackSpeedButton extends StatelessWidget {
         final isCustomSpeed = (speed - 1.0).abs() > 0.01;
         final scheme = Theme.of(context).colorScheme;
 
-        return IconButton(
+        return TactileIconButton(
           tooltip: isCustomSpeed ? 'Playback speed: ${speed}x' : 'Playback speed',
           icon: isCustomSpeed
               ? Container(

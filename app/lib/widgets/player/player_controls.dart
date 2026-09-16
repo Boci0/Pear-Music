@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../services/player_service.dart';
+import '../tactile_button.dart';
 import 'visual_synthesizer_bar.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
@@ -48,7 +49,7 @@ class PlayerTransport extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                IconButton(
+                TactileIconButton(
                   iconSize: 32,
                   icon: Icon(
                     Icons.shuffle,
@@ -59,7 +60,7 @@ class PlayerTransport extends StatelessWidget {
                   tooltip: player.shuffle ? 'Shuffle on' : 'Shuffle',
                   onPressed: controller.toggleShuffle,
                 ),
-                IconButton(
+                TactileIconButton(
                   iconSize: 44,
                   icon: const Icon(Icons.skip_previous_rounded),
                   onPressed: () => controller.previousTrack(),
@@ -69,12 +70,12 @@ class PlayerTransport extends StatelessWidget {
                   controller: controller,
                   scheme: scheme,
                 ),
-                IconButton(
+                TactileIconButton(
                   iconSize: 44,
                   icon: const Icon(Icons.skip_next_rounded),
                   onPressed: () => controller.nextTrack(),
                 ),
-                IconButton(
+                TactileIconButton(
                   iconSize: 32,
                   icon: Icon(
                     loopIcon,
@@ -145,6 +146,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
             onTapDown: (_) => setState(() => _isPressed = true),
             onTapUp: (_) {
               setState(() => _isPressed = false);
+              TactileFeedback.click();
               widget.controller.togglePlayback();
             },
             onTapCancel: () => setState(() => _isPressed = false),

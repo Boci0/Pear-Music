@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../services/artwork_service.dart';
 import '../services/youtube_search_service.dart';
+import 'tactile_button.dart';
 
 /// A list tile representing a YouTube search result with instant streaming playback
 /// and optional background download to library.
@@ -281,7 +282,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => _streamAndPlay(context, controller),
+            onTap: () {
+              TactileFeedback.click();
+              _streamAndPlay(context, controller);
+            },
             onLongPress: () => _showOptions(context, controller),
             child: Ink(
               decoration: BoxDecoration(
@@ -383,7 +387,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                             const SizedBox(width: 4),
                           ],
                           if (isFav) ...[
-                            IconButton(
+                            TactileIconButton(
                               icon: const Icon(Icons.favorite, size: 19),
                               color: theme.colorScheme.primary,
                               tooltip: 'Favorite',
@@ -393,7 +397,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                               ),
                             ),
                           ],
-                          IconButton(
+                          TactileIconButton(
                             icon: const Icon(Icons.more_vert, size: 20),
                             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
                             tooltip: 'Song options',

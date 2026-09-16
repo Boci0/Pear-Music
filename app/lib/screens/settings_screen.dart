@@ -6,6 +6,7 @@ import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/player/player_controls.dart';
+import '../widgets/tactile_button.dart';
 
 /// Clean, decluttered settings screen organized by functional sections.
 class SettingsScreen extends StatefulWidget {
@@ -16,8 +17,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _cacheSizeLabel() {
-    final bytes = StreamCacheManager.getCacheStats().totalBytes;
+  String _cacheSizeLabel([int? bytesOverride]) {
+    final bytes = bytesOverride ?? StreamCacheManager.getCacheStats().totalBytes;
     if (bytes <= 0) return '0.0 MB used';
     final mb = bytes / (1024 * 1024);
     if (mb < 1000) {
@@ -35,13 +36,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'This removes all temporary radio and online streaming audio cache files from your device. Local songs in your library will not be deleted.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+          TactileBounce(
+            onTap: () => Navigator.pop(ctx, false),
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear cache'),
+          TactileBounce(
+            onTap: () => Navigator.pop(ctx, true),
+            child: FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Clear cache'),
+            ),
           ),
         ],
       ),
@@ -88,6 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _sectionTitle(context, 'Audio & Playback'),
           Card(
+            clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
               side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
@@ -117,6 +125,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('Equalize volume across tracks'),
                   value: identity.loudnessNormalization,
                   onChanged: (val) async {
+                    TactileFeedback.selection();
                     await identity.setLoudnessNormalization(val);
                     await controller.player.setLoudnessNormalization(val);
                   },
@@ -128,6 +137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('Keep playing recommendations when queue ends'),
                   value: controller.player.autoplay,
                   onChanged: (val) {
+                    TactileFeedback.selection();
                     controller.player.setAutoplay(val);
                   },
                 ),
@@ -138,6 +148,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('Reroll recommendation seed on track change'),
                   value: controller.player.autoRerollSeed,
                   onChanged: (val) {
+                    TactileFeedback.selection();
                     controller.player.setAutoRerollSeed(val);
                   },
                 ),
@@ -147,20 +158,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 18),
           _sectionTitle(context, 'Storage & Cache'),
           Card(
+            clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
               side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.cleaning_services_rounded),
-                  title: const Text('Clear streaming cache'),
-                  subtitle: Text(
-                    '${_cacheSizeLabel()}; tap to free temporary streams',
+                ValueListenableBuilder<int>(
+                  valueListenable: StreamCacheManager.cacheBytesNotifier,
+                  builder: (context, bytes, _) => ListTile(
+                    leading: const Icon(Icons.cleaning_services_rounded),
+                    title: const Text('Clear streaming cache'),
+                    subtitle: Text(
+                      '${_cacheSizeLabel(bytes)}; tap to free temporary streams',
+                    ),
+                    trailing: const Icon(Icons.chevron_right, size: 20),
+                    onTap: () {
+                      TactileFeedback.click();
+                      _confirmClearCache(context);
+                    },
                   ),
-                  trailing: const Icon(Icons.chevron_right, size: 20),
-                  onTap: () => _confirmClearCache(context),
                 ),
               ],
             ),
@@ -168,6 +186,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 18),
           _sectionTitle(context, 'About & Updates'),
           Card(
+            clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
               side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
@@ -198,15 +217,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                   ),
-                  onTap: () =>
-                      UpdateService.checkForUpdates(context, quiet: false),
+                  onTap: () {
+                    TactileFeedback.click();
+                    UpdateService.checkForUpdates(context, quiet: false);
+                  },
                 ),
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('About Pear Music'),
                   trailing: const Icon(Icons.chevron_right, size: 20),
-                  onTap: () => showPearMusicAboutDialog(context),
+                  onTap: () {
+                    TactileFeedback.click();
+                    showPearMusicAboutDialog(context);
+                  },
                 ),
               ],
             ),

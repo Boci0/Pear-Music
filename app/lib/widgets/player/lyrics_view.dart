@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/song.dart';
+import '../../services/artwork_palette.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 import 'lyric_sync_sheet.dart';
@@ -44,7 +45,12 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
+    ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
     _loadLyrics();
+  }
+
+  void _onPaletteUpdated() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -95,6 +101,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
+    ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     _positionSub?.cancel();
     super.dispose();
   }
@@ -177,6 +184,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final glowColor = widget.accent ?? scheme.primary;
+    final isLight = ArtworkPalette.isLightArtwork(widget.song);
 
     if (_isLoading) {
       return Center(
@@ -195,7 +203,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
             Text(
               'Finding lyrics...',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.70),
+                color: isLight
+                    ? const Color(0xFF141416).withValues(alpha: 0.75)
+                    : Colors.white.withValues(alpha: 0.70),
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
@@ -215,14 +225,18 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
               Icon(
                 Icons.lyrics_outlined,
                 size: 38,
-                color: Colors.white.withValues(alpha: 0.50),
+                color: isLight
+                    ? const Color(0xFF141416).withValues(alpha: 0.50)
+                    : Colors.white.withValues(alpha: 0.50),
               ),
               const SizedBox(height: 10),
               Text(
                 'No lyrics available',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.85),
+                  color: isLight
+                      ? const Color(0xFF141416).withValues(alpha: 0.88)
+                      : Colors.white.withValues(alpha: 0.85),
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -234,7 +248,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.50),
+                  color: isLight
+                      ? const Color(0xFF141416).withValues(alpha: 0.55)
+                      : Colors.white.withValues(alpha: 0.50),
                   fontSize: 12,
                 ),
               ),
@@ -247,7 +263,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Retry'),
                     style: TextButton.styleFrom(
-                      foregroundColor: glowColor,
+                      foregroundColor: isLight ? const Color(0xFF141416) : glowColor,
                       visualDensity: VisualDensity.compact,
                     ),
                   ),
@@ -264,7 +280,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                     icon: const Icon(Icons.search_rounded, size: 16),
                     label: const Text('Search Lyrics'),
                     style: TextButton.styleFrom(
-                      foregroundColor: glowColor,
+                      foregroundColor: isLight ? const Color(0xFF141416) : glowColor,
                       visualDensity: VisualDensity.compact,
                     ),
                   ),
@@ -276,10 +292,10 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       );
     }
 
-    return _buildPopLyricsView(glowColor);
+    return _buildPopLyricsView(glowColor, isLight: isLight);
   }
 
-  Widget _buildPopLyricsView(Color glowColor) {
+  Widget _buildPopLyricsView(Color glowColor, {required bool isLight}) {
     final active = (_activeIndex >= 0 && _activeIndex < _lyrics.length)
         ? _lyrics[_activeIndex]
         : (_lyrics.isNotEmpty ? _lyrics[0] : null);
@@ -338,17 +354,28 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                 letterSpacing: 0.2,
                 wordSpacing: 4.0,
                 height: 1.40,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    color: glowColor.withValues(alpha: 0.85),
-                    blurRadius: 8.0,
-                  ),
-                  Shadow(
-                    color: glowColor.withValues(alpha: 0.45),
-                    blurRadius: 4.0,
-                  ),
-                ],
+                color: isLight ? const Color(0xFF141416) : Colors.white,
+                shadows: isLight
+                    ? [
+                        Shadow(
+                          color: Colors.white.withValues(alpha: 0.90),
+                          blurRadius: 8.0,
+                        ),
+                        Shadow(
+                          color: glowColor.withValues(alpha: 0.40),
+                          blurRadius: 4.0,
+                        ),
+                      ]
+                    : [
+                        Shadow(
+                          color: glowColor.withValues(alpha: 0.85),
+                          blurRadius: 8.0,
+                        ),
+                        Shadow(
+                          color: glowColor.withValues(alpha: 0.45),
+                          blurRadius: 4.0,
+                        ),
+                      ],
               ),
             ),
           ),

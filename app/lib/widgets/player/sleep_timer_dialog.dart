@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
+import '../tactile_button.dart';
 
 /// Modal dialog allowing the user to select or cancel a sleep timer.
 Future<void> showSleepTimerDialog(
@@ -143,7 +144,10 @@ Widget _timerTile(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     leading: const Icon(Icons.timer_outlined, size: 20),
     title: Text(title),
-    onTap: onTap,
+    onTap: () {
+      TactileFeedback.selection();
+      onTap();
+    },
   );
 }
 
@@ -210,7 +214,7 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
       }
     }
 
-    return IconButton(
+    return TactileIconButton(
       tooltip: isActive ? 'Sleep timer: $label' : 'Set sleep timer',
       icon: isActive
           ? Container(

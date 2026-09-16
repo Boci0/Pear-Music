@@ -9,6 +9,7 @@ import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
+import '../widgets/tactile_button.dart';
 import 'explore_screen.dart';
 import 'home_screen.dart';
 import 'playlists_screen.dart';
@@ -27,7 +28,7 @@ class _HomeShellState extends State<HomeShell> {
   AppLifecycleListener? _lifecycleListener;
   final GlobalKey<NavigatorState> _playlistsNavKey = GlobalKey<NavigatorState>();
 
-  late final List<Widget> _screens = [
+  List<Widget> get _screens => [
     const HomeScreen(),
     Navigator(
       key: _playlistsNavKey,
@@ -35,7 +36,7 @@ class _HomeShellState extends State<HomeShell> {
         builder: (_) => const PlaylistsScreen(),
       ),
     ),
-    const ExploreScreen(),
+    ExploreScreen(isActive: _index == 2),
     const SettingsScreen(),
   ];
 
@@ -274,6 +275,7 @@ class _NavBarItemState extends State<_NavBarItem> {
           onTapDown: (_) => setState(() => _isPressed = true),
           onTapUp: (_) {
             setState(() => _isPressed = false);
+            TactileFeedback.click();
             widget.onTap();
           },
           onTapCancel: () => setState(() => _isPressed = false),

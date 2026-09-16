@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/song.dart';
 import '../../services/player_service.dart';
+import '../tactile_button.dart';
 
 /// Top bar button displaying a simple info icon next to the sleep timer.
 class StreamQualityInfoButton extends StatelessWidget {
@@ -16,7 +17,7 @@ class StreamQualityInfoButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
+    return TactileIconButton(
       tooltip: 'Track Info',
       icon: const Icon(Icons.info_outline_rounded),
       onPressed: () => StreamQualityInfoDialog.show(context),

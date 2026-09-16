@@ -9,8 +9,8 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
-import '../services/youtube_service.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/tactile_button.dart';
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
@@ -295,12 +295,14 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 children: [
                   _FilterPill(
+                    key: const ValueKey('pill_all'),
                     label: 'All (${controller.songs.length})',
                     isSelected: !_showOnlyFavorites,
                     onTap: () => setState(() => _showOnlyFavorites = false),
                   ),
                   const SizedBox(width: 8),
                   _FilterPill(
+                    key: const ValueKey('pill_favorites'),
                     icon: _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
                     label: 'Favorites (${controller.favoriteSongs.length})',
                     isSelected: _showOnlyFavorites,
@@ -308,6 +310,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
                   _FilterPill(
+                    key: const ValueKey('pill_sort'),
                     icon: Icons.sort_rounded,
                     label: _sortLabel(controller.sortOption),
                     isSelected: false,
@@ -315,6 +318,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
                   _FilterPill(
+                    key: const ValueKey('pill_select'),
                     icon: Icons.checklist_rounded,
                     label: _isSelecting ? 'Done' : 'Select',
                     isSelected: _isSelecting,
@@ -593,6 +597,7 @@ class _FilterPill extends StatefulWidget {
   final VoidCallback onTap;
 
   const _FilterPill({
+    super.key,
     required this.label,
     this.icon,
     required this.isSelected,
@@ -605,79 +610,72 @@ class _FilterPill extends StatefulWidget {
 
 class _FilterPillState extends State<_FilterPill> {
   bool _isHovered = false;
-  bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
 
-    final double scale = _isPressed
-        ? 0.93
-        : (_isHovered ? 1.05 : 1.0);
+    final bgColor = widget.isSelected
+        ? primary.withValues(alpha: _isHovered ? 0.26 : 0.18)
+        : (_isHovered
+            ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
+            : theme.colorScheme.surfaceContainer);
+
+    final borderColor = widget.isSelected
+        ? primary.withValues(alpha: _isHovered ? 0.55 : 0.35)
+        : (_isHovered
+            ? Colors.white.withValues(alpha: 0.14)
+            : Colors.white.withValues(alpha: 0.07));
+
+    final textColor = widget.isSelected
+        ? primary
+        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.85);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() {
-        _isHovered = false;
-        _isPressed = false;
-      }),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
+      onEnter: (_) {
+        if (!_isHovered) setState(() => _isHovered = true);
+      },
+      onExit: (_) {
+        if (_isHovered) setState(() => _isHovered = false);
+      },
+      child: TactileBounce(
+        scaleDown: 0.95,
+        duration: const Duration(milliseconds: 80),
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: scale,
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: widget.isSelected
-                  ? primary.withValues(alpha: _isHovered ? 0.28 : 0.20)
-                  : (_isHovered
-                      ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)
-                      : theme.colorScheme.surfaceContainer),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: widget.isSelected
-                    ? primary.withValues(alpha: _isHovered ? 0.65 : 0.40)
-                    : (_isHovered
-                        ? Colors.white.withValues(alpha: 0.15)
-                        : Colors.white.withValues(alpha: 0.07)),
-                width: 1,
-              ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 80),
+          curve: Curves.easeOutQuad,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: borderColor,
+              width: 1,
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.icon != null) ...[
-                  Icon(
-                    widget.icon,
-                    size: 14,
-                    color: widget.isSelected
-                        ? primary
-                        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.8),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  widget.label,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
-                    color: widget.isSelected
-                        ? primary
-                        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.85),
-                    letterSpacing: -0.1,
-                  ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.icon != null) ...[
+                Icon(
+                  widget.icon,
+                  size: 14,
+                  color: textColor,
                 ),
+                const SizedBox(width: 6),
               ],
-            ),
+              Text(
+                widget.label,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                  color: textColor,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -720,6 +718,7 @@ void _showSortSheet(BuildContext context, AppController controller) {
                   ? Icon(Icons.check_rounded, color: primary)
                   : null,
               onTap: () {
+                TactileFeedback.selection();
                 controller.setSortOption(SortOption.dateAdded);
                 Navigator.pop(ctx);
               },
@@ -734,6 +733,7 @@ void _showSortSheet(BuildContext context, AppController controller) {
                   ? Icon(Icons.check_rounded, color: primary)
                   : null,
               onTap: () {
+                TactileFeedback.selection();
                 controller.setSortOption(SortOption.title);
                 Navigator.pop(ctx);
               },
@@ -748,6 +748,7 @@ void _showSortSheet(BuildContext context, AppController controller) {
                   ? Icon(Icons.check_rounded, color: primary)
                   : null,
               onTap: () {
+                TactileFeedback.selection();
                 controller.setSortOption(SortOption.size);
                 Navigator.pop(ctx);
               },
@@ -818,16 +819,20 @@ class _EmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 22),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+            TactileBounce(
+              onTap: onAdd,
+              scaleDown: 0.94,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                onPressed: null,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add music'),
               ),
-              onPressed: onAdd,
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add music'),
             ),
           ],
         ),

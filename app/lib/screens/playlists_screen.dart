@@ -9,6 +9,7 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
+import '../widgets/tactile_button.dart';
 import 'playlist_detail_screen.dart';
 
 /// Lists the user's playlists with create / play / rename / delete.
@@ -40,12 +41,12 @@ class PlaylistsScreen extends StatelessWidget {
           ],
         ),
         actions: [
-          IconButton(
+          TactileIconButton(
             tooltip: 'Import playlist (.m3u8)',
             icon: const Icon(Icons.file_download_outlined),
             onPressed: () => controller.importPlaylistFromM3u(),
           ),
-          IconButton(
+          TactileIconButton(
             tooltip: 'New playlist',
             icon: const Icon(Icons.add),
             onPressed: () => _createPlaylist(context, controller),
@@ -64,15 +65,30 @@ class PlaylistsScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
               itemExtent: 72.0,
               itemCount: playlists.length,
-              itemBuilder: (context, i) => _PlaylistTile(
-                key: ValueKey(playlists[i].id),
-                playlist: playlists[i],
-                isActive: currentSongId != null &&
-                    playlists[i].songIds.contains(currentSongId),
-                onPlay: () => controller.playPlaylist(playlists[i]),
-                onRename: () => _renamePlaylist(context, controller, playlists[i]),
-                onDelete: () => _confirmDelete(context, controller, playlists[i]),
-              ),
+              itemBuilder: (context, i) {
+                final pl = playlists[i];
+                final isCurrentPlaylist = controller.player.queueSourceId == 'playlist:${pl.id}' ||
+                    (currentSongId != null && pl.songIds.contains(currentSongId));
+                final isPlayingThisPlaylist = isCurrentPlaylist && controller.player.playing;
+
+                return _PlaylistTile(
+                  key: ValueKey(pl.id),
+                  playlist: pl,
+                  isActive: isCurrentPlaylist,
+                  isPlaying: isPlayingThisPlaylist,
+                  onPlay: () {
+                    if (isPlayingThisPlaylist) {
+                      controller.player.pause();
+                    } else if (isCurrentPlaylist && controller.player.currentSong != null) {
+                      controller.player.resume();
+                    } else {
+                      controller.playPlaylist(pl);
+                    }
+                  },
+                  onRename: () => _renamePlaylist(context, controller, pl),
+                  onDelete: () => _confirmDelete(context, controller, pl),
+                );
+              },
             ),
     );
   }
@@ -194,6 +210,7 @@ class PlaylistsScreen extends StatelessWidget {
 class _PlaylistTile extends StatelessWidget {
   final Playlist playlist;
   final bool isActive;
+  final bool isPlaying;
   final VoidCallback onPlay;
   final VoidCallback onRename;
   final VoidCallback onDelete;
@@ -202,6 +219,7 @@ class _PlaylistTile extends StatelessWidget {
     super.key,
     required this.playlist,
     required this.isActive,
+    this.isPlaying = false,
     required this.onPlay,
     required this.onRename,
     required this.onDelete,
@@ -232,11 +250,14 @@ class _PlaylistTile extends StatelessWidget {
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: () => Navigator.of(context).push(
-              PearPageRoute(
-                builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
-              ),
-            ),
+            onTap: () {
+              TactileFeedback.click();
+              Navigator.of(context).push(
+                PearPageRoute(
+                  builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                ),
+              );
+            },
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
@@ -324,10 +345,10 @@ class _PlaylistTile extends StatelessWidget {
                               ],
                             ),
                           ),
-                          IconButton(
-                            tooltip: isActive ? 'Playing' : 'Play all',
+                          TactileIconButton(
+                            tooltip: isPlaying ? 'Pause' : (isActive ? 'Resume' : 'Play all'),
                             icon: Icon(
-                              isActive
+                              isPlaying
                                   ? Icons.pause_circle_filled_rounded
                                   : Icons.play_circle_fill_rounded,
                               color: theme.colorScheme.primary,
@@ -335,7 +356,7 @@ class _PlaylistTile extends StatelessWidget {
                             ),
                             onPressed: onPlay,
                           ),
-                          IconButton(
+                          TactileIconButton(
                             icon: Icon(
                               Icons.more_vert_rounded,
                               size: 20,
@@ -631,43 +652,49 @@ class _EmptyPlaylists extends StatelessWidget {
               runSpacing: 10,
               alignment: WrapAlignment.center,
               children: [
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: theme.colorScheme.onPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                TactileBounce(
+                  onTap: onCreate,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  ),
-                  onPressed: onCreate,
-                  icon: Icon(Icons.add_rounded, size: 20, color: theme.colorScheme.onPrimary),
-                  label: Text(
-                    'New playlist',
-                    style: TextStyle(
-                      color: theme.colorScheme.onPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                    onPressed: onCreate,
+                    icon: Icon(Icons.add_rounded, size: 20, color: theme.colorScheme.onPrimary),
+                    label: Text(
+                      'New playlist',
+                      style: TextStyle(
+                        color: theme.colorScheme.onPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
-                FilledButton.tonalIcon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    foregroundColor: theme.colorScheme.onSurface,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                TactileBounce(
+                  onTap: onImport,
+                  child: FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                      foregroundColor: theme.colorScheme.onSurface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  ),
-                  onPressed: onImport,
-                  icon: Icon(Icons.file_download_outlined, size: 20, color: theme.colorScheme.onSurface),
-                  label: Text(
-                    'Import playlist (.m3u8)',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                    onPressed: onImport,
+                    icon: Icon(Icons.file_download_outlined, size: 20, color: theme.colorScheme.onSurface),
+                    label: Text(
+                      'Import playlist (.m3u8)',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),

@@ -8,6 +8,7 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 import 'pear_page_route.dart';
+import 'tactile_button.dart';
 
 /// Compact now-playing bar shown above the navigation bar.
 class PlayerBar extends StatelessWidget {
@@ -120,39 +121,43 @@ class PlayerBar extends StatelessWidget {
                             ],
                           ),
                         ),
-                        IconButton(
+                        TactileIconButton(
                           icon: Icon(Icons.skip_previous, color: control),
+                          iconSize: 24,
+                          tooltip: 'Previous',
                           onPressed: () => controller.previousTrack(),
                         ),
-                        SizedBox(
-                          width: 36,
-                          height: 36,
-                          child: IconButton(
-                            padding: EdgeInsets.zero,
-                            iconSize: 36,
-                            icon: player.isBuffering
-                                ? Center(
-                                    child: SizedBox(
-                                      width: 28,
-                                      height: 28,
+                        TactileBounce(
+                          onTap: () => controller.togglePlayback(),
+                          scaleDown: 0.88,
+                          tooltip: player.playing ? 'Pause' : 'Play',
+                          child: SizedBox(
+                            width: 38,
+                            height: 38,
+                            child: Center(
+                              child: player.isBuffering
+                                  ? SizedBox(
+                                      width: 26,
+                                      height: 26,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2.5,
                                         color: control,
                                       ),
+                                    )
+                                  : Icon(
+                                      player.playing
+                                          ? Icons.pause_circle_filled
+                                          : Icons.play_circle_filled,
+                                      size: 38,
+                                      color: control,
                                     ),
-                                  )
-                                : Icon(
-                                    player.playing
-                                        ? Icons.pause_circle_filled
-                                        : Icons.play_circle_filled,
-                                    size: 36,
-                                    color: control,
-                                  ),
-                            onPressed: () => controller.togglePlayback(),
+                            ),
                           ),
                         ),
-                        IconButton(
+                        TactileIconButton(
                           icon: Icon(Icons.skip_next, color: control),
+                          iconSize: 24,
+                          tooltip: 'Next',
                           onPressed: () => controller.nextTrack(),
                         ),
                       ],
@@ -168,6 +173,7 @@ class PlayerBar extends StatelessWidget {
   }
 
   void _openPlayer(BuildContext context) {
+    TactileFeedback.click();
     Navigator.of(context).push(
       PearPageRoute(
         builder: (_) => const PlayerScreen(),

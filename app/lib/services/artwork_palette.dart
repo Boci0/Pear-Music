@@ -35,6 +35,8 @@ class ArtworkPalette {
 
   static final LinkedHashMap<String, Color> _resolvedColors =
       LinkedHashMap<String, Color>();
+  static final LinkedHashMap<String, double> _resolvedLuminance =
+      LinkedHashMap<String, double>();
 
   /// Aggressively compacts in-memory decoded byte caches during backgrounding.
   static void compactMemory() {
@@ -48,6 +50,21 @@ class ArtworkPalette {
 
   /// Checks whether a song's dominant color has been successfully resolved from its artwork.
   static bool hasResolved(Song song) => _resolvedColors.containsKey(song.id);
+
+  /// Checks whether an artwork is considered light based on average pixel luminance
+  /// or dominant color luminance (threshold > 0.46).
+  static bool isLightArtwork(Song? song) {
+    if (song == null) return false;
+    final lum = _resolvedLuminance[song.id];
+    if (lum != null) {
+      return lum > 0.46;
+    }
+    final dominant = _resolvedColors[song.id];
+    if (dominant != null) {
+      return dominant.computeLuminance() > 0.46;
+    }
+    return false;
+  }
 
   /// Last resolved accent colour. Kept across cache clears so the UI never
   /// flashes back to fallback while colours re-resolve.
@@ -81,10 +98,16 @@ class ArtworkPalette {
       return Future.value(fallbackColor ?? _lastAccent ?? fallback);
     }
 
-    final future = _extract(art).then((color) {
+    final future = _extract(art).then((result) {
+      final color = result.$1;
+      final lum = result.$2;
       if (color != null && color != fallback) {
         _resolvedColors[id] = color;
         _trim(_resolvedColors, _maxColorEntries);
+        if (lum != null) {
+          _resolvedLuminance[id] = lum;
+          _trim(_resolvedLuminance, _maxColorEntries);
+        }
         _lastAccent = color;
         paletteNotifier.value++;
         return color;
@@ -200,9 +223,9 @@ class ArtworkPalette {
     }
   }
 
-  static final Map<String, Future<Color?>> _inFlightHttpExtracts = {};
+  static final Map<String, Future<(Color?, double?)>> _inFlightHttpExtracts = {};
 
-  static Future<Color?> _extract(String art) async {
+  static Future<(Color?, double?)> _extract(String art) async {
     try {
       if (art.startsWith('http')) {
         final existing = _inFlightHttpExtracts[art];
@@ -215,10 +238,10 @@ class ArtworkPalette {
           _inFlightHttpExtracts.remove(art);
         }
       } else {
-        return await compute(computeDominant, art);
+        return await compute(computePaletteData, art);
       }
     } catch (_) {
-      return null;
+      return (null, null);
     }
   }
 
@@ -257,24 +280,24 @@ class ArtworkPalette {
     return null;
   }
 
-  static Future<Color?> _fetchAndComputeDominant(String url) async {
+  static Future<(Color?, double?)> _fetchAndComputeDominant(String url) async {
     // 1. Try micro-thumbnail first (1-3 KB) for instantaneous download on slow internet
     final microUrl = microThumbnailUrl(url);
     final microBytes = await _downloadBytes(microUrl);
     if (microBytes != null && microBytes.isNotEmpty) {
-      final color = await compute(computeDominantFromBytes, microBytes);
-      if (color != fallback) return color;
+      final res = await compute(computePaletteDataFromBytes, microBytes);
+      if (res.$1 != fallback) return res;
     }
 
     // 2. Fallback to original URL if micro-thumbnail returned fallback or failed
     if (microUrl != url) {
       final originalBytes = await _downloadBytes(url);
       if (originalBytes != null && originalBytes.isNotEmpty) {
-        final color = await compute(computeDominantFromBytes, originalBytes);
-        if (color != fallback) return color;
+        final res = await compute(computePaletteDataFromBytes, originalBytes);
+        if (res.$1 != fallback) return res;
       }
     }
-    return null;
+    return (null, null);
   }
 
   /// A softened, readable accent for controls (play button, sliders, active
@@ -313,33 +336,43 @@ class ArtworkPalette {
   static Color wash(Color accent, {double lightness = 0.10}) =>
       HSLColor.fromColor(accent).withLightness(lightness).toColor();
 
-  /// Runs in a background isolate: decodes, downsamples, and picks the most
-  /// "vibrant" frequent colour — penalising near-black / near-white / gray
-  /// pixels so a plain background never wins over the actual art.
-  static Color computeDominant(String base64Art) {
+  /// Computes both dominant color and overall relative luminance from a base64 string.
+  static (Color, double) computePaletteData(String base64Art) {
     try {
       final bytes = base64Decode(base64Art);
-      return computeDominantFromBytes(Uint8List.fromList(bytes));
+      return computePaletteDataFromBytes(Uint8List.fromList(bytes));
     } catch (_) {
-      return fallback;
+      return (fallback, 0.0);
     }
   }
 
-  /// Runs in a background isolate on raw image bytes.
-  static Color computeDominantFromBytes(Uint8List bytes) {
+  /// Runs in a background isolate: decodes, downsamples, and picks the most
+  /// "vibrant" frequent colour while calculating average relative luminance.
+  static (Color, double) computePaletteDataFromBytes(Uint8List bytes) {
     try {
       final decoded = img.decodeImage(bytes);
-      if (decoded == null) return fallback;
+      if (decoded == null) return (fallback, 0.0);
       final small = img.copyResize(decoded, width: 32, height: 32);
 
       final counts = <int, int>{};
+      double totalLum = 0.0;
+      int pixelCount = 0;
+
       for (final p in small) {
-        final r = (p.r.toInt() ~/ 16) * 16;
-        final g = (p.g.toInt() ~/ 16) * 16;
-        final b = (p.b.toInt() ~/ 16) * 16;
-        final key = (r << 16) | (g << 8) | b;
+        final r = p.r.toInt();
+        final g = p.g.toInt();
+        final b = p.b.toInt();
+        totalLum += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+        pixelCount++;
+
+        final r16 = (r ~/ 16) * 16;
+        final g16 = (g ~/ 16) * 16;
+        final b16 = (b ~/ 16) * 16;
+        final key = (r16 << 16) | (g16 << 8) | b16;
         counts[key] = (counts[key] ?? 0) + 1;
       }
+
+      final avgLum = pixelCount > 0 ? (totalLum / pixelCount) : 0.0;
 
       int? best;
       double bestScore = -1;
@@ -361,11 +394,20 @@ class ArtworkPalette {
         }
       }
 
-      if (best == null) return fallback;
+      if (best == null) return (fallback, avgLum);
       final raw = Color(0xFF000000 | best);
-      return readableAccent(raw);
+      return (readableAccent(raw), avgLum);
     } catch (_) {
-      return fallback;
+      return (fallback, 0.0);
     }
   }
+
+  /// Runs in a background isolate: decodes, downsamples, and picks the most
+  /// vibrant frequent colour.
+  static Color computeDominant(String base64Art) =>
+      computePaletteData(base64Art).$1;
+
+  /// Runs in a background isolate on raw image bytes.
+  static Color computeDominantFromBytes(Uint8List bytes) =>
+      computePaletteDataFromBytes(bytes).$1;
 }

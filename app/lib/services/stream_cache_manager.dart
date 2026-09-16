@@ -81,6 +81,14 @@ class StreamCacheManager {
   static bool get isFastFailMode => _consecutiveFailures >= 3;
   static int _cachedTotalBytes = 0;
 
+  /// Live notifier broadcasting current cache bytes for immediate reactive UI binding.
+  static final ValueNotifier<int> cacheBytesNotifier = ValueNotifier<int>(0);
+
+  static void _setCachedTotalBytes(int bytes) {
+    _cachedTotalBytes = bytes;
+    cacheBytesNotifier.value = bytes;
+  }
+
   /// Returns live O(1) stats of cache size, track count, and active downloads.
   static ({int trackCount, int totalBytes, int inFlightCount}) getCacheStats() {
     return (
@@ -92,15 +100,20 @@ class StreamCacheManager {
 
   /// Pre-scans existing cache files on app launch for instantaneous lookup.
   static Future<void> warmUp() async {
+    final startBytes = _cachedTotalBytes;
     try {
       final dir = await getCacheDirectory();
       final files = await dir.list().where((e) => e is File).cast<File>().toList();
       int total = 0;
+      final now = DateTime.now();
       for (final f in files) {
         final name = p.basename(f.path);
         if (name.contains('.tmp.') || name.contains('.part.') || name.startsWith('tmp_')) {
           try {
-            await f.delete();
+            final stat = await f.stat();
+            if (now.difference(stat.modified) > const Duration(minutes: 2)) {
+              await f.delete();
+            }
           } catch (_) {}
           continue;
         }
@@ -112,7 +125,8 @@ class StreamCacheManager {
           total += len;
         }
       }
-      _cachedTotalBytes = total;
+      final concurrentDelta = _cachedTotalBytes - startBytes;
+      _setCachedTotalBytes(total + (concurrentDelta > 0 ? concurrentDelta : 0));
       DebugLog.write('[cache] Warmed up ${_cachedVideoIds.length} tracks from disk cache');
       unawaited(enforceCacheQuota());
     } catch (e) {
@@ -423,7 +437,7 @@ class StreamCacheManager {
           if (cached != null) {
             final len = await cached.length();
             _cachedVideoIds.add(videoId);
-            _cachedTotalBytes += len;
+            _setCachedTotalBytes(_cachedTotalBytes + len);
             unawaited(enforceCacheQuota());
             stopwatch.stop();
             DebugLog.write(
@@ -519,7 +533,7 @@ class StreamCacheManager {
         final cached = await getCachedFile(videoId);
         if (cached != null) {
           final len = await cached.length();
-          _cachedTotalBytes += len;
+          _setCachedTotalBytes(_cachedTotalBytes + len);
           unawaited(enforceCacheQuota());
           stopwatch.stop();
           DebugLog.write(
@@ -581,7 +595,7 @@ class StreamCacheManager {
       }
 
       if (totalSize <= maxCacheBytes && fileStats.length <= maxTrackCount) {
-        _cachedTotalBytes = totalSize;
+        _setCachedTotalBytes(totalSize);
         return;
       }
 
@@ -609,7 +623,7 @@ class StreamCacheManager {
           DebugLog.write('[cache] Evicted old unqueued track: $vId (${(size / 1024).round()} KB)');
         } catch (_) {}
       }
-      _cachedTotalBytes = totalSize;
+      _setCachedTotalBytes(totalSize);
     } catch (e) {
       debugPrint('[StreamCacheManager] Quota enforcement error: $e');
     }
@@ -901,7 +915,7 @@ class StreamCacheManager {
       _cachedVideoIds.clear();
       _streamUrlMemoryCache.clear();
       _streamUrlPrefetchCache.clear();
-      _cachedTotalBytes = 0;
+      _setCachedTotalBytes(0);
       DebugLog.write('[stream] Cleared all radio and streaming cache files');
     } catch (e) {
       DebugLog.write('[stream] clearCache error: $e');
