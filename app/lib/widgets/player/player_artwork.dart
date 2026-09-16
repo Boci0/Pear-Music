@@ -272,12 +272,12 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        const Color(0xB2000000), // ~70% black
+                        const Color(0x54000000), // ~33% black
                         Color.alphaBlend(
-                          baseShadowColor.withValues(alpha: 0.20),
-                          const Color(0xA6000000), // ~65% black
+                          baseShadowColor.withValues(alpha: 0.18),
+                          const Color(0x48000000), // ~28% black
                         ),
-                        const Color(0xC2000000), // ~76% black
+                        const Color(0x60000000), // ~38% black
                       ],
                       stops: const [0.0, 0.50, 1.0],
                     ),

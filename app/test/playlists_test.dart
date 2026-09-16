@@ -15,7 +15,18 @@ void main() {
   });
 
   tearDown(() async {
-    await tempDir.delete(recursive: true);
+    for (var i = 0; i < 3; i++) {
+      try {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+        break;
+      } catch (_) {
+        if (i < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }
+    }
   });
 
   /// Helper: add a fake "audio" file to the library and return its song.

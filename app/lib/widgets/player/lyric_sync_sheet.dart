@@ -287,65 +287,70 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Earlier',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white.withValues(alpha: 0.50),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Earlier',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white.withValues(alpha: 0.50),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildOffsetButton('-0.5s', () => _adjustOffset(-500)),
-                                  const SizedBox(width: 6),
-                                  _buildOffsetButton('-0.1s', () => _adjustOffset(-100)),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton(
-                            onPressed: _currentOffsetMs == 0 ? null : _resetOffset,
-                            style: OutlinedButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildOffsetButton('-0.5s', () => _adjustOffset(-500)),
+                                    const SizedBox(width: 5),
+                                    _buildOffsetButton('-0.1s', () => _adjustOffset(-100)),
+                                  ],
+                                ),
+                              ],
                             ),
-                            child: Text('Reset', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
-                          ),
-                          const SizedBox(width: 8),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Later',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white.withValues(alpha: 0.50),
+                            const SizedBox(width: 6),
+                            OutlinedButton(
+                              onPressed: _currentOffsetMs == 0 ? null : _resetOffset,
+                              style: OutlinedButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                minimumSize: const Size(0, 32),
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                              ),
+                              child: Text('Reset', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
+                            ),
+                            const SizedBox(width: 6),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Later',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white.withValues(alpha: 0.50),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildOffsetButton('+0.1s', () => _adjustOffset(100)),
-                                  const SizedBox(width: 6),
-                                  _buildOffsetButton('+0.5s', () => _adjustOffset(500)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildOffsetButton('+0.1s', () => _adjustOffset(100)),
+                                    const SizedBox(width: 5),
+                                    _buildOffsetButton('+0.5s', () => _adjustOffset(500)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -690,6 +695,8 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
       onPressed: onPressed,
       style: FilledButton.styleFrom(
         visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        minimumSize: const Size(0, 32),
         padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
       child: Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),

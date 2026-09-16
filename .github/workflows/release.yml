@@ -11,6 +11,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +47,7 @@ jobs:
 
   build-android:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 

@@ -120,12 +120,45 @@ class LibraryService extends ChangeNotifier {
       }
     } catch (_) {}
 
+    final missingSongIds = <String>[];
     for (final s in _songs) {
       if (existingFileNames.contains(s.fileName)) {
         _filesOnDisk.add(s.id);
+      } else {
+        missingSongIds.add(s.id);
       }
     }
+
+    if (missingSongIds.isNotEmpty) {
+      for (final id in missingSongIds) {
+        final s = findById(id);
+        if (s != null) {
+          _songs.remove(s);
+          _unindexSong(s);
+          _filesOnDisk.remove(id);
+          _stripSongFromPlaylists(id);
+        }
+      }
+      unawaited(_saveIndex());
+      unawaited(_savePlaylists());
+    }
     notifyListeners();
+  }
+
+  /// Scans for and removes any songs whose audio files have been deleted from disk outside the app.
+  Future<int> pruneMissingSongs() async {
+    if (_libraryDir == null || !await _libraryDir!.exists()) return 0;
+    final missingIds = <String>[];
+    for (final song in _songs) {
+      final f = songFile(song);
+      if (!await f.exists() || await f.length() == 0) {
+        missingIds.add(song.id);
+      }
+    }
+    if (missingIds.isNotEmpty) {
+      await removeSongs(missingIds);
+    }
+    return missingIds.length;
   }
 
   Directory get libraryDir => _libraryDir!;

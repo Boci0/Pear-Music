@@ -305,7 +305,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: AnimatedSwitcher(
-          duration: isScrubbing ? Duration.zero : const Duration(milliseconds: 120),
+          duration: isScrubbing ? Duration.zero : const Duration(milliseconds: 140),
+          switchInCurve: const Interval(0.35, 1.0, curve: Curves.easeOutQuad),
+          switchOutCurve: const Interval(0.65, 1.0, curve: Curves.easeInQuad),
           layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
             return Stack(
               alignment: Alignment.center,
@@ -317,34 +319,10 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
           },
           transitionBuilder: (Widget child, Animation<double> animation) {
             if (isScrubbing) return child;
-            final isIncoming =
-                child.key == ValueKey('pop_lyric_${widget.song.id}_$_activeIndex');
-
-            if (isIncoming) {
-              return FadeTransition(
-                opacity: CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutQuad,
-                ),
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.97, end: 1.0).animate(
-                    CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutQuad,
-                    ),
-                  ),
-                  child: child,
-                ),
-              );
-            } else {
-              return FadeTransition(
-                opacity: CurvedAnimation(
-                  parent: animation,
-                  curve: const Interval(0.0, 0.70, curve: Curves.easeInQuad),
-                ),
-                child: child,
-              );
-            }
+            return FadeTransition(
+              opacity: animation,
+              child: child,
+            );
           },
           child: Container(
             key: ValueKey('pop_lyric_${widget.song.id}_$_activeIndex'),

@@ -4,15 +4,18 @@ import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show PaintingBinding;
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song.dart';
+import 'artwork_palette.dart';
 import 'artwork_service.dart';
 import 'debug_log.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
+import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
 import 'recommendation_service.dart';
 import 'session_diagnostics.dart';
@@ -84,6 +87,18 @@ class PlayerService extends ChangeNotifier {
   bool _sleepTimerEndOfQueue = false;
   double _speed = 1.0;
   double get speed => _speed;
+
+  int _tracksPlayedSinceCompaction = 0;
+
+  void _maybeCompactMemory() {
+    _tracksPlayedSinceCompaction++;
+    if (_tracksPlayedSinceCompaction >= 8) {
+      _tracksPlayedSinceCompaction = 0;
+      ArtworkPalette.compactMemory();
+      LyricsService.compactMemory();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    }
+  }
 
   final List<StreamSubscription> _subs = [];
   final PearAudioHandler? audioHandler;
@@ -1150,24 +1165,32 @@ class PlayerService extends ChangeNotifier {
         _bufferingVideoId = null;
         DebugLog.write('[player] Playing LOCAL file (${_lastTrackLoadMs}ms): ${song.title}');
         final file = library.songFile(song);
-        if (!await file.exists()) {
-          DebugLog.write('[player] File missing on disk for ${song.title} (${file.path})');
+        if (!await file.exists() || await file.length() == 0) {
+          DebugLog.write('[player] File missing or empty on disk for ${song.title} (${file.path}). Pruning ghost song.');
+          unawaited(library.removeSong(song.id));
           _pendingNaturalAdvance = false;
           _isLoadingTrack = false;
           _isAdvancing = false;
-          notifyListeners();
-          if (_queue.length > 1) {
-            unawaited(next());
-          }
+          removeSongsFromQueue({song.id});
           return;
         }
         _currentLoadedFile = file;
         _currentLoadedFileSize = await file.length();
         _currentLoadedFormat = p.extension(file.path).replaceFirst('.', '');
         notifyListeners();
-        await _player.setAudioSource(
-          AudioSource.file(file.path),
-        );
+        try {
+          await _player.setAudioSource(
+            AudioSource.file(file.path),
+          );
+        } catch (e) {
+          DebugLog.write('[player] Corrupted audio file for ${song.title} ($e). Pruning corrupted entry.');
+          unawaited(library.removeSong(song.id));
+          _pendingNaturalAdvance = false;
+          _isLoadingTrack = false;
+          _isAdvancing = false;
+          removeSongsFromQueue({song.id});
+          return;
+        }
       }
 
       if (token != _playRequestToken) {
@@ -1182,6 +1205,7 @@ class PlayerService extends ChangeNotifier {
       final targetVol = _userVolume.clamp(0.0, 1.0);
       await _player.setVolume(0.0);
       unawaited(_player.play());
+      _maybeCompactMemory();
       if (targetVol > 0.01) {
         unawaited(_fadeVolume(targetVol, duration: const Duration(milliseconds: 80)));
       }
