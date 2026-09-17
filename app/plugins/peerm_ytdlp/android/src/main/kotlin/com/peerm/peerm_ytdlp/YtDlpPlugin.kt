@@ -708,7 +708,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-warnings")
                     req.addOption("--force-ipv4")
                     req.addOption("--no-check-certificates")
-                    req.addOption("--extractor-args", "youtube:skip=hls,translated_subs")
+                    req.addOption("--extractor-args", "youtube:skip=webpage,authcheck,translated_subs,hls")
                     req.addOption("--concurrent-fragments", "2")
                     req.addOption("--http-chunk-size", "5M")
                     req.addOption("--buffer-size", "64k")
@@ -732,7 +732,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     }
                 }
             } catch (e: Exception) {
-                mainHandler.post { result.error("download_failed", e.message, null) }
+                if (currentAudioProcessId != processId) {
+                    mainHandler.post { result.error("cancelled", "Audio download was cancelled", null) }
+                } else {
+                    mainHandler.post { result.error("download_failed", e.message, null) }
+                }
             } finally {
                 if (currentAudioProcessId == processId) {
                     currentAudioProcessId = null
@@ -791,13 +795,13 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     }
 
     private fun cancelProcess(processId: String) {
+        if (currentAudioProcessId == processId) {
+            currentAudioProcessId = null
+        }
         try {
             YoutubeDL.getInstance().destroyProcessById(processId)
         } catch (_: Exception) {
             // Nothing to destroy.
-        }
-        if (currentAudioProcessId == processId) {
-            currentAudioProcessId = null
         }
         executors.remove(processId)?.shutdownNow()
     }

@@ -469,11 +469,25 @@ class StreamCacheManager {
             return await completer.future;
           }
         } catch (e) {
-          DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
+          final isCancellation = (e is PlatformException && (e.code == 'cancelled' || e.message?.contains('cancelled') == true)) ||
+              _activeProcessId != processId ||
+              !_inFlightDownloads.containsKey(videoId);
+          if (isCancellation) {
+            DebugLog.write('[cache] Android yt-dlp download cancelled for $videoId');
+          } else {
+            DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
+          }
         } finally {
           if (_activeProcessId == processId) {
             _activeProcessId = null;
           }
+        }
+        // On Android, the embedded engine is the sole resolver; never fall through to desktop
+        if (!kIsWeb && Platform.isAndroid) {
+          if (!completer.isCompleted) {
+            completer.complete(null);
+          }
+          return await completer.future;
         }
       }
 
@@ -564,11 +578,13 @@ class StreamCacheManager {
           }
           return cached;
         }
-      } else {
+      } else if (!kIsWeb && !Platform.isAndroid) {
         DebugLog.write('[cache] yt-dlp binary not found on desktop');
       }
 
-      DebugLog.write('[cache] Download failed for $videoId after ${stopwatch.elapsedMilliseconds}ms');
+      if (!completer.isCompleted) {
+        DebugLog.write('[cache] Download failed for $videoId after ${stopwatch.elapsedMilliseconds}ms');
+      }
     } catch (e) {
       DebugLog.write('[cache] ensureStreamCached error for $videoId: $e');
     } finally {
