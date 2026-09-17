@@ -100,7 +100,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Song? findSongById(String id) {
-    return library.findById(id) ?? identity.findFavoriteOnlineSong(id);
+    return library.findById(id) ?? identity.findOnlineSong(id);
   }
 
   Future<void> toggleFavorite(String songId, {Song? song}) async {
@@ -284,7 +284,14 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     await library.renamePlaylist(id, name);
   }
 
-  Future<bool> addSongToPlaylist(String playlistId, String songId) async {
+  Future<bool> addSongToPlaylist(String playlistId, String songId,
+      {Song? song}) async {
+    final resolved = song ?? findSongById(songId);
+    if (resolved != null &&
+        (resolved.sourceDeviceId == 'stream' ||
+            resolved.id.startsWith('stream_'))) {
+      await identity.registerOnlineSong(resolved);
+    }
     return await library.addSongToPlaylist(playlistId, songId);
   }
 
@@ -304,17 +311,18 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       final song = findSongById(songId);
       if (song == null) continue;
       buffer.writeln('#EXTINF:-1,${song.title}');
-      if (song.sourceDeviceId == 'stream') {
+      if (song.sourceDeviceId == 'stream' || song.id.startsWith('stream_')) {
         final videoId = song.id.replaceFirst('stream_', '');
         buffer.writeln('https://www.youtube.com/watch?v=$videoId');
       } else {
-        final file = library.songFile(song);
-        buffer.writeln(file.path);
+        // Portable relative file reference
+        buffer.writeln(song.fileName);
       }
     }
 
     final bytes = Uint8List.fromList(utf8.encode(buffer.toString()));
-    final safeName = playlist.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final safeName =
+        playlist.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
     final fileName = safeName.isEmpty ? 'playlist.m3u8' : '$safeName.m3u8';
     try {
       final uri = await FilePicker.saveFile(
@@ -347,7 +355,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       final content = await file.readAsString();
       final lines = content.split(RegExp(r'\r?\n'));
       final songIds = <String>[];
+      final m3uDir = p.dirname(filePath);
       String playlistName = p.basenameWithoutExtension(file.path);
+
+      // Collect entries: pairs of (extinf, targetLine)
+      final rawEntries = <({String extinf, String target})>[];
 
       for (var i = 0; i < lines.length; i++) {
         final line = lines[i].trim();
@@ -365,16 +377,65 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
               break;
             }
           }
-          final s = await _matchOrRegisterSong(line, targetLine);
-          if (s != null && !songIds.contains(s.id)) {
-            songIds.add(s.id);
-          }
+          rawEntries.add((extinf: line, target: targetLine));
         } else if (!line.startsWith('#')) {
-          final s = await _matchOrRegisterSong('', line);
-          if (s != null && !songIds.contains(s.id)) {
-            songIds.add(s.id);
+          rawEntries.add((extinf: '', target: line));
+        }
+      }
+
+      if (rawEntries.isEmpty) {
+        _postMessage('No valid entries found in $playlistName');
+        return;
+      }
+
+      // Phase 1: Fast local and direct stream URL matching (Zero network queries)
+      final unmatched = <({String extinf, String target})>[];
+      final newOnlineSongs = <Song>[];
+
+      for (final entry in rawEntries) {
+        final directSong = await _matchDirectOrLocalSong(
+          entry.extinf,
+          entry.target,
+          m3uDir: m3uDir,
+        );
+        if (directSong != null) {
+          if (!songIds.contains(directSong.id)) {
+            songIds.add(directSong.id);
+          }
+          if (directSong.sourceDeviceId == 'stream' ||
+              directSong.id.startsWith('stream_')) {
+            newOnlineSongs.add(directSong);
+          }
+        } else {
+          unmatched.add(entry);
+        }
+      }
+
+      // Phase 2: Bandwidth-safe throttled online resolution for missing tracks
+      // Cap at 25 tracks per import to guarantee bandwidth and rate limits are respected
+      if (unmatched.isNotEmpty) {
+        final resolveBatch = unmatched.take(25).toList();
+        for (var idx = 0; idx < resolveBatch.length; idx++) {
+          final entry = resolveBatch[idx];
+          final query = _extractSearchQuery(entry.extinf, entry.target);
+          if (query.isNotEmpty) {
+            final onlineSong = await _searchAndResolveOnlineTrack(query);
+            if (onlineSong != null) {
+              if (!songIds.contains(onlineSong.id)) {
+                songIds.add(onlineSong.id);
+              }
+              newOnlineSongs.add(onlineSong);
+            }
+            // Rate limiting: 250ms delay between lightweight text search queries
+            if (idx < resolveBatch.length - 1) {
+              await Future.delayed(const Duration(milliseconds: 250));
+            }
           }
         }
+      }
+
+      if (newOnlineSongs.isNotEmpty) {
+        await identity.registerOnlineSongs(newOnlineSongs);
       }
 
       if (songIds.isEmpty) {
@@ -384,16 +445,20 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
       final created = await library.createPlaylist(playlistName);
       await library.setPlaylistSongIds(created.id, songIds);
-      _postMessage('Imported "$playlistName" (${songIds.length} tracks)');
+      final count = songIds.length;
+      _postMessage('Imported "$playlistName" ($count track${count == 1 ? '' : 's'})');
     } catch (e) {
       debugPrint('[controller] Error importing playlist: $e');
       _postMessage('Failed to import playlist.');
     }
   }
 
-  Future<Song?> _matchOrRegisterSong(String extinf, String pathOrUrl) async {
-    if (pathOrUrl.isEmpty) return null;
-
+  Future<Song?> _matchDirectOrLocalSong(
+    String extinf,
+    String pathOrUrl, {
+    String? m3uDir,
+  }) async {
+    // 1. Direct stream URL (Zero network requests)
     if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
       final videoId = RecommendationService.extractVideoId(pathOrUrl);
       if (videoId != null) {
@@ -420,33 +485,89 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    final normalizedPath = p.normalize(pathOrUrl).toLowerCase();
-    final base = p.basename(pathOrUrl).toLowerCase();
-    for (final s in library.songs) {
-      final songFilePath = p.normalize(library.songFile(s).path).toLowerCase();
-      if (songFilePath == normalizedPath || p.basename(songFilePath) == base) {
-        return s;
+    if (pathOrUrl.isNotEmpty) {
+      // 2. Exact match in local library
+      final normalizedPath = p.normalize(pathOrUrl).toLowerCase();
+      final base = p.basename(pathOrUrl).toLowerCase();
+      for (final s in library.songs) {
+        final songFilePath =
+            p.normalize(library.songFile(s).path).toLowerCase();
+        if (songFilePath == normalizedPath || p.basename(songFilePath) == base) {
+          return s;
+        }
+      }
+
+      // 3. Match relative to M3U file directory if provided
+      if (m3uDir != null && !p.isAbsolute(pathOrUrl)) {
+        final candidate = File(p.join(m3uDir, pathOrUrl));
+        if (await candidate.exists()) {
+          final added = await library.addLocalFiles([candidate]);
+          if (added.isNotEmpty) return added.first;
+        }
+      }
+
+      // 4. Match absolute disk path
+      final diskFile = File(pathOrUrl);
+      if (await diskFile.exists()) {
+        final added = await library.addLocalFiles([diskFile]);
+        if (added.isNotEmpty) return added.first;
       }
     }
 
-    final diskFile = File(pathOrUrl);
-    if (await diskFile.exists()) {
-      final added = await library.addLocalFiles([diskFile]);
-      if (added.isNotEmpty) return added.first;
-    }
-
+    // 5. Match by title against existing library or known online songs
+    String? titleCandidate;
     if (extinf.startsWith('#EXTINF:')) {
       final commaIdx = extinf.indexOf(',');
       if (commaIdx != -1) {
-        final raw = extinf.substring(commaIdx + 1).trim().toLowerCase();
-        for (final s in library.songs) {
-          if (s.lowerTitle == raw || s.title.toLowerCase() == raw) {
-            return s;
-          }
+        titleCandidate = extinf.substring(commaIdx + 1).trim();
+      }
+    }
+    if (titleCandidate != null && titleCandidate.isNotEmpty) {
+      final raw = titleCandidate.toLowerCase();
+      for (final s in library.songs) {
+        if (s.lowerTitle == raw || s.title.toLowerCase() == raw) {
+          return s;
+        }
+      }
+      for (final s in identity.knownOnlineSongs.values) {
+        if (s.lowerTitle == raw || s.title.toLowerCase() == raw) {
+          return s;
         }
       }
     }
 
+    return null;
+  }
+
+  String _extractSearchQuery(String extinf, String pathOrUrl) {
+    if (extinf.startsWith('#EXTINF:')) {
+      final commaIdx = extinf.indexOf(',');
+      if (commaIdx != -1) {
+        final raw = extinf.substring(commaIdx + 1).trim();
+        if (raw.isNotEmpty) return raw;
+      }
+    }
+    if (pathOrUrl.isNotEmpty &&
+        !pathOrUrl.startsWith('http://') &&
+        !pathOrUrl.startsWith('https://')) {
+      final base = p
+          .basenameWithoutExtension(pathOrUrl)
+          .replaceAll(RegExp(r'[_]+'), ' ')
+          .trim();
+      if (base.isNotEmpty) return base;
+    }
+    return '';
+  }
+
+  Future<Song?> _searchAndResolveOnlineTrack(String query) async {
+    try {
+      final results = await YouTubeSearchService.search(query, limit: 1);
+      if (results.isNotEmpty) {
+        return results.first.toSong();
+      }
+    } catch (e) {
+      debugPrint('[controller] Online track resolve error for "$query": $e');
+    }
     return null;
   }
 

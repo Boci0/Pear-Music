@@ -23,6 +23,7 @@ class IdentityService extends ChangeNotifier {
   static const _deviceNameKey = 'peerm_device_name';
   static const _favoriteIdsKey = 'peerm_favorite_song_ids';
   static const _favoriteOnlineSongsKey = 'peerm_favorite_online_songs';
+  static const _knownOnlineSongsKey = 'peerm_known_online_songs';
   static const _sortOptionKey = 'peerm_sort_option';
   static const _loudnessNormKey = 'peerm_loudness_normalization';
   static const _synthesizerBarKey = 'peerm_synthesizer_bar';
@@ -38,6 +39,7 @@ class IdentityService extends ChangeNotifier {
   late String deviceName;
   late Set<String> _favoriteSongIds;
   final Map<String, Song> _favoriteOnlineSongs = {};
+  final Map<String, Song> _knownOnlineSongs = {};
   late SortOption _sortOption;
   late bool _loudnessNormalization;
   late bool _synthesizerBar;
@@ -61,6 +63,20 @@ class IdentityService extends ChangeNotifier {
           for (final entry in decoded.entries) {
             if (entry.value is Map<String, dynamic>) {
               _favoriteOnlineSongs[entry.key] =
+                  Song.fromJson(entry.value as Map<String, dynamic>);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    final knownOnlineJson = _prefs.getString(_knownOnlineSongsKey);
+    if (knownOnlineJson != null && knownOnlineJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(knownOnlineJson);
+        if (decoded is Map<String, dynamic>) {
+          for (final entry in decoded.entries) {
+            if (entry.value is Map<String, dynamic>) {
+              _knownOnlineSongs[entry.key] =
                   Song.fromJson(entry.value as Map<String, dynamic>);
             }
           }
@@ -123,7 +139,60 @@ class IdentityService extends ChangeNotifier {
   Map<String, Song> get favoriteOnlineSongs =>
       Map.unmodifiable(_favoriteOnlineSongs);
 
+  Map<String, Song> get knownOnlineSongs =>
+      Map.unmodifiable(_knownOnlineSongs);
+
   Song? findFavoriteOnlineSong(String id) => _favoriteOnlineSongs[id];
+
+  Song? findOnlineSong(String id) =>
+      _knownOnlineSongs[id] ?? _favoriteOnlineSongs[id];
+
+  Future<void> registerOnlineSong(Song song) async {
+    if (song.sourceDeviceId != 'stream' && !song.id.startsWith('stream_')) return;
+    if (_knownOnlineSongs[song.id]?.artwork == song.artwork &&
+        _knownOnlineSongs[song.id]?.title == song.title) {
+      return;
+    }
+    _knownOnlineSongs[song.id] = song;
+    _pruneKnownOnlineSongs();
+    await _saveKnownOnlineSongs();
+    notifyListeners();
+  }
+
+  Future<void> registerOnlineSongs(Iterable<Song> songs) async {
+    var changed = false;
+    for (final song in songs) {
+      if (song.sourceDeviceId == 'stream' || song.id.startsWith('stream_')) {
+        if (_knownOnlineSongs[song.id]?.title != song.title ||
+            _knownOnlineSongs[song.id]?.artwork != song.artwork) {
+          _knownOnlineSongs[song.id] = song;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      _pruneKnownOnlineSongs();
+      await _saveKnownOnlineSongs();
+      notifyListeners();
+    }
+  }
+
+  void _pruneKnownOnlineSongs() {
+    if (_knownOnlineSongs.length <= 1000) return;
+    final keysToRemove = _knownOnlineSongs.keys
+        .take(_knownOnlineSongs.length - 1000)
+        .toList();
+    for (final k in keysToRemove) {
+      _knownOnlineSongs.remove(k);
+    }
+  }
+
+  Future<void> _saveKnownOnlineSongs() async {
+    final encoded = jsonEncode(
+      _knownOnlineSongs.map((k, v) => MapEntry(k, v.toJson())),
+    );
+    await _prefs.setString(_knownOnlineSongsKey, encoded);
+  }
 
   bool isFavorite(String songId) => _favoriteSongIds.contains(songId);
 

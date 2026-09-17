@@ -1,7 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:peerm_app/models/song.dart';
+import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 
 void main() {
@@ -149,5 +152,29 @@ void main() {
     final removed2 = await lib.removeAllFromSource('peer-X');
     expect(removed2, 1);
     expect(lib.findPlaylist(pl.id)!.songIds, [fromPeer.id, own.id]);
+  });
+
+  test('IdentityService registers and persists known online songs across restarts', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+
+    final streamSong = Song(
+      id: 'stream_abc12345678',
+      title: 'Stream Track',
+      fileName: 'Stream Track [abc12345678].m4a',
+      size: 1024,
+      checksum: 'stream_abc12345678',
+      sourceDeviceId: 'stream',
+      addedAt: DateTime.now(),
+    );
+
+    expect(identity.findOnlineSong(streamSong.id), isNull);
+    await identity.registerOnlineSong(streamSong);
+    expect(identity.findOnlineSong(streamSong.id)?.title, 'Stream Track');
+
+    // Simulate restart with same prefs
+    final identity2 = IdentityService(prefs);
+    expect(identity2.findOnlineSong(streamSong.id)?.title, 'Stream Track');
   });
 }

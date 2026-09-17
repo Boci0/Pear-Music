@@ -71,7 +71,7 @@ class _PlaylistPickerSheetState extends State<_PlaylistPickerSheet> {
     final playlist = await widget.controller.createPlaylist(name);
     if (!mounted) return;
     final added = await widget.controller
-        .addSongToPlaylist(playlist.id, widget.song.id);
+        .addSongToPlaylist(playlist.id, widget.song.id, song: widget.song);
     if (!mounted) return;
     Navigator.pop(
       context,
@@ -108,7 +108,7 @@ class _PlaylistPickerSheetState extends State<_PlaylistPickerSheet> {
                     ),
                     onTap: () async {
                       final added = await widget.controller
-                          .addSongToPlaylist(pl.id, widget.song.id);
+                          .addSongToPlaylist(pl.id, widget.song.id, song: widget.song);
                       if (!context.mounted) return;
                       Navigator.pop(
                         context,
