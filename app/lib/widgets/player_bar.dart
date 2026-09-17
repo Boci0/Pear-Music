@@ -58,18 +58,18 @@ class PlayerBar extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.40),
-                blurRadius: 18,
+                color: Colors.black.withValues(alpha: 0.60),
+                blurRadius: 20,
                 offset: const Offset(0, 4),
               ),
             ],
           ),
           child: Material(
-            color: barColor,
+            color: barColor.withValues(alpha: 1.0),
             clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
             ),
             child: InkWell(
               onTap: () => _openPlayer(context),

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
@@ -316,6 +317,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     isSelected: false,
                     onTap: () => _showSortSheet(context, controller),
                   ),
+                  const SizedBox(width: 8),
+                  if (songs.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    _FilterPill(
+                      key: const ValueKey('pill_shuffle'),
+                      icon: Icons.shuffle_rounded,
+                      label: 'Shuffle',
+                      isSelected: false,
+                      onTap: () {
+                        TactileFeedback.click();
+                        final list = List<Song>.from(songs);
+                        list.shuffle();
+                        if (!controller.player.shuffle) {
+                          controller.player.toggleShuffle();
+                        }
+                        controller.playSong(
+                          list[Random().nextInt(list.length)],
+                          queue: list,
+                          sourceId: _showOnlyFavorites ? 'favorites' : 'library',
+                          sourceTitle: _showOnlyFavorites ? 'Favorites' : 'Library',
+                        );
+                      },
+                    ),
+                  ],
                   const SizedBox(width: 8),
                   _FilterPill(
                     key: const ValueKey('pill_select'),

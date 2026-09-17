@@ -171,8 +171,8 @@ void main() {
     });
   });
 
-  group('PlayerVolumeRow and PlayerVolumeSlider thick pill', () {
-    testWidgets('renders volume percentage inside the capsule and updates on volume changes', (tester) async {
+  group('PlayerVolumeRow and PlayerVolumeSlider rolling pear', () {
+    testWidgets('renders volume percentage and updates on volume changes', (tester) async {
       final player = _FakePlayerVolumeService();
       await player.setVolume(0.75);
 
@@ -202,14 +202,10 @@ void main() {
       // Tap mute via left volume icon area
       final sliderFinder = find.byType(PlayerVolumeSlider);
       expect(sliderFinder, findsOneWidget);
-      await tester.tapAt(tester.getTopLeft(sliderFinder) + const Offset(20, 18));
+      await tester.tapAt(tester.getTopLeft(sliderFinder) + const Offset(14, 16));
       await tester.pumpAndSettle();
       expect(player.volume, 0.0);
       expect(find.text('0%'), findsWidgets);
-
-      // Verify the capsule height is 36 px
-      final sliderBox = tester.renderObject<RenderBox>(sliderFinder);
-      expect(sliderBox.size.height, 36.0);
     });
   });
 

@@ -66,14 +66,19 @@ class PlayerLandscapeBody extends StatelessWidget {
                         child: PlayerSeekBar(
                           player: player,
                           duration: duration,
+                          accent: accent,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      PlayerTransport(player: player, controller: controller),
+                      PlayerTransport(
+                        player: player,
+                        controller: controller,
+                        accent: accent,
+                      ),
                       const SizedBox(height: 12),
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 480),
-                        child: const PlayerVolumeRow(),
+                        child: PlayerVolumeRow(accent: accent),
                       ),
                     ],
                   ),

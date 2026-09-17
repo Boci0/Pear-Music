@@ -5,17 +5,18 @@ import 'package:provider/provider.dart';
 import '../../controllers/app_controller.dart';
 import '../../services/player_service.dart';
 import '../tactile_button.dart';
-import 'visual_synthesizer_bar.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
 /// repeat controls.
 class PlayerTransport extends StatelessWidget {
   final PlayerService player;
   final AppController controller;
+  final Color? accent;
   const PlayerTransport({
     super.key,
     required this.player,
     required this.controller,
+    this.accent,
   });
 
   @override
@@ -24,6 +25,7 @@ class PlayerTransport extends StatelessWidget {
       listenable: player,
       builder: (context, _) {
         final scheme = Theme.of(context).colorScheme;
+        final effectiveAccent = accent ?? scheme.primary;
         final loopIcon = switch (player.loopMode) {
           LoopSetting.one => Icons.repeat_one,
           _ => Icons.repeat,
@@ -34,14 +36,11 @@ class PlayerTransport extends StatelessWidget {
           LoopSetting.all => 'Repeat all (album)',
           LoopSetting.off => 'No repeat',
         };
-        final stateLabel = player.isLoadingRecommendations
+        final String? stateLabel = player.isLoadingRecommendations
             ? 'Finding next tracks...'
             : player.isBuffering
                 ? 'Buffering track...'
-                : [
-                    if (player.shuffle) 'Shuffle on',
-                    loopLabel,
-                  ].join(' · ');
+                : null;
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -54,7 +53,7 @@ class PlayerTransport extends StatelessWidget {
                   icon: Icon(
                     Icons.shuffle,
                     color: player.shuffle
-                        ? scheme.primary
+                        ? effectiveAccent
                         : scheme.onSurfaceVariant,
                   ),
                   tooltip: player.shuffle ? 'Shuffle on' : 'Shuffle',
@@ -68,7 +67,7 @@ class PlayerTransport extends StatelessWidget {
                 _PlayPauseButton(
                   player: player,
                   controller: controller,
-                  scheme: scheme,
+                  color: effectiveAccent,
                 ),
                 TactileIconButton(
                   iconSize: 44,
@@ -79,7 +78,7 @@ class PlayerTransport extends StatelessWidget {
                   iconSize: 32,
                   icon: Icon(
                     loopIcon,
-                    color: loopActive ? scheme.primary : scheme.onSurfaceVariant,
+                    color: loopActive ? effectiveAccent : scheme.onSurfaceVariant,
                   ),
                   tooltip: loopLabel,
                   onPressed: controller.toggleLoop,
@@ -87,14 +86,15 @@ class PlayerTransport extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            Text(
-              stateLabel,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: player.isBuffering || loopActive || player.shuffle
-                    ? scheme.primary
-                    : scheme.onSurfaceVariant,
-              ),
-            ),
+            if (stateLabel != null)
+              Text(
+                stateLabel,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: effectiveAccent,
+                ),
+              )
+            else
+              const SizedBox(height: 16),
           ],
         );
       },
@@ -105,12 +105,12 @@ class PlayerTransport extends StatelessWidget {
 class _PlayPauseButton extends StatefulWidget {
   final PlayerService player;
   final AppController controller;
-  final ColorScheme scheme;
+  final Color color;
 
   const _PlayPauseButton({
     required this.player,
     required this.controller,
-    required this.scheme,
+    required this.color,
   });
 
   @override
@@ -123,16 +123,17 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = widget.scheme;
+    final effectiveColor = widget.color;
+    const iconColor = Colors.black;
     final player = widget.player;
     final isBuffering = player.isBuffering;
     final isPlaying = player.playing;
 
     final bgColor = _isPressed
-        ? scheme.primary.withValues(alpha: 0.86)
+        ? effectiveColor.withValues(alpha: 0.86)
         : (_isHovered
-            ? scheme.primary.withValues(alpha: 0.94)
-            : scheme.primary);
+            ? effectiveColor.withValues(alpha: 0.94)
+            : effectiveColor);
 
     return SizedBox(
       width: 72,
@@ -169,7 +170,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                     color: bgColor,
                     boxShadow: [
                       BoxShadow(
-                        color: scheme.primary.withValues(alpha: _isHovered ? 0.38 : 0.22),
+                        color: effectiveColor.withValues(alpha: _isHovered ? 0.38 : 0.22),
                         blurRadius: _isHovered ? 14 : 10,
                         offset: const Offset(0, 3),
                       ),
@@ -182,7 +183,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                             height: 28,
                             child: CircularProgressIndicator(
                               strokeWidth: 3.0,
-                              color: scheme.onPrimary,
+                              color: iconColor,
                             ),
                           )
                         : Padding(
@@ -192,7 +193,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                                   ? Icons.pause_rounded
                                   : Icons.play_arrow_rounded,
                               size: isPlaying ? 34 : 38,
-                              color: scheme.onPrimary,
+                              color: iconColor,
                             ),
                           ),
                   ),
@@ -212,10 +213,12 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
 class PlayerSeekBar extends StatefulWidget {
   final PlayerService player;
   final Duration duration;
+  final Color? accent;
   const PlayerSeekBar({
     super.key,
     required this.player,
     required this.duration,
+    this.accent,
   });
 
   @override
@@ -225,6 +228,8 @@ class PlayerSeekBar extends StatefulWidget {
 class _PlayerSeekBarState extends State<PlayerSeekBar> {
   final ValueNotifier<double?> _dragNotifier = ValueNotifier(null);
   bool _showRemaining = true;
+  bool _isHovered = false;
+  bool _isDragging = false;
 
   @override
   void dispose() {
@@ -236,10 +241,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final effectiveAccent = widget.accent ?? colorScheme.primary;
     final totalMs = widget.duration.inMilliseconds.toDouble();
-    final useSynthesizer = context.select<AppController?, bool>(
-      (c) => c?.identity.synthesizerBar ?? false,
-    );
 
     return StreamBuilder<Duration>(
       stream: widget.player.positionStream,
@@ -255,67 +258,143 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (useSynthesizer)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: VisualSynthesizerBar(
-                    player: widget.player,
-                    currentPosition: pos,
-                    totalDuration: widget.duration,
-                    onSeek: (duration) => widget.player.seek(duration),
-                    onDragUpdate: (ms) {
-                      _dragNotifier.value = ms;
-                      widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
-                    },
-                    onDragEnd: () {
-                      _dragNotifier.value = null;
-                      widget.player.setScrubbingPosition(null);
-                    },
-                  ),
-                )
-              else
-                ValueListenableBuilder<double?>(
-                  valueListenable: _dragNotifier,
-                  builder: (context, dragMs, _) {
-                    final currentVal = (dragMs ?? baseMs).clamp(0.0, maxMs);
-                    return SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: dragMs != null ? 6.0 : 4.0,
-                        trackShape: const RoundedRectSliderTrackShape(),
-                        activeTrackColor: colorScheme.primary,
-                        inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.12),
-                        thumbColor: colorScheme.primary,
-                        thumbShape: RoundSliderThumbShape(
-                          enabledThumbRadius: dragMs != null ? 7.0 : 5.0,
-                          elevation: dragMs != null ? 3.0 : 1.0,
-                        ),
-                        overlayColor: colorScheme.primary.withValues(
-                          alpha: 0.12,
-                        ),
-                        overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 14.0,
-                        ),
-                      ),
-                      child: Slider(
-                        value: currentVal,
-                        max: maxMs,
-                        onChangeStart: (ms) {
-                          _dragNotifier.value = ms;
-                          widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
-                        },
-                        onChanged: (ms) {
-                          _dragNotifier.value = ms;
-                          widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
-                        },
-                        onChangeEnd: (ms) {
-                          widget.player.seek(Duration(milliseconds: ms.round()));
+              ValueListenableBuilder<double?>(
+                valueListenable: _dragNotifier,
+                builder: (context, dragMs, _) {
+                  final currentVal = (dragMs ?? baseMs).clamp(0.0, maxMs);
+                  final progress = maxMs > 0 ? (currentVal / maxMs).clamp(0.0, 1.0) : 0.0;
+                  const double pearSize = 22.0;
+                  const double trackHeight = 5.0;
+                  const double containerHeight = 32.0;
+
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final totalWidth = constraints.maxWidth;
+                      if (totalWidth <= pearSize) return const SizedBox(height: containerHeight);
+
+                      final usableWidth = totalWidth - pearSize;
+                      final pearLeft = progress * usableWidth;
+
+                      // Rolling angle proportional to distance traveled along the track
+                      final rotationAngle = pearLeft / (pearSize / 2);
+
+                      void updatePosition(double localDx, {bool isEnd = false}) {
+                        final fraction = ((localDx - (pearSize / 2)) / usableWidth).clamp(0.0, 1.0);
+                        final targetMs = fraction * maxMs;
+                        if (isEnd) {
+                          widget.player.seek(Duration(milliseconds: targetMs.round()));
                           _dragNotifier.value = null;
                           widget.player.setScrubbingPosition(null);
-                        },
-                      ),
-                    );
-                  },
-                ),
+                        } else {
+                          _dragNotifier.value = targetMs;
+                          widget.player.setScrubbingPosition(Duration(milliseconds: targetMs.round()));
+                        }
+                      }
+
+                      return MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) => setState(() => _isHovered = true),
+                        onExit: (_) => setState(() => _isHovered = false),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTapDown: (details) => updatePosition(details.localPosition.dx, isEnd: true),
+                          onHorizontalDragStart: (details) {
+                            setState(() => _isDragging = true);
+                            updatePosition(details.localPosition.dx);
+                          },
+                          onHorizontalDragUpdate: (details) => updatePosition(details.localPosition.dx),
+                          onHorizontalDragEnd: (details) {
+                            setState(() => _isDragging = false);
+                            final lastMs = _dragNotifier.value ?? currentVal;
+                            widget.player.seek(Duration(milliseconds: lastMs.round()));
+                            _dragNotifier.value = null;
+                            widget.player.setScrubbingPosition(null);
+                          },
+                          onHorizontalDragCancel: () {
+                            setState(() => _isDragging = false);
+                            _dragNotifier.value = null;
+                            widget.player.setScrubbingPosition(null);
+                          },
+                          child: SizedBox(
+                            height: containerHeight,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.centerLeft,
+                              children: [
+                                // Inactive base track
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: pearSize / 2),
+                                  child: Container(
+                                    height: trackHeight,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(trackHeight / 2),
+                                    ),
+                                  ),
+                                ),
+
+                                // Active progress track
+                                if (progress > 0)
+                                  Positioned(
+                                    left: pearSize / 2,
+                                    child: Container(
+                                      width: pearLeft,
+                                      height: trackHeight,
+                                      decoration: BoxDecoration(
+                                        color: effectiveAccent,
+                                        borderRadius: BorderRadius.circular(trackHeight / 2),
+                                      ),
+                                    ),
+                                  ),
+
+                                // Rolling Pear thumb
+                                Positioned(
+                                  left: pearLeft,
+                                  top: (containerHeight - pearSize) / 2,
+                                  child: IgnorePointer(
+                                    child: AnimatedScale(
+                                      scale: (_isDragging || _isHovered) ? 1.18 : 1.0,
+                                      duration: const Duration(milliseconds: 120),
+                                      curve: Curves.easeOutCubic,
+                                      child: Container(
+                                        width: pearSize,
+                                        height: pearSize,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: effectiveAccent.withValues(
+                                                alpha: (_isDragging || _isHovered) ? 0.50 : 0.25,
+                                              ),
+                                              blurRadius: (_isDragging || _isHovered) ? 8.0 : 4.0,
+                                              offset: const Offset(0, 1),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Transform.rotate(
+                                          angle: rotationAngle,
+                                          child: Image.asset(
+                                            'assets/pear_logo.png',
+                                            width: pearSize,
+                                            height: pearSize,
+                                            color: effectiveAccent,
+                                            colorBlendMode: BlendMode.srcIn,
+                                            filterQuality: FilterQuality.medium,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
               ValueListenableBuilder<double?>(
                 valueListenable: _dragNotifier,
                 builder: (context, dragMs, _) {
@@ -326,7 +405,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                       : Duration.zero;
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 11),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -334,36 +413,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                           _fmt(currentDuration),
                           style: theme.textTheme.labelSmall?.copyWith(
                             fontFeatures: const [FontFeature.tabularFigures()],
-                            color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
-                            fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            context.read<AppController?>()?.updateSynthesizerBar(!useSynthesizer);
-                          },
-                          behavior: HitTestBehavior.opaque,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  useSynthesizer ? Icons.graphic_eq_rounded : Icons.linear_scale_rounded,
-                                  size: 13,
-                                  color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  useSynthesizer ? 'Visualizer' : 'Standard',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: useSynthesizer ? colorScheme.primary : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-                                  ),
-                                ),
-                              ],
-                            ),
+                            color: dragMs != null ? effectiveAccent : colorScheme.onSurfaceVariant,
+                            fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w600,
                           ),
                         ),
                         GestureDetector(
@@ -375,8 +426,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                                 : _fmt(widget.duration),
                             style: theme.textTheme.labelSmall?.copyWith(
                               fontFeatures: const [FontFeature.tabularFigures()],
-                              color: dragMs != null ? colorScheme.primary : colorScheme.onSurfaceVariant,
-                              fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w500,
+                              color: dragMs != null ? effectiveAccent : colorScheme.onSurfaceVariant,
+                              fontWeight: dragMs != null ? FontWeight.w700 : FontWeight.w600,
                             ),
                           ),
                         ),
@@ -399,24 +450,25 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   }
 }
 
-/// Volume icons + slider.
+/// Volume icons + slider with an interactive rolling pear thumb.
 class PlayerVolumeRow extends StatelessWidget {
-  const PlayerVolumeRow({super.key});
+  final Color? accent;
+  const PlayerVolumeRow({super.key, this.accent});
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: PlayerVolumeSlider(),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: PlayerVolumeSlider(accent: accent),
     );
   }
 }
 
-/// Volume slider styled as a modern capsule pill.
-/// The volume symbol is embedded inside on the left, and the volume percentage
-/// number is embedded on the right.
+/// Volume slider featuring an adaptive rolling pear thumb that rotates
+/// proportionally to travel distance across the track.
 class PlayerVolumeSlider extends StatefulWidget {
-  const PlayerVolumeSlider({super.key});
+  final Color? accent;
+  const PlayerVolumeSlider({super.key, this.accent});
 
   @override
   State<PlayerVolumeSlider> createState() => _PlayerVolumeSliderState();
@@ -425,11 +477,14 @@ class PlayerVolumeSlider extends StatefulWidget {
 class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
   double? _dragValue;
   double _lastNonZeroVolume = 0.75;
+  bool _isHovered = false;
+  bool _isDragging = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final effectiveAccent = widget.accent ?? scheme.primary;
     final player = context.read<PlayerService>();
     final currentVolume = context.select<PlayerService, double>((p) => p.volume);
     final value = (_dragValue ?? currentVolume).clamp(0.0, 1.0);
@@ -438,160 +493,195 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
         ? Icons.volume_off_rounded
         : (value < 0.5 ? Icons.volume_down_rounded : Icons.volume_up_rounded);
 
-    const double sliderHeight = 36.0;
-    const double radius = sliderHeight / 2; // 18.0
+    final pctText = '${(value * 100).round()}%';
+    const double pearSize = 22.0;
+    const double trackHeight = 5.0;
+    const double containerHeight = 32.0;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final totalWidth = constraints.maxWidth;
-        if (totalWidth <= 0) return const SizedBox(height: sliderHeight);
-
-        final usableWidth = totalWidth - (radius * 2);
-        final activeWidth = value <= 0
-            ? 0.0
-            : (radius * 2 + (usableWidth > 0 ? usableWidth * value : 0.0))
-                .clamp(radius * 2, totalWidth);
-
-        final pctText = '${(value * 100).round()}%';
-
-        const inactiveTextColor = Colors.white70;
-        final activeTextColor = scheme.onPrimary;
-
-        final inactiveTextStyle = theme.textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          fontSize: 11.5,
-          letterSpacing: 0.2,
-          fontFeatures: const [FontFeature.tabularFigures()],
-          color: inactiveTextColor,
-        );
-
-        final activeTextStyle = theme.textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          fontSize: 11.5,
-          letterSpacing: 0.2,
-          fontFeatures: const [FontFeature.tabularFigures()],
-          color: activeTextColor,
-        );
-
-        void handleDragUpdate(double localDx) {
-          final fraction = usableWidth > 0
-              ? ((localDx - radius) / usableWidth).clamp(0.0, 1.0)
-              : (localDx / totalWidth).clamp(0.0, 1.0);
-          if (fraction > 0) _lastNonZeroVolume = fraction;
-          setState(() => _dragValue = fraction);
-          player.setVolume(fraction);
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent) {
+          final delta = event.scrollDelta.dy > 0 ? -0.05 : 0.05;
+          final next = (player.volume + delta).clamp(0.0, 1.0);
+          if (next > 0) _lastNonZeroVolume = next;
+          setState(() => _dragValue = next);
+          player.setVolume(next);
         }
-
-        return RepaintBoundary(
-          child: Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent) {
-                final delta = event.scrollDelta.dy > 0 ? -0.05 : 0.05;
-                final next = (player.volume + delta).clamp(0.0, 1.0);
-                if (next > 0) _lastNonZeroVolume = next;
-                setState(() => _dragValue = next);
-                player.setVolume(next);
+      },
+      child: Row(
+        children: [
+          // Mute / Unmute quick toggle button
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              TactileFeedback.click();
+              if (value > 0) {
+                _lastNonZeroVolume = value;
+                setState(() => _dragValue = 0.0);
+                player.setVolume(0.0);
+              } else {
+                final restore = _lastNonZeroVolume > 0 ? _lastNonZeroVolume : 0.5;
+                setState(() => _dragValue = restore);
+                player.setVolume(restore);
               }
             },
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapDown: (details) {
-                  final dx = details.localPosition.dx;
-                  if (dx <= 38) {
-                    if (value > 0) {
-                      _lastNonZeroVolume = value;
-                      setState(() => _dragValue = 0.0);
-                      player.setVolume(0.0);
-                    } else {
-                      final restore = _lastNonZeroVolume > 0 ? _lastNonZeroVolume : 0.5;
-                      setState(() => _dragValue = restore);
-                      player.setVolume(restore);
-                    }
-                    return;
-                  }
-                  handleDragUpdate(dx);
-                },
-                onHorizontalDragStart: (details) => handleDragUpdate(details.localPosition.dx),
-                onHorizontalDragUpdate: (details) => handleDragUpdate(details.localPosition.dx),
-                onHorizontalDragEnd: (_) => setState(() => _dragValue = null),
-                onHorizontalDragCancel: () => setState(() => _dragValue = null),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(radius),
-                  clipBehavior: Clip.antiAlias,
-                  child: Container(
-                    height: sliderHeight,
-                    color: Colors.white.withValues(alpha: 0.12),
-                    child: Stack(
-                      alignment: Alignment.centerLeft,
-                      children: [
-                        // Inactive base layer: icon on left, percentage on right
-                        Positioned(
-                          left: 12,
-                          child: Icon(
-                            volumeIcon,
-                            size: 18,
-                            color: inactiveTextColor,
-                          ),
-                        ),
-                        Positioned(
-                          right: 14,
-                          child: Text(
-                            pctText,
-                            style: inactiveTextStyle,
-                          ),
-                        ),
-
-                        // Active accent fill pill with fully rounded semicircular cap and contrast text/icon
-                        if (value > 0)
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: activeWidth,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(radius),
-                              clipBehavior: Clip.antiAlias,
-                              child: Container(
-                                color: scheme.primary,
-                                child: OverflowBox(
-                                  alignment: Alignment.centerLeft,
-                                  minWidth: totalWidth,
-                                  maxWidth: totalWidth,
-                                  child: Stack(
-                                    alignment: Alignment.centerLeft,
-                                    children: [
-                                      Positioned(
-                                        left: 12,
-                                        child: Icon(
-                                          volumeIcon,
-                                          size: 18,
-                                          color: scheme.onPrimary,
-                                        ),
-                                      ),
-                                      Positioned(
-                                        right: 14,
-                                        child: Text(
-                                          pctText,
-                                          style: activeTextStyle,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+              child: Tooltip(
+                message: value > 0 ? 'Mute' : 'Unmute',
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 2, right: 10, top: 4, bottom: 4),
+                  child: Icon(
+                    volumeIcon,
+                    size: 19,
+                    color: value == 0
+                        ? scheme.onSurfaceVariant.withValues(alpha: 0.45)
+                        : scheme.onSurfaceVariant,
                   ),
                 ),
               ),
             ),
           ),
-        );
-      },
+
+          // Central slider track with rolling pear
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final totalWidth = constraints.maxWidth;
+                if (totalWidth <= pearSize) return const SizedBox(height: containerHeight);
+
+                final usableWidth = totalWidth - pearSize;
+                final pearLeft = value * usableWidth;
+
+                // Rolling angle proportional to distance traveled along the track (theta = x / r)
+                final rotationAngle = pearLeft / (pearSize / 2);
+
+                void handleDragUpdate(double localDx) {
+                  final fraction = ((localDx - (pearSize / 2)) / usableWidth).clamp(0.0, 1.0);
+                  if (fraction > 0) _lastNonZeroVolume = fraction;
+                  setState(() => _dragValue = fraction);
+                  player.setVolume(fraction);
+                }
+
+                return MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  onEnter: (_) => setState(() => _isHovered = true),
+                  onExit: (_) => setState(() => _isHovered = false),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (details) => handleDragUpdate(details.localPosition.dx),
+                    onHorizontalDragStart: (details) {
+                      setState(() => _isDragging = true);
+                      handleDragUpdate(details.localPosition.dx);
+                    },
+                    onHorizontalDragUpdate: (details) => handleDragUpdate(details.localPosition.dx),
+                    onHorizontalDragEnd: (_) => setState(() {
+                      _isDragging = false;
+                      _dragValue = null;
+                    }),
+                    onHorizontalDragCancel: () => setState(() {
+                      _isDragging = false;
+                      _dragValue = null;
+                    }),
+                    child: SizedBox(
+                      height: containerHeight,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          // Base track background (inactive)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: pearSize / 2),
+                            child: Container(
+                              height: trackHeight,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(trackHeight / 2),
+                              ),
+                            ),
+                          ),
+
+                          // Active progress track
+                          if (value > 0)
+                            Positioned(
+                              left: pearSize / 2,
+                              child: Container(
+                                width: pearLeft,
+                                height: trackHeight,
+                                decoration: BoxDecoration(
+                                  color: effectiveAccent,
+                                  borderRadius: BorderRadius.circular(trackHeight / 2),
+                                ),
+                              ),
+                            ),
+
+                          // Rolling Pear thumb
+                          Positioned(
+                            left: pearLeft,
+                            top: (containerHeight - pearSize) / 2,
+                            child: IgnorePointer(
+                              child: AnimatedScale(
+                                scale: (_isDragging || _isHovered) ? 1.18 : 1.0,
+                                duration: const Duration(milliseconds: 120),
+                                curve: Curves.easeOutCubic,
+                                child: Container(
+                                  width: pearSize,
+                                  height: pearSize,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: effectiveAccent.withValues(
+                                          alpha: (_isDragging || _isHovered) ? 0.50 : 0.25,
+                                        ),
+                                        blurRadius: (_isDragging || _isHovered) ? 8.0 : 4.0,
+                                        offset: const Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Transform.rotate(
+                                    angle: rotationAngle,
+                                    child: Image.asset(
+                                      'assets/pear_logo.png',
+                                      width: pearSize,
+                                      height: pearSize,
+                                      color: effectiveAccent,
+                                      colorBlendMode: BlendMode.srcIn,
+                                      filterQuality: FilterQuality.medium,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Percentage readout
+          Padding(
+            padding: const EdgeInsets.only(left: 10, right: 2),
+            child: SizedBox(
+              width: 32,
+              child: Text(
+                pctText,
+                textAlign: TextAlign.right,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

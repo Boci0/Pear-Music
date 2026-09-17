@@ -65,12 +65,14 @@ class PlayerPortraitBody extends StatelessWidget {
                   PlayerSeekBar(
                     player: player,
                     duration: duration,
+                    accent: accent,
                   ),
                   PlayerTransport(
                     player: player,
                     controller: controller,
+                    accent: accent,
                   ),
-                  const PlayerVolumeRow(),
+                  PlayerVolumeRow(accent: accent),
                 ],
               ),
             ),

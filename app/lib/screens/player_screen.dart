@@ -43,10 +43,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Color? _accentColor;
   String? _resolvedSongId;
+  late final AppController _appController;
 
   @override
   void initState() {
     super.initState();
+    _appController = context.read<AppController>();
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
   }
 
@@ -107,6 +109,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (_sheetController.progress > 0.001) {
             _sheetController.collapse();
           } else {
+            _appController.updateSynthesizerBar(false);
+            PlayerArtwork.closeLyrics();
             Navigator.of(context).pop();
           }
         },
@@ -150,6 +154,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_sheetController.progress > 0.001) {
               _sheetController.collapse();
             } else {
+              _appController.updateSynthesizerBar(false);
+              PlayerArtwork.closeLyrics();
               Navigator.of(context).pop();
             }
           },
@@ -288,6 +294,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     _sheetController.dispose();
     PlayerArtwork.closeLyrics();
+    _appController.updateSynthesizerBar(false);
     super.dispose();
   }
 }

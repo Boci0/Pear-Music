@@ -352,7 +352,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                 fontSize: fontSize,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.2,
-                wordSpacing: 4.0,
+                wordSpacing: 1.0,
                 height: 1.40,
                 color: isLight ? const Color(0xFF141416) : Colors.white,
                 shadows: isLight

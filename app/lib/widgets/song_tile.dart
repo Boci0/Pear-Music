@@ -278,7 +278,7 @@ class SongTile extends StatelessWidget {
                                   children: [
                                     if (song.sourceDeviceId == 'stream') ...[
                                       Icon(Icons.sensors_rounded,
-                                          size: 13, color: theme.colorScheme.tertiary),
+                                          size: 13, color: theme.colorScheme.primary),
                                       const SizedBox(width: 4),
                                     ] else if (fromPeer) ...[
                                       Icon(Icons.cloud_done_outlined,
@@ -288,7 +288,7 @@ class SongTile extends StatelessWidget {
                                     Expanded(
                                       child: Text(
                                         song.sourceDeviceId == 'stream'
-                                            ? 'Online Stream'
+                                            ? 'Stream · Pear Radio'
                                             : fromPeer
                                                 ? 'Shared · ${song.sizeLabel}'
                                                 : 'Local · ${song.sizeLabel}',
@@ -297,7 +297,7 @@ class SongTile extends StatelessWidget {
                                         style: theme.textTheme.bodySmall?.copyWith(
                                           fontSize: 11.5,
                                           height: 1.2,
-                                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                                          color: theme.colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ),

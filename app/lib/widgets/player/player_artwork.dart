@@ -12,6 +12,7 @@ import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
 import 'player_console_dialog.dart';
 import 'rhythm_pulse.dart';
+import 'visual_synthesizer_bar.dart';
 import '../tactile_button.dart';
 
 /// Large album artwork container with rounded corners, ambient accent glow,
@@ -114,7 +115,11 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final networkUrl = widget.networkUrl;
     final artwork = widget.artwork;
     final baseShadowColor = (widget.accent ?? scheme.primary);
+    final isAccentDark = ThemeData.estimateBrightnessForColor(baseShadowColor) == Brightness.dark;
     final isLight = ArtworkPalette.isLightArtwork(song);
+    final useSynthesizer = context.select<AppController?, bool>(
+      (c) => c?.identity.synthesizerBar ?? true,
+    );
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -363,7 +368,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                               child: PlayerPillButton(
                                 tooltip: 'Lyrics timing & options',
                                 activeColor: baseShadowColor,
-                                isLight: isLight,
+                                isActive: false,
                                 onTap: () {
                                   showLyricSyncSheet(
                                     context,
@@ -376,21 +381,21 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                     },
                                   );
                                 },
-                                child: Row(
+                                child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
                                       Icons.tune_rounded,
                                       size: 13,
-                                      color: isLight ? const Color(0xFF141416) : Colors.white,
+                                      color: Colors.white,
                                     ),
-                                    const SizedBox(width: 4.5),
+                                    SizedBox(width: 4.5),
                                     Text(
-                                      'Sync',
-                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                      'Timing',
+                                      style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
-                                        color: isLight ? const Color(0xFF141416) : Colors.white,
+                                        color: Colors.white,
                                         letterSpacing: 0.2,
                                       ),
                                     ),
@@ -400,29 +405,84 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             ),
                           ),
                         ),
+                      // Equalizer spectrum visualizer taking half the height of album artwork
+                      if (song != null && playerService != null && useSynthesizer)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: size * 0.50,
+                          child: IgnorePointer(
+                            child: FadeTransition(
+                              opacity: _blurAnimation.drive(
+                                Tween<double>(begin: 1.0, end: 0.0),
+                              ),
+                              child: ArtworkVisualizer(
+                                player: playerService,
+                                accentColor: baseShadowColor,
+                              ),
+                            ),
+                          ),
+                        ),
                       if (song != null && playerService != null)
                         Positioned(
                           top: 10,
                           right: 10,
-                          child: PlayerPillButton(
-                            isCircle: true,
-                            tooltip: isLyricsFullyOpen ? 'Show album artwork' : 'Show lyrics',
-                            activeColor: baseShadowColor,
-                            isLight: isLight,
-                            onTap: () => PlayerArtwork.toggleLyrics(),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 90),
-                              transitionBuilder: (child, anim) => FadeTransition(
-                                opacity: anim,
-                                child: child,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              PlayerPillButton(
+                                isCircle: true,
+                                isActive: useSynthesizer,
+                                tooltip: useSynthesizer ? 'Hide visualizer' : 'Show visualizer',
+                                activeColor: baseShadowColor,
+                                onTap: () {
+                                  final willEnable = !useSynthesizer;
+                                  if (willEnable) {
+                                    PlayerArtwork.closeLyrics();
+                                  }
+                                  context.read<AppController?>()?.updateSynthesizerBar(willEnable);
+                                },
+                                child: Icon(
+                                  useSynthesizer ? Icons.graphic_eq_rounded : Icons.equalizer_rounded,
+                                  size: 16,
+                                  color: useSynthesizer
+                                      ? (isAccentDark ? Colors.white : const Color(0xFF141416))
+                                      : Colors.white.withValues(alpha: 0.90),
+                                ),
                               ),
-                              child: Icon(
-                                isLyricsFullyOpen ? Icons.image_rounded : Icons.lyrics_rounded,
-                                key: ValueKey(isLyricsFullyOpen),
-                                size: 16,
-                                color: isLight ? const Color(0xFF141416) : Colors.white,
+                              const SizedBox(width: 8),
+                              PlayerPillButton(
+                                isCircle: true,
+                                isActive: isLyricsFullyOpen,
+                                tooltip: isLyricsFullyOpen ? 'Show album artwork' : 'Show lyrics',
+                                activeColor: baseShadowColor,
+                                onTap: () {
+                                  final willOpen = !isLyricsFullyOpen;
+                                  if (willOpen) {
+                                    context.read<AppController?>()?.updateSynthesizerBar(false);
+                                    PlayerArtwork.showLyricsNotifier.value = true;
+                                  } else {
+                                    PlayerArtwork.closeLyrics();
+                                  }
+                                },
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 90),
+                                  transitionBuilder: (child, anim) => FadeTransition(
+                                    opacity: anim,
+                                    child: child,
+                                  ),
+                                  child: Icon(
+                                    isLyricsFullyOpen ? Icons.image_rounded : Icons.lyrics_rounded,
+                                    key: ValueKey(isLyricsFullyOpen),
+                                    size: 16,
+                                    color: isLyricsFullyOpen
+                                        ? (isAccentDark ? Colors.white : const Color(0xFF141416))
+                                        : Colors.white.withValues(alpha: 0.90),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                     ],
@@ -520,7 +580,7 @@ class PlayerSongInfo extends StatelessWidget {
                   TactileIconButton(
                     icon: Icon(
                       Icons.download_rounded,
-                      color: theme.colorScheme.tertiary,
+                      color: theme.colorScheme.primary,
                     ),
                     tooltip: 'Save to library',
                     onPressed: () => controller.saveStreamToLibrary(song),
@@ -626,7 +686,7 @@ class PlayerSongInfo extends StatelessWidget {
             Icon(
               Icons.radio_rounded,
               size: 14,
-              color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+              color: scheme.onSurfaceVariant,
             ),
             const SizedBox(width: 5),
             Text(
@@ -647,7 +707,7 @@ class PlayerSongInfo extends StatelessWidget {
           Icon(
             song.sourceDeviceId == null ? Icons.folder_outlined : Icons.devices_rounded,
             size: 14,
-            color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+            color: scheme.onSurfaceVariant,
           ),
           const SizedBox(width: 5),
           Text(
@@ -695,7 +755,6 @@ class PlayerPillButton extends StatefulWidget {
   final Color activeColor;
   final bool isCircle;
   final bool isActive;
-  final bool isLight;
 
   const PlayerPillButton({
     super.key,
@@ -704,8 +763,7 @@ class PlayerPillButton extends StatefulWidget {
     required this.activeColor,
     this.tooltip,
     this.isCircle = false,
-    this.isActive = true,
-    this.isLight = false,
+    this.isActive = false,
   });
 
   @override
@@ -720,27 +778,27 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
   Widget build(BuildContext context) {
     final pillRadius = widget.isCircle ? BorderRadius.circular(20) : BorderRadius.circular(16);
     final accent = widget.activeColor;
-    final isLight = widget.isLight;
+    final isActive = widget.isActive;
 
-    final bgColor = isLight
-        ? Colors.white.withValues(
-            alpha: _isPressed ? 0.90 : (_isHovered ? 0.82 : 0.72),
-          )
-        : accent.withValues(
-            alpha: _isPressed ? 0.36 : (_isHovered ? 0.28 : 0.22),
-          );
+    final Color bgColor;
+    final Color borderColor;
+    final Color shadowColor;
 
-    final borderColor = isLight
-        ? Colors.black.withValues(
-            alpha: _isHovered ? 0.22 : 0.14,
-          )
-        : accent.withValues(
-            alpha: _isHovered ? 0.55 : 0.38,
-          );
-
-    final shadowColor = isLight
-        ? Colors.black.withValues(alpha: 0.12)
-        : Colors.black.withValues(alpha: 0.22);
+    if (isActive) {
+      bgColor = _isPressed
+          ? accent.withValues(alpha: 0.90)
+          : (_isHovered ? accent.withValues(alpha: 0.96) : accent);
+      borderColor = Colors.white.withValues(alpha: _isHovered ? 0.45 : 0.30);
+      shadowColor = accent.withValues(alpha: 0.40);
+    } else {
+      bgColor = Colors.black.withValues(
+        alpha: _isPressed ? 0.72 : (_isHovered ? 0.62 : 0.52),
+      );
+      borderColor = Colors.white.withValues(
+        alpha: _isHovered ? 0.34 : 0.22,
+      );
+      shadowColor = Colors.black.withValues(alpha: 0.35);
+    }
 
     Widget button = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),

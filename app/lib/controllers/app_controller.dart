@@ -388,26 +388,27 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Phase 1: Fast local and direct stream URL matching (Zero network queries)
-      final unmatched = <({String extinf, String target})>[];
+      // Preserve original track order by allocating indexed slots for all raw entries
+      final resolvedSongs = List<Song?>.filled(rawEntries.length, null);
+      final unmatched = <({int index, String extinf, String target})>[];
       final newOnlineSongs = <Song>[];
 
-      for (final entry in rawEntries) {
+      // Phase 1: Fast local and direct stream URL matching (Zero network queries)
+      for (var i = 0; i < rawEntries.length; i++) {
+        final entry = rawEntries[i];
         final directSong = await _matchDirectOrLocalSong(
           entry.extinf,
           entry.target,
           m3uDir: m3uDir,
         );
         if (directSong != null) {
-          if (!songIds.contains(directSong.id)) {
-            songIds.add(directSong.id);
-          }
+          resolvedSongs[i] = directSong;
           if (directSong.sourceDeviceId == 'stream' ||
               directSong.id.startsWith('stream_')) {
             newOnlineSongs.add(directSong);
           }
         } else {
-          unmatched.add(entry);
+          unmatched.add((index: i, extinf: entry.extinf, target: entry.target));
         }
       }
 
@@ -416,14 +417,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (unmatched.isNotEmpty) {
         final resolveBatch = unmatched.take(25).toList();
         for (var idx = 0; idx < resolveBatch.length; idx++) {
-          final entry = resolveBatch[idx];
-          final query = _extractSearchQuery(entry.extinf, entry.target);
+          final item = resolveBatch[idx];
+          final query = _extractSearchQuery(item.extinf, item.target);
           if (query.isNotEmpty) {
             final onlineSong = await _searchAndResolveOnlineTrack(query);
             if (onlineSong != null) {
-              if (!songIds.contains(onlineSong.id)) {
-                songIds.add(onlineSong.id);
-              }
+              resolvedSongs[item.index] = onlineSong;
               newOnlineSongs.add(onlineSong);
             }
             // Rate limiting: 250ms delay between lightweight text search queries
@@ -436,6 +435,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
       if (newOnlineSongs.isNotEmpty) {
         await identity.registerOnlineSongs(newOnlineSongs);
+      }
+
+      // Assemble final songIds preserving exact file sequence and avoiding duplicates
+      for (final song in resolvedSongs) {
+        if (song != null && !songIds.contains(song.id)) {
+          songIds.add(song.id);
+        }
       }
 
       if (songIds.isEmpty) {

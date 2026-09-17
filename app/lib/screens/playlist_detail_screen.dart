@@ -194,7 +194,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     buildDefaultDragHandles: false,
                     itemCount: songs.length,
                     onReorderItem: (oldIndex, newIndex) =>
-                        _reorder(controller, playlist, oldIndex, newIndex),
+                        _reorder(controller, playlist, songs, oldIndex, newIndex),
                     proxyDecorator: (child, index, animation) {
                       return AnimatedBuilder(
                         animation: animation,
@@ -243,17 +243,17 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   void _reorder(
     AppController controller,
     Playlist playlist,
+    List<Song> songs,
     int oldIndex,
     int newIndex,
   ) {
-    // onReorderItem already adjusts newIndex for the removed item, so a
-    // direct removeAt + insert gives the correct order.
-    final ids = List<String>.from(_optimisticIds ?? playlist.songIds);
-    if (oldIndex < 0 || oldIndex >= ids.length || newIndex < 0 || newIndex >= ids.length) {
+    if (oldIndex < 0 || oldIndex >= songs.length || newIndex < 0 || newIndex >= songs.length) {
       return;
     }
-    final moved = ids.removeAt(oldIndex);
-    ids.insert(newIndex, moved);
+    final mutableSongs = List<Song>.from(songs);
+    final moved = mutableSongs.removeAt(oldIndex);
+    mutableSongs.insert(newIndex, moved);
+    final ids = mutableSongs.map((s) => s.id).toList();
     setState(() {
       _optimisticIds = ids;
     });
