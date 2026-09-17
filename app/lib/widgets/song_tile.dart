@@ -316,6 +316,14 @@ class SongTile extends StatelessWidget {
                             ),
                             const SizedBox(width: 4),
                           ],
+                          if (!isSelecting && isCurrent) ...[
+                            Icon(
+                              Icons.graphic_eq_rounded,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
                           if (!isSelecting) ...[
                             _ActionButton(
                               icon: Icons.more_vert,

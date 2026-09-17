@@ -65,8 +65,8 @@ class Song {
         id: json['id'] as String,
         title: json['title'] as String,
         fileName: json['fileName'] as String,
-        size: json['size'] as int,
-        checksum: json['checksum'] as String,
+        size: (json['size'] as num?)?.toInt() ?? 0,
+        checksum: json['checksum'] as String? ?? '',
         sourceDeviceId: json['sourceDeviceId'] as String?,
         artwork: json['artwork'] as String?,
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??

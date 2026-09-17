@@ -397,6 +397,14 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                               ),
                             ),
                           ],
+                          if (widget.isCurrent) ...[
+                            Icon(
+                              Icons.graphic_eq_rounded,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
                           TactileIconButton(
                             icon: const Icon(Icons.more_vert, size: 20),
                             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),

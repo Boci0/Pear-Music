@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -128,8 +131,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    final landscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final landscape = !kIsWeb &&
+            (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+        ? false
+        : MediaQuery.orientationOf(context) == Orientation.landscape;
 
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track

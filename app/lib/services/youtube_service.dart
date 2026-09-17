@@ -247,13 +247,18 @@ class YoutubeService {
   /// True when the app can rip with the **bundled** yt-dlp (Android only).
   static bool get isEmbeddedYtDlpSupported => !kIsWeb && Platform.isAndroid;
 
-  /// Locate `aria2c` on PATH (Windows: `where.exe`, others: `which`). Returns
-  /// null when missing or when the check itself fails — aria2c is an optional
+  /// Locate `aria2c` on executable directory or PATH (Windows: `where.exe`, others: `which`). Returns
+  /// null when missing or when the check itself fails; aria2c is an optional
   /// accelerator, never a requirement.
   @visibleForTesting
   static Future<String?> aria2cPath() async {
     if (kIsWeb) return null;
     try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final bundledBin =
+          File(p.join(exeDir, Platform.isWindows ? 'aria2c.exe' : 'aria2c'));
+      if (bundledBin.existsSync()) return bundledBin.path;
+
       if (Platform.isWindows) {
         final r = await Process.run('where.exe', ['aria2c']);
         if (r.exitCode == 0) {

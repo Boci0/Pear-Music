@@ -573,6 +573,44 @@ void main() {
       expect(player.queue.length, greaterThan(1));
       expect(player.queueIndex, 0);
     });
+
+    test('Song.fromJson parses null or floating point size safely and provides default checksum', () {
+      final json1 = {
+        'id': 'test1',
+        'title': 'Test 1',
+        'fileName': 'test1.mp3',
+        'size': 1234.5,
+      };
+      final song1 = Song.fromJson(json1);
+      expect(song1.size, 1234);
+      expect(song1.checksum, '');
+
+      final json2 = {
+        'id': 'test2',
+        'title': 'Test 2',
+        'fileName': 'test2.mp3',
+        'size': null,
+      };
+      final song2 = Song.fromJson(json2);
+      expect(song2.size, 0);
+      expect(song2.checksum, '');
+    });
+
+    test('next() honors locked song at queueIndex + 1 during shuffle mode', () async {
+      player.updateQueue([songA, songB, songC, songD]);
+      player.currentSong = songA;
+      player.toggleShuffle();
+      expect(player.shuffle, isTrue);
+
+      // Lock songB at N+1 (simulating playNext)
+      player.toggleSongLock('b');
+      expect(player.isSongLocked('b'), isTrue);
+
+      await player.next();
+
+      // Should pick locked songB regardless of shuffle randomization
+      expect(player.currentSong?.id, 'b');
+    });
   });
 }
 

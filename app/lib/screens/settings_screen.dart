@@ -38,16 +38,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TactileBounce(
             onTap: () => Navigator.pop(ctx, false),
-            child: TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
+            child: IgnorePointer(
+              child: TextButton(
+                onPressed: () {},
+                child: const Text('Cancel'),
+              ),
             ),
           ),
           TactileBounce(
             onTap: () => Navigator.pop(ctx, true),
-            child: FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Clear cache'),
+            child: IgnorePointer(
+              child: FilledButton(
+                onPressed: () {},
+                child: const Text('Clear cache'),
+              ),
             ),
           ),
         ],

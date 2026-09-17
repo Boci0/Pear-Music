@@ -907,7 +907,14 @@ class PlayerService extends ChangeNotifier {
         final currentUpcoming = _queue.length > currentActiveIndex + 1
             ? _queue.sublist(currentActiveIndex + 1)
             : <Song>[];
-        final currentTail = currentUpcoming.isNotEmpty ? currentUpcoming.sublist(1) : <Song>[];
+        if (currentUpcoming.isEmpty ||
+            currentUpcoming.first.id != oldNextSong.id ||
+            _lockedSongIds.contains(currentUpcoming.first.id)) {
+          DebugLog.write(
+              '[radio] Auto-reroll discarded: next track was modified or locked during fetch');
+          return false;
+        }
+        final currentTail = currentUpcoming.sublist(1);
 
         _queue = [...currentHead, nextSong, ...currentTail];
         _syncQueueIndexWithCurrentSong();
@@ -1018,7 +1025,10 @@ class PlayerService extends ChangeNotifier {
     // Synchronously parse network artwork for streams or resolve local artwork with fast timeout
     final Uri effectiveArtUri;
     if (song.artwork != null && song.artwork!.startsWith('http')) {
-      effectiveArtUri = Uri.tryParse(song.artwork!) ?? await ArtworkService.defaultArtworkUri();
+      final optimized = ArtworkService.optimizeArtworkUrl(song.artwork!);
+      effectiveArtUri = Uri.tryParse(optimized) ??
+          Uri.tryParse(song.artwork!) ??
+          await ArtworkService.defaultArtworkUri();
     } else {
       effectiveArtUri = await ArtworkService.songArtworkUri(song).timeout(
         const Duration(milliseconds: 150),
@@ -1732,6 +1742,12 @@ class PlayerService extends ChangeNotifier {
     _syncQueueIndexWithCurrentSong();
     if (_shuffle) {
       if (_queue.length <= 1) return _queue.isEmpty ? null : 0;
+      final immediateNext = _queueIndex + 1;
+      if (immediateNext < _queue.length &&
+          _lockedSongIds.contains(_queue[immediateNext].id)) {
+        _shufflePlayedSongIds.add(_queue[immediateNext].id);
+        return immediateNext;
+      }
       final unplayed = [
         for (var i = 0; i < _queue.length; i++)
           if (!_shufflePlayedSongIds.contains(_queue[i].id) && i != _queueIndex) i,
