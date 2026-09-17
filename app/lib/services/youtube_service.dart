@@ -318,8 +318,12 @@ class YoutubeService {
       }
 
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
+        final isAndroid = !kIsWeb && Platform.isAndroid;
+        final formatArg = isAndroid
+            ? '140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/best'
+            : 'bestaudio[acodec=opus][abr<=160]/141/bestaudio[ext=m4a]/bestaudio/best';
         final args = [
-          '-f', 'bestaudio[ext=m4a]/bestaudio/best',
+          '-f', formatArg,
           '--extractor-args', 'youtube:player_client=android,web',
           '--newline',
           '--no-playlist',

@@ -20,9 +20,27 @@ class StreamCacheManager {
   static const int targetEvictionBytes = 400 * 1024 * 1024; // prune to 400 MB
   static const int maxTrackCount = 100;
 
-  /// High-efficiency default audio format selector (~128-160 kbps AAC/Opus).
-  static const String audioFormatArg = 'ba/ba*/bestaudio/b/best';
-  static String getAudioFormatArg() => audioFormatArg;
+  /// High-efficiency Opus-optimized audio format selector for desktop (~96-128 kbps Opus).
+  /// Prioritizes Opus streams within 96-130 kbps, falling back to any Opus,
+  /// then standard best audio.
+  static const String desktopAudioFormatArg =
+      'ba[acodec=opus][abr<=130]/ba[acodec=opus]/ba[ext=opus]/ba[abr<=128]/ba/bestaudio/b/best';
+
+  /// Hardware-accelerated DSP audio format selector for Android (Format 140, AAC-LC 128 kbps .m4a).
+  /// Enables native zero-CPU DSP offloading and minimizes background battery drain.
+  static const String androidAudioFormatArg =
+      '140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba';
+
+  /// Platform-adaptive audio format selector:
+  /// Uses hardware-accelerated AAC on Android, and high-efficiency Opus on desktop.
+  static String get audioFormatArg => getAudioFormatArg();
+
+  static String getAudioFormatArg() {
+    if (!kIsWeb && Platform.isAndroid) {
+      return androidAudioFormatArg;
+    }
+    return desktopAudioFormatArg;
+  }
 
   static Set<String> _activeQueueVideoIds = {};
   /// Protects all tracks currently in the active queue from being evicted.
@@ -443,7 +461,9 @@ class StreamCacheManager {
             DebugLog.write(
               '[cache] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
             );
+            if (!completer.isCompleted) {
             completer.complete(cached);
+          }
           }
           if (completer.isCompleted) {
             return await completer.future;
@@ -469,7 +489,7 @@ class StreamCacheManager {
           '--cache-dir',
           ytdlpCache.path,
           '--extractor-args',
-          'youtube:skip=hls,translated_subs',
+          'youtube:skip=webpage,authcheck,translated_subs,hls',
           '-o',
           outputTemplate,
           '--no-playlist',
@@ -480,7 +500,7 @@ class StreamCacheManager {
           '--quiet',
           '--force-ipv4',
           '--concurrent-fragments',
-          '8',
+          '2',
           '--http-chunk-size',
           '5M',
           '--buffer-size',
@@ -539,7 +559,9 @@ class StreamCacheManager {
           DebugLog.write(
             '[cache] yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) at ${cached.path}',
           );
-          completer.complete(cached);
+          if (!completer.isCompleted) {
+            completer.complete(cached);
+          }
           return cached;
         }
       } else {
@@ -749,15 +771,27 @@ class StreamCacheManager {
           .timeout(Duration(seconds: fastFail ? 3 : 5));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
-        final mp4Streams = audioStreams.where((s) => s.container == StreamContainer.mp4).toList();
-        final audioStream = mp4Streams.isNotEmpty
-            ? mp4Streams.withHighestBitrate()
-            : audioStreams.withHighestBitrate();
+        final isAndroid = !kIsWeb && Platform.isAndroid;
+        final AudioStreamInfo audioStream;
+        if (isAndroid) {
+          // On Android: Prefer hardware-accelerated AAC (MP4 container, format 140) for low-power DSP offloading
+          final mp4Streams = audioStreams.where((s) => s.container == StreamContainer.mp4).toList();
+          audioStream = mp4Streams.isNotEmpty
+              ? mp4Streams.withHighestBitrate()
+              : audioStreams.withHighestBitrate();
+        } else {
+          // On Desktop: Prefer Opus (WebM container, ~96-130 kbps) for 40% disk/bandwidth savings
+          final webmStreams = audioStreams.where((s) => s.container == StreamContainer.webM).toList();
+          audioStream = webmStreams.isNotEmpty
+              ? webmStreams.withHighestBitrate()
+              : audioStreams.withHighestBitrate();
+        }
         final streamUrl = audioStream.url.toString();
         if (streamUrl.startsWith('http')) {
           _saveToStreamUrlCache(videoId, streamUrl);
           _consecutiveFailures = 0;
-          DebugLog.write('[stream] Fast in-process resolution succeeded for $videoId');
+          DebugLog.write(
+              '[stream] Fast in-process resolution succeeded for $videoId (${isAndroid ? "AAC" : "Opus"})');
           return streamUrl;
         }
       }
@@ -813,9 +847,9 @@ class StreamCacheManager {
         url,
         [
           '-g',
-          '-f', 'bestaudio/ba',
+          '-f', 'ba[acodec=opus]/bestaudio/ba',
           '--cache-dir', ytdlpCache.path,
-          '--extractor-args', 'youtube:skip=hls,translated_subs',
+          '--extractor-args', 'youtube:skip=webpage,authcheck,translated_subs,hls',
           '--no-playlist',
           '--force-ipv4',
           '--no-warnings',

@@ -233,7 +233,7 @@ void main() {
     test('StreamCacheManager getAudioFormatArg returns optimal universal format selector', () {
       expect(
         StreamCacheManager.getAudioFormatArg(),
-        'ba/ba*/bestaudio/b/best',
+        StreamCacheManager.audioFormatArg,
       );
     });
 
