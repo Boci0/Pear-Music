@@ -1,6 +1,6 @@
 ; Inno Setup Script for Pear Music Windows Installer
 #define MyAppName "Pear Music"
-#define MyAppVersion "3.5.4"
+#define MyAppVersion "3.5.5"
 #define MyAppPublisher "Boci0"
 #define MyAppURL "https://github.com/Boci0/Pear-Music"
 #define MyAppExeName "peerm_app.exe"
@@ -15,7 +15,8 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={userpf}\{#MyAppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=PearMusic-Setup-v{#MyAppVersion}
+OutputDir=.
+OutputBaseFilename=PearMusic-Windows-Setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

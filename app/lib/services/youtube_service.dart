@@ -158,6 +158,8 @@ class YoutubeService {
 
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse(downloadUrl));
+      request.headers.set('User-Agent', 'PearMusic-App');
+      request.headers.set('Accept', 'application/octet-stream');
       final response = await request.close();
 
       if (response.statusCode == 200) {
@@ -165,7 +167,8 @@ class YoutubeService {
         await response.pipe(sink);
         await sink.close();
 
-        if (await tempFile.length() > 0) {
+        final downloadedLen = await tempFile.length();
+        if (downloadedLen > 1000000) {
           if (!Platform.isWindows) {
             await Process.run('chmod', ['+x', tempFile.path]);
           }
@@ -173,6 +176,9 @@ class YoutubeService {
           await tempFile.rename(targetFile.path);
           _downloadingYtDlp!.complete(targetFile.path);
           return targetFile.path;
+        } else {
+          debugPrint('[pearmusic] Downloaded binary too small ($downloadedLen bytes), dropping');
+          if (await tempFile.exists()) await tempFile.delete();
         }
       }
       _downloadingYtDlp!.complete(null);

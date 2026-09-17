@@ -492,7 +492,11 @@ class StreamCacheManager {
       }
 
       // Desktop yt-dlp engine with client emulation and robust audio format selection
-      final bin = await YoutubeService.ytDlpPath();
+      var bin = await YoutubeService.ytDlpPath();
+      if (bin == null && !kIsWeb && !Platform.isAndroid) {
+        DebugLog.write('[cache] Desktop yt-dlp not found on disk, auto-downloading dependency...');
+        bin = await YoutubeService.ensureYtDlpAvailable();
+      }
       if (bin != null) {
         DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
         final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
@@ -911,7 +915,11 @@ class StreamCacheManager {
         : Duration(seconds: args.contains('--quiet') ? 8 : 6);
     Process? proc;
     try {
-      final bin = await YoutubeService.ytDlpPath() ?? 'yt-dlp';
+      var bin = await YoutubeService.ytDlpPath();
+      if (bin == null && !kIsWeb && !Platform.isAndroid) {
+        bin = await YoutubeService.ensureYtDlpAvailable();
+      }
+      bin ??= 'yt-dlp';
       proc = await Process.start(bin, [...args, url]);
       final outBuf = StringBuffer();
       final outSub = proc.stdout.transform(utf8.decoder).listen(
