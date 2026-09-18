@@ -63,6 +63,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   double _lastLayoutHeight = 0.0;
   int _lastTickEpoch = DateTime.now().millisecondsSinceEpoch;
   final List<double> _prevDisplayBins = List<double>.filled(barCount, 0.0);
+  final List<double> _effectiveBins = List<double>.filled(barCount, 0.0);
 
   // Dynamic Fake White Bar Poke System
   final List<double> _fakePokeHighlights = List<double>.filled(barCount, 0.0);
@@ -82,6 +83,27 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     _pokeCooldown = 0.8;
     _fakePokeHighlights.fillRange(0, barCount, 0.0);
     _fakePokeOffsets.fillRange(0, barCount, 0.0);
+    _effectiveBins.fillRange(0, barCount, 0.0);
+    _prevDisplayBins.fillRange(0, barCount, 0.0);
+  }
+
+  void _triggerFakePoke(int approxBar, int totalBars) {
+    _restDuration = 0.0;
+    _pokeCooldown = 1.8;
+    _fakePokeOffsets[approxBar] = 0.65;
+    _fakePokeHighlights[approxBar] = 1.0;
+    if (approxBar > 0) {
+      _fakePokeOffsets[approxBar - 1] = 0.38;
+      _fakePokeHighlights[approxBar - 1] = 0.65;
+    }
+    if (approxBar < totalBars - 1) {
+      _fakePokeOffsets[approxBar + 1] = 0.38;
+      _fakePokeHighlights[approxBar + 1] = 0.65;
+    }
+    _pearVy = -380.0 - (math.Random().nextDouble() * 80.0);
+    final flingDir = (approxBar >= totalBars / 2) ? -1.0 : 1.0;
+    _pearVx = flingDir * (140.0 + math.Random().nextDouble() * 70.0);
+    _pearOmega = flingDir * 4.0;
   }
 
   void _onArtworkTap(Offset localPos) {
@@ -501,8 +523,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           final pokeAmp = (i < _fakePokeOffsets.length ? _fakePokeOffsets[i] : 0.0);
           final amp = (rawAmp + pokeAmp).clamp(0.0, 1.0);
 
-          final prevRaw = (i < _prevDisplayBins.length ? _prevDisplayBins[i] : 0.0) * _decayActivity;
-          final prevAmp = prevRaw.clamp(0.0, 1.0);
+          final prevVal = (i < _prevDisplayBins.length ? _prevDisplayBins[i] : 0.0) * _decayActivity;
+          final prevAmp = prevVal.clamp(0.0, 1.0);
 
           final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp;
           final prevH = minBarHeight + (maxBarHeight - minBarHeight) * prevAmp;
@@ -552,23 +574,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           if (widget.player.playing && peakBarIndex >= 0) {
             _restDuration += dt;
             if (_restDuration >= 0.30 && _pokeCooldown <= 0.0) {
-              _restDuration = 0.0;
-              _pokeCooldown = 1.8; // Controlled cooldown so it is not too frequent
-              _fakePokeOffsets[peakBarIndex] = 0.65;
-              _fakePokeHighlights[peakBarIndex] = 1.0;
-              if (peakBarIndex > 0) {
-                _fakePokeOffsets[peakBarIndex - 1] = 0.38;
-                _fakePokeHighlights[peakBarIndex - 1] = 0.65;
-              }
-              if (peakBarIndex < totalBars - 1) {
-                _fakePokeOffsets[peakBarIndex + 1] = 0.38;
-                _fakePokeHighlights[peakBarIndex + 1] = 0.65;
-              }
-              // Direct impulse launch
-              _pearVy = -380.0 - (math.Random().nextDouble() * 80.0);
-              final flingDir = (peakBarIndex >= totalBars / 2) ? -1.0 : 1.0;
-              _pearVx = flingDir * (140.0 + math.Random().nextDouble() * 70.0);
-              _pearOmega = flingDir * 4.0;
+              _triggerFakePoke(peakBarIndex, totalBars);
             }
           } else if (!widget.player.playing) {
             _restDuration = 0.0;
@@ -597,14 +603,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           final approxBar = ((_pearX - startX) / (barWidth + spacing)).round().clamp(0, totalBars - 1);
           _restDuration += dt;
           if (_restDuration >= 0.30) {
-            _restDuration = 0.0;
-            _pokeCooldown = 1.8;
-            _fakePokeOffsets[approxBar] = 0.65;
-            _fakePokeHighlights[approxBar] = 1.0;
-            _pearVy = -380.0;
-            final flingDir = (approxBar >= totalBars / 2) ? -1.0 : 1.0;
-            _pearVx = flingDir * 150.0;
-            _pearOmega = flingDir * 4.0;
+            _triggerFakePoke(approxBar, totalBars);
           }
         } else if (!widget.player.playing) {
           _restDuration = 0.0;
@@ -613,7 +612,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     }
 
     for (int i = 0; i < barCount; i++) {
-      _prevDisplayBins[i] = _displayBins[i];
+      _effectiveBins[i] = ((_displayBins[i] + _fakePokeOffsets[i]) * _decayActivity).clamp(0.0, 1.0);
+      _prevDisplayBins[i] = (_displayBins[i] + _fakePokeOffsets[i]).clamp(0.0, 1.0);
     }
   }
 
@@ -721,10 +721,6 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
             child: AnimatedBuilder(
               animation: _tickerController,
               builder: (context, _) {
-                final effectiveBins = [
-                  for (int i = 0; i < barCount; i++)
-                    ((_displayBins[i] + _fakePokeOffsets[i]) * _decayActivity).clamp(0.0, 1.0),
-                ];
                 return CustomPaint(
                   size: Size.infinite,
                   painter: _ArtworkVisualizerPainter(
@@ -732,7 +728,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
                     isPlaying: widget.player.playing,
                     activity: _decayActivity,
                     accentColor: widget.accentColor,
-                    liveBins: effectiveBins,
+                    liveBins: _effectiveBins,
                     trailBins: _trailBins,
                     hasNativeFft: _hasNativeFft,
                     showBouncingPear: widget.showBouncingPear,
