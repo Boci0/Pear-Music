@@ -92,7 +92,8 @@ class IdentityService extends ChangeNotifier {
       orElse: () => SortOption.dateAdded,
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
-    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
+    _synthesizerBar = false;
+    _prefs.remove(_synthesizerBarKey);
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
@@ -279,8 +280,8 @@ class IdentityService extends ChangeNotifier {
   bool get synthesizerBar => _synthesizerBar;
 
   Future<void> setSynthesizerBar(bool value) async {
+    if (_synthesizerBar == value) return;
     _synthesizerBar = value;
-    await _prefs.setBool(_synthesizerBarKey, value);
     notifyListeners();
   }
 

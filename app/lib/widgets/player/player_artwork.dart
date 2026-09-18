@@ -25,6 +25,7 @@ class PlayerArtwork extends StatefulWidget {
 
   static final ValueNotifier<bool> showBouncingPearNotifier = ValueNotifier<bool>(false);
   static bool get isBouncingPearShowing => showBouncingPearNotifier.value;
+  static void closeBouncingPear() => showBouncingPearNotifier.value = false;
   static void toggleBouncingPear() => showBouncingPearNotifier.value = !showBouncingPearNotifier.value;
 
   final Song? song;
@@ -122,7 +123,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final isAccentDark = ThemeData.estimateBrightnessForColor(baseShadowColor) == Brightness.dark;
     final isLight = ArtworkPalette.isLightArtwork(song);
     final useSynthesizer = context.select<AppController?, bool>(
-      (c) => c?.identity.synthesizerBar ?? true,
+      (c) => c?.identity.synthesizerBar ?? false,
     );
 
     final songArt = song?.artwork;

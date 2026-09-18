@@ -548,8 +548,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           if (_pearOmega.abs() < 0.1) _pearOmega = 0.0;
 
           // Fake white bar poke:
-          // When the pear lands or rests on quiet bars, poke it up with a white bar surge
-          if (peakBarIndex >= 0) {
+          // When the pear lands or rests on quiet bars, poke it up with a white bar surge (only during active playback)
+          if (widget.player.playing && peakBarIndex >= 0) {
             _restDuration += dt;
             if (_restDuration >= 0.30 && _pokeCooldown <= 0.0) {
               _restDuration = 0.0;
@@ -570,6 +570,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
               _pearVx = flingDir * (140.0 + math.Random().nextDouble() * 70.0);
               _pearOmega = flingDir * 4.0;
             }
+          } else if (!widget.player.playing) {
+            _restDuration = 0.0;
           }
         }
       } else {
@@ -590,8 +592,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         _pearOmega *= 0.82;
         if (_pearOmega.abs() < 0.1) _pearOmega = 0.0;
 
-        // Also allow fake poke if resting on floor near the bars
-        if (_pokeCooldown <= 0.0) {
+        // Also allow fake poke if resting on floor near the bars (only during active playback)
+        if (widget.player.playing && _pokeCooldown <= 0.0) {
           final approxBar = ((_pearX - startX) / (barWidth + spacing)).round().clamp(0, totalBars - 1);
           _restDuration += dt;
           if (_restDuration >= 0.30) {
@@ -604,6 +606,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
             _pearVx = flingDir * 150.0;
             _pearOmega = flingDir * 4.0;
           }
+        } else if (!widget.player.playing) {
+          _restDuration = 0.0;
         }
       }
     }
@@ -673,6 +677,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       _startCapture();
     } else {
       _stopCapture();
+      _restDuration = 0.0;
     }
     _syncTicker();
     if (mounted) setState(() {});
