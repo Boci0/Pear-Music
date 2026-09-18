@@ -23,11 +23,6 @@ class PlayerArtwork extends StatefulWidget {
   static void closeLyrics() => showLyricsNotifier.value = false;
   static void toggleLyrics() => showLyricsNotifier.value = !showLyricsNotifier.value;
 
-  static final ValueNotifier<bool> showBouncingPearNotifier = ValueNotifier<bool>(false);
-  static bool get isBouncingPearShowing => showBouncingPearNotifier.value;
-  static void closeBouncingPear() => showBouncingPearNotifier.value = false;
-  static void toggleBouncingPear() => showBouncingPearNotifier.value = !showBouncingPearNotifier.value;
-
   final Song? song;
   final Uint8List? artwork;
   final String? networkUrl;
@@ -333,15 +328,9 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                         Positioned.fill(
                           child: IgnorePointer(
                             ignoring: isLyricsFullyOpen,
-                            child: ValueListenableBuilder<bool>(
-                              valueListenable: PlayerArtwork.showBouncingPearNotifier,
-                              builder: (context, showPear, _) {
-                                return ArtworkVisualizer(
-                                  player: playerService,
-                                  accentColor: baseShadowColor,
-                                  showBouncingPear: showPear,
-                                );
-                              },
+                            child: ArtworkVisualizer(
+                              player: playerService,
+                              accentColor: baseShadowColor,
                             ),
                           ),
                         ),
@@ -441,9 +430,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                 activeColor: baseShadowColor,
                                 onTap: () {
                                   final willEnable = !useSynthesizer;
-                                  if (!willEnable) {
-                                    PlayerArtwork.showBouncingPearNotifier.value = false;
-                                  }
                                   context.read<AppController?>()?.updateSynthesizerBar(willEnable);
                                 },
                                 child: Icon(
@@ -453,34 +439,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                       ? (isAccentDark ? Colors.white : const Color(0xFF141416))
                                       : Colors.white.withValues(alpha: 0.90),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              ValueListenableBuilder<bool>(
-                                valueListenable: PlayerArtwork.showBouncingPearNotifier,
-                                builder: (context, showPear, _) {
-                                  final isPearActive = showPear && useSynthesizer;
-                                  return PlayerPillButton(
-                                    isCircle: true,
-                                    isActive: isPearActive,
-                                    tooltip: isPearActive ? 'Hide bouncing pear' : 'Show bouncing pear',
-                                    activeColor: baseShadowColor,
-                                    onTap: () {
-                                      final willShow = !isPearActive;
-                                      PlayerArtwork.showBouncingPearNotifier.value = willShow;
-                                      if (willShow && !useSynthesizer) {
-                                        context.read<AppController?>()?.updateSynthesizerBar(true);
-                                      }
-                                    },
-                                    child: CustomPaint(
-                                      size: const Size(16, 16),
-                                      painter: MiniPearIconPainter(
-                                        color: isPearActive
-                                            ? (isAccentDark ? Colors.white : const Color(0xFF141416))
-                                            : Colors.white.withValues(alpha: 0.90),
-                                      ),
-                                    ),
-                                  );
-                                },
                               ),
                               const SizedBox(width: 8),
                               PlayerPillButton(

@@ -111,7 +111,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           } else {
             _appController.updateSynthesizerBar(false);
             PlayerArtwork.closeLyrics();
-            PlayerArtwork.closeBouncingPear();
             Navigator.of(context).pop();
           }
         },
@@ -154,7 +153,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (didPop) {
               _appController.updateSynthesizerBar(false);
               PlayerArtwork.closeLyrics();
-              PlayerArtwork.closeBouncingPear();
               return;
             }
             if (_sheetController.progress > 0.001) {
@@ -162,7 +160,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             } else {
               _appController.updateSynthesizerBar(false);
               PlayerArtwork.closeLyrics();
-              PlayerArtwork.closeBouncingPear();
               Navigator.of(context).pop();
             }
           },
@@ -301,7 +298,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     _sheetController.dispose();
     PlayerArtwork.closeLyrics();
-    PlayerArtwork.closeBouncingPear();
     _appController.updateSynthesizerBar(false);
     super.dispose();
   }

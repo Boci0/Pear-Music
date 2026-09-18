@@ -83,7 +83,7 @@ void main() {
     player.dispose();
   });
 
-  testWidgets('ArtworkVisualizer mounts cleanly with bouncing pear enabled',
+  testWidgets('ArtworkVisualizer mounts cleanly and unmounts without error',
       (tester) async {
     final player = _FakePlayerService();
 
@@ -96,7 +96,6 @@ void main() {
             child: ArtworkVisualizer(
               player: player,
               accentColor: Colors.deepPurple,
-              showBouncingPear: true,
             ),
           ),
         ),
@@ -107,6 +106,10 @@ void main() {
     player.setPlaying(true);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+
+    // Unmount widget cleanly
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(find.byType(ArtworkVisualizer), findsNothing);
 
     player.dispose();
   });

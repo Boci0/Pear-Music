@@ -157,29 +157,33 @@ class YoutubeService {
               : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux');
 
       final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(downloadUrl));
-      request.headers.set('User-Agent', 'PearMusic-App');
-      request.headers.set('Accept', 'application/octet-stream');
-      final response = await request.close();
+      try {
+        final request = await client.getUrl(Uri.parse(downloadUrl));
+        request.headers.set('User-Agent', 'PearMusic-App');
+        request.headers.set('Accept', 'application/octet-stream');
+        final response = await request.close();
 
-      if (response.statusCode == 200) {
-        final sink = tempFile.openWrite();
-        await response.pipe(sink);
-        await sink.close();
+        if (response.statusCode == 200) {
+          final sink = tempFile.openWrite();
+          await response.pipe(sink);
+          await sink.close();
 
-        final downloadedLen = await tempFile.length();
-        if (downloadedLen > 1000000) {
-          if (!Platform.isWindows) {
-            await Process.run('chmod', ['+x', tempFile.path]);
+          final downloadedLen = await tempFile.length();
+          if (downloadedLen > 1000000) {
+            if (!Platform.isWindows) {
+              await Process.run('chmod', ['+x', tempFile.path]);
+            }
+            if (await targetFile.exists()) await targetFile.delete();
+            await tempFile.rename(targetFile.path);
+            _downloadingYtDlp!.complete(targetFile.path);
+            return targetFile.path;
+          } else {
+            debugPrint('[pearmusic] Downloaded binary too small ($downloadedLen bytes), dropping');
+            if (await tempFile.exists()) await tempFile.delete();
           }
-          if (await targetFile.exists()) await targetFile.delete();
-          await tempFile.rename(targetFile.path);
-          _downloadingYtDlp!.complete(targetFile.path);
-          return targetFile.path;
-        } else {
-          debugPrint('[pearmusic] Downloaded binary too small ($downloadedLen bytes), dropping');
-          if (await tempFile.exists()) await tempFile.delete();
         }
+      } finally {
+        client.close();
       }
       _downloadingYtDlp!.complete(null);
       return null;
