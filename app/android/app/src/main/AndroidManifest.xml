@@ -14,6 +14,9 @@
     <!-- Android 13+ requires this runtime permission for the media
          notification to be visible. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Real-time native audio FFT visualizer capture -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 
     <application
         android:label="Pear Music"

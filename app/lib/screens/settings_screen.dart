@@ -160,6 +160,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 18),
+          _sectionTitle(context, 'Discovery & Search'),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.travel_explore_rounded),
+                  title: const Text('Expanded Search Scope'),
+                  subtitle: const Text('Include music videos, covers, and community uploads alongside official audio'),
+                  value: identity.extendedSearch,
+                  onChanged: (val) async {
+                    TactileFeedback.selection();
+                    await identity.setExtendedSearch(val);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
           _sectionTitle(context, 'Storage & Cache'),
           Card(
             clipBehavior: Clip.antiAlias,

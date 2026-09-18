@@ -496,7 +496,7 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
     final pctText = '${(value * 100).round()}%';
     const double pearSize = 22.0;
     const double trackHeight = 5.0;
-    const double containerHeight = 32.0;
+    const double containerHeight = 36.0;
 
     return Listener(
       onPointerSignal: (event) {
@@ -665,11 +665,13 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
 
           // Percentage readout
           Padding(
-            padding: const EdgeInsets.only(left: 10, right: 2),
+            padding: const EdgeInsets.only(left: 8, right: 2),
             child: SizedBox(
-              width: 32,
+              width: 42,
               child: Text(
                 pctText,
+                maxLines: 1,
+                softWrap: false,
                 textAlign: TextAlign.right,
                 style: theme.textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w600,

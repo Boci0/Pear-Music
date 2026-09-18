@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:system_audio_visualizer/system_audio_visualizer.dart';
 import '../../services/player_service.dart';
 
@@ -12,11 +14,13 @@ import '../../services/player_service.dart';
 class ArtworkVisualizer extends StatefulWidget {
   final PlayerService player;
   final Color accentColor;
+  final bool showBouncingPear;
 
   const ArtworkVisualizer({
     super.key,
     required this.player,
     required this.accentColor,
+    this.showBouncingPear = false,
   });
 
   @override
@@ -33,11 +37,70 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   double _decayActivity = 0.0;
 
   StreamSubscription<List<double>>? _fftSub;
+  StreamSubscription<Duration>? _positionSub;
   final List<double> _targetBins = List<double>.filled(barCount, 0.0);
   final List<double> _displayBins = List<double>.filled(barCount, 0.0);
   final List<double> _trailBins = List<double>.filled(barCount, 0.0);
+  static const _androidChannel = MethodChannel('com.peerm.peerm_app/visualizer');
+  static const _androidStream = EventChannel('com.peerm.peerm_app/visualizer_stream');
+
   bool _hasNativeFft = false;
   bool _wasapiRunning = false;
+  bool _androidRunning = false;
+  int? _currentBoundSessionId;
+  StreamSubscription? _androidSub;
+  StreamSubscription<int?>? _sessionIdSub;
+
+  // Bouncing Pear Physics State
+  double _pearX = 0.0;
+  double _pearY = -60.0;
+  double _pearVx = 65.0;
+  double _pearVy = 30.0;
+  double _pearAngle = -0.2;
+  double _pearOmega = 1.4;
+  bool _pearInitialized = false;
+  double _lastLayoutWidth = 0.0;
+  double _lastLayoutHeight = 0.0;
+  int _lastTickEpoch = DateTime.now().millisecondsSinceEpoch;
+  final List<double> _prevDisplayBins = List<double>.filled(barCount, 0.0);
+
+  void _resetPear(double width) {
+    _pearX = width > 0 ? (width * 0.45) : 150.0;
+    _pearY = -35.0;
+    _pearVx = 70.0;
+    _pearVy = 40.0;
+    _pearAngle = -0.25;
+    _pearOmega = 1.8;
+    _pearInitialized = true;
+  }
+
+  void _onArtworkTap(Offset localPos) {
+    if (!widget.showBouncingPear) return;
+    final dx = _pearX - localPos.dx;
+    final dy = _pearY - localPos.dy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 90.0) {
+      _pearVy = -480.0;
+      _pearVx = (dx >= 0 ? 1 : -1) * 220.0;
+      _pearOmega = (dx >= 0 ? 1 : -1) * 9.0;
+    } else {
+      _pearVy = -400.0;
+      _pearVx += (dx > 0 ? -120.0 : 120.0);
+      _pearOmega += (dx > 0 ? -4.0 : 4.0);
+    }
+    _syncTicker();
+  }
+
+  double get _computedStartX {
+    if (_lastLayoutWidth <= 0) return 16.0;
+    const int totalBars = 24;
+    const double spacing = 4.0;
+    const double horizontalPadding = 16.0;
+    final availableWidth = _lastLayoutWidth - (horizontalPadding * 2.0);
+    final barWidth = ((availableWidth - (spacing * (totalBars - 1))) / totalBars).clamp(3.0, 9.5);
+    final totalSpan = (totalBars * barWidth) + (spacing * (totalBars - 1));
+    return (_lastLayoutWidth - totalSpan) / 2.0;
+  }
 
   @override
   void initState() {
@@ -45,6 +108,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
     _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
     _decayActivity = widget.player.playing ? 1.0 : 0.0;
+    _positionSub = widget.player.positionStream.listen((pos) {
+      _basePositionMs = pos.inMilliseconds;
+      _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+    });
     _tickerController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -53,8 +120,94 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     widget.player.addListener(_onPlayerStateChanged);
     _syncTicker();
     if (widget.player.playing) {
-      _startWasapiCapture();
+      _startCapture();
     }
+  }
+
+  void _startCapture() {
+    if (kIsWeb) return;
+    if (Platform.isWindows) {
+      _startWasapiCapture();
+    } else if (Platform.isAndroid) {
+      _startAndroidCapture();
+    }
+  }
+
+  void _stopCapture() {
+    _stopWasapiCapture();
+    _stopAndroidCapture();
+  }
+
+  Future<void> _startAndroidCapture() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      var status = await Permission.microphone.status;
+      if (!status.isGranted) {
+        status = await Permission.microphone.request();
+      }
+      if (!status.isGranted) {
+        _hasNativeFft = false;
+        return;
+      }
+
+      if (!mounted || !widget.player.playing) return;
+
+      _androidSub ??= _androidStream.receiveBroadcastStream().listen(
+        (raw) {
+          if (!mounted) return;
+          if (raw is List && raw.isNotEmpty) {
+            final bins = raw.map((e) => (e as num).toDouble()).toList();
+            _hasNativeFft = true;
+            _processFft(bins);
+          }
+        },
+        onError: (_) {
+          _hasNativeFft = false;
+        },
+      );
+
+      _sessionIdSub?.cancel();
+      _sessionIdSub = widget.player.androidAudioSessionIdStream.listen((newId) {
+        if (!mounted || !widget.player.playing) return;
+        final target = (newId != null && newId > 0) ? newId : 0;
+        if (target != _currentBoundSessionId) {
+          _bindAndroidSession(target);
+        }
+      });
+
+      final currentId = widget.player.androidAudioSessionId;
+      final initialTarget = (currentId != null && currentId > 0) ? currentId : 0;
+      await _bindAndroidSession(initialTarget);
+    } catch (_) {
+      _hasNativeFft = false;
+    }
+  }
+
+  Future<void> _bindAndroidSession(int sessionId) async {
+    if (_currentBoundSessionId == sessionId && _androidRunning) return;
+    try {
+      final success = await _androidChannel.invokeMethod<bool>('start', {'sessionId': sessionId}) ?? false;
+      if (success) {
+        _androidRunning = true;
+        _currentBoundSessionId = sessionId;
+      }
+    } catch (_) {
+      _hasNativeFft = false;
+    }
+  }
+
+  void _stopAndroidCapture() {
+    if (kIsWeb || !Platform.isAndroid) return;
+    _androidRunning = false;
+    _currentBoundSessionId = null;
+    _hasNativeFft = false;
+    _sessionIdSub?.cancel();
+    _sessionIdSub = null;
+    _androidSub?.cancel();
+    _androidSub = null;
+    try {
+      _androidChannel.invokeMethod('stop').catchError((_) {});
+    } catch (_) {}
   }
 
   void _startWasapiCapture() {
@@ -108,19 +261,18 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     }
     final meanRaw = sumRaw / rawLen;
 
-    // If max energy is below 0.12 or average below 0.04, it is absolute silence
-    if (maxRaw < 0.12 || meanRaw < 0.035) {
+    // If max energy is below 0.08 or average below 0.02, it is absolute silence
+    if (maxRaw < 0.08 || meanRaw < 0.020) {
       for (int i = 0; i < barCount; i++) {
         _targetBins[i] = 0.0;
       }
       return;
     }
 
-    // 2. Active Musical Spectrum Mapping:
-    // Focus strictly on the active musical frequencies:
-    // Bin 12 (~86Hz bass/kick) up to Bin 36 (~1.1kHz vocals/harmonics).
-    const int minMusicalBin = 12;
-    const int maxMusicalBin = 36;
+    // 2. Active Musical Spectrum Mapping (Standard Left-to-Right progression):
+    // Bass on the left (bar 0), mids in center, treble on the right (bar 23).
+    const int minMusicalBin = 6;
+    const int maxMusicalBin = 48;
     final int span = math.min(rawLen - 1, maxMusicalBin) - minMusicalBin;
 
     for (int i = 0; i < barCount; i++) {
@@ -139,21 +291,74 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       final rawAmp = count > 0 ? (sum / count) : raw[startIdx];
 
       // Dynamic bin gate: require distinct acoustic presence
-      const binNoiseGate = 0.06;
+      const binNoiseGate = 0.03;
       if (rawAmp < binNoiseGate) {
         _targetBins[i] = 0.0;
         continue;
       }
       final gated = (rawAmp - binNoiseGate) / (1.0 - binNoiseGate);
 
-      // Linear response with gentle lift: low volume stays flat/quiet, beats jump crisply
-      final scaled = gated * 1.35;
-      _targetBins[i] = scaled.clamp(0.0, 1.0);
+      // Snappy target response so bars bounce crisply and come down immediately between beats
+      final scaled = (gated * 1.15).clamp(0.0, 1.0);
+
+      // Temporal damping to eliminate frame-to-frame jumpiness while preserving fast snappy drops
+      final prev = _targetBins[i];
+      final smoothed = scaled > prev ? prev + (scaled - prev) * 0.85 : prev + (scaled - prev) * 0.58;
+      _targetBins[i] = smoothed;
+    }
+  }
+
+  void _generateHarmonicFallback() {
+    final songMs = _smoothSongMs;
+    // Multi-tempo musical rhythms
+    final beatRad = (songMs / 480.0) * math.pi * 2.0; // ~125 BPM quarter note beat
+    final halfBeatRad = (songMs / 240.0) * math.pi * 2.0; // eighth note groove
+    final barRad = (songMs / 1920.0) * math.pi * 2.0; // 4-beat measure phrase
+    final flutterRad = (songMs / 160.0) * math.pi * 2.0; // triplet/percussion
+    final shimmerRad = (songMs / 95.0) * math.pi * 2.0; // treble shimmer
+
+    for (int i = 0; i < barCount; i++) {
+      final norm = i / (barCount - 1); // 0 at left (bass), 1 at right (treble)
+
+      // 1. Bass / Sub-bass punch on the left (i = 0..5)
+      final beatSin = 0.5 + 0.5 * math.sin(beatRad);
+      final kick = math.pow(beatSin, 3.2).toDouble() * 0.85;
+      final subBass = (0.5 + 0.5 * math.sin(barRad - norm * 2.0)) * 0.40;
+      final bassWeight = math.max(0.0, 1.0 - norm * 2.2);
+      final bassComponent = (kick + subBass) * bassWeight;
+
+      // 2. Mid frequencies melodic motion (i = 5..17)
+      final midWave1 = 0.5 + 0.5 * math.sin(halfBeatRad - norm * 4.2);
+      final midWave2 = 0.5 + 0.5 * math.cos(beatRad * 0.65 + norm * 2.8);
+      final midWeight = math.sin(norm * math.pi);
+      final midComponent = (midWave1 * 0.52 + midWave2 * 0.36) * midWeight;
+
+      // 3. Treble shimmer and hi-hats on the right (i = 14..23)
+      final hiHat = math.pow((0.5 + 0.5 * math.sin(flutterRad + norm * 5.8)), 2.0).toDouble() * 0.58;
+      final shimmer = (0.5 + 0.5 * math.cos(shimmerRad - norm * 8.2)) * 0.26;
+      final trebleWeight = math.max(0.0, (norm - 0.45) * 1.8);
+      final trebleComponent = (hiHat + shimmer) * trebleWeight;
+
+      // 4. Acoustic base curve
+      final eqCurve = 0.16 + (0.10 * math.cos(norm * math.pi * 0.5));
+
+      // 5. Per-band resonant variation
+      final bandResonance = 0.85 + 0.15 * math.sin(i * 19.37 + (songMs / 520.0));
+
+      final energy = (eqCurve + bassComponent + midComponent + trebleComponent) * bandResonance;
+      final scaled = energy.clamp(0.06, 0.95);
+
+      _targetBins[i] = scaled;
     }
   }
 
   void _onTick() {
     if (!mounted) return;
+
+    final nowEpoch = DateTime.now().millisecondsSinceEpoch;
+    final dtMs = math.min(45, math.max(1, nowEpoch - _lastTickEpoch));
+    _lastTickEpoch = nowEpoch;
+    final dt = dtMs / 1000.0;
 
     final isPlaying = widget.player.playing && _isAppForeground;
     final target = isPlaying ? 1.0 : 0.0;
@@ -167,12 +372,20 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       }
       if (!widget.player.playing && _decayActivity <= 0.001) {
         _decayActivity = 0.0;
-        _tickerController.stop();
-        _stopWasapiCapture();
+        final needsPhysics = widget.showBouncingPear &&
+            (_pearVy.abs() > 2.0 || _pearY < (_lastLayoutHeight - 45.0));
+        if (!needsPhysics) {
+          _tickerController.stop();
+          _stopCapture();
+        }
       }
     }
 
-    if (isPlaying && _hasNativeFft) {
+    if (isPlaying) {
+      if (!_hasNativeFft) {
+        _generateHarmonicFallback();
+      }
+
       // 5-point Gaussian spatial smoothing (fluid crests)
       final List<double> spatiallySmoothed = List<double>.filled(barCount, 0.0);
       for (int i = 0; i < barCount; i++) {
@@ -185,22 +398,22 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         spatiallySmoothed[i] = (left2 * 0.08) + (left1 * 0.24) + (center * 0.36) + (right1 * 0.24) + (right2 * 0.08);
       }
 
-      // Fast reactive rise and fast drop for active bars, with smooth lingering buffer trail
+      // Fluid, smooth motion ticker while preserving fast responsive drop
       for (int i = 0; i < barCount; i++) {
         final targetVal = spatiallySmoothed[i];
         final current = _displayBins[i];
         if (targetVal > current) {
-          _displayBins[i] = current + (targetVal - current) * 0.32;
+          _displayBins[i] = current + (targetVal - current) * 0.28;
         } else {
-          // Snappy fall-down so movement is responsive and dynamic
-          _displayBins[i] = current + (targetVal - current) * 0.22;
+          // Dynamic fall-down: drops smoothly towards lower target
+          _displayBins[i] = current + (targetVal - current) * 0.18;
         }
 
-        // Trailing buffer logic: catches peaks immediately, descends slowly as a smooth lighter trail
+        // Trailing buffer logic: catches peaks immediately, descends as a smooth lighter trail
         if (_displayBins[i] >= _trailBins[i]) {
           _trailBins[i] = _displayBins[i];
         } else {
-          _trailBins[i] = math.max(_displayBins[i], _trailBins[i] - 0.010);
+          _trailBins[i] = math.max(_displayBins[i], _trailBins[i] - 0.012);
         }
       }
     } else {
@@ -210,6 +423,136 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         _trailBins[i] = math.max(0.0, _trailBins[i] * 0.88 - 0.015);
       }
     }
+
+    // 2D Rigid-Body Physics Simulation for Bouncing Pear
+    if (widget.showBouncingPear && _lastLayoutWidth > 0 && _lastLayoutHeight > 0) {
+      final W = _lastLayoutWidth;
+      final H = _lastLayoutHeight;
+      final startX = _computedStartX;
+      // Pear radius: diameter is sized a little larger than the side gap (startX) to the border
+      // so it never slips down or gets wedged between the outer bar and the album frame
+      final pearRadius = math.max(12.5, (startX + 6.0) / 2.0);
+      const gravity = 1250.0;
+
+      // Gravity & air damping
+      _pearVy += gravity * dt;
+      _pearVx *= math.pow(0.992, dt * 60.0);
+      _pearOmega *= math.pow(0.985, dt * 60.0);
+
+      // Position and rotation integration
+      _pearX += _pearVx * dt;
+      _pearY += _pearVy * dt;
+      _pearAngle += _pearOmega * dt;
+
+      // Wall boundary reflections
+      if (_pearX - pearRadius < 0) {
+        _pearX = pearRadius;
+        _pearVx = _pearVx.abs() * 0.82 + 20.0;
+        _pearOmega = -_pearOmega * 0.70 + (_pearVy * 0.005);
+      }
+      if (_pearX + pearRadius > W) {
+        _pearX = W - pearRadius;
+        _pearVx = -_pearVx.abs() * 0.82 - 20.0;
+        _pearOmega = -_pearOmega * 0.70 - (_pearVy * 0.005);
+      }
+      if (_pearY - pearRadius < 0) {
+        _pearY = pearRadius;
+        _pearVy = _pearVy.abs() * 0.80;
+      }
+
+      // Bar collision resolution across bottom equalizer
+      const int totalBars = 24;
+      const double spacing = 4.0;
+      const double horizontalPadding = 16.0;
+      final availableWidth = W - (horizontalPadding * 2.0);
+      final barWidth = ((availableWidth - (spacing * (totalBars - 1))) / totalBars).clamp(3.0, 9.5);
+      const double bottomPadding = 12.0;
+      final maxBarHeight = H * 0.40;
+      const double minBarHeight = 4.0;
+
+      double highestBarSurfaceY = H - bottomPadding;
+      int peakBarIndex = -1;
+      double peakBarUpwardVel = 0.0;
+
+      for (int i = 0; i < totalBars; i++) {
+        final barLeft = startX + i * (barWidth + spacing);
+        final barRight = barLeft + barWidth;
+
+        if (barRight >= _pearX - pearRadius && barLeft <= _pearX + pearRadius) {
+          final mirrorIdx = totalBars - 1 - i;
+          final amp1 = (i < _displayBins.length ? _displayBins[i] : 0.0) * _decayActivity;
+          final amp2 = (mirrorIdx < _displayBins.length ? _displayBins[mirrorIdx] : 0.0) * _decayActivity;
+          final amp = math.max(amp1, amp2);
+
+          final prevAmp1 = (i < _prevDisplayBins.length ? _prevDisplayBins[i] : 0.0) * _decayActivity;
+          final prevAmp2 = (mirrorIdx < _prevDisplayBins.length ? _prevDisplayBins[mirrorIdx] : 0.0) * _decayActivity;
+          final prevAmp = math.max(prevAmp1, prevAmp2);
+
+          final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp;
+          final prevH = minBarHeight + (maxBarHeight - minBarHeight) * prevAmp;
+          final barTopY = H - bottomPadding - barH;
+          final upwardVel = dt > 0 ? (barH - prevH) / dt : 0.0;
+
+          if (barTopY < highestBarSurfaceY) {
+            highestBarSurfaceY = barTopY;
+            peakBarIndex = i;
+            peakBarUpwardVel = math.max(peakBarUpwardVel, upwardVel);
+          }
+        }
+      }
+
+      // Collision resolution with the highest bar surface
+      if (_pearY + pearRadius >= highestBarSurfaceY) {
+        _pearY = highestBarSurfaceY - pearRadius;
+
+        // Only propel the pear upward if an equalizer bar is actively rising (poking it)
+        if (peakBarUpwardVel > 25.0) {
+          _pearVy = -math.max(_pearVy.abs() * 0.50, peakBarUpwardVel * 1.30);
+
+          if (peakBarIndex >= 0) {
+            final barCenter = startX + peakBarIndex * (barWidth + spacing) + (barWidth / 2.0);
+            final offset = (_pearX - barCenter);
+            // Inward bowl bias: pushes left edge rightward, and right edge leftward toward center
+            final bowlInwardBias = (totalBars / 2.0 - peakBarIndex) / (totalBars / 2.0);
+            _pearVx += (offset / pearRadius) * (peakBarUpwardVel * 0.35) + (bowlInwardBias * peakBarUpwardVel * 0.25);
+            _pearVx = _pearVx.clamp(-380.0, 380.0);
+            _pearOmega += (offset / pearRadius) * (peakBarUpwardVel * 0.015);
+            _pearOmega = _pearOmega.clamp(-15.0, 15.0);
+          }
+        } else {
+          // Stationary or descending bar: natural restitution and surface friction
+          if (_pearVy > 40.0) {
+            _pearVy = -_pearVy * 0.45;
+          } else {
+            // Settle to a complete stop when downward velocity is low
+            _pearVy = 0.0;
+          }
+          _pearVx *= 0.88;
+          if (_pearVx.abs() < 3.0) _pearVx = 0.0;
+          _pearOmega *= 0.82;
+          if (_pearOmega.abs() < 0.1) _pearOmega = 0.0;
+        }
+      }
+
+      // Floor boundary fallback
+      final floorY = H - bottomPadding;
+      if (_pearY + pearRadius >= floorY) {
+        _pearY = floorY - pearRadius;
+        if (_pearVy > 40.0) {
+          _pearVy = -_pearVy * 0.45;
+        } else {
+          _pearVy = 0.0;
+        }
+        _pearVx *= 0.88;
+        if (_pearVx.abs() < 3.0) _pearVx = 0.0;
+        _pearOmega *= 0.82;
+        if (_pearOmega.abs() < 0.1) _pearOmega = 0.0;
+      }
+    }
+
+    for (int i = 0; i < barCount; i++) {
+      _prevDisplayBins[i] = _displayBins[i];
+    }
   }
 
   @override
@@ -218,9 +561,9 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     if (_isAppForeground != isForeground) {
       _isAppForeground = isForeground;
       if (isForeground && widget.player.playing) {
-        _startWasapiCapture();
+        _startCapture();
       } else if (!isForeground) {
-        _stopWasapiCapture();
+        _stopCapture();
       }
       _syncTicker();
     }
@@ -229,22 +572,36 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   @override
   void didUpdateWidget(covariant ArtworkVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.showBouncingPear != widget.showBouncingPear) {
+      if (widget.showBouncingPear) {
+        _resetPear(_lastLayoutWidth);
+      }
+      _syncTicker();
+    }
     if (oldWidget.player != widget.player) {
       oldWidget.player.removeListener(_onPlayerStateChanged);
+      _positionSub?.cancel();
       widget.player.addListener(_onPlayerStateChanged);
+      _positionSub = widget.player.positionStream.listen((pos) {
+        _basePositionMs = pos.inMilliseconds;
+        _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+      });
       _onPlayerStateChanged();
     }
   }
 
   void _syncTicker() {
-    if ((widget.player.playing || _decayActivity > 0.0) && _isAppForeground) {
+    final needsPhysics = widget.showBouncingPear &&
+        (_pearVy.abs() > 2.0 || _pearY < (_lastLayoutHeight - 45.0));
+    if ((widget.player.playing || _decayActivity > 0.0 || needsPhysics) && _isAppForeground) {
       if (!_tickerController.isAnimating) {
         _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
         _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+        _lastTickEpoch = DateTime.now().millisecondsSinceEpoch;
         _tickerController.repeat();
       }
     } else {
-      if (_decayActivity <= 0.0 && _tickerController.isAnimating) {
+      if (_decayActivity <= 0.0 && !needsPhysics && _tickerController.isAnimating) {
         _tickerController.stop();
       }
     }
@@ -254,9 +611,9 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     if (widget.player.playing) {
       _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
       _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
-      _startWasapiCapture();
+      _startCapture();
     } else {
-      _stopWasapiCapture();
+      _stopCapture();
     }
     _syncTicker();
     if (mounted) setState(() {});
@@ -264,7 +621,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
   @override
   void dispose() {
-    _stopWasapiCapture();
+    _stopCapture();
+    _positionSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     widget.player.removeListener(_onPlayerStateChanged);
     _tickerController.dispose();
@@ -282,24 +640,45 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _tickerController,
-        builder: (context, _) {
-          return CustomPaint(
-            size: Size.infinite,
-            painter: _ArtworkVisualizerPainter(
-              songMs: _smoothSongMs,
-              isPlaying: widget.player.playing,
-              activity: _decayActivity,
-              accentColor: widget.accentColor,
-              liveBins: _displayBins,
-              trailBins: _trailBins,
-              hasNativeFft: _hasNativeFft,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _lastLayoutWidth = constraints.maxWidth;
+        _lastLayoutHeight = constraints.maxHeight;
+        if (widget.showBouncingPear && !_pearInitialized && _lastLayoutWidth > 0) {
+          _resetPear(_lastLayoutWidth);
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapDown: widget.showBouncingPear
+              ? (details) => _onArtworkTap(details.localPosition)
+              : null,
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _tickerController,
+              builder: (context, _) {
+                return CustomPaint(
+                  size: Size.infinite,
+                  painter: _ArtworkVisualizerPainter(
+                    songMs: _smoothSongMs,
+                    isPlaying: widget.player.playing,
+                    activity: _decayActivity,
+                    accentColor: widget.accentColor,
+                    liveBins: _displayBins,
+                    trailBins: _trailBins,
+                    hasNativeFft: _hasNativeFft,
+                    showBouncingPear: widget.showBouncingPear,
+                    pearX: _pearX,
+                    pearY: _pearY,
+                    pearAngle: _pearAngle,
+                    pearRadius: math.max(12.5, (_computedStartX + 6.0) / 2.0),
+                  ),
+                );
+              },
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -312,6 +691,32 @@ class _ArtworkVisualizerPainter extends CustomPainter {
   final List<double> liveBins;
   final List<double> trailBins;
   final bool hasNativeFft;
+  final bool showBouncingPear;
+  final double pearX;
+  final double pearY;
+  final double pearAngle;
+  final double pearRadius;
+
+  static final Path _pearBodyPath = Path()
+    ..moveTo(-10, 3)
+    ..cubicTo(-11, 10, -6, 14, 0, 14)
+    ..cubicTo(6, 14, 11, 10, 10, 3)
+    ..cubicTo(9, -2, 6, -5, 5, -8)
+    ..cubicTo(4, -12, -4, -12, -5, -8)
+    ..cubicTo(-6, -5, -9, -2, -10, 3)
+    ..close();
+
+  static final Path _pearStemPath = Path()
+    ..moveTo(0, -11)
+    ..cubicTo(1, -15, 3, -17, 4, -18)
+    ..cubicTo(5, -17.5, 2, -14, 0.8, -11)
+    ..close();
+
+  static final Path _pearLeafPath = Path()
+    ..moveTo(2, -15)
+    ..cubicTo(6, -19, 10, -18, 9, -14)
+    ..cubicTo(6, -13, 4, -14, 2, -15)
+    ..close();
 
   _ArtworkVisualizerPainter({
     required this.songMs,
@@ -321,6 +726,11 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     required this.liveBins,
     required this.trailBins,
     required this.hasNativeFft,
+    this.showBouncingPear = false,
+    this.pearX = 0.0,
+    this.pearY = 0.0,
+    this.pearAngle = 0.0,
+    this.pearRadius = 13.0,
   });
 
   @override
@@ -328,18 +738,19 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0) return;
 
     // 1. Soft bottom-to-top vignette gradient across album artwork
+    final vignetteRect = Rect.fromLTWH(0, size.height * 0.45, size.width, size.height * 0.55);
     final vignettePaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.bottomCenter,
         end: Alignment.topCenter,
         colors: [
           Colors.black.withValues(alpha: 0.50),
-          Colors.black.withValues(alpha: 0.20),
+          Colors.black.withValues(alpha: 0.18),
           Colors.transparent,
         ],
-        stops: const [0.0, 0.60, 1.0],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), vignettePaint);
+        stops: const [0.0, 0.65, 1.0],
+      ).createShader(vignetteRect);
+    canvas.drawRect(vignetteRect, vignettePaint);
 
     // 2. Multi-band Equalizer spectrum bars across full card width & height
     const int totalBars = 24;
@@ -351,22 +762,34 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final startX = (size.width - totalSpan) / 2.0;
 
     const double bottomPadding = 12.0;
-    final maxBarHeight = size.height * 0.82;
+    final maxBarHeight = size.height * 0.40;
     const double minBarHeight = 4.0;
 
     for (int i = 0; i < totalBars; i++) {
-      double amp = 0.0;
-      double trailAmp = 0.0;
-      if (hasNativeFft && i < liveBins.length) {
-        amp = liveBins[i].clamp(0.0, 1.0);
-        trailAmp = (i < trailBins.length ? trailBins[i] : amp).clamp(0.0, 1.0);
+      double amp1 = 0.0;
+      double amp2 = 0.0;
+      double trailAmp1 = 0.0;
+      double trailAmp2 = 0.0;
+      final mirrorIdx = totalBars - 1 - i;
+
+      if (i < liveBins.length) {
+        amp1 = liveBins[i].clamp(0.0, 1.0);
+        trailAmp1 = (i < trailBins.length ? trailBins[i] : amp1).clamp(0.0, 1.0);
       }
+      if (mirrorIdx < liveBins.length) {
+        amp2 = liveBins[mirrorIdx].clamp(0.0, 1.0);
+        trailAmp2 = (mirrorIdx < trailBins.length ? trailBins[mirrorIdx] : amp2).clamp(0.0, 1.0);
+      }
+
+      final maxAmp = math.max(amp1, amp2);
+      final minAmp = math.min(amp1, amp2);
+      final maxTrail = math.max(trailAmp1, trailAmp2);
 
       final barX = startX + i * (barWidth + spacing);
 
-      // 2a. Trailing buffer ghost bar (lighter tint, slow descent)
-      if (trailAmp > amp) {
-        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * activity;
+      // 2a. Trailing buffer ghost bar (envelope of both passes)
+      if (maxTrail > maxAmp) {
+        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * maxTrail * activity;
         final trailY = size.height - bottomPadding - trailH;
         final trailRect = RRect.fromRectAndRadius(
           Rect.fromLTWH(barX, trailY, barWidth, trailH),
@@ -384,8 +807,8 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         canvas.drawRRect(trailRect, trailPaint);
       }
 
-      // 2b. Foreground active bar
-      final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp * activity;
+      // 2b. Foreground active bar (full height up to maxAmp)
+      final barH = minBarHeight + (maxBarHeight - minBarHeight) * maxAmp * activity;
       final barY = size.height - bottomPadding - barH;
 
       final barRect = RRect.fromRectAndRadius(
@@ -404,7 +827,130 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         ).createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
 
       canvas.drawRRect(barRect, barPaint);
+
+      // 2c. Darker Overlap Area (height up to minAmp where left and right waves overlap)
+      if (minAmp > 0.015 && activity > 0.05) {
+        final overlapH = minBarHeight + (maxBarHeight - minBarHeight) * minAmp * activity;
+        final overlapY = size.height - bottomPadding - overlapH;
+
+        final overlapRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(barX, overlapY, barWidth, overlapH),
+          Radius.circular(barWidth / 2.0),
+        );
+
+        final darkBottom = Color.lerp(accentColor, Colors.black, 0.75)!;
+        final darkTop = Color.lerp(accentColor, Colors.black, 0.48)!;
+
+        final overlapPaint = Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [
+              darkBottom.withValues(alpha: 0.90),
+              darkTop.withValues(alpha: 0.82),
+            ],
+          ).createShader(Rect.fromLTWH(barX, overlapY, barWidth, overlapH));
+
+        canvas.drawRRect(overlapRect, overlapPaint);
+
+        // Subtle crisp inner dividing line at the overlap crest
+        final overlapRimPaint = Paint()
+          ..color = Color.lerp(accentColor, Colors.white, 0.40)!.withValues(alpha: 0.45)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.75;
+        canvas.drawRRect(overlapRect, overlapRimPaint);
+      }
     }
+
+    // 3. 2D Bouncing Pear Rendering
+    if (showBouncingPear && pearY > -40.0) {
+      _drawPear(canvas, pearX, pearY, pearAngle, pearRadius);
+    }
+  }
+
+  void _drawPear(Canvas canvas, double x, double y, double angle, double radius) {
+    // Soft contact shadow on the bars or ground beneath pear
+    final shadowY = y + radius * 0.88;
+    final shadowRect = Rect.fromCenter(
+      center: Offset(x, shadowY),
+      width: radius * 1.8,
+      height: radius * 0.60,
+    );
+    final shadowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.black.withValues(alpha: 0.45),
+          Colors.transparent,
+        ],
+      ).createShader(shadowRect);
+    canvas.drawOval(shadowRect, shadowPaint);
+
+    // Vector pear with rotation
+    canvas.save();
+    canvas.translate(x, y);
+    canvas.rotate(angle);
+
+    final scale = radius / 13.0;
+    canvas.scale(scale, scale);
+
+    // Pear body gradient derived from the active track accent color
+    final cHighlight = Color.lerp(accentColor, Colors.white, 0.70)!;
+    final cBodyLight = Color.lerp(accentColor, Colors.white, 0.28)!;
+    final cBodyMain = accentColor;
+    final cBodyShade = Color.lerp(accentColor, Colors.black, 0.35)!;
+
+    final bodyRect = Rect.fromLTWH(-12, -14, 24, 29);
+    final bodyPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          cHighlight,
+          cBodyLight,
+          cBodyMain,
+          cBodyShade,
+        ],
+        stops: const [0.0, 0.30, 0.70, 1.0],
+      ).createShader(bodyRect)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(_pearBodyPath, bodyPaint);
+
+    // Subtle pear stroke border
+    final strokePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
+    canvas.drawPath(_pearBodyPath, strokePaint);
+
+    // Glossy specular highlight
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.45)
+      ..style = PaintingStyle.fill;
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(-3.5, -4.0), width: 4.5, height: 7.5),
+      highlightPaint,
+    );
+
+    // Stem with subtle accent warmth
+    final stemPaint = Paint()
+      ..color = Color.lerp(const Color(0xFF5D4037), accentColor, 0.20)!
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(_pearStemPath, stemPaint);
+
+    // Leaf harmonized with accent color
+    final leafPaint = Paint()
+      ..color = Color.lerp(accentColor, const Color(0xFF43A047), 0.35)!
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(_pearLeafPath, leafPaint);
+
+    final leafBorderPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.6;
+    canvas.drawPath(_pearLeafPath, leafBorderPaint);
+
+    canvas.restore();
   }
 
   @override
@@ -415,8 +961,52 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         oldDelegate.accentColor != accentColor ||
         oldDelegate.hasNativeFft != hasNativeFft ||
         oldDelegate.liveBins != liveBins ||
-        oldDelegate.trailBins != trailBins;
+        oldDelegate.trailBins != trailBins ||
+        oldDelegate.showBouncingPear != showBouncingPear ||
+        oldDelegate.pearX != pearX ||
+        oldDelegate.pearY != pearY ||
+        oldDelegate.pearAngle != pearAngle ||
+        oldDelegate.pearRadius != pearRadius;
   }
+}
+
+/// A crisp vector pear icon used for the bouncing pear button.
+class MiniPearIconPainter extends CustomPainter {
+  final Color color;
+  const MiniPearIconPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    final bodyPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    path.moveTo(w * 0.28, h * 0.58);
+    path.cubicTo(w * 0.20, h * 0.78, w * 0.35, h * 0.94, w * 0.50, h * 0.94);
+    path.cubicTo(w * 0.65, h * 0.94, w * 0.80, h * 0.78, w * 0.72, h * 0.58);
+    path.cubicTo(w * 0.68, h * 0.44, w * 0.62, h * 0.36, w * 0.60, h * 0.26);
+    path.cubicTo(w * 0.58, h * 0.18, w * 0.42, h * 0.18, w * 0.40, h * 0.26);
+    path.cubicTo(w * 0.38, h * 0.36, w * 0.32, h * 0.44, w * 0.28, h * 0.58);
+    path.close();
+    canvas.drawPath(path, bodyPaint);
+
+    final stemPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..strokeCap = StrokeCap.round;
+    final stem = Path();
+    stem.moveTo(w * 0.50, h * 0.22);
+    stem.quadraticBezierTo(w * 0.54, h * 0.10, w * 0.64, h * 0.08);
+    canvas.drawPath(stem, stemPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant MiniPearIconPainter oldDelegate) => oldDelegate.color != color;
 }
 
 /// Legacy progress-bar visualizer kept for compatibility.

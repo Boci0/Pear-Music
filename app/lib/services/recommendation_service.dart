@@ -491,7 +491,11 @@ class RecommendationService {
   }
 
   /// Searches Innertube Music directly for song tracks.
-  static Future<List<RecommendationItem>> searchInnertubeSongs(String query, {int limit = 20}) async {
+  static Future<List<RecommendationItem>> searchInnertubeSongs(
+    String query, {
+    int limit = 20,
+    bool allowVideoResults = false,
+  }) async {
     final clientConfigs = [
       {
         'clientName': 'WEB_REMIX',
@@ -519,7 +523,8 @@ class RecommendationService {
             }
           },
           'query': query,
-          'params': 'EgWKAQIIAWoKEAUQCRADEAQQBQ==', // Song filter
+          if (!allowVideoResults)
+            'params': 'EgWKAQIIAWoKEAUQCRADEAQQBQ==', // Song filter
         };
 
         request.add(utf8.encode(jsonEncode(payload)));

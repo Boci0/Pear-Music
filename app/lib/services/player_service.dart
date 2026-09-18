@@ -205,6 +205,12 @@ class PlayerService extends ChangeNotifier {
     return StreamCacheManager.isStreamCachedSync(videoId);
   }
 
+  /// The Android audio session ID associated with playback, or null on other platforms.
+  int? get androidAudioSessionId => _player.androidAudioSessionId;
+
+  /// Stream of Android audio session ID changes.
+  Stream<int?> get androidAudioSessionIdStream => _player.androidAudioSessionIdStream;
+
   bool get isSleepTimerActive =>
       _sleepTimer != null || _sleepTimerEndOfSong || _sleepTimerEndOfQueue;
   Duration? get sleepTimerRemaining =>

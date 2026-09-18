@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/song.dart';
+import 'youtube_search_service.dart';
 
 enum SortOption {
   dateAdded('Date Added'),
@@ -33,6 +34,7 @@ class IdentityService extends ChangeNotifier {
   static const _popLyricsKey = 'peerm_pop_lyrics';
   static const _playbackVolumeKey = 'peerm_playback_volume';
   static const _playbackSpeedKey = 'peerm_playback_speed';
+  static const _extendedSearchKey = 'peerm_extended_search';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -49,6 +51,7 @@ class IdentityService extends ChangeNotifier {
   late bool _popLyrics;
   late double _playbackVolume;
   late double _playbackSpeed;
+  late bool _extendedSearch;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -96,6 +99,8 @@ class IdentityService extends ChangeNotifier {
     _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
     _playbackVolume = _prefs.getDouble(_playbackVolumeKey) ?? 0.75;
     _playbackSpeed = _prefs.getDouble(_playbackSpeedKey) ?? 1.0;
+    _extendedSearch = _prefs.getBool(_extendedSearchKey) ?? false;
+    YouTubeSearchService.allowVideoResults = _extendedSearch;
     _prefs.remove('peerm_online_lyrics');
     _prefs.remove('peerm_streaming_quality');
     _prefs.remove('peerm_preload_upcoming');
@@ -331,6 +336,17 @@ class IdentityService extends ChangeNotifier {
     if ((_playbackSpeed - clamped).abs() < 0.01) return;
     _playbackSpeed = clamped;
     await _prefs.setDouble(_playbackSpeedKey, clamped);
+    notifyListeners();
+  }
+
+  bool get extendedSearch => _extendedSearch;
+
+  Future<void> setExtendedSearch(bool value) async {
+    if (_extendedSearch == value) return;
+    _extendedSearch = value;
+    YouTubeSearchService.allowVideoResults = value;
+    YouTubeSearchService.clearCache();
+    await _prefs.setBool(_extendedSearchKey, value);
     notifyListeners();
   }
 }

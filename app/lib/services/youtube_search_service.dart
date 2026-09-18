@@ -55,19 +55,36 @@ class YouTubeSearchService {
   static const int _maxCacheEntries = 40;
 
   static YoutubeExplode get _client => _yt ??= YoutubeExplode();
+  static bool allowVideoResults = false;
+
+  /// Clears the in-memory search query cache.
+  static void clearCache() {
+    _cache.clear();
+  }
 
   /// Search YouTube for songs/videos matching [query].
-  static Future<List<YouTubeSearchResult>> search(String query, {int limit = 20}) async {
+  static Future<List<YouTubeSearchResult>> search(
+    String query, {
+    int limit = 20,
+    bool? allowVideoResults,
+  }) async {
     final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return const [];
 
-    if (_cache.containsKey(clean)) {
-      return _cache[clean]!;
+    final bool enableVideos = allowVideoResults ?? YouTubeSearchService.allowVideoResults;
+    final cacheKey = '$clean:$enableVideos';
+
+    if (_cache.containsKey(cacheKey)) {
+      return _cache[cacheKey]!;
     }
 
     // 1. Primary: YouTube Music Innertube API (structured, resilient, not blocked by 400)
     try {
-      final innertubeResults = await RecommendationService.searchInnertubeSongs(clean, limit: limit);
+      final innertubeResults = await RecommendationService.searchInnertubeSongs(
+        clean,
+        limit: limit,
+        allowVideoResults: enableVideos,
+      );
       if (innertubeResults.isNotEmpty) {
         final list = innertubeResults
             .map((item) => YouTubeSearchResult(
@@ -82,7 +99,7 @@ class YouTubeSearchService {
         if (_cache.length >= _maxCacheEntries) {
           _cache.remove(_cache.keys.first);
         }
-        _cache[clean] = list;
+        _cache[cacheKey] = list;
         return list;
       }
     } catch (e) {
@@ -114,7 +131,7 @@ class YouTubeSearchService {
       if (_cache.length >= _maxCacheEntries) {
         _cache.remove(_cache.keys.first);
       }
-      _cache[clean] = list;
+      _cache[cacheKey] = list;
 
       return list;
     } catch (e) {
