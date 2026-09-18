@@ -217,15 +217,19 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       return;
     }
 
-    // 2. Active Musical Spectrum Mapping (Standard Left-to-Right progression):
+    // 2. Active Musical Spectrum Mapping:
     // Bass on the left (bar 0), mids in center, treble on the right (bar 23).
-    const int minMusicalBin = 6;
-    const int maxMusicalBin = 48;
+    // Use an octave-warp curve so low/mid frequencies don't dominate the lower bins,
+    // and apply progressive high-frequency compensation for natural acoustic balance.
+    const int minMusicalBin = 3;
+    const int maxMusicalBin = 56;
     final int span = math.min(rawLen - 1, maxMusicalBin) - minMusicalBin;
 
     for (int i = 0; i < barCount; i++) {
-      final fracLow = (i / barCount).toDouble();
-      final fracHigh = ((i + 1) / barCount).toDouble();
+      // Octave warp distribution gives lower frequencies appropriate band resolution
+      // while extending mids and highs across the visualizer width.
+      final fracLow = math.pow(i / barCount, 1.35).toDouble();
+      final fracHigh = math.pow((i + 1) / barCount, 1.35).toDouble();
 
       final startIdx = (minMusicalBin + fracLow * span).floor().clamp(0, rawLen - 1);
       final endIdx = math.max(startIdx + 1, (minMusicalBin + fracHigh * (span + 1)).ceil().clamp(0, rawLen));
@@ -239,15 +243,16 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       final rawAmp = count > 0 ? (sum / count) : raw[startIdx];
 
       // Dynamic bin gate: require distinct acoustic presence
-      const binNoiseGate = 0.03;
+      const binNoiseGate = 0.025;
       if (rawAmp < binNoiseGate) {
         _targetBins[i] = 0.0;
         continue;
       }
       final gated = (rawAmp - binNoiseGate) / (1.0 - binNoiseGate);
 
-      // Snappy target response so bars bounce crisply and come down immediately between beats
-      final scaled = (gated * 1.15).clamp(0.0, 1.0);
+      // Progressive high-frequency compensation counteracts acoustic pink noise rolloff
+      final hfComp = 1.0 + 1.25 * math.pow(i / (barCount - 1), 0.85).toDouble();
+      final scaled = (gated * 1.15 * hfComp).clamp(0.0, 1.0);
 
       // Temporal damping to eliminate frame-to-frame jumpiness while preserving fast snappy drops
       final prev = _targetBins[i];
@@ -270,28 +275,28 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
       // 1. Bass / Sub-bass punch on the left (i = 0..5)
       final beatSin = 0.5 + 0.5 * math.sin(beatRad);
-      final kick = math.pow(beatSin, 3.2).toDouble() * 0.85;
-      final subBass = (0.5 + 0.5 * math.sin(barRad - norm * 2.0)) * 0.40;
-      final bassWeight = math.max(0.0, 1.0 - norm * 2.2);
+      final kick = math.pow(beatSin, 3.2).toDouble() * 0.72;
+      final subBass = (0.5 + 0.5 * math.sin(barRad - norm * 2.0)) * 0.35;
+      final bassWeight = math.max(0.0, 1.0 - norm * 2.0);
       final bassComponent = (kick + subBass) * bassWeight;
 
       // 2. Mid frequencies melodic motion (i = 5..17)
       final midWave1 = 0.5 + 0.5 * math.sin(halfBeatRad - norm * 4.2);
       final midWave2 = 0.5 + 0.5 * math.cos(beatRad * 0.65 + norm * 2.8);
       final midWeight = math.sin(norm * math.pi);
-      final midComponent = (midWave1 * 0.52 + midWave2 * 0.36) * midWeight;
+      final midComponent = (midWave1 * 0.58 + midWave2 * 0.40) * midWeight;
 
-      // 3. Treble shimmer and hi-hats on the right (i = 14..23)
-      final hiHat = math.pow((0.5 + 0.5 * math.sin(flutterRad + norm * 5.8)), 2.0).toDouble() * 0.58;
-      final shimmer = (0.5 + 0.5 * math.cos(shimmerRad - norm * 8.2)) * 0.26;
-      final trebleWeight = math.max(0.0, (norm - 0.45) * 1.8);
+      // 3. Treble shimmer and hi-hats on the right (i = 12..23)
+      final hiHat = math.pow((0.5 + 0.5 * math.sin(flutterRad + norm * 5.8)), 2.0).toDouble() * 0.75;
+      final shimmer = (0.5 + 0.5 * math.cos(shimmerRad - norm * 8.2)) * 0.38;
+      final trebleWeight = math.max(0.0, (norm - 0.35) * 1.54);
       final trebleComponent = (hiHat + shimmer) * trebleWeight;
 
-      // 4. Acoustic base curve
-      final eqCurve = 0.16 + (0.10 * math.cos(norm * math.pi * 0.5));
+      // 4. Acoustic base curve with even floor distribution
+      final eqCurve = 0.16 + (0.08 * math.sin(norm * math.pi));
 
       // 5. Per-band resonant variation
-      final bandResonance = 0.85 + 0.15 * math.sin(i * 19.37 + (songMs / 520.0));
+      final bandResonance = 0.88 + 0.12 * math.sin(i * 19.37 + (songMs / 520.0));
 
       final energy = (eqCurve + bassComponent + midComponent + trebleComponent) * bandResonance;
       final scaled = energy.clamp(0.06, 0.95);

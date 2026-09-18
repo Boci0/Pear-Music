@@ -275,9 +275,6 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                       final usableWidth = totalWidth - pearSize;
                       final pearLeft = progress * usableWidth;
 
-                      // Rolling angle proportional to distance traveled along the track
-                      final rotationAngle = pearLeft / (pearSize / 2);
-
                       void updatePosition(double localDx, {bool isEnd = false}) {
                         final fraction = ((localDx - (pearSize / 2)) / usableWidth).clamp(0.0, 1.0);
                         final targetMs = fraction * maxMs;
@@ -347,13 +344,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                                     ),
                                   ),
 
-                                // Rolling Pear thumb
+                                // Pear thumb with centered radial halo and optical alignment
                                 Positioned(
                                   left: pearLeft,
                                   top: (containerHeight - pearSize) / 2,
                                   child: IgnorePointer(
                                     child: AnimatedScale(
-                                      scale: (_isDragging || _isHovered) ? 1.18 : 1.0,
+                                      scale: (_isDragging || _isHovered) ? 1.15 : 1.0,
                                       duration: const Duration(milliseconds: 120),
                                       curve: Curves.easeOutCubic,
                                       child: Container(
@@ -361,26 +358,32 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                                         height: pearSize,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
+                                          color: const Color(0xFF16161A),
+                                          border: Border.all(
+                                            color: effectiveAccent.withValues(
+                                              alpha: (_isDragging || _isHovered) ? 0.70 : 0.40,
+                                            ),
+                                            width: 1.0,
+                                          ),
                                           boxShadow: [
                                             BoxShadow(
                                               color: effectiveAccent.withValues(
-                                                alpha: (_isDragging || _isHovered) ? 0.50 : 0.25,
+                                                alpha: (_isDragging || _isHovered) ? 0.60 : 0.35,
                                               ),
-                                              blurRadius: (_isDragging || _isHovered) ? 8.0 : 4.0,
-                                              offset: const Offset(0, 1),
+                                              blurRadius: (_isDragging || _isHovered) ? 10.0 : 6.0,
+                                              spreadRadius: (_isDragging || _isHovered) ? 1.5 : 0.5,
+                                              offset: Offset.zero,
                                             ),
                                           ],
                                         ),
-                                        child: Transform.rotate(
-                                          angle: rotationAngle,
-                                          child: Image.asset(
-                                            'assets/pear_logo.png',
-                                            width: pearSize,
-                                            height: pearSize,
-                                            color: effectiveAccent,
-                                            colorBlendMode: BlendMode.srcIn,
-                                            filterQuality: FilterQuality.medium,
-                                          ),
+                                        alignment: const Alignment(0.0, -0.06),
+                                        child: Image.asset(
+                                          'assets/pear_logo.png',
+                                          width: pearSize * 0.78,
+                                          height: pearSize * 0.78,
+                                          color: effectiveAccent,
+                                          colorBlendMode: BlendMode.srcIn,
+                                          filterQuality: FilterQuality.medium,
                                         ),
                                       ),
                                     ),
@@ -553,9 +556,6 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                 final usableWidth = totalWidth - pearSize;
                 final pearLeft = value * usableWidth;
 
-                // Rolling angle proportional to distance traveled along the track (theta = x / r)
-                final rotationAngle = pearLeft / (pearSize / 2);
-
                 void handleDragUpdate(double localDx) {
                   final fraction = ((localDx - (pearSize / 2)) / usableWidth).clamp(0.0, 1.0);
                   if (fraction > 0) _lastNonZeroVolume = fraction;
@@ -615,13 +615,13 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                               ),
                             ),
 
-                          // Rolling Pear thumb
+                          // Pear thumb with centered radial halo and optical alignment
                           Positioned(
                             left: pearLeft,
                             top: (containerHeight - pearSize) / 2,
                             child: IgnorePointer(
                               child: AnimatedScale(
-                                scale: (_isDragging || _isHovered) ? 1.18 : 1.0,
+                                scale: (_isDragging || _isHovered) ? 1.15 : 1.0,
                                 duration: const Duration(milliseconds: 120),
                                 curve: Curves.easeOutCubic,
                                 child: Container(
@@ -629,26 +629,32 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                                   height: pearSize,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
+                                    color: const Color(0xFF16161A),
+                                    border: Border.all(
+                                      color: effectiveAccent.withValues(
+                                        alpha: (_isDragging || _isHovered) ? 0.70 : 0.40,
+                                      ),
+                                      width: 1.0,
+                                    ),
                                     boxShadow: [
                                       BoxShadow(
                                         color: effectiveAccent.withValues(
-                                          alpha: (_isDragging || _isHovered) ? 0.50 : 0.25,
+                                          alpha: (_isDragging || _isHovered) ? 0.60 : 0.35,
                                         ),
-                                        blurRadius: (_isDragging || _isHovered) ? 8.0 : 4.0,
-                                        offset: const Offset(0, 1),
+                                        blurRadius: (_isDragging || _isHovered) ? 10.0 : 6.0,
+                                        spreadRadius: (_isDragging || _isHovered) ? 1.5 : 0.5,
+                                        offset: Offset.zero,
                                       ),
                                     ],
                                   ),
-                                  child: Transform.rotate(
-                                    angle: rotationAngle,
-                                    child: Image.asset(
-                                      'assets/pear_logo.png',
-                                      width: pearSize,
-                                      height: pearSize,
-                                      color: effectiveAccent,
-                                      colorBlendMode: BlendMode.srcIn,
-                                      filterQuality: FilterQuality.medium,
-                                    ),
+                                  alignment: const Alignment(0.0, -0.06),
+                                  child: Image.asset(
+                                    'assets/pear_logo.png',
+                                    width: pearSize * 0.78,
+                                    height: pearSize * 0.78,
+                                    color: effectiveAccent,
+                                    colorBlendMode: BlendMode.srcIn,
+                                    filterQuality: FilterQuality.medium,
                                   ),
                                 ),
                               ),
