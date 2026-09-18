@@ -64,18 +64,30 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   int _lastTickEpoch = DateTime.now().millisecondsSinceEpoch;
   final List<double> _prevDisplayBins = List<double>.filled(barCount, 0.0);
 
+  // Rope Rescue System: hoists pear up when resting or stuck
+  double _stuckDuration = 0.0;
+  bool _isRopePulling = false;
+  double _ropeVisualProgress = 0.0;
+  double _ropeAnchorX = 0.0;
+
   void _resetPear(double width) {
-    _pearX = width > 0 ? (width * 0.45) : 150.0;
+    _pearX = width > 0 ? (width * 0.35) : 120.0;
     _pearY = -35.0;
     _pearVx = 70.0;
     _pearVy = 40.0;
     _pearAngle = -0.25;
     _pearOmega = 1.8;
     _pearInitialized = true;
+    _stuckDuration = 0.0;
+    _isRopePulling = false;
+    _ropeVisualProgress = 0.0;
   }
 
   void _onArtworkTap(Offset localPos) {
     if (!widget.showBouncingPear) return;
+    _stuckDuration = 0.0;
+    _isRopePulling = false;
+    _ropeVisualProgress = 0.0;
     final dx = _pearX - localPos.dx;
     final dy = _pearY - localPos.dy;
     final dist = math.sqrt(dx * dx + dy * dy);
@@ -434,15 +446,48 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       final pearRadius = math.max(12.5, (startX + 6.0) / 2.0);
       const gravity = 1250.0;
 
-      // Gravity & air damping
-      _pearVy += gravity * dt;
-      _pearVx *= math.pow(0.992, dt * 60.0);
-      _pearOmega *= math.pow(0.985, dt * 60.0);
+      // Integration & Rope Pulling
+      if (_isRopePulling) {
+        _ropeVisualProgress = (_ropeVisualProgress + dt * 5.0).clamp(0.0, 1.0);
+        _ropeAnchorX += (_pearX - _ropeAnchorX) * 0.12;
 
-      // Position and rotation integration
-      _pearX += _pearVx * dt;
-      _pearY += _pearVy * dt;
-      _pearAngle += _pearOmega * dt;
+        // Smooth hoist upward
+        _pearVy = -320.0;
+        _pearVx *= 0.88;
+        _pearAngle = math.sin(_stuckDuration * 8.0) * 0.20;
+        _pearOmega = 0.0;
+
+        _pearX += _pearVx * dt;
+        _pearY += _pearVy * dt;
+
+        // Release near upper third of artwork and fling
+        if (_pearY <= H * 0.24) {
+          _isRopePulling = false;
+          _stuckDuration = 0.0;
+
+          if (_pearX > W * 0.40) {
+            _pearVx = -190.0 - (math.Random().nextDouble() * 60.0);
+          } else {
+            _pearVx = 170.0 + (math.Random().nextDouble() * 60.0);
+          }
+          _pearVy = -80.0;
+          _pearOmega = (_pearVx > 0 ? 3.5 : -3.5);
+        }
+      } else {
+        if (_ropeVisualProgress > 0.0) {
+          _ropeVisualProgress = math.max(0.0, _ropeVisualProgress - dt * 4.0);
+        }
+
+        // Gravity & air damping
+        _pearVy += gravity * dt;
+        _pearVx *= math.pow(0.992, dt * 60.0);
+        _pearOmega *= math.pow(0.985, dt * 60.0);
+
+        // Position and rotation integration
+        _pearX += _pearVx * dt;
+        _pearY += _pearVy * dt;
+        _pearAngle += _pearOmega * dt;
+      }
 
       // Wall boundary reflections
       if (_pearX - pearRadius < 0) {
@@ -479,14 +524,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         final barRight = barLeft + barWidth;
 
         if (barRight >= _pearX - pearRadius && barLeft <= _pearX + pearRadius) {
-          final mirrorIdx = totalBars - 1 - i;
-          final amp1 = (i < _displayBins.length ? _displayBins[i] : 0.0) * _decayActivity;
-          final amp2 = (mirrorIdx < _displayBins.length ? _displayBins[mirrorIdx] : 0.0) * _decayActivity;
-          final amp = math.max(amp1, amp2);
-
-          final prevAmp1 = (i < _prevDisplayBins.length ? _prevDisplayBins[i] : 0.0) * _decayActivity;
-          final prevAmp2 = (mirrorIdx < _prevDisplayBins.length ? _prevDisplayBins[mirrorIdx] : 0.0) * _decayActivity;
-          final prevAmp = math.max(prevAmp1, prevAmp2);
+          final amp = (i < _displayBins.length ? _displayBins[i] : 0.0) * _decayActivity;
+          final prevAmp = (i < _prevDisplayBins.length ? _prevDisplayBins[i] : 0.0) * _decayActivity;
 
           final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp;
           final prevH = minBarHeight + (maxBarHeight - minBarHeight) * prevAmp;
@@ -512,9 +551,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           if (peakBarIndex >= 0) {
             final barCenter = startX + peakBarIndex * (barWidth + spacing) + (barWidth / 2.0);
             final offset = (_pearX - barCenter);
-            // Inward bowl bias: pushes left edge rightward, and right edge leftward toward center
-            final bowlInwardBias = (totalBars / 2.0 - peakBarIndex) / (totalBars / 2.0);
-            _pearVx += (offset / pearRadius) * (peakBarUpwardVel * 0.35) + (bowlInwardBias * peakBarUpwardVel * 0.25);
+            _pearVx += (offset / pearRadius) * (peakBarUpwardVel * 0.35);
             _pearVx = _pearVx.clamp(-380.0, 380.0);
             _pearOmega += (offset / pearRadius) * (peakBarUpwardVel * 0.015);
             _pearOmega = _pearOmega.clamp(-15.0, 15.0);
@@ -547,6 +584,20 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         if (_pearVx.abs() < 3.0) _pearVx = 0.0;
         _pearOmega *= 0.82;
         if (_pearOmega.abs() < 0.1) _pearOmega = 0.0;
+      }
+
+      // Stuck Detection: hoists pear if it stays motionless on quiet bars or floor
+      final isResting = (_pearY + pearRadius >= highestBarSurfaceY - 2.0) ||
+          (_pearY + pearRadius >= floorY - 2.0);
+      if (isResting && _pearVx.abs() < 12.0 && _pearVy.abs() < 12.0 && !_isRopePulling) {
+        _stuckDuration += dt;
+        if (_stuckDuration >= 1.4) {
+          _isRopePulling = true;
+          _ropeAnchorX = _pearX.clamp(24.0, W - 24.0);
+          _ropeVisualProgress = 0.1;
+        }
+      } else if (!isResting && !_isRopePulling) {
+        _stuckDuration = 0.0;
       }
     }
 
@@ -592,7 +643,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
   void _syncTicker() {
     final needsPhysics = widget.showBouncingPear &&
-        (_pearVy.abs() > 2.0 || _pearY < (_lastLayoutHeight - 45.0));
+        (_pearVy.abs() > 2.0 || _pearY < (_lastLayoutHeight - 45.0) || _isRopePulling || _ropeVisualProgress > 0.0);
     if ((widget.player.playing || _decayActivity > 0.0 || needsPhysics) && _isAppForeground) {
       if (!_tickerController.isAnimating) {
         _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
@@ -672,6 +723,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
                     pearY: _pearY,
                     pearAngle: _pearAngle,
                     pearRadius: math.max(12.5, (_computedStartX + 6.0) / 2.0),
+                    ropeProgress: _ropeVisualProgress,
+                    ropeAnchorX: _ropeAnchorX,
                   ),
                 );
               },
@@ -696,6 +749,8 @@ class _ArtworkVisualizerPainter extends CustomPainter {
   final double pearY;
   final double pearAngle;
   final double pearRadius;
+  final double ropeProgress;
+  final double ropeAnchorX;
 
   static final Path _pearBodyPath = Path()
     ..moveTo(-10, 3)
@@ -731,6 +786,8 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     this.pearY = 0.0,
     this.pearAngle = 0.0,
     this.pearRadius = 13.0,
+    this.ropeProgress = 0.0,
+    this.ropeAnchorX = 0.0,
   });
 
   @override
@@ -766,30 +823,19 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     const double minBarHeight = 4.0;
 
     for (int i = 0; i < totalBars; i++) {
-      double amp1 = 0.0;
-      double amp2 = 0.0;
-      double trailAmp1 = 0.0;
-      double trailAmp2 = 0.0;
-      final mirrorIdx = totalBars - 1 - i;
+      double amp = 0.0;
+      double trailAmp = 0.0;
 
       if (i < liveBins.length) {
-        amp1 = liveBins[i].clamp(0.0, 1.0);
-        trailAmp1 = (i < trailBins.length ? trailBins[i] : amp1).clamp(0.0, 1.0);
+        amp = liveBins[i].clamp(0.0, 1.0);
+        trailAmp = (i < trailBins.length ? trailBins[i] : amp).clamp(0.0, 1.0);
       }
-      if (mirrorIdx < liveBins.length) {
-        amp2 = liveBins[mirrorIdx].clamp(0.0, 1.0);
-        trailAmp2 = (mirrorIdx < trailBins.length ? trailBins[mirrorIdx] : amp2).clamp(0.0, 1.0);
-      }
-
-      final maxAmp = math.max(amp1, amp2);
-      final minAmp = math.min(amp1, amp2);
-      final maxTrail = math.max(trailAmp1, trailAmp2);
 
       final barX = startX + i * (barWidth + spacing);
 
-      // 2a. Trailing buffer ghost bar (envelope of both passes)
-      if (maxTrail > maxAmp) {
-        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * maxTrail * activity;
+      // 2a. Trailing buffer ghost bar (lighter tint, slow descent)
+      if (trailAmp > amp) {
+        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * activity;
         final trailY = size.height - bottomPadding - trailH;
         final trailRect = RRect.fromRectAndRadius(
           Rect.fromLTWH(barX, trailY, barWidth, trailH),
@@ -807,8 +853,8 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         canvas.drawRRect(trailRect, trailPaint);
       }
 
-      // 2b. Foreground active bar (full height up to maxAmp)
-      final barH = minBarHeight + (maxBarHeight - minBarHeight) * maxAmp * activity;
+      // 2b. Foreground active bar
+      final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp * activity;
       final barY = size.height - bottomPadding - barH;
 
       final barRect = RRect.fromRectAndRadius(
@@ -827,45 +873,59 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         ).createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
 
       canvas.drawRRect(barRect, barPaint);
+    }
 
-      // 2c. Darker Overlap Area (height up to minAmp where left and right waves overlap)
-      if (minAmp > 0.015 && activity > 0.05) {
-        final overlapH = minBarHeight + (maxBarHeight - minBarHeight) * minAmp * activity;
-        final overlapY = size.height - bottomPadding - overlapH;
-
-        final overlapRect = RRect.fromRectAndRadius(
-          Rect.fromLTWH(barX, overlapY, barWidth, overlapH),
-          Radius.circular(barWidth / 2.0),
-        );
-
-        final darkBottom = Color.lerp(accentColor, Colors.black, 0.75)!;
-        final darkTop = Color.lerp(accentColor, Colors.black, 0.48)!;
-
-        final overlapPaint = Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [
-              darkBottom.withValues(alpha: 0.90),
-              darkTop.withValues(alpha: 0.82),
-            ],
-          ).createShader(Rect.fromLTWH(barX, overlapY, barWidth, overlapH));
-
-        canvas.drawRRect(overlapRect, overlapPaint);
-
-        // Subtle crisp inner dividing line at the overlap crest
-        final overlapRimPaint = Paint()
-          ..color = Color.lerp(accentColor, Colors.white, 0.40)!.withValues(alpha: 0.45)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.75;
-        canvas.drawRRect(overlapRect, overlapRimPaint);
-      }
+    // 2c. Rope Rescue Cable
+    if (showBouncingPear && ropeProgress > 0.001) {
+      _drawRope(canvas, ropeAnchorX, pearX, pearY, pearAngle, pearRadius, ropeProgress);
     }
 
     // 3. 2D Bouncing Pear Rendering
     if (showBouncingPear && pearY > -40.0) {
       _drawPear(canvas, pearX, pearY, pearAngle, pearRadius);
     }
+  }
+
+  void _drawRope(Canvas canvas, double anchorX, double pearX, double pearY, double pearAngle, double pearRadius, double progress) {
+    if (progress <= 0.001) return;
+
+    final stemOffset = Offset(
+      -math.sin(pearAngle) * (pearRadius * 0.95),
+      -math.cos(pearAngle) * (pearRadius * 0.95),
+    );
+    final targetX = pearX + stemOffset.dx;
+    final targetY = pearY + stemOffset.dy;
+
+    // Drop shadow under the rope
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.35 * progress)
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(anchorX + 1.0, 1.0), Offset(targetX + 1.0, targetY + 1.0), shadowPaint);
+
+    // Rope cable
+    final ropePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.88 * progress)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(anchorX, 0), Offset(targetX, targetY), ropePaint);
+
+    // Subtle rope twist / accent strand
+    final strandPaint = Paint()
+      ..color = Color.lerp(accentColor, Colors.black, 0.25)!.withValues(alpha: 0.50 * progress)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(anchorX, 0), Offset(targetX, targetY), strandPaint);
+
+    // Clasp / carabiner ring at the stem
+    final claspPaint = Paint()
+      ..color = Color.lerp(accentColor, Colors.white, 0.85)!.withValues(alpha: progress)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawCircle(Offset(targetX, targetY), 3.5, claspPaint);
   }
 
   void _drawPear(Canvas canvas, double x, double y, double angle, double radius) {
@@ -966,7 +1026,9 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         oldDelegate.pearX != pearX ||
         oldDelegate.pearY != pearY ||
         oldDelegate.pearAngle != pearAngle ||
-        oldDelegate.pearRadius != pearRadius;
+        oldDelegate.pearRadius != pearRadius ||
+        oldDelegate.ropeProgress != ropeProgress ||
+        oldDelegate.ropeAnchorX != ropeAnchorX;
   }
 }
 
