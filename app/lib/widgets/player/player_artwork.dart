@@ -426,7 +426,9 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                               PlayerPillButton(
                                 isCircle: true,
                                 isActive: useSynthesizer,
-                                tooltip: useSynthesizer ? 'Hide visualizer' : 'Show visualizer',
+                                tooltip: useSynthesizer
+                                    ? 'Hide visualizer'
+                                    : 'Show visualizer',
                                 activeColor: baseShadowColor,
                                 onTap: () {
                                   final willEnable = !useSynthesizer;
@@ -738,6 +740,7 @@ class PlayerSongInfo extends StatelessWidget {
 
 class PlayerPillButton extends StatefulWidget {
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final Widget child;
   final String? tooltip;
   final Color activeColor;
@@ -747,6 +750,7 @@ class PlayerPillButton extends StatefulWidget {
   const PlayerPillButton({
     super.key,
     required this.onTap,
+    this.onLongPress,
     required this.child,
     required this.activeColor,
     this.tooltip,
@@ -800,6 +804,12 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
           widget.onTap();
         },
         onTapCancel: () => setState(() => _isPressed = false),
+        onLongPress: widget.onLongPress != null
+            ? () {
+                TactileFeedback.click();
+                widget.onLongPress!();
+              }
+            : null,
         behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
           scale: _isPressed ? 0.92 : (_isHovered ? 1.05 : 1.0),

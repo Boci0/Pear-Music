@@ -163,21 +163,28 @@ class MainActivity : AudioServiceActivity() {
                             return
                         }
 
+                        // Logarithmic (octave-style) band spacing, mirroring the Windows plugin
+                        // (fft_processor.cpp): output bin b spans [half^(b/64), half^((b+1)/64)],
+                        // i.e. equal musical steps from ~30 Hz up to Nyquist. This is what keeps
+                        // the right half of the visualizer alive on mobile instead of compressing
+                        // all real audio energy into the first few low bars (a linear mapping
+                        // puts bar 0 at ~1 kHz and the rest in the dead 5-20 kHz rolloff region).
                         for (b in 0 until outBinsCount) {
-                            val low = (half.toDouble()).pow(b.toDouble() / outBinsCount)
-                            val high = (half.toDouble()).pow((b + 1).toDouble() / outBinsCount)
-                            val ilo = max(1, floor(low).toInt()).coerceIn(1, half - 1)
-                            val ihi = min(half - 1, ceil(high).toInt()).coerceIn(ilo, half - 1)
+                            val low = half.toDouble().pow(b.toDouble() / outBinsCount)
+                            val high = half.toDouble().pow((b + 1).toDouble() / outBinsCount)
+                            val ilo = max(0, floor(low).toInt())
+                            val ihi = min(half - 1, ceil(high).toInt())
                             var sum = 0.0
                             val count = max(1, ihi - ilo + 1)
                             for (k in ilo..ihi) {
                                 sum += mags[k]
                             }
                             val avg = sum / count
-                            val tilt = 1.0 + 1.8 * (b.toDouble() / (outBinsCount - 1)).pow(0.75)
-                            val valNorm = ((avg * tilt) / (maxMag + 1e-12)).coerceIn(0.0, 1.0)
-                            val targetScaled = valNorm.pow(1.5)
-                            val smoothed = 0.70 * targetScaled + 0.30 * prevBins[b]
+                            val valNorm = (avg / (maxMag + 1e-12)).coerceIn(0.0, 1.0)
+                            // Mild log compression lifts quiet treble bands into visible range
+                            // (same curve as the Windows plugin so both platforms feel identical).
+                            val compressed = log10(1.0 + 9.0 * valNorm).coerceIn(0.0, 1.0)
+                            val smoothed = 0.80 * compressed + 0.20 * prevBins[b]
                             prevBins[b] = smoothed
                             bins[b] = smoothed.coerceIn(0.0, 1.0)
                         }

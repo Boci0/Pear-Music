@@ -8,9 +8,12 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:system_audio_visualizer/system_audio_visualizer.dart';
 import '../../services/player_service.dart';
 
-/// An audio-reactive equalizer spectrum visualizer taking the full space of the album artwork.
-/// Captures real-time audio output via WASAPI loopback with native FFT processing on Windows,
-/// and falls back gracefully to harmonic frequency modeling on other platforms.
+/// An audio-reactive "butterfly" spectrum visualizer taking the full space of the album artwork.
+/// Bars are mirrored around the centre: the bass bulges from the middle and the
+/// treble flutters on both outer edges, so the spectrum always looks balanced
+/// (no more left-heavy bias). Physics are time-based (frame-rate independent)
+/// with a snappy rise, altitude gravity, a soft ceiling and ghost peak trails.
+/// Native FFT on Windows/Android, harmonic modeling fallback.
 class ArtworkVisualizer extends StatefulWidget {
   final PlayerService player;
   final Color accentColor;
@@ -30,6 +33,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   static const int barCount = 24;
   late final AnimationController _tickerController;
   int _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+  int _lastTickMs = DateTime.now().millisecondsSinceEpoch;
   int _basePositionMs = 0;
   bool _isAppForeground = true;
   double _decayActivity = 0.0;
@@ -48,13 +52,33 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   int? _currentBoundSessionId;
   StreamSubscription? _androidSub;
   StreamSubscription<int?>? _sessionIdSub;
-  final List<double> _spatiallySmoothed = List<double>.filled(barCount, 0.0);
+
+  // Slow per-bar loudness average used by the auto-gain ("leveling") stage so
+  // quiet bands still contribute movement.
+  final List<double> _bandAvg = List<double>.filled(barCount, 0.0);
+
+  // Precomputed FFT band edges and high-frequency compensation, rebuilt only
+  // when the incoming bin count changes so the per-callback mapping loop does
+  // no pow() work.
+  int _mappedRawLen = -1;
+  final List<int> _bandStart = List<int>.filled(barCount, 0);
+  final List<int> _bandEnd = List<int>.filled(barCount, 1);
+  final List<double> _bandHfComp = List<double>.filled(barCount, 1.0);
+
+  // Butterfly bar physics constants ("per 60 fps frame" values, applied ×k to
+  // stay frame-rate independent).
+  static const double _riseRate = 0.42; // attack lerp
+  static const double _fallRate = 0.16; // base release lerp
+  static const double _ceilingGravity = 0.30; // extra fall with height
+  static const double _wallResistance = 0.50; // deceleration near the top
+  static const double _trailDecay = 0.018; // ghost bar descent per frame
 
   @override
   void initState() {
     super.initState();
     _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
     _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+    _lastTickMs = DateTime.now().millisecondsSinceEpoch;
     _decayActivity = widget.player.playing ? 1.0 : 0.0;
     _positionSub = widget.player.positionStream.listen((pos) {
       _basePositionMs = pos.inMilliseconds;
@@ -84,6 +108,9 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   void _stopCapture() {
     _stopWasapiCapture();
     _stopAndroidCapture();
+    for (int i = 0; i < barCount; i++) {
+      _bandAvg[i] = 0.0;
+    }
   }
 
   Future<void> _startAndroidCapture() async {
@@ -191,9 +218,32 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     } catch (_) {}
   }
 
+  /// Precomputes the FFT band edges and the high-frequency compensation for
+  /// the current bin count. Called on every FFT callback but only does work
+  /// when the bin count changed, keeping the mapping loop free of pow() math.
+  void _rebuildBandMap(int rawLen) {
+    if (_mappedRawLen == rawLen) return;
+    _mappedRawLen = rawLen;
+    final int minMusicalBin = math.min(3, math.max(0, rawLen - 12)).toInt();
+    final int maxMusicalBin = math.min(56, math.max(8, rawLen - 1)).toInt();
+    final int span = math.max(1, math.min(rawLen - 1, maxMusicalBin) - minMusicalBin).toInt();
+    const double warp = 1.15;
+    const double tilt = 1.40;
+    for (int i = 0; i < barCount; i++) {
+      final fracLow = math.pow(i / barCount, warp).toDouble();
+      final fracHigh = math.pow((i + 1) / barCount, warp).toDouble();
+      final startIdx = (minMusicalBin + fracLow * span).floor().clamp(0, rawLen - 1);
+      _bandStart[i] = startIdx;
+      _bandEnd[i] = math.max(startIdx + 1, (minMusicalBin + fracHigh * (span + 1)).ceil().clamp(0, rawLen));
+      _bandHfComp[i] = 1.0 + tilt * math.pow(i / (barCount - 1), 0.85).toDouble();
+    }
+  }
+
   void _processFft(List<double> raw) {
     final rawLen = raw.length;
     if (rawLen == 0) return;
+
+    _rebuildBandMap(rawLen);
 
     // 1. Global Silence Detection:
     // When a track is paused, between songs, or in silent intros/breakdowns,
@@ -213,26 +263,23 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     if (maxRaw < 0.08 || meanRaw < 0.020) {
       for (int i = 0; i < barCount; i++) {
         _targetBins[i] = 0.0;
+        _bandAvg[i] *= 0.97;
       }
       return;
     }
 
     // 2. Active Musical Spectrum Mapping:
-    // Bass on the left (bar 0), mids in center, treble on the right (bar 23).
-    // Use an octave-warp curve so low/mid frequencies don't dominate the lower bins,
-    // and apply progressive high-frequency compensation for natural acoustic balance.
-    const int minMusicalBin = 3;
-    const int maxMusicalBin = 56;
-    final int span = math.min(rawLen - 1, maxMusicalBin) - minMusicalBin;
+    // Band 0 = bass, band 23 = treble. Octave-warped so low/mid frequencies
+    // don't dominate the lower bands, with progressive high-frequency
+    // compensation for natural acoustic balance. Band edges and the HF
+    // compensation curve come from _rebuildBandMap, computed once per bin
+    // count instead of per callback.
+    const double binNoiseGate = 0.020;
+    const double gain = 1.15;
 
     for (int i = 0; i < barCount; i++) {
-      // Octave warp distribution gives lower frequencies appropriate band resolution
-      // while extending mids and highs across the visualizer width.
-      final fracLow = math.pow(i / barCount, 1.35).toDouble();
-      final fracHigh = math.pow((i + 1) / barCount, 1.35).toDouble();
-
-      final startIdx = (minMusicalBin + fracLow * span).floor().clamp(0, rawLen - 1);
-      final endIdx = math.max(startIdx + 1, (minMusicalBin + fracHigh * (span + 1)).ceil().clamp(0, rawLen));
+      final startIdx = _bandStart[i];
+      final endIdx = _bandEnd[i];
 
       double sum = 0.0;
       int count = 0;
@@ -243,20 +290,29 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       final rawAmp = count > 0 ? (sum / count) : raw[startIdx];
 
       // Dynamic bin gate: require distinct acoustic presence
-      const binNoiseGate = 0.025;
       if (rawAmp < binNoiseGate) {
         _targetBins[i] = 0.0;
+        _bandAvg[i] *= 0.997;
         continue;
       }
-      final gated = (rawAmp - binNoiseGate) / (1.0 - binNoiseGate);
+      final gated = (rawAmp - binNoiseGate) / math.max(0.001, (1.0 - binNoiseGate));
 
       // Progressive high-frequency compensation counteracts acoustic pink noise rolloff
-      final hfComp = 1.0 + 1.25 * math.pow(i / (barCount - 1), 0.85).toDouble();
-      final scaled = (gated * 1.15 * hfComp).clamp(0.0, 1.0);
+      final scaled = (gated * gain * _bandHfComp[i]).clamp(0.0, 1.0);
 
-      // Temporal damping to eliminate frame-to-frame jumpiness while preserving fast snappy drops
+      // Per-band auto-gain blends the absolute amplitude with the band's level
+      // relative to its own slow average so quiet bands still contribute.
+      const double leveling = 0.50;
+      double mixed = scaled;
+      if (leveling > 0.001) {
+        final leveled = (scaled / (_bandAvg[i] * 1.6 + 0.004)).clamp(0.0, 1.0);
+        mixed = scaled * (1.0 - leveling) + leveled * leveling;
+      }
+      _bandAvg[i] = _bandAvg[i] * 0.992 + scaled * 0.008;
+
+      // Temporal damping keeps the derived targets stable and musical.
       final prev = _targetBins[i];
-      final smoothed = scaled > prev ? prev + (scaled - prev) * 0.85 : prev + (scaled - prev) * 0.58;
+      final smoothed = mixed > prev ? prev + (mixed - prev) * 0.85 : prev + (mixed - prev) * 0.58;
       _targetBins[i] = smoothed;
     }
   }
@@ -308,11 +364,20 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   void _onTick() {
     if (!mounted) return;
 
+    // Frame-rate independent time step: all motion below is scaled by [k]
+    // (a "60 fps frame" worth of time), so the bars move at the same real
+    // speed at any display refresh rate and do not speed up/slow down when
+    // the device throttles frames while idle.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final dt = ((nowMs - _lastTickMs) / 1000.0).clamp(0.0, 0.1);
+    _lastTickMs = nowMs;
+    final double k = (dt * 60.0).clamp(0.0, 1.0);
+
     final isPlaying = widget.player.playing && _isAppForeground;
     final target = isPlaying ? 1.0 : 0.0;
 
     if (_decayActivity != target) {
-      const step = 0.04;
+      final step = 0.04 * k;
       if (_decayActivity < target) {
         _decayActivity = math.min(target, _decayActivity + (step * 2.0));
       } else {
@@ -330,40 +395,54 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         _generateHarmonicFallback();
       }
 
-      // 5-point Gaussian spatial smoothing (fluid crests)
+      // ---- Butterfly bars motion (time-based) ------------------------------
+      // Bars are mirrored around the centre: bar i and bar (23-i) share the same
+      // frequency band, so bass bulges in the middle and treble flutters on
+      // both edges, keeping the look symmetric and balanced.
       for (int i = 0; i < barCount; i++) {
-        final left2 = i > 1 ? _targetBins[i - 2] : (i > 0 ? _targetBins[i - 1] : _targetBins[i]);
-        final left1 = i > 0 ? _targetBins[i - 1] : _targetBins[i];
-        final center = _targetBins[i];
-        final right1 = i < barCount - 1 ? _targetBins[i + 1] : _targetBins[i];
-        final right2 = i < barCount - 2 ? _targetBins[i + 2] : (i < barCount - 1 ? _targetBins[i + 1] : _targetBins[i]);
+        // 0.0 at the centre bar, 1.0 at the outermost bar, normalised so the
+        // full band range is used: the centre carries the sub-bass and the
+        // outer edges carry the top treble.
+        const double dMin = 1.0 / barCount; // innermost bar
+        const double dMax = 1.0 - dMin; // outermost bar
+        final d = ((i + 0.5) / barCount * 2.0 - 1.0).abs();
+        final norm = ((d - dMin) / (dMax - dMin)).clamp(0.0, 1.0);
+        final band = (norm * (barCount - 1)).round().clamp(0, barCount - 1);
+        final targetVal = _targetBins[band];
 
-        _spatiallySmoothed[i] = (left2 * 0.08) + (left1 * 0.24) + (center * 0.36) + (right1 * 0.24) + (right2 * 0.08);
-      }
+        double cur = _displayBins[i];
 
-      // Fluid, smooth motion ticker while preserving fast responsive drop
-      for (int i = 0; i < barCount; i++) {
-        final targetVal = _spatiallySmoothed[i];
-        final current = _displayBins[i];
-        if (targetVal > current) {
-          _displayBins[i] = current + (targetVal - current) * 0.28;
+        if (targetVal > cur) {
+          // Soft wall resistance: rising slows down the closer the bar gets to
+          // the ceiling, as if the top of the visualizer is pushing it back.
+          double effRise = _riseRate;
+          const double wallStart = 0.70;
+          final proximity = ((cur - wallStart) / (1.0 - wallStart)).clamp(0.0, 1.0);
+          effRise *= (1.0 - _wallResistance * proximity * proximity);
+          cur += (targetVal - cur) * (effRise * k).clamp(0.0, 1.0);
         } else {
-          // Dynamic fall-down: drops smoothly towards lower target
-          _displayBins[i] = current + (targetVal - current) * 0.18;
+          // Dynamic fall: the higher the bar is, the faster it drops so it
+          // does not stay pinned at the top.
+          final dynamicFall = (_fallRate + _ceilingGravity * cur).clamp(0.05, 0.95);
+          cur += (targetVal - cur) * (dynamicFall * k).clamp(0.0, 1.0);
         }
 
-        // Trailing buffer logic: catches peaks immediately, descends as a smooth lighter trail
+        _displayBins[i] = cur.clamp(0.0, 1.0);
+
+        // Trailing buffer logic: catches peaks immediately, descends as a
+        // smooth lighter ghost bar.
         if (_displayBins[i] >= _trailBins[i]) {
           _trailBins[i] = _displayBins[i];
         } else {
-          _trailBins[i] = math.max(_displayBins[i], _trailBins[i] - 0.012);
+          _trailBins[i] = math.max(_displayBins[i], _trailBins[i] - _trailDecay * k);
         }
       }
     } else {
       // Gentle decay to zero when paused
+      final double decayMul = math.pow(0.88, k).toDouble();
       for (int i = 0; i < barCount; i++) {
-        _displayBins[i] = math.max(0.0, _displayBins[i] * 0.88 - 0.015);
-        _trailBins[i] = math.max(0.0, _trailBins[i] * 0.88 - 0.015);
+        _displayBins[i] = math.max(0.0, _displayBins[i] * decayMul - 0.015 * k);
+        _trailBins[i] = math.max(0.0, _trailBins[i] * decayMul - 0.015 * k);
       }
     }
   }
@@ -402,6 +481,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       if (!_tickerController.isAnimating) {
         _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
         _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
+        _lastTickMs = DateTime.now().millisecondsSinceEpoch;
         _tickerController.repeat();
       }
     } else {
@@ -445,25 +525,64 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _tickerController,
-        builder: (context, _) {
-          return CustomPaint(
-            size: Size.infinite,
-            painter: _ArtworkVisualizerPainter(
-              songMs: _smoothSongMs,
-              isPlaying: widget.player.playing,
-              activity: _decayActivity,
-              accentColor: widget.accentColor,
-              liveBins: _displayBins,
-              trailBins: _trailBins,
-              hasNativeFft: _hasNativeFft,
-            ),
-          );
-        },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Static backdrop layer: rendered once and cached, so the per-frame
+          // spectrum repaint never rebuilds the vignette gradient.
+          const RepaintBoundary(
+            child: CustomPaint(painter: _VignettePainter()),
+          ),
+          AnimatedBuilder(
+            animation: _tickerController,
+            builder: (context, _) {
+              return CustomPaint(
+                size: Size.infinite,
+                painter: _ArtworkVisualizerPainter(
+                  songMs: _smoothSongMs,
+                  isPlaying: widget.player.playing,
+                  activity: _decayActivity,
+                  accentColor: widget.accentColor,
+                  liveBins: _displayBins,
+                  trailBins: _trailBins,
+                  hasNativeFft: _hasNativeFft,
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
+}
+
+/// Static backdrop for the visualizer: the bottom vignette gradient, kept in
+/// a const painter behind its own RepaintBoundary layer so it is drawn once
+/// instead of on every animation frame.
+class _VignettePainter extends CustomPainter {
+  const _VignettePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final vignetteRect = Rect.fromLTWH(0, size.height * 0.45, size.width, size.height * 0.55);
+    final vignettePaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [
+          Colors.black.withValues(alpha: 0.50),
+          Colors.black.withValues(alpha: 0.18),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.65, 1.0],
+      ).createShader(vignetteRect);
+    canvas.drawRect(vignetteRect, vignettePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _VignettePainter oldDelegate) => false;
 }
 
 class _ArtworkVisualizerPainter extends CustomPainter {
@@ -489,22 +608,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
-    // 1. Soft bottom-to-top vignette gradient across album artwork
-    final vignetteRect = Rect.fromLTWH(0, size.height * 0.45, size.width, size.height * 0.55);
-    final vignettePaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: [
-          Colors.black.withValues(alpha: 0.50),
-          Colors.black.withValues(alpha: 0.18),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.65, 1.0],
-      ).createShader(vignetteRect);
-    canvas.drawRect(vignetteRect, vignettePaint);
-
-    // 2. Multi-band Equalizer spectrum bars across full card width & height
+    // Mirrored "butterfly" spectrum bars across the full card width
     const int totalBars = 24;
     const double spacing = 4.0;
     const double horizontalPadding = 16.0;
@@ -520,6 +624,10 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final barBottomColor = accentColor.withValues(alpha: 0.78 + (0.18 * activity));
     final barTopColor = Color.lerp(accentColor, Colors.white, 0.50)!.withValues(alpha: 0.95);
 
+    // Two reusable paints instead of fresh Paint objects per bar per frame.
+    final trailPaint = Paint();
+    final barPaint = Paint();
+
     for (int i = 0; i < totalBars; i++) {
       double amp = 0.0;
       double trailAmp = 0.0;
@@ -531,7 +639,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
 
       final barX = startX + i * (barWidth + spacing);
 
-      // 2a. Trailing buffer ghost bar (lighter tint, slow descent)
+      // Trailing buffer ghost bar (lighter tint, slow descent)
       if (trailAmp > amp) {
         final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * activity;
         final trailY = size.height - bottomPadding - trailH;
@@ -539,19 +647,18 @@ class _ArtworkVisualizerPainter extends CustomPainter {
           Rect.fromLTWH(barX, trailY, barWidth, trailH),
           Radius.circular(barWidth / 2.0),
         );
-        final trailPaint = Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [
-              Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * activity),
-              Colors.white.withValues(alpha: 0.55 * activity),
-            ],
-          ).createShader(Rect.fromLTWH(barX, trailY, barWidth, trailH));
+        trailPaint.shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * activity),
+            Colors.white.withValues(alpha: 0.55 * activity),
+          ],
+        ).createShader(Rect.fromLTWH(barX, trailY, barWidth, trailH));
         canvas.drawRRect(trailRect, trailPaint);
       }
 
-      // 2b. Foreground active bar
+      // Foreground active bar
       final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp * activity;
       final barY = size.height - bottomPadding - barH;
 
@@ -560,15 +667,14 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         Radius.circular(barWidth / 2.0),
       );
 
-      final barPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [
-            barBottomColor,
-            barTopColor,
-          ],
-        ).createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
+      barPaint.shader = LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [
+          barBottomColor,
+          barTopColor,
+        ],
+      ).createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
 
       canvas.drawRRect(barRect, barPaint);
     }
