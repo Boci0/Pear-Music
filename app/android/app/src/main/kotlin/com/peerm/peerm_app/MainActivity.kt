@@ -52,6 +52,28 @@ class MainActivity : AudioServiceActivity() {
                 }
                 result.success(true)
                 android.os.Process.killProcess(android.os.Process.myPid())
+            } else if (call.method == "startImportWake") {
+                ImportKeepAliveService.ensureChannel(this)
+                val svc = Intent(this, ImportKeepAliveService::class.java)
+                call.argument<String>("text")?.let { svc.putExtra(ImportKeepAliveService.EXTRA_TEXT, it) }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    startForegroundService(svc)
+                } else {
+                    startService(svc)
+                }
+                result.success(true)
+            } else if (call.method == "updateImportWake") {
+                try {
+                    val svc = Intent(this, ImportKeepAliveService::class.java)
+                    call.argument<String>("text")?.let { svc.putExtra(ImportKeepAliveService.EXTRA_TEXT, it) }
+                    startService(svc)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.success(false)
+                }
+            } else if (call.method == "stopImportWake") {
+                stopService(Intent(this, ImportKeepAliveService::class.java))
+                result.success(true)
             } else {
                 result.notImplemented()
             }

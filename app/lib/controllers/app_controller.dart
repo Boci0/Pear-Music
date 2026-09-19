@@ -621,6 +621,17 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Best-effort foreground-service keep-alive for background imports on
+  /// Android, so the OS does not freeze the process mid-batch.
+  Future<void> _importWake(String method, [String? text]) async {
+    try {
+      await const MethodChannel('com.peerm.peerm_app/memory').invokeMethod(
+        method,
+        text == null ? null : {'text': text},
+      );
+    } catch (_) {}
+  }
+
   /// Writes the portable library profile (link-added songs only) to a file.
   Future<void> exportLibraryProfile() async {
     try {
@@ -709,6 +720,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       // Coalesce index writes: without this every imported song re-encodes the
       // entire library (all base64 artwork) and raises the heap for good.
       library.deferIndexSaves = true;
+      if (isAndroid) {
+        // Keep the process foregrounded while the import runs so Android does
+        // not freeze the app if it is backgrounded mid-import.
+        unawaited(_importWake('startImportWake', 'Preparing…'));
+      }
       var added = 0;
       var failed = 0;
       var cancelled = false;
@@ -722,6 +738,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           final label = entry.title.isEmpty ? entry.videoId : entry.title;
           onProgress?.call(i, todo.length);
           onStatus?.call('Fetching ${i + 1} of ${todo.length}: $label');
+          if (isAndroid) {
+            unawaited(_importWake(
+              'updateImportWake',
+              'Fetching ${i + 1} of ${todo.length}: $label',
+            ));
+          }
           final url = 'https://www.youtube.com/watch?v=${entry.videoId}';
           try {
             final song = await (isAndroid
@@ -753,6 +775,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         _profileImportCancel = null;
         library.deferIndexSaves = false;
         await library.flushSaveIndex();
+        if (isAndroid) {
+          await _importWake('stopImportWake');
+        }
       }
 
       if (added > 0) {
