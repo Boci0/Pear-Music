@@ -43,6 +43,28 @@ jobs:
           Write-Host "Downloading $ytUrl to $ytDest..."
           Invoke-WebRequest -Uri $ytUrl -OutFile $ytDest -UserAgent "PearMusic-CI"
 
+          # 1b. Pre-bundle aria2c accelerator (parallel downloads) into release build directory
+          $ariaDest = "app/build/windows/x64/runner/Release/aria2c.exe"
+          $ariaUrl = $null
+          try {
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/aria2/aria2/releases/latest" -Headers @{ 'User-Agent' = 'PearMusic-CI' } -TimeoutSec 30
+            $asset = $rel.assets | Where-Object { $_.name -match 'win-64bit.*\.zip$' } | Select-Object -First 1
+            if ($asset) { $ariaUrl = $asset.browser_download_url }
+          } catch {}
+          if (-not $ariaUrl) {
+            $ariaUrl = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
+          }
+          $ariaZip = Join-Path $env:TEMP "peerm-aria2.zip"
+          $ariaTmp = Join-Path $env:TEMP "peerm-aria2"
+          Write-Host "Downloading $ariaUrl..."
+          Invoke-WebRequest -Uri $ariaUrl -OutFile $ariaZip -UserAgent "PearMusic-CI"
+          if (Test-Path $ariaTmp) { Remove-Item $ariaTmp -Recurse -Force }
+          Expand-Archive -Path $ariaZip -DestinationPath $ariaTmp -Force
+          $ariaExe = Get-ChildItem -Path $ariaTmp -Recurse -Filter "aria2c.exe" | Select-Object -First 1
+          if ($ariaExe) { Copy-Item $ariaExe.FullName $ariaDest -Force }
+          Remove-Item $ariaZip -Force -ErrorAction SilentlyContinue
+          Remove-Item $ariaTmp -Recurse -Force -ErrorAction SilentlyContinue
+
           # 2. Bundle install and uninstall scripts
           Copy-Item "tool/install.ps1" "app/build/windows/x64/runner/Release/install.ps1"
           Copy-Item "tool/Install.bat" "app/build/windows/x64/runner/Release/Install.bat"

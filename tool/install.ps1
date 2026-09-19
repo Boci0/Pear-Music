@@ -111,6 +111,81 @@ if (-not (Test-Path $ytDlpDest)) {
   }
 }
 
+# 4b. Check & resolve aria2c dependency (optional parallel downloader)
+$ariaDest = Join-Path $installDir "aria2c.exe"
+if (-not (Test-Path $ariaDest)) {
+  $ariaBin = $null
+
+  # 4b-a. Check if already present in extracted package
+  $localSourceAria = Join-Path $scriptDir "aria2c.exe"
+  if (Test-Path $localSourceAria) { $ariaBin = $localSourceAria }
+
+  # 4b-b. Check system paths
+  if (-not $ariaBin) {
+    $ariaCmd = Get-Command aria2c.exe -ErrorAction SilentlyContinue
+    if ($ariaCmd) { $ariaBin = $ariaCmd.Source }
+  }
+  if (-not $ariaBin) {
+    $wingetAria = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\aria2c.exe"
+    if (Test-Path $wingetAria) { $ariaBin = $wingetAria }
+  }
+  if (-not $ariaBin) {
+    $scoopAria = Join-Path $env:USERPROFILE "scoop\shims\aria2c.exe"
+    if (Test-Path $scoopAria) { $ariaBin = $scoopAria }
+  }
+  if (-not $ariaBin) {
+    # Zip-type winget packages extract under Packages\aria2* and only reach
+    # PATH after an environment refresh; probe the package folder directly.
+    $wingetPkgRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path $wingetPkgRoot) {
+      $wingetAriaExe = Get-ChildItem $wingetPkgRoot -Directory -Filter "aria2*" -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ChildItem $_.FullName -Recurse -Filter "aria2c.exe" -ErrorAction SilentlyContinue } |
+        Select-Object -First 1
+      if ($wingetAriaExe) { $ariaBin = $wingetAriaExe.FullName }
+    }
+  }
+
+  if ($ariaBin -and (Test-Path $ariaBin)) {
+    if (-not $Silent) { Write-Host "[install] Bundling aria2c dependency from $ariaBin..." }
+    Copy-Item -Path $ariaBin -Destination $ariaDest -Force
+  } else {
+    # 4b-c. Automated dependency download (GitHub API, pinned URL as fallback)
+    if (-not $Silent) { Write-Host "[install] aria2c not found locally. Downloading official dependency..." }
+    try {
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+      $ariaUrl = $null
+      try {
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/aria2/aria2/releases/latest" -Headers @{ 'User-Agent' = 'PearMusic-Installer' } -TimeoutSec 30
+        $asset = $rel.assets | Where-Object { $_.name -match 'win-64bit.*\.zip$' } | Select-Object -First 1
+        if ($asset) { $ariaUrl = $asset.browser_download_url }
+      } catch {}
+      if (-not $ariaUrl) {
+        $ariaUrl = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
+      }
+
+      $ariaZip = Join-Path $env:TEMP "peerm-aria2.zip"
+      $ariaTmp = Join-Path $env:TEMP "peerm-aria2"
+      $wc = New-Object System.Net.WebClient
+      $wc.Headers.Add("User-Agent", "PearMusic-Installer")
+      $wc.DownloadFile($ariaUrl, $ariaZip)
+
+      if (Test-Path $ariaTmp) { Remove-Item $ariaTmp -Recurse -Force }
+      Expand-Archive -Path $ariaZip -DestinationPath $ariaTmp -Force
+      $ariaExe = Get-ChildItem -Path $ariaTmp -Recurse -Filter "aria2c.exe" | Select-Object -First 1
+      if ($ariaExe) {
+        Copy-Item -Path $ariaExe.FullName -Destination $ariaDest -Force
+        if (-not $Silent) { Write-Host "[install] Successfully installed aria2c dependency" }
+      } else {
+        if (-not $Silent) { Write-Warning "[install] aria2c archive did not contain aria2c.exe. Downloads will use the yt-dlp native downloader." }
+      }
+      Remove-Item $ariaZip -Force -ErrorAction SilentlyContinue
+      Remove-Item $ariaTmp -Recurse -Force -ErrorAction SilentlyContinue
+    } catch {
+      if (-not $Silent) { Write-Warning "[install] Could not fetch aria2c during install: $_. Downloads will use the yt-dlp native downloader." }
+    }
+  }
+}
+
 # 5. Deploy uninstaller scripts into installation directory
 $uninstallPs1Src = Join-Path $scriptDir "uninstall.ps1"
 $uninstallBatSrc = Join-Path $scriptDir "Uninstall.bat"
@@ -179,6 +254,7 @@ if (-not $Silent) {
   Write-Host "  Desktop    : $deskShortcut"
   Write-Host "  Start Menu : $startShortcut"
   Write-Host "  Resolver   : $(if (Test-Path $ytDlpDest) { 'Installed' } else { 'Runtime Managed' })"
+  Write-Host "  Accelerator: $(if (Test-Path $ariaDest) { 'Installed' } else { 'Not installed (optional)' })"
   Write-Host "=========================================="
   Write-Host ""
   Write-Host "Launching Pear Music..."

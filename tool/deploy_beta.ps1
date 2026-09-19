@@ -60,6 +60,28 @@ if ($ytDlpBin -and (Test-Path $ytDlpBin)) {
   Copy-Item -Path $ytDlpBin -Destination (Join-Path $destDir "yt-dlp.exe") -Force
 }
 
+# 3c. Bundle aria2c accelerator (optional) directly into Beta installation directory
+$ariaBin = Get-Command aria2c.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+if (-not $ariaBin) {
+  $wingetAria = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\aria2c.exe"
+  if (Test-Path $wingetAria) { $ariaBin = $wingetAria }
+}
+if (-not $ariaBin) {
+  # Zip-type winget packages extract under Packages\aria2* and only reach
+  # PATH after an environment refresh; probe the package folder directly.
+  $wingetPkgRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+  if (Test-Path $wingetPkgRoot) {
+    $wingetAriaExe = Get-ChildItem $wingetPkgRoot -Directory -Filter "aria2*" -ErrorAction SilentlyContinue |
+      ForEach-Object { Get-ChildItem $_.FullName -Recurse -Filter "aria2c.exe" -ErrorAction SilentlyContinue } |
+      Select-Object -First 1
+    if ($wingetAriaExe) { $ariaBin = $wingetAriaExe.FullName }
+  }
+}
+if ($ariaBin -and (Test-Path $ariaBin)) {
+  Write-Host "[deploy_beta] Bundling accelerator ($ariaBin) into $destDir..."
+  Copy-Item -Path $ariaBin -Destination (Join-Path $destDir "aria2c.exe") -Force
+}
+
 # 4. Create Desktop Shortcut
 $desktopPath = [Environment]::GetFolderPath("Desktop")
 $shortcutPath = Join-Path $desktopPath "Pear Music Beta.lnk"
