@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/update_service.dart';
-import 'package:peerm_app/services/youtube_service.dart';
 
 void main() {
   group('UpdateService integrity', () {
@@ -46,11 +45,6 @@ void main() {
       } finally {
         tempDir.deleteSync(recursive: true);
       }
-    });
-
-    test('aria2cPath never throws and returns null or a path', () async {
-      final result = await YoutubeService.aria2cPath();
-      expect(result == null || File(result).existsSync(), isTrue);
     });
 
     test('getVerifiedDownloadedUpdate verifies cached package against expected digest', () async {

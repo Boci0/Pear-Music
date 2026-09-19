@@ -519,11 +519,8 @@ class StreamCacheManager {
           '--force-ipv4',
           '--concurrent-fragments',
           '2',
-          // Re-extract when the CDN throttles mid-download. Do not add
-          // --http-chunk-size here: yt-dlp already chunks YouTube at 10M,
-          // an explicit smaller value only overrides that default downward.
-          '--throttled-rate',
-          '100K',
+          '--http-chunk-size',
+          '5M',
           '--buffer-size',
           '64k',
           '--socket-timeout',

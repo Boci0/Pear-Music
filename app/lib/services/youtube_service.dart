@@ -257,66 +257,6 @@ class YoutubeService {
   /// True when the app can rip with the **bundled** yt-dlp (Android only).
   static bool get isEmbeddedYtDlpSupported => !kIsWeb && Platform.isAndroid;
 
-  /// Locate `aria2c` on executable directory or PATH (Windows: `where.exe`, others: `which`). Returns
-  /// null when missing or when the check itself fails; aria2c is an optional
-  /// accelerator, never a requirement.
-  @visibleForTesting
-  static Future<String?> aria2cPath() async {
-    if (kIsWeb) return null;
-    try {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      final bundledBin =
-          File(p.join(exeDir, Platform.isWindows ? 'aria2c.exe' : 'aria2c'));
-      if (bundledBin.existsSync()) return bundledBin.path;
-
-      if (Platform.isWindows) {
-        final r = await Process.run('where.exe', ['aria2c']);
-        if (r.exitCode == 0) {
-          final first =
-              r.stdout.toString().trim().split(RegExp(r'\s+')).first;
-          if (first.isNotEmpty && File(first).existsSync()) return first;
-        }
-        // winget and scoop installs stay reachable even when this process
-        // inherited a stale PATH (installed after the app launched).
-        final local = Platform.environment['LOCALAPPDATA'];
-        if (local != null) {
-          final shim = File('$local\\Microsoft\\WinGet\\Links\\aria2c.exe');
-          if (shim.existsSync()) return shim.path;
-          // Zip-type winget packages (aria2) extract under Packages\aria2*
-          // and only land on PATH after an environment refresh, so probe
-          // the package folder directly as well.
-          final packagesDir = Directory('$local\\Microsoft\\WinGet\\Packages');
-          if (packagesDir.existsSync()) {
-            for (final pkg in packagesDir.listSync(followLinks: false)) {
-              if (pkg is! Directory) continue;
-              if (!p.basename(pkg.path).toLowerCase().startsWith('aria2')) {
-                continue;
-              }
-              for (final f in pkg.listSync(recursive: true)) {
-                if (f is File &&
-                    p.basename(f.path).toLowerCase() == 'aria2c.exe') {
-                  return f.path;
-                }
-              }
-            }
-          }
-        }
-        final userProfile = Platform.environment['USERPROFILE'];
-        if (userProfile != null) {
-          final scoopBin = File('$userProfile\\scoop\\shims\\aria2c.exe');
-          if (scoopBin.existsSync()) return scoopBin.path;
-        }
-      } else {
-        final r = await Process.run('which', ['aria2c']);
-        if (r.exitCode == 0) {
-          final out = r.stdout.toString().trim();
-          if (out.isNotEmpty && File(out).existsSync()) return out;
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
   /// Rip [url] with an installed yt-dlp binary (desktop). Downloads the best
   /// audio-only stream (m4a preferred; no ffmpeg/conversion needed). Works for
   /// YouTube and Spotify links (yt-dlp resolves Spotify itself).
@@ -343,23 +283,6 @@ class YoutubeService {
       final outTemplate = '${tempDir.path}${Platform.pathSeparator}'
           '%(title).80B [%(id)s].%(ext)s';
 
-      // Optional speed-up: delegate the actual download to aria2c (16
-      // parallel connections) when it is installed. Missing aria2c must
-      // never fail the rip — fall back to yt-dlp's native downloader.
-      final aria2 = await aria2cPath();
-      final downloaderArgs = (aria2 != null)
-          ? <String>[
-              '--downloader', 'aria2c',
-              // yt-dlp already passes the parallel tuning for aria2c
-              // (-x16 -s16 -j16 --min-split-size 1M --file-allocation=none),
-              // so these extra args are belt-and-braces only.
-              '--downloader-args', 'aria2c:-x 16 -s 16 -j 16',
-            ]
-          : const <String>[];
-      if (aria2 != null) {
-        debugPrint('[pearmusic] using aria2c downloader: $aria2');
-      }
-
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
         final isAndroid = !kIsWeb && Platform.isAndroid;
         final formatArg = isAndroid
@@ -367,6 +290,7 @@ class YoutubeService {
             : 'bestaudio[acodec=opus][abr<=160]/141/bestaudio[ext=m4a]/bestaudio/best';
         final args = [
           '-f', formatArg,
+          '--extractor-args', 'youtube:player_client=android,web',
           '--newline',
           '--no-playlist',
           '--no-part',
@@ -374,10 +298,6 @@ class YoutubeService {
           '--write-thumbnail',
           '--no-check-certificates',
           '--concurrent-fragments', '4',
-          // When YouTube throttles mid-download, re-extract instead of
-          // crawling the rest of the file at a few dozen KB/s.
-          '--throttled-rate', '100K',
-          ...downloaderArgs,
           ...extraArgs,
           '-o', outTemplate,
           url,
@@ -424,15 +344,10 @@ class YoutubeService {
         'youtube:player_client=android,web,mweb',
       ]);
 
-      // Attempt 2 (Fallback): Narrower client list if attempt 1 failed.
-      // Passed explicitly because the shared args no longer carry an
-      // extractor-args flag (repeating the flag appends, not replaces).
+      // Attempt 2 (Fallback): Standard extraction if attempt 1 encountered an error.
       if (exitCode != 0 && !(cancel?.isCancelled ?? false)) {
         onStatus?.call('Retrying with fallback client…');
-        exitCode = await runDownloadWithArgs([
-          '--extractor-args',
-          'youtube:player_client=android,web',
-        ]);
+        exitCode = await runDownloadWithArgs([]);
       }
 
       if (exitCode != 0) {
