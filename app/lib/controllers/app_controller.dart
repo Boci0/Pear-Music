@@ -5,6 +5,7 @@ import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 
@@ -592,6 +593,32 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// Stops an in-flight library profile import after the current song.
   void cancelLibraryProfileImport() {
     _profileImportCancel?.cancel();
+  }
+
+  /// Relaunches the app into a fresh process. Used after bulk imports: the
+  /// Dart heap stays grown after heavy work until a restart, so the only way
+  /// to fully release that memory is a new process.
+  Future<void> restartApp() async {
+    try {
+      if (kIsWeb) return;
+      if (Platform.isWindows) {
+        await library.flushSaveIndex();
+        final exe = Platform.resolvedExecutable;
+        await Process.start(
+          exe,
+          const [],
+          mode: ProcessStartMode.detached,
+          workingDirectory: File(exe).parent.path,
+        );
+        exit(0);
+      } else if (Platform.isAndroid) {
+        await library.flushSaveIndex();
+        await const MethodChannel('com.peerm.peerm_app/memory')
+            .invokeMethod('restartApp');
+      }
+    } catch (e) {
+      debugPrint('[controller] restart failed: $e');
+    }
   }
 
   /// Writes the portable library profile (link-added songs only) to a file.

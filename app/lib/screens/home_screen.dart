@@ -994,7 +994,8 @@ class _LibraryProfileImportDialogState
   }
 
   Future<void> _run() async {
-    await widget.controller.importLibraryProfile(
+    final navigator = Navigator.of(context);
+    final result = await widget.controller.importLibraryProfile(
       onStatus: (status) {
         if (!mounted) return;
         setState(() {
@@ -1029,7 +1030,41 @@ class _LibraryProfileImportDialogState
       },
       onBytes: _handleBytes,
     );
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) navigator.pop();
+    if (result != null && !result.cancelled && result.added >= 5) {
+      if (navigator.mounted) {
+        await _recommendRestart(navigator, result.added);
+      }
+    }
+  }
+
+  /// After a bulk import the Dart heap stays grown until the process restarts;
+  /// offer that restart right away instead of letting the app carry the
+  /// import's memory for the rest of the session.
+  Future<void> _recommendRestart(NavigatorState navigator, int added) async {
+    final restart = await showDialog<bool>(
+      context: navigator.context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Import complete'),
+        content: Text(
+          'Added $added songs. Restart the app now to release the memory '
+          'used during the import, which keeps playback smooth.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Later'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restart now'),
+          ),
+        ],
+      ),
+    );
+    if (restart == true) {
+      await widget.controller.restartApp();
+    }
   }
 
   @override

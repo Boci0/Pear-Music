@@ -42,6 +42,16 @@ class MainActivity : AudioServiceActivity() {
                 result.success(mapOf(
                     "pssMb" to pssMb
                 ))
+            } else if (call.method == "restartApp") {
+                // Relaunch into a fresh process after bulk imports so the
+                // Dart heap's high-water mark is released.
+                val launch = packageManager.getLaunchIntentForPackage(packageName)
+                if (launch != null) {
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    startActivity(launch)
+                }
+                result.success(true)
+                android.os.Process.killProcess(android.os.Process.myPid())
             } else {
                 result.notImplemented()
             }
