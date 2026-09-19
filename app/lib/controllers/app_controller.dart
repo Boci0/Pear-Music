@@ -696,9 +696,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           try {
             final song = await (isAndroid
                 ? youtube.scrapeAndAddWithEmbeddedYtDlp(library, url,
-                    onProgress: onBytes, cancel: cancel)
+                    onStatus: onStatus, onProgress: onBytes, cancel: cancel)
                 : youtube.scrapeAndAddWithYtDlp(library, url,
-                    onProgress: onBytes, cancel: cancel));
+                    onStatus: onStatus, onProgress: onBytes, cancel: cancel));
             if (cancel.isCancelled) {
               cancelled = true;
               break;

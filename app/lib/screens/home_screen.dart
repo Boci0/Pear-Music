@@ -912,12 +912,14 @@ class _LibraryProfileImportDialog extends StatefulWidget {
 class _LibraryProfileImportDialogState
     extends State<_LibraryProfileImportDialog> {
   String _status = 'Choosing a profile file…';
+  String _phase = '';
   int _index = 0;
   int _count = 0;
   int _bytes = 0;
   int _totalBytes = 0;
   double _speedBytesPerSec = 0;
-  final DateTime _startedAt = DateTime.now();
+  DateTime _startedAt = DateTime.now();
+  bool _timerStarted = false;
   Duration _elapsed = Duration.zero;
   Timer? _clock;
   int _lastBytes = 0;
@@ -929,7 +931,7 @@ class _LibraryProfileImportDialogState
   void initState() {
     super.initState();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
+      if (!mounted || !_timerStarted) return;
       setState(() => _elapsed = DateTime.now().difference(_startedAt));
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _run());
@@ -983,7 +985,8 @@ class _LibraryProfileImportDialogState
 
   String get _detailLine {
     if (_totalBytes <= 0) {
-      return _bytes > 0 ? _fmtBytes(_bytes) : 'Preparing…';
+      if (_bytes > 0) return _fmtBytes(_bytes);
+      return _phase.isNotEmpty ? _phase : 'Preparing…';
     }
     final speed =
         _speedBytesPerSec > 0 ? ' at ${_fmtBytes(_speedBytesPerSec)}/s' : '';
@@ -995,13 +998,24 @@ class _LibraryProfileImportDialogState
       onStatus: (status) {
         if (!mounted) return;
         setState(() {
-          _status = status;
           if (status.startsWith('Fetching')) {
+            _status = status;
+            _phase = '';
+            if (!_timerStarted) {
+              _timerStarted = true;
+              _startedAt = DateTime.now();
+              _elapsed = Duration.zero;
+            }
             _bytes = 0;
             _totalBytes = 0;
             _speedBytesPerSec = 0;
             _lastBytes = 0;
             _lastSample = DateTime.now();
+          } else if (_timerStarted) {
+            // Live fetch detail between tracks (starting, retrying, adding).
+            _phase = status;
+          } else {
+            _status = status;
           }
         });
       },
@@ -1041,7 +1055,10 @@ class _LibraryProfileImportDialogState
                 style: small,
               ),
               const Spacer(),
-              Text('elapsed ${_fmtDuration(_elapsed)}', style: small),
+              Text(
+                _timerStarted ? 'elapsed ${_fmtDuration(_elapsed)}' : '',
+                style: small,
+              ),
             ],
           ),
           const SizedBox(height: 14),
