@@ -116,7 +116,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final artwork = widget.artwork;
     final baseShadowColor = (widget.accent ?? scheme.primary);
     final isAccentDark = ThemeData.estimateBrightnessForColor(baseShadowColor) == Brightness.dark;
-    final isLight = ArtworkPalette.isLightArtwork(song);
+    final isLight = ArtworkPalette.prefersDarkText(song);
     final useSynthesizer = context.select<AppController?, bool>(
       (c) => c?.identity.synthesizerBar ?? false,
     );
@@ -321,6 +321,16 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           child: IgnorePointer(
                             ignoring: !isLyricsFullyOpen,
                             child: cachedBackdrop,
+                          ),
+                        ),
+                      // Calms busy bright artwork so dark lyrics stay readable.
+                      if (cachedBackdrop != null && isLyricsActive && isLight)
+                        FadeTransition(
+                          opacity: _blurAnimation,
+                          child: IgnorePointer(
+                            child: Container(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
                           ),
                         ),
                       // Equalizer spectrum visualizer stacked behind lyrics and border

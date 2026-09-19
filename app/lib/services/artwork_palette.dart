@@ -66,6 +66,19 @@ class ArtworkPalette {
     return false;
   }
 
+  /// Picks the text colour polarity that maximizes readability over the
+  /// artwork. Unlike [isLightArtwork] (built for decorative tinting), this
+  /// uses a lower luminance threshold so saturated bright covers (red, pink,
+  /// orange) get dark text instead of hard-to-read white.
+  static bool prefersDarkText(Song? song) {
+    if (song == null) return false;
+    final lum = _resolvedLuminance[song.id];
+    if (lum != null) return lum > 0.20;
+    final dominant = _resolvedColors[song.id];
+    if (dominant != null) return dominant.computeLuminance() > 0.20;
+    return false;
+  }
+
   /// Last resolved accent colour. Kept across cache clears so the UI never
   /// flashes back to fallback while colours re-resolve.
   static Color? _lastAccent;

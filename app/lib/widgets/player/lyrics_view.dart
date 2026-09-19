@@ -184,7 +184,10 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final glowColor = widget.accent ?? scheme.primary;
-    final isLight = ArtworkPalette.isLightArtwork(widget.song);
+    // Dark text wins earlier for lyrics readability: saturated bright covers
+    // (red, pink, orange) read poorly with white text even though the
+    // decorative tinting heuristic calls them dark.
+    final isLight = ArtworkPalette.prefersDarkText(widget.song);
 
     if (_isLoading) {
       return Center(
