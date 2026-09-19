@@ -377,7 +377,8 @@ class YoutubeService {
       String? artwork = preferredArtwork;
       if (artwork == null && thumbPath != null) {
         try {
-          artwork = downscaleToBase64(await File(thumbPath).readAsBytes());
+          artwork =
+              await downscaleToBase64Async(await File(thumbPath).readAsBytes());
         } catch (_) {
           // Artwork optional — fall back to the gradient.
         }
@@ -500,7 +501,8 @@ class YoutubeService {
       String? artwork = preferredArtwork;
       if (artwork == null && thumbPath != null) {
         try {
-          artwork = downscaleToBase64(await File(thumbPath).readAsBytes());
+          artwork =
+              await downscaleToBase64Async(await File(thumbPath).readAsBytes());
         } catch (_) {
           // Artwork optional — fall back to the gradient.
         }
@@ -601,6 +603,20 @@ class YoutubeService {
     }
   }
 
+  /// Async wrapper around [downscaleToBase64]: the decode, crop and encode
+  /// run on a worker isolate so bulk imports keep the main isolate free (no
+  /// multi-megabyte pixel buffers blocking frames).
+  static Future<String?> downscaleToBase64Async(
+    List<int> bytes, {
+    int size = 640,
+    int quality = 90,
+  }) {
+    return compute(
+      _downscaleEntry,
+      (Uint8List.fromList(bytes), size, quality),
+    );
+  }
+
   /// Robust HTTP fetch of thumbnail bytes, downscaling and converting to persistent base64 JPEG.
   /// Applies [ArtworkService.optimizeArtworkUrl] to fetch crisp high-resolution sources.
   static Future<String?> downloadArtworkAsBase64(
@@ -642,7 +658,8 @@ class YoutubeService {
               .fold<List<int>>([], (p, e) => p..addAll(e))
               .timeout(const Duration(seconds: 5));
           if (bytes.isNotEmpty) {
-            final downscaled = downscaleToBase64(bytes, size: size, quality: quality);
+            final downscaled =
+                await downscaleToBase64Async(bytes, size: size, quality: quality);
             if (downscaled != null && downscaled.isNotEmpty) {
               return downscaled;
             }
@@ -655,4 +672,10 @@ class YoutubeService {
     }
     return null;
   }
+}
+
+/// Worker-isolate entry for [YoutubeService.downscaleToBase64Async].
+String? _downscaleEntry((Uint8List, int, int) args) {
+  final (bytes, size, quality) = args;
+  return YoutubeService.downscaleToBase64(bytes, size: size, quality: quality);
 }

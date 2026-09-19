@@ -728,6 +728,16 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         await library.flushSaveIndex();
       }
 
+      if (added > 0) {
+        // The import decoded a cover for every added song; shed those caches
+        // so memory settles near a fresh-launch baseline instead of waiting
+        // for the next memory-pressure event.
+        ArtworkPalette.compactMemory();
+        LyricsService.compactMemory();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+        PaintingBinding.instance.imageCache.clear();
+      }
+
       onProgress?.call(todo.length, todo.length);
       _postMessage(
         cancelled
