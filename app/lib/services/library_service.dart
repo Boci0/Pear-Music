@@ -271,9 +271,17 @@ class LibraryService extends ChangeNotifier {
   /// it). One save at batch completion ([flushSaveIndex]) is enough.
   bool deferIndexSaves = false;
 
-  /// Runs in a background isolate: serialises the whole song list to JSON.
-  static String _encodeSongsJson(List<Song> songs) =>
-      jsonEncode(songs.map((s) => s.toJson()).toList());
+  /// Runs in a background isolate: serialises the whole song list to JSON and
+  /// writes it straight to the file, so the multi-megabyte string never has to
+  /// cross back into the main isolate (where it would raise the old-gen heap
+  /// high-water mark that only a restart resets).
+  static Future<void> _encodeAndWriteSongsJson(
+    (String, List<Song>) args,
+  ) async {
+    final (path, songs) = args;
+    final jsonStr = jsonEncode(songs.map((s) => s.toJson()).toList());
+    await File(path).writeAsString(jsonStr, flush: true);
+  }
 
   bool _isSavingIndex = false;
   Completer<void>? _saveIndexCompleter;
@@ -292,8 +300,7 @@ class LibraryService extends ChangeNotifier {
       if (!await _indexFile!.parent.exists()) {
         await _indexFile!.parent.create(recursive: true);
       }
-      final jsonStr = await compute(_encodeSongsJson, _songs);
-      await _indexFile!.writeAsString(jsonStr, flush: true);
+      await compute(_encodeAndWriteSongsJson, (_indexFile!.path, _songs));
     } catch (e) {
       debugPrint('[library] error saving index: $e');
     } finally {
@@ -702,7 +709,13 @@ class LibraryService extends ChangeNotifier {
     _songs.add(song);
     _indexSong(song);
     _filesOnDisk.add(id);
-    await _saveIndex();
+    if (deferIndexSaves) {
+      // Batch in progress: one save at completion (flushSaveIndex) instead of
+      // re-encoding the whole index for every song.
+      _scheduleSaveIndex();
+    } else {
+      await _saveIndex();
+    }
     notifyListeners();
     return song;
   }

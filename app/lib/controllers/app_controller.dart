@@ -679,6 +679,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       _profileImportCancel = DownloadCancellation();
       final cancel = _profileImportCancel!;
       final isAndroid = !kIsWeb && Platform.isAndroid;
+      // Coalesce index writes: without this every imported song re-encodes the
+      // entire library (all base64 artwork) and raises the heap for good.
+      library.deferIndexSaves = true;
       var added = 0;
       var failed = 0;
       var cancelled = false;
@@ -721,6 +724,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       } finally {
         _profileImporting = false;
         _profileImportCancel = null;
+        library.deferIndexSaves = false;
+        await library.flushSaveIndex();
       }
 
       onProgress?.call(todo.length, todo.length);
