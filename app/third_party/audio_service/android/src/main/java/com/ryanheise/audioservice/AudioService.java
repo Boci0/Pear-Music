@@ -347,8 +347,10 @@ public class AudioService extends MediaBrowserServiceCompat {
         // int in its constructor.
         final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
 
-        // Use 1/8th of the available memory for this memory cache.
-        final int cacheSize = maxMemory / 8;
+        // Use 1/8th of the available memory for this memory cache, capped at
+        // 16 MB so long sessions playing many tracks cannot retain dozens of
+        // full-size notification bitmaps on devices with large Java heaps.
+        final int cacheSize = Math.min(maxMemory / 8, 16 * 1024);
 
         artBitmapCache = new LruCache<String, Bitmap>(cacheSize) {
             @Override
