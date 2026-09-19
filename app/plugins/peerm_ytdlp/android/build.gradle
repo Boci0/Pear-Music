@@ -73,4 +73,8 @@ dependencies {
     // resolves and any future merge/conversion is supported.
     implementation "io.github.junkfood02.youtubedl-android:library:0.18.1"
     implementation "io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1"
+    // Embedded aria2c accelerator. yt-dlp passes the parallel-download
+    // tuning (-x16 -s16 --min-split-size 1M) itself, so the plugin only
+    // initializes the library and passes "--downloader libaria2c.so".
+    implementation "io.github.junkfood02.youtubedl-android:aria2c:0.18.1"
 }

@@ -276,6 +276,36 @@ class YoutubeService {
               r.stdout.toString().trim().split(RegExp(r'\s+')).first;
           if (first.isNotEmpty && File(first).existsSync()) return first;
         }
+        // winget and scoop installs stay reachable even when this process
+        // inherited a stale PATH (installed after the app launched).
+        final local = Platform.environment['LOCALAPPDATA'];
+        if (local != null) {
+          final shim = File('$local\\Microsoft\\WinGet\\Links\\aria2c.exe');
+          if (shim.existsSync()) return shim.path;
+          // Zip-type winget packages (aria2) extract under Packages\aria2*
+          // and only land on PATH after an environment refresh, so probe
+          // the package folder directly as well.
+          final packagesDir = Directory('$local\\Microsoft\\WinGet\\Packages');
+          if (packagesDir.existsSync()) {
+            for (final pkg in packagesDir.listSync(followLinks: false)) {
+              if (pkg is! Directory) continue;
+              if (!p.basename(pkg.path).toLowerCase().startsWith('aria2')) {
+                continue;
+              }
+              for (final f in pkg.listSync(recursive: true)) {
+                if (f is File &&
+                    p.basename(f.path).toLowerCase() == 'aria2c.exe') {
+                  return f.path;
+                }
+              }
+            }
+          }
+        }
+        final userProfile = Platform.environment['USERPROFILE'];
+        if (userProfile != null) {
+          final scoopBin = File('$userProfile\\scoop\\shims\\aria2c.exe');
+          if (scoopBin.existsSync()) return scoopBin.path;
+        }
       } else {
         final r = await Process.run('which', ['aria2c']);
         if (r.exitCode == 0) {
@@ -320,6 +350,9 @@ class YoutubeService {
       final downloaderArgs = (aria2 != null)
           ? <String>[
               '--downloader', 'aria2c',
+              // yt-dlp already passes the parallel tuning for aria2c
+              // (-x16 -s16 -j16 --min-split-size 1M --file-allocation=none),
+              // so these extra args are belt-and-braces only.
               '--downloader-args', 'aria2c:-x 16 -s 16 -j 16',
             ]
           : const <String>[];
@@ -334,7 +367,6 @@ class YoutubeService {
             : 'bestaudio[acodec=opus][abr<=160]/141/bestaudio[ext=m4a]/bestaudio/best';
         final args = [
           '-f', formatArg,
-          '--extractor-args', 'youtube:player_client=android,web',
           '--newline',
           '--no-playlist',
           '--no-part',
@@ -342,6 +374,9 @@ class YoutubeService {
           '--write-thumbnail',
           '--no-check-certificates',
           '--concurrent-fragments', '4',
+          // When YouTube throttles mid-download, re-extract instead of
+          // crawling the rest of the file at a few dozen KB/s.
+          '--throttled-rate', '100K',
           ...downloaderArgs,
           ...extraArgs,
           '-o', outTemplate,
@@ -389,10 +424,15 @@ class YoutubeService {
         'youtube:player_client=android,web,mweb',
       ]);
 
-      // Attempt 2 (Fallback): Standard extraction if attempt 1 encountered an error.
+      // Attempt 2 (Fallback): Narrower client list if attempt 1 failed.
+      // Passed explicitly because the shared args no longer carry an
+      // extractor-args flag (repeating the flag appends, not replaces).
       if (exitCode != 0 && !(cancel?.isCancelled ?? false)) {
         onStatus?.call('Retrying with fallback client…');
-        exitCode = await runDownloadWithArgs([]);
+        exitCode = await runDownloadWithArgs([
+          '--extractor-args',
+          'youtube:player_client=android,web',
+        ]);
       }
 
       if (exitCode != 0) {

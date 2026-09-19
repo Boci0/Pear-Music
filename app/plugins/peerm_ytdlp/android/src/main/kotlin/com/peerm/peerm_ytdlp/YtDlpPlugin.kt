@@ -3,6 +3,7 @@ package com.peerm.peerm_ytdlp
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -40,6 +41,8 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     private var initialized = false
     @Volatile
     private var ffmpegInitialized = false
+    @Volatile
+    private var aria2cInitialized = false
 
     /// Set once per process so we only hit the GitHub API once per launch;
     /// after the first run the refreshed yt-dlp persists on disk and
@@ -603,6 +606,19 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         }
     }
 
+    @Synchronized
+    private fun ensureAria2cInit(ctx: Context): Boolean {
+        if (aria2cInitialized) return true
+        return try {
+            Aria2c.getInstance().init(ctx)
+            aria2cInitialized = true
+            true
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "aria2c init failed/unavailable: ${e.message}")
+            false
+        }
+    }
+
     private fun startDownload(
         ctx: Context,
         url: String,
@@ -617,6 +633,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
             try {
                 ensureInit(ctx)
                 ensureFFmpegInit(ctx)
+                val aria2cReady = ensureAria2cInit(ctx)
                 fun makeRequest(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
@@ -634,6 +651,12 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--force-ipv4")
                     req.addOption("--no-check-certificates")
                     req.addOption("--concurrent-fragments", "4")
+                    req.addOption("--throttled-rate", "100K")
+                    if (aria2cReady) {
+                        // yt-dlp supplies the parallel tuning for aria2c
+                        // (-x16 -s16 --min-split-size 1M) on its own.
+                        req.addOption("--downloader", "libaria2c.so")
+                    }
                     if (useExtractorArgs) {
                         req.addOption("--extractor-args", "youtube:player_client=android,web,mweb")
                     }
@@ -698,6 +721,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 }
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT)
                 ensureInit(ctx)
+                val aria2cReady = ensureAria2cInit(ctx)
                 fun makeAudioReq(): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-f", format ?: "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba")
@@ -710,12 +734,20 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-check-certificates")
                     req.addOption("--extractor-args", "youtube:skip=webpage,authcheck,translated_subs,hls")
                     req.addOption("--concurrent-fragments", "2")
-                    req.addOption("--http-chunk-size", "5M")
+                    // No --http-chunk-size: yt-dlp chunks YouTube at 10M by
+                    // default; 5M was only halving that. throttled-rate makes
+                    // yt-dlp re-extract when the CDN throttles mid-download.
+                    req.addOption("--throttled-rate", "100K")
                     req.addOption("--buffer-size", "64k")
                     req.addOption("--socket-timeout", "10")
                     req.addOption("--retries", "2")
                     req.addOption("--extractor-retries", "1")
                     req.addOption("--fragment-retries", "2")
+                    if (aria2cReady) {
+                        // yt-dlp supplies the parallel tuning for aria2c
+                        // (-x16 -s16 --min-split-size 1M) on its own.
+                        req.addOption("--downloader", "libaria2c.so")
+                    }
                     return req
                 }
 
