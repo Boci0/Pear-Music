@@ -252,8 +252,8 @@ class StreamCacheManager {
       }
       _activeDownloadingVideoId = null;
       _isActiveDownloadPreload = false;
+      DebugLog.write('[preload] Preload cancelled, new sequence=$_slidingWindowSequence');
     }
-    DebugLog.write('[preload] cancelPreload() called, new sequence=$_slidingWindowSequence');
   }
 
   /// Terminates any ongoing yt-dlp download process (foreground or background preload)
