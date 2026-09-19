@@ -1031,7 +1031,7 @@ class _LibraryProfileImportDialogState
       onBytes: _handleBytes,
     );
     if (mounted) navigator.pop();
-    if (result != null && !result.cancelled && result.added >= 5) {
+    if (result != null && !result.cancelled && result.added >= 1) {
       if (navigator.mounted) {
         await _recommendRestart(navigator, result.added);
       }
@@ -1047,8 +1047,9 @@ class _LibraryProfileImportDialogState
       builder: (dialogContext) => AlertDialog(
         title: const Text('Import complete'),
         content: Text(
-          'Added $added songs. Restart the app now to release the memory '
-          'used during the import, which keeps playback smooth.',
+          'Added $added ${added == 1 ? 'song' : 'songs'}. Restart the app now '
+          'to release the memory used during the import, which keeps '
+          'playback smooth.',
         ),
         actions: [
           TextButton(
