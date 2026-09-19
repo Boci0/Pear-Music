@@ -234,6 +234,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       remove();
     }
     _removeNotifierListeners.clear();
+    // Persist any queued library index changes before teardown; the debounced
+    // saver would otherwise be cancelled with the write still pending.
+    await library.flushSaveIndex();
     player.dispose();
     library.dispose();
     LibraryService.killHashWorker();
