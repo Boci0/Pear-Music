@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
@@ -80,23 +79,10 @@ class StreamCacheManager {
     return ytdlpCache;
   }
 
-  static YoutubeExplode? _ytExplode;
-  static YoutubeExplode get _yt => _ytExplode ??= YoutubeExplode();
-
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
   static final Set<String> _cachedVideoIds = {};
-  static final Map<String, _CachedStreamUrl> _streamUrlMemoryCache = {};
   static int _slidingWindowSequence = 0;
   static int _downloadInvocationToken = 0;
-  // In-flight / completed direct stream URL resolutions, so a prefetch
-  // started while the previous track plays satisfies the next track's
-  // immediate look-up with 0ms of yt-dlp latency.
-  static final Map<String, Future<String?>> _streamUrlPrefetchCache = {};
-  // Consecutive resolution failures — when >= 3, activates fast-fail mode
-  // (4s timeout instead of 8s) so a rate-limited YouTube connection doesn't
-  // hang the queue for 40+ seconds per track.
-  static int _consecutiveFailures = 0;
-  static bool get isFastFailMode => _consecutiveFailures >= 3;
   static int _cachedTotalBytes = 0;
 
   /// Live notifier broadcasting current cache bytes for immediate reactive UI binding.
@@ -733,258 +719,6 @@ class StreamCacheManager {
     }
   }
 
-  /// Fast-path extraction of direct CDN stream URL with in-memory caching.
-  /// Resolves the stream URL so playback can stream directly in RAM with 0 SSD writes.
-  ///
-  /// Checks the prefetch cache first — if a prefetch for [videoId] is in-flight
-  /// or already completed, that Future is awaited directly, eliminating yt-dlp
-  /// latency on the hot path.
-  static Future<String?> extractDirectStreamUrl(String videoId) async {
-    // 1. Fast path: in-memory cache (already resolved)
-    final cached = _streamUrlMemoryCache[videoId];
-    if (cached != null && DateTime.now().isBefore(cached.expiresAt)) {
-      return cached.url;
-    }
-
-    // 2. Prefetch path: a background resolution is already running or done
-    final prefetchFuture = _streamUrlPrefetchCache[videoId];
-    if (prefetchFuture != null) {
-      return prefetchFuture;
-    }
-
-    // 3. Cold path: resolve now
-    return _resolveAndCacheStreamUrl(videoId);
-  }
-
-  /// Proactively resolves the stream URL for [videoId] in the background.
-  ///
-  /// Returns immediately. The resulting Future is stored in [_streamUrlPrefetchCache]
-  /// so a subsequent call to [extractDirectStreamUrl] will await the in-flight
-  /// resolution instead of starting a new yt-dlp process. This eliminates the
-  /// 3–15s gap between tracks when the next song's URL is resolved during the
-  /// current song's playback.
-  ///
-  /// Safe to call repeatedly — only one resolution runs per [videoId].
-  static void prefetchStreamUrl(String videoId) {
-    if (_streamUrlMemoryCache.containsKey(videoId)) return;
-    if (_streamUrlPrefetchCache.containsKey(videoId)) return;
-
-    final future = _resolveAndCacheStreamUrl(videoId);
-    _streamUrlPrefetchCache[videoId] = future;
-
-    // Clean up the prefetch entry once resolved (success or failure)
-    future.whenComplete(() {
-      // Keep the result in _streamUrlMemoryCache (set inside _resolveAndCacheStreamUrl).
-      // Remove from prefetch cache after a short delay so the memory cache has time
-      // to serve subsequent lookups without re-triggering extraction.
-      Future.delayed(const Duration(seconds: 30), () {
-        if (_streamUrlPrefetchCache[videoId] == future) {
-          _streamUrlPrefetchCache.remove(videoId);
-        }
-      });
-    });
-  }
-
-  static void _saveToStreamUrlCache(String videoId, String url) {
-    if (_streamUrlMemoryCache.length > 100) {
-      final now = DateTime.now();
-      _streamUrlMemoryCache.removeWhere((_, cached) => now.isAfter(cached.expiresAt));
-      if (_streamUrlMemoryCache.length > 80) {
-        final keysToRemove = _streamUrlMemoryCache.keys.take(20).toList();
-        for (final k in keysToRemove) {
-          _streamUrlMemoryCache.remove(k);
-        }
-      }
-    }
-    _streamUrlMemoryCache[videoId] = _CachedStreamUrl(
-      url,
-      DateTime.now().add(const Duration(hours: 4)),
-    );
-  }
-
-  /// Core resolution logic — shared by [extractDirectStreamUrl] and [prefetchStreamUrl].
-  ///
-  /// Tier 1: In-process direct HTTP stream extraction via YoutubeExplode (~150-300ms).
-  /// Tier 2: Platform channels / native yt-dlp (Android) or desktop yt-dlp process.
-  ///
-  /// Tracks consecutive failures and activates fast-fail mode (>= 3 failures)
-  /// which shortens timeouts so a rate-limited YouTube connection doesn't hang the queue.
-  static Future<String?> _resolveAndCacheStreamUrl(String videoId) async {
-    final fastFail = isFastFailMode;
-
-    // Tier 1: Fast in-process HTTP resolution via YoutubeExplode
-    try {
-      final manifest = await _yt.videos.streamsClient
-          .getManifest(videoId)
-          .timeout(Duration(seconds: fastFail ? 3 : 5));
-      final audioStreams = manifest.audioOnly;
-      if (audioStreams.isNotEmpty) {
-        final isAndroid = !kIsWeb && Platform.isAndroid;
-        final AudioStreamInfo audioStream;
-        if (isAndroid) {
-          // On Android: Prefer hardware-accelerated AAC (MP4 container, format 140) for low-power DSP offloading
-          final mp4Streams = audioStreams.where((s) => s.container == StreamContainer.mp4).toList();
-          audioStream = mp4Streams.isNotEmpty
-              ? mp4Streams.withHighestBitrate()
-              : audioStreams.withHighestBitrate();
-        } else {
-          // On Desktop: Prefer Opus (WebM container, ~96-130 kbps) for 40% disk/bandwidth savings
-          final webmStreams = audioStreams.where((s) => s.container == StreamContainer.webM).toList();
-          audioStream = webmStreams.isNotEmpty
-              ? webmStreams.withHighestBitrate()
-              : audioStreams.withHighestBitrate();
-        }
-        final streamUrl = audioStream.url.toString();
-        if (streamUrl.startsWith('http')) {
-          _saveToStreamUrlCache(videoId, streamUrl);
-          _consecutiveFailures = 0;
-          DebugLog.write(
-              '[stream] Fast in-process resolution succeeded for $videoId (${isAndroid ? "AAC" : "Opus"})');
-          return streamUrl;
-        }
-      }
-    } catch (e) {
-      DebugLog.write('[stream] In-process stream resolution skipped/failed for $videoId: $e');
-    }
-
-    // Tier 2: Android embedded yt-dlp platform channel
-    final url = 'https://www.youtube.com/watch?v=$videoId';
-    if (!kIsWeb && Platform.isAndroid) {
-      try {
-        const channel = MethodChannel('peerm/ytdlp');
-        final res = await channel.invokeMethod<String>('getStreamUrl', {'url': url})
-            .timeout(Duration(seconds: fastFail ? 6 : 10));
-        if (res != null && res.startsWith('http')) {
-          _saveToStreamUrlCache(videoId, res);
-          _consecutiveFailures = 0;
-          return res;
-        }
-      } catch (_) {}
-    } else if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      // Tier 3: Desktop yt-dlp fallback
-      final ytdlpCache = await getYtDlpCacheDirectory();
-      final result = await _runYtDlp(
-        url,
-        [
-          '-g',
-          '-f', getAudioFormatArg(),
-          '--cache-dir', ytdlpCache.path,
-          '--extractor-args', 'youtube:skip=hls,translated_subs',
-          '--no-playlist',
-          '--force-ipv4',
-          '--no-warnings',
-          '--no-check-certificates',
-          '--quiet',
-          '--socket-timeout', '6',
-          '--retries', '1',
-          '--extractor-retries', '1',
-          '--fragment-retries', '1',
-        ],
-        fastFail: fastFail,
-      );
-
-      if (result != null) {
-        _saveToStreamUrlCache(videoId, result);
-        _consecutiveFailures = 0;
-        return result;
-      }
-
-      // Tier 3 Fallback: Relaxed format
-      DebugLog.write('[stream] Primary yt-dlp failed for $videoId, trying relaxed fallback...');
-      final fallback = await _runYtDlp(
-        url,
-        [
-          '-g',
-          '-f', 'ba[acodec=opus]/bestaudio/ba',
-          '--cache-dir', ytdlpCache.path,
-          '--extractor-args', 'youtube:skip=webpage,authcheck,translated_subs,hls',
-          '--no-playlist',
-          '--force-ipv4',
-          '--no-warnings',
-          '--no-check-certificates',
-          '--quiet',
-          '--socket-timeout', '8',
-          '--extractor-retries', '1',
-        ],
-        fastFail: fastFail,
-      );
-
-      if (fallback != null) {
-        _saveToStreamUrlCache(videoId, fallback);
-        _consecutiveFailures = 0;
-        DebugLog.write('[stream] Fallback succeeded for $videoId');
-        return fallback;
-      }
-    }
-
-    // All attempts failed
-    _consecutiveFailures++;
-    if (fastFail) {
-      DebugLog.write('[stream] Fast-fail resolution failed for $videoId (failure $_consecutiveFailures)');
-    }
-    return null;
-  }
-
-  /// Resets the consecutive-failure counter. Call when playback resumes after
-  /// a rate-limit event clears (e.g. user retries, network changes).
-  static void resetFailureCounter() {
-    _consecutiveFailures = 0;
-  }
-
-  /// Runs a single yt-dlp invocation with the given arguments and returns the
-  /// first HTTP URL from stdout, or null on failure.
-  static Future<String?> _runYtDlp(
-    String url,
-    List<String> args, {
-    bool fastFail = false,
-  }) async {
-    final timeout = fastFail
-        ? const Duration(seconds: 4)
-        : Duration(seconds: args.contains('--quiet') ? 8 : 6);
-    Process? proc;
-    try {
-      var bin = await YoutubeService.ytDlpPath();
-      if (bin == null && !kIsWeb && !Platform.isAndroid) {
-        bin = await YoutubeService.ensureYtDlpAvailable();
-      }
-      bin ??= 'yt-dlp';
-      proc = await Process.start(bin, [...args, url]);
-      final outBuf = StringBuffer();
-      final outSub = proc.stdout.transform(utf8.decoder).listen(
-        outBuf.write,
-        onError: (_) {},
-      );
-      proc.stderr.drain().catchError((_) => null);
-      int exitCode;
-      try {
-        exitCode = await proc.exitCode.timeout(timeout);
-      } on TimeoutException {
-        YoutubeService.killProcessTree(proc.pid);
-        rethrow;
-      } finally {
-        await outSub.cancel();
-      }
-      if (exitCode == 0) {
-        final out = outBuf.toString().trim();
-        final lines = out
-            .split(RegExp(r'[\r\n]+'))
-            .map((l) => l.trim())
-            .where((l) => l.startsWith('http'))
-            .toList();
-        if (lines.isNotEmpty) {
-          return lines.first;
-        }
-      }
-    } catch (e) {
-      DebugLog.write('[stream] yt-dlp attempt failed: $e');
-    } finally {
-      if (proc != null) {
-        YoutubeService.killProcessTree(proc.pid);
-      }
-    }
-    return null;
-  }
-
   /// Purges all cached radio and streaming audio files and clears in-memory caches.
   static Future<void> clearCache() async {
     cancelActiveDownload();
@@ -999,8 +733,6 @@ class StreamCacheManager {
         }
       }
       _cachedVideoIds.clear();
-      _streamUrlMemoryCache.clear();
-      _streamUrlPrefetchCache.clear();
       _setCachedTotalBytes(0);
       DebugLog.write('[stream] Cleared all radio and streaming cache files');
     } catch (e) {
@@ -1012,15 +744,6 @@ class StreamCacheManager {
   static void dispose() {
     cancelActiveDownload();
     cancelPreload();
-    _ytExplode?.close();
-    _ytExplode = null;
   }
-}
-
-class _CachedStreamUrl {
-  final String url;
-  final DateTime expiresAt;
-
-  const _CachedStreamUrl(this.url, this.expiresAt);
 }
 

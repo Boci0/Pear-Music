@@ -1152,10 +1152,9 @@ class PlayerService extends ChangeNotifier {
           } else {
             _pendingNaturalAdvance = false;
             _consecutiveStreamFailures++;
-            final fastFail = StreamCacheManager.isFastFailMode;
             DebugLog.write(
               '[player] Stream failed for ${song.title} '
-              '(failure $_consecutiveStreamFailures/3, fastFail=$fastFail)',
+              '(failure $_consecutiveStreamFailures/3)',
             );
             _isAdvancing = false;
             _isLoadingTrack = false;
@@ -1276,15 +1275,13 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  /// Resets both the player's consecutive-failure counter and the stream
-  /// cache's failure counter. Called after any successful playback to clear
-  /// fast-fail mode once YouTube rate-limiting subsides.
+  /// Resets the player's consecutive-failure counter. Called after any
+  /// successful playback.
   void _resetStreamFailureCounters() {
-    if (_consecutiveStreamFailures > 0 || StreamCacheManager.isFastFailMode) {
+    if (_consecutiveStreamFailures > 0) {
       DebugLog.write('[player] Resetting stream failure counters (was $_consecutiveStreamFailures failures)');
     }
     _consecutiveStreamFailures = 0;
-    StreamCacheManager.resetFailureCounter();
   }
 
   void _scheduleAutoReroll(int token) {
