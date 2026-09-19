@@ -199,28 +199,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     result.error("install_failed", e.message, null)
                 }
             }
-            "canRequestPackageInstalls" -> {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    result.success(ctx.packageManager.canRequestPackageInstalls())
-                } else {
-                    result.success(true)
-                }
-            }
-            "openInstallPermissionSettings" -> {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    val intent = android.content.Intent(
-                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        android.net.Uri.parse("package:${ctx.packageName}")
-                    ).apply {
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    val targetCtx = activity ?: ctx
-                    targetCtx.startActivity(intent)
-                    result.success(true)
-                } else {
-                    result.success(false)
-                }
-            }
             "downloadApkWithNotification" -> {
                 val url = call.argument<String>("url")
                 val fileName = call.argument<String>("fileName") ?: "update.apk"
@@ -230,19 +208,6 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     return
                 }
                 startApkDownloadWithNotification(ctx, url, fileName, expectedSha256, result)
-            }
-            "installApk" -> {
-                val path = call.argument<String>("path")
-                if (path == null) {
-                    result.error("bad_args", "path required", null)
-                    return
-                }
-                try {
-                    installApk(activity ?: ctx, path)
-                    result.success(true)
-                } catch (e: Exception) {
-                    result.error("install_error", e.message, null)
-                }
             }
             else -> result.notImplemented()
         }
