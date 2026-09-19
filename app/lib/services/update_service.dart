@@ -469,13 +469,40 @@ class UpdateService {
         if (await zipFile.exists()) await zipFile.delete();
 
         final client = HttpClient();
+        client.userAgent = 'PearMusicApp/$currentVersion';
         final request = await client.getUrl(Uri.parse(zipUrl));
-        final response = await request.close();
+        final response = await request.close().timeout(
+          const Duration(seconds: 20),
+        );
 
         if (response.statusCode == 200) {
           final sink = zipFile.openWrite();
-          await response.pipe(sink);
-          await sink.close();
+          try {
+            // Abort if the transfer stalls: no data for 30 seconds is a
+            // dead connection, not a slow one.
+            await for (final chunk
+                in response.timeout(const Duration(seconds: 30))) {
+              sink.add(chunk);
+            }
+            await sink.flush();
+            await sink.close();
+          } catch (e) {
+            try {
+              await sink.close();
+            } catch (_) {}
+            try {
+              await zipFile.delete();
+            } catch (_) {}
+            scaffoldMessenger.showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Update download stalled or failed. Please try again.',
+                ),
+                duration: Duration(seconds: 6),
+              ),
+            );
+            return;
+          }
 
           final actual = await computeFileSha256(zipFile);
           if (actual.toLowerCase() != expected.trim().toLowerCase()) {
