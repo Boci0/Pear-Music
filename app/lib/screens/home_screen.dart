@@ -911,36 +911,119 @@ class _LibraryProfileImportDialog extends StatefulWidget {
 
 class _LibraryProfileImportDialogState
     extends State<_LibraryProfileImportDialog> {
-  String _status = 'Preparing…';
-  int _done = 0;
-  int _total = 0;
+  String _status = 'Choosing a profile file…';
+  int _index = 0;
+  int _count = 0;
+  int _bytes = 0;
+  int _totalBytes = 0;
+  double _speedBytesPerSec = 0;
+  final DateTime _startedAt = DateTime.now();
+  Duration _elapsed = Duration.zero;
+  Timer? _clock;
+  int _lastBytes = 0;
+  DateTime _lastSample = DateTime.now();
+  DateTime _lastUiUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   bool _cancelRequested = false;
 
   @override
   void initState() {
     super.initState();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _elapsed = DateTime.now().difference(_startedAt));
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _run());
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  static String _fmtBytes(num bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${bytes.round()} B';
+  }
+
+  static String _fmtDuration(Duration d) {
+    final minutes = d.inMinutes;
+    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  /// Live byte progress from the fetcher. UI updates are throttled and the
+  /// speed is smoothed so rapid progress lines do not cause janky text.
+  void _handleBytes(int downloaded, int total) {
+    final now = DateTime.now();
+    final deltaBytes = downloaded - _lastBytes;
+    final deltaMs = now.difference(_lastSample).inMilliseconds;
+    if (deltaBytes < 0) {
+      _lastBytes = downloaded;
+      _lastSample = now;
+      _speedBytesPerSec = 0;
+    } else if (deltaMs > 0) {
+      final instant = deltaBytes * 1000 / deltaMs;
+      _speedBytesPerSec = _speedBytesPerSec <= 0
+          ? instant
+          : _speedBytesPerSec * 0.7 + instant * 0.3;
+      _lastSample = now;
+      _lastBytes = downloaded;
+    }
+    _bytes = downloaded;
+    _totalBytes = total;
+    if (now.difference(_lastUiUpdate).inMilliseconds >= 150 && mounted) {
+      _lastUiUpdate = now;
+      setState(() {});
+    }
+  }
+
+  String get _detailLine {
+    if (_totalBytes <= 0) {
+      return _bytes > 0 ? _fmtBytes(_bytes) : 'Preparing…';
+    }
+    final speed =
+        _speedBytesPerSec > 0 ? ' at ${_fmtBytes(_speedBytesPerSec)}/s' : '';
+    return '${_fmtBytes(_bytes)} of ${_fmtBytes(_totalBytes)}$speed';
   }
 
   Future<void> _run() async {
     await widget.controller.importLibraryProfile(
       onStatus: (status) {
-        if (mounted) setState(() => _status = status);
+        if (!mounted) return;
+        setState(() {
+          _status = status;
+          if (status.startsWith('Fetching')) {
+            _bytes = 0;
+            _totalBytes = 0;
+            _speedBytesPerSec = 0;
+            _lastBytes = 0;
+            _lastSample = DateTime.now();
+          }
+        });
       },
       onProgress: (done, total) {
         if (mounted) {
           setState(() {
-            _done = done;
-            _total = total;
+            _index = done;
+            _count = total;
           });
         }
       },
+      onBytes: _handleBytes,
     );
     if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     return AlertDialog(
       title: const Text('Importing library profile'),
       content: Column(
@@ -948,12 +1031,27 @@ class _LibraryProfileImportDialogState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 16),
-          LinearProgressIndicator(value: _total > 0 ? _done / _total : null),
-          if (_total > 0) ...[
-            const SizedBox(height: 8),
-            Text('$_done of $_total processed'),
-          ],
+          const SizedBox(height: 12),
+          LinearProgressIndicator(value: _count > 0 ? _index / _count : null),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Text(
+                _count > 0 ? '$_index of $_count tracks' : 'Reading profile…',
+                style: small,
+              ),
+              const Spacer(),
+              Text('elapsed ${_fmtDuration(_elapsed)}', style: small),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(_detailLine, style: small),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: _totalBytes > 0
+                ? (_bytes / _totalBytes).clamp(0.0, 1.0).toDouble()
+                : null,
+          ),
         ],
       ),
       actions: [

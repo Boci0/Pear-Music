@@ -626,6 +626,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       importLibraryProfile({
     void Function(String status)? onStatus,
     void Function(int done, int total)? onProgress,
+    void Function(int downloadedBytes, int totalBytes)? onBytes,
   }) async {
     if (_profileImporting) {
       _postMessage('A library profile import is already running.');
@@ -644,6 +645,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       final file = File(filePath);
       if (!await file.exists()) return null;
 
+      onStatus?.call('Reading profile…');
       final entries = LibraryProfile.parse(await file.readAsString());
       if (entries.isEmpty) {
         _postMessage('No link-based songs found in that profile.');
@@ -691,8 +693,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           try {
             final song = await (isAndroid
                 ? youtube.scrapeAndAddWithEmbeddedYtDlp(library, url,
-                    cancel: cancel)
-                : youtube.scrapeAndAddWithYtDlp(library, url, cancel: cancel));
+                    onProgress: onBytes, cancel: cancel)
+                : youtube.scrapeAndAddWithYtDlp(library, url,
+                    onProgress: onBytes, cancel: cancel));
             if (cancel.isCancelled) {
               cancelled = true;
               break;
@@ -711,7 +714,6 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
             debugPrint(
                 '[controller] Profile import failed for ${entry.videoId}: $e');
           }
-          await Future<void>.delayed(const Duration(milliseconds: 200));
         }
       } finally {
         _profileImporting = false;
