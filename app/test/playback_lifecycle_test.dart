@@ -12,12 +12,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // Sandbox path_provider into a throwaway directory so tests never write
+  // into the real peerm_radio_cache used by the running app.
+  final sandbox = Directory.systemTemp.createTempSync('peerm_test_paths_');
   setUpAll(() {
     const channel = MethodChannel('plugins.flutter.io/path_provider');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-      return Directory.systemTemp.path;
+      return sandbox.path;
     });
+  });
+
+  tearDownAll(() {
+    try {
+      if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+    } catch (_) {}
   });
 
   setUp(() {
