@@ -12,6 +12,7 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/identity_service.dart';
+import '../services/library_profile.dart';
 import '../services/library_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/player_service.dart';
@@ -575,6 +576,166 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('[controller] Online track resolve error for "$query": $e');
     }
     return null;
+  }
+
+  // ---------- library profile ----------
+
+  bool _profileImporting = false;
+  DownloadCancellation? _profileImportCancel;
+
+  /// True while a library profile import is fetching songs.
+  bool get isProfileImporting => _profileImporting;
+
+  /// Stops an in-flight library profile import after the current song.
+  void cancelLibraryProfileImport() {
+    _profileImportCancel?.cancel();
+  }
+
+  /// Writes the portable library profile (link-added songs only) to a file.
+  Future<void> exportLibraryProfile() async {
+    try {
+      final content = LibraryProfile.build(library.songs);
+      if (content == null) {
+        _postMessage(
+          'Nothing to export yet: a profile lists songs added from links, and the library has none.',
+        );
+        return;
+      }
+      final now = DateTime.now();
+      final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-'
+          '${now.day.toString().padLeft(2, '0')}';
+      final bytes = Uint8List.fromList(utf8.encode(content));
+      final uri = await FilePicker.saveFile(
+        dialogTitle: 'Export Library Profile',
+        fileName: 'Pear Music Library $date.m3u8',
+        bytes: bytes,
+      );
+      if (uri != null) {
+        _postMessage('Exported library profile successfully.');
+      }
+    } catch (e) {
+      debugPrint('[controller] Error exporting library profile: $e');
+      _postMessage('Failed to export the library profile.');
+    }
+  }
+
+  /// Imports a profile file, fetching every listed song into the library one
+  /// at a time. Songs already present (same YouTube ID) are skipped so
+  /// importing the same profile twice can never duplicate anything.
+  Future<({int added, int skipped, int failed, bool cancelled})?>
+      importLibraryProfile({
+    void Function(String status)? onStatus,
+    void Function(int done, int total)? onProgress,
+  }) async {
+    if (_profileImporting) {
+      _postMessage('A library profile import is already running.');
+      return null;
+    }
+    try {
+      onStatus?.call('Choosing a profile file…');
+      final picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['m3u', 'm3u8'],
+        dialogTitle: 'Import Library Profile',
+      );
+      if (picked.isEmpty) return null;
+      final filePath = picked.first.path;
+      if (filePath == null) return null;
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+
+      final entries = LibraryProfile.parse(await file.readAsString());
+      if (entries.isEmpty) {
+        _postMessage('No link-based songs found in that profile.');
+        return null;
+      }
+
+      final knownIds = library.songs
+          .map(LibraryProfile.videoIdOf)
+          .whereType<String>()
+          .toSet();
+      final todo = <ProfileEntry>[];
+      var skipped = 0;
+      for (final entry in entries) {
+        if (knownIds.add(entry.videoId)) {
+          todo.add(entry);
+        } else {
+          skipped++;
+        }
+      }
+      if (todo.isEmpty) {
+        _postMessage(
+          'All $skipped song(s) in that profile are already in the library.',
+        );
+        return (added: 0, skipped: skipped, failed: 0, cancelled: false);
+      }
+
+      _profileImporting = true;
+      _profileImportCancel = DownloadCancellation();
+      final cancel = _profileImportCancel!;
+      final isAndroid = !kIsWeb && Platform.isAndroid;
+      var added = 0;
+      var failed = 0;
+      var cancelled = false;
+      try {
+        for (var i = 0; i < todo.length; i++) {
+          if (cancel.isCancelled) {
+            cancelled = true;
+            break;
+          }
+          final entry = todo[i];
+          final label = entry.title.isEmpty ? entry.videoId : entry.title;
+          onProgress?.call(i, todo.length);
+          onStatus?.call('Fetching ${i + 1} of ${todo.length}: $label');
+          final url = 'https://www.youtube.com/watch?v=${entry.videoId}';
+          try {
+            final song = await (isAndroid
+                ? youtube.scrapeAndAddWithEmbeddedYtDlp(library, url,
+                    cancel: cancel)
+                : youtube.scrapeAndAddWithYtDlp(library, url, cancel: cancel));
+            if (cancel.isCancelled) {
+              cancelled = true;
+              break;
+            }
+            if (song != null) {
+              added++;
+            } else {
+              skipped++;
+            }
+          } catch (e) {
+            if (cancel.isCancelled) {
+              cancelled = true;
+              break;
+            }
+            failed++;
+            debugPrint(
+                '[controller] Profile import failed for ${entry.videoId}: $e');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+      } finally {
+        _profileImporting = false;
+        _profileImportCancel = null;
+      }
+
+      onProgress?.call(todo.length, todo.length);
+      _postMessage(
+        cancelled
+            ? 'Profile import cancelled: $added added, $skipped already had.'
+            : 'Profile import finished: $added added, $skipped already had, $failed failed.',
+      );
+      notifyListeners();
+      return (
+        added: added,
+        skipped: skipped,
+        failed: failed,
+        cancelled: cancelled,
+      );
+    } catch (e) {
+      debugPrint('[controller] Error importing library profile: $e');
+      _postMessage('Failed to import the library profile.');
+      return null;
+    }
   }
 
   final Map<String, Future<String?>> _inFlightAddFromLink = {};

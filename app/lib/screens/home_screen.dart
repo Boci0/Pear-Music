@@ -594,6 +594,27 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.add),
             onPressed: () => controller.addFilesFromPicker(),
           ),
+          PopupMenuButton<String>(
+            tooltip: 'Library profile',
+            icon: const Icon(Icons.import_export),
+            onSelected: (value) async {
+              if (value == 'import') {
+                await _showLibraryProfileImportDialog(context, controller);
+              } else if (value == 'export') {
+                await controller.exportLibraryProfile();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'import',
+                child: Text('Import library profile'),
+              ),
+              PopupMenuItem(
+                value: 'export',
+                child: Text('Export library profile'),
+              ),
+            ],
+          ),
         ],
       );
     }
@@ -862,6 +883,90 @@ class _EmptyState extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Opens the modal progress dialog used by the library profile importer.
+Future<void> _showLibraryProfileImportDialog(
+  BuildContext context,
+  AppController controller,
+) {
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _LibraryProfileImportDialog(controller: controller),
+  );
+}
+
+class _LibraryProfileImportDialog extends StatefulWidget {
+  final AppController controller;
+
+  const _LibraryProfileImportDialog({required this.controller});
+
+  @override
+  State<_LibraryProfileImportDialog> createState() =>
+      _LibraryProfileImportDialogState();
+}
+
+class _LibraryProfileImportDialogState
+    extends State<_LibraryProfileImportDialog> {
+  String _status = 'Preparing…';
+  int _done = 0;
+  int _total = 0;
+  bool _cancelRequested = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _run());
+  }
+
+  Future<void> _run() async {
+    await widget.controller.importLibraryProfile(
+      onStatus: (status) {
+        if (mounted) setState(() => _status = status);
+      },
+      onProgress: (done, total) {
+        if (mounted) {
+          setState(() {
+            _done = done;
+            _total = total;
+          });
+        }
+      },
+    );
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Importing library profile'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 16),
+          LinearProgressIndicator(value: _total > 0 ? _done / _total : null),
+          if (_total > 0) ...[
+            const SizedBox(height: 8),
+            Text('$_done of $_total processed'),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _cancelRequested
+              ? null
+              : () {
+                  setState(() => _cancelRequested = true);
+                  widget.controller.cancelLibraryProfileImport();
+                },
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }
