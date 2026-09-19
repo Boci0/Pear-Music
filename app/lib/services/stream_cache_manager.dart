@@ -354,6 +354,25 @@ class StreamCacheManager {
     }());
   }
 
+  /// Removes any partially written cache artifacts for [videoId]. Killed or
+  /// failed downloads must never be adopted as cache hits, so this drops
+  /// every `$videoId.*` file, including `--no-part` truncated finals.
+  static Future<void> _deletePartialArtifacts(String videoId) async {
+    try {
+      final dir = await getCacheDirectory();
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = p.basename(entity.path);
+        if (name == videoId || name.startsWith('$videoId.')) {
+          try {
+            await entity.delete();
+          } catch (_) {}
+        }
+      }
+      _cachedVideoIds.remove(videoId);
+    } catch (_) {}
+  }
+
   /// Ensures the audio stream for [videoId] is downloaded into the local cache
   /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
   /// Strictly enforces single-concurrency to prevent multiple downloads from splitting bandwidth.
@@ -477,6 +496,10 @@ class StreamCacheManager {
           } else {
             DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
           }
+          // Drop the half-written file so it can never be served as a cache hit.
+          try {
+            if (await tempPart.exists()) await tempPart.delete();
+          } catch (_) {}
         } finally {
           if (_activeProcessId == processId) {
             _activeProcessId = null;
@@ -554,6 +577,7 @@ class StreamCacheManager {
             '[cache] Desktop yt-dlp timed out for $videoId after ${timeoutDuration.inSeconds}s, killing process',
           );
           YoutubeService.killProcessTree(process.pid);
+          await _deletePartialArtifacts(videoId);
           rethrow;
         } finally {
           if (_activeDesktopProcess == process) {
@@ -566,21 +590,25 @@ class StreamCacheManager {
           if (err.isNotEmpty) {
             DebugLog.write('[cache] yt-dlp exit=$exitCode stderr: $err');
           }
-        }
-
-        final cached = await getCachedFile(videoId);
-        if (cached != null) {
-          final len = await cached.length();
-          _setCachedTotalBytes(_cachedTotalBytes + len);
-          unawaited(enforceCacheQuota());
-          stopwatch.stop();
-          DebugLog.write(
-            '[cache] yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) at ${cached.path}',
-          );
-          if (!completer.isCompleted) {
-            completer.complete(cached);
+          // The process was killed or failed: a truncated file may be sitting
+          // at the final name (--no-part). Drop it so it is never adopted as
+          // a valid cache hit; the next attempt refetches cleanly.
+          await _deletePartialArtifacts(videoId);
+        } else {
+          final cached = await getCachedFile(videoId);
+          if (cached != null) {
+            final len = await cached.length();
+            _setCachedTotalBytes(_cachedTotalBytes + len);
+            unawaited(enforceCacheQuota());
+            stopwatch.stop();
+            DebugLog.write(
+              '[cache] yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) at ${cached.path}',
+            );
+            if (!completer.isCompleted) {
+              completer.complete(cached);
+            }
+            return cached;
           }
-          return cached;
         }
       } else if (!kIsWeb && !Platform.isAndroid) {
         DebugLog.write('[cache] yt-dlp binary not found on desktop');
