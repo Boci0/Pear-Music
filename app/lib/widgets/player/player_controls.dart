@@ -247,16 +247,30 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
   bool _wasPlaying = false;
   bool _windowFocused = true;
 
+  /// Quantized sample of [_glowController]: the 3.2 s cycle advances ~0.011 per
+  /// step, i.e. ~28 updates per second. The ripple and the bead bloom are slow
+  /// ambient motions, so this looks identical to updating every frame while
+  /// halving the repaint/rebuild traffic on 60/120 Hz displays.
+  final ValueNotifier<double> _waveTick = ValueNotifier<double>(0.0);
+
+  void _onGlowTick() {
+    final quantized = (_glowController.value * 90).floorToDouble() / 90;
+    if (quantized != _waveTick.value) _waveTick.value = quantized;
+  }
+
   @override
   void initState() {
     super.initState();
     _wasPlaying = widget.player.playing;
     widget.player.addListener(_onPlayerChanged);
+    _glowController.addListener(_onGlowTick);
     _windowFocused = WindowFocus.focused.value;
     WindowFocus.focused.addListener(_onWindowFocusChanged);
     // Seed the initial state directly; the first build follows the mount.
     _glowRunning = _wasPlaying && _windowFocused && !_isDragging;
-    if (_glowRunning) _glowController.repeat();
+    if (_glowRunning) {
+      _glowController.repeat();
+    }
   }
 
   @override
@@ -297,6 +311,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
     } else {
       _glowController.stop();
       _glowController.reset();
+      _waveTick.value = 0.0;
     }
     if (mounted) setState(() {});
   }
@@ -305,6 +320,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
   void dispose() {
     widget.player.removeListener(_onPlayerChanged);
     WindowFocus.focused.removeListener(_onWindowFocusChanged);
+    _glowController.removeListener(_onGlowTick);
+    _waveTick.dispose();
     _glowController.dispose();
     _dragNotifier.dispose();
     super.dispose();
@@ -407,7 +424,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
                                       accent: effectiveAccent,
                                       idleColor: Colors.white.withValues(alpha: 0.13),
                                       seed: widget.player.currentSong?.id.hashCode ?? 0,
-                                      wave: _glowRunning ? _glowController : null,
+                                      wave: _glowRunning ? _waveTick : null,
                                     ),
                                   ),
                                 ),
@@ -418,14 +435,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
                                   left: headX,
                                   top: (containerHeight - _PlayheadNub.height) / 2,
                                   child: IgnorePointer(
-                                    child: AnimatedBuilder(
-                                      animation: _glowController,
-                                      builder: (context, _) => _PlayheadNub(
+                                    child: ValueListenableBuilder<double>(
+                                      valueListenable: _waveTick,
+                                      builder: (context, waveValue, _) => _PlayheadNub(
                                         accent: effectiveAccent,
                                         active: _isDragging || _isHovered,
                                         pulse: _glowRunning
-                                            ? 0.5 -
-                                                0.5 * math.cos(_glowController.value * 2 * math.pi)
+                                            ? 0.5 - 0.5 * math.cos(waveValue * 2 * math.pi)
                                             : 0.0,
                                       ),
                                     ),
@@ -771,7 +787,11 @@ class _WaveformPainter extends CustomPainter {
   final Color accent;
   final Color idleColor;
   final int seed;
-  final Animation<double>? wave;
+
+  /// 30 Hz sampled glow-controller value (see [_PlayerSeekBarState._waveTick]).
+  /// Drives the travelling ripple; drives [CustomPainter.repaint] so the track
+  /// picture is only re-recorded when the sample actually changes.
+  final ValueNotifier<double>? wave;
 
   static const double _barWidth = 2.5;
   static const double _gap = 2.5;
@@ -796,6 +816,10 @@ class _WaveformPainter extends CustomPainter {
     final headLocal = progress * size.width;
     final phase = wave == null ? 0.0 : wave!.value * 2 * math.pi;
     final paint = Paint()..style = PaintingStyle.fill;
+    // Warm tint for bars behind the cursor. Color.lerp is linear, so lerping
+    // toward this precomputed colour by [closeness] is pixel-identical to the
+    // old per-bar double lerp while allocating nothing inside the loop.
+    final warmFull = Color.lerp(accent, Color.lerp(accent, Colors.white, 0.8)!, 0.22)!;
 
     for (var i = 0; i < count; i++) {
       final left = i * pitch;
@@ -816,11 +840,9 @@ class _WaveformPainter extends CustomPainter {
         // Bars just behind the cursor warm toward white, kept subtle so the
         // playhead bead stays the brightest thing on the track.
         final closeness = ((headLocal - left) / 22).clamp(0.0, 1.0);
-        paint.color = Color.lerp(
-          accent,
-          Color.lerp(accent, Colors.white, 0.8)!,
-          0.22 * closeness,
-        )!;
+        paint.color = closeness >= 1.0
+            ? warmFull
+            : Color.lerp(accent, warmFull, closeness)!;
       } else {
         paint.color = idleColor;
       }

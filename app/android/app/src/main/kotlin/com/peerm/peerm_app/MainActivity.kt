@@ -133,6 +133,25 @@ class MainActivity : AudioServiceActivity() {
 
     private var fftFrameCount = 0
     private val prevBins = DoubleArray(64)
+    private val outBinsCount = 64
+    private var mags = DoubleArray(0)
+    private var bandHalf = -1
+    private val bandLo = IntArray(64)
+    private val bandHi = IntArray(64)
+
+    /// Precomputes the octave band edges for [half] complex bins, so the per
+    /// callback loop does no pow()/floor()/ceil() work (mirrors the Windows
+    /// plugin fft_processor.cpp mapping).
+    private fun ensureBandMap(half: Int) {
+        if (bandHalf == half) return
+        bandHalf = half
+        for (b in 0 until outBinsCount) {
+            val low = half.toDouble().pow(b.toDouble() / outBinsCount)
+            val high = half.toDouble().pow((b + 1).toDouble() / outBinsCount)
+            bandLo[b] = max(0, floor(low).toInt())
+            bandHi[b] = min(half - 1, ceil(high).toInt())
+        }
+    }
 
     private fun startVisualizer(sessionId: Int): Boolean {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -165,7 +184,9 @@ class MainActivity : AudioServiceActivity() {
                 }
 
                 val maxRate = Visualizer.getMaxCaptureRate()
-                val rate = maxRate
+                // The bars render at display speed, so feeding them faster than
+                // 60 Hz only multiplies binder and main-thread work.
+                val rate = min(maxRate, 60000)
 
                 val lisRes = v.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                     override fun onWaveFormDataCapture(visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int) {}
@@ -174,7 +195,8 @@ class MainActivity : AudioServiceActivity() {
                         if (fft == null || fft.isEmpty()) return
                         val n = fft.size
                         val half = n / 2
-                        val mags = DoubleArray(half)
+                        ensureBandMap(half)
+                        if (mags.size != half) mags = DoubleArray(half)
                         mags[0] = abs(fft[0].toDouble())
                         var maxMag = 1e-12
                         for (i in 1 until half) {
@@ -185,12 +207,11 @@ class MainActivity : AudioServiceActivity() {
                             if (mag > maxMag) maxMag = mag
                         }
 
-                        val outBinsCount = 64
                         val bins = DoubleArray(outBinsCount)
 
                         if (maxMag < 2.0) {
                             mainHandler.post {
-                                visualizerSink?.success(bins.toList())
+                                visualizerSink?.success(bins)
                             }
                             return
                         }
@@ -201,11 +222,10 @@ class MainActivity : AudioServiceActivity() {
                         // the right half of the visualizer alive on mobile instead of compressing
                         // all real audio energy into the first few low bars (a linear mapping
                         // puts bar 0 at ~1 kHz and the rest in the dead 5-20 kHz rolloff region).
+                        // Band edges are precomputed in ensureBandMap.
                         for (b in 0 until outBinsCount) {
-                            val low = half.toDouble().pow(b.toDouble() / outBinsCount)
-                            val high = half.toDouble().pow((b + 1).toDouble() / outBinsCount)
-                            val ilo = max(0, floor(low).toInt())
-                            val ihi = min(half - 1, ceil(high).toInt())
+                            val ilo = bandLo[b]
+                            val ihi = bandHi[b]
                             var sum = 0.0
                             val count = max(1, ihi - ilo + 1)
                             for (k in ilo..ihi) {
@@ -225,11 +245,14 @@ class MainActivity : AudioServiceActivity() {
                             android.util.Log.w("PearVisualizer", "FFT frame #$fftFrameCount: maxMag=$maxMag, hasSink=${visualizerSink != null}")
                         }
 
+                        // Send the DoubleArray directly: StandardMessageCodec maps it to a
+                        // Float64List with no per-element boxing (toList() boxed 64 Doubles
+                        // per frame). Waveform capture is disabled: only FFT is consumed.
                         mainHandler.post {
-                            visualizerSink?.success(bins.toList())
+                            visualizerSink?.success(bins)
                         }
                     }
-                }, rate, true, true)
+                }, rate, false, true)
 
                 if (lisRes != Visualizer.SUCCESS) {
                     android.util.Log.w("PearVisualizer", "setDataCaptureListener returned code: $lisRes")
