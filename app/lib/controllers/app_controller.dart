@@ -635,10 +635,40 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   /// Writes the portable library profile (link-added songs only) to a file.
   Future<void> exportLibraryProfile() async {
     try {
-      final content = LibraryProfile.build(library.songs);
+      final favoriteVideoIds = <String>{};
+      final exportedVideoIds = <String>{};
+      for (final song in library.songs) {
+        final videoId = LibraryProfile.videoIdOf(song);
+        if (videoId == null) continue;
+        exportedVideoIds.add(videoId);
+        if (isFavorite(song.id)) favoriteVideoIds.add(videoId);
+      }
+      // Online-only favorites transfer as stream references (title + artwork
+      // only), never as downloads. Video IDs already present as playlist
+      // entries are skipped so the receiving device gets no duplicate.
+      final onlineFavorites = <ProfileOnlineFavorite>[];
+      for (final id in identity.favoriteSongIds) {
+        if (!id.startsWith('stream_')) continue;
+        final videoId = RecommendationService.extractVideoId(id);
+        if (videoId == null || exportedVideoIds.contains(videoId)) continue;
+        final meta = identity.favoriteOnlineSongs[id];
+        final artwork = meta?.artwork;
+        onlineFavorites.add(ProfileOnlineFavorite(
+          videoId: videoId,
+          title: meta?.title ?? '',
+          artwork: (artwork != null && artwork.startsWith('http'))
+              ? artwork
+              : null,
+        ));
+      }
+      final content = LibraryProfile.build(
+        library.songs,
+        favoriteVideoIds: favoriteVideoIds,
+        onlineFavorites: onlineFavorites,
+      );
       if (content == null) {
         _postMessage(
-          'Nothing to export yet: a profile lists songs added from links, and the library has none.',
+          'Nothing to export yet: the library has no link-added songs and there are no online favorites.',
         );
         return;
       }
@@ -687,8 +717,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (!await file.exists()) return null;
 
       onStatus?.call('Reading profile…');
-      final entries = LibraryProfile.parse(await file.readAsString());
-      if (entries.isEmpty) {
+      final fileContent = await file.readAsString();
+      final entries = LibraryProfile.parse(fileContent);
+      final favoriteIds = LibraryProfile.parseFavoriteIds(fileContent);
+      final onlineFavorites = LibraryProfile.parseOnlineFavorites(fileContent);
+      if (entries.isEmpty && onlineFavorites.isEmpty) {
         _postMessage('No link-based songs found in that profile.');
         return null;
       }
@@ -707,8 +740,15 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
       if (todo.isEmpty) {
+        // Everything downloadable is already here, but hearts and online
+        // favorites may still be missing.
+        final restored = await _restoreProfileFavorites(favoriteIds) +
+            await _restoreOnlineFavorites(onlineFavorites);
+        final base = entries.isEmpty
+            ? 'Profile applied'
+            : 'All $skipped song(s) in that profile are already in the library';
         _postMessage(
-          'All $skipped song(s) in that profile are already in the library.',
+          restored > 0 ? '$base. Restored $restored favorite(s).' : '$base.',
         );
         return (added: 0, skipped: skipped, failed: 0, cancelled: false);
       }
@@ -780,6 +820,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
+      // Restore the hearts the profile marked as favorites, and recreate the
+      // online-only favorites as stream references. Both also cover songs
+      // that were already in the library, so re-importing a profile repairs
+      // missing hearts instead of skipping them.
+      final favoritesRestored = await _restoreProfileFavorites(favoriteIds) +
+          await _restoreOnlineFavorites(onlineFavorites);
+
       if (added > 0) {
         // The import decoded a cover for every added song; shed those caches
         // so memory settles near a fresh-launch baseline instead of waiting
@@ -791,10 +838,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       onProgress?.call(todo.length, todo.length);
+      final favoritesNote = favoritesRestored > 0
+          ? ', $favoritesRestored favorite${favoritesRestored == 1 ? '' : 's'} restored'
+          : '';
       _postMessage(
         cancelled
-            ? 'Profile import cancelled: $added added, $skipped already had.'
-            : 'Profile import finished: $added added, $skipped already had, $failed failed.',
+            ? 'Profile import cancelled: $added added, $skipped already had$favoritesNote.'
+            : 'Profile import finished: $added added, $skipped already had, $failed failed$favoritesNote.',
       );
       notifyListeners();
       return (
@@ -808,6 +858,65 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       _postMessage('Failed to import the library profile.');
       return null;
     }
+  }
+
+  /// Hearts every library song whose YouTube ID appears in [favoriteIds] and
+  /// returns how many hearts were newly set. Songs that are already favorited
+  /// are left untouched.
+  Future<int> _restoreProfileFavorites(Set<String> favoriteIds) async {
+    var restored = 0;
+    if (favoriteIds.isEmpty) return restored;
+    for (final song in library.songs) {
+      final videoId = LibraryProfile.videoIdOf(song);
+      if (videoId == null || !favoriteIds.contains(videoId)) continue;
+      if (isFavorite(song.id)) continue;
+      await toggleFavorite(song.id, song: song);
+      restored++;
+    }
+    return restored;
+  }
+
+  /// Recreates the profile's online-only favorites as stream references and
+  /// hearts any matching song that already exists as a local download.
+  /// Nothing is downloaded here; returns how many favorites were newly set.
+  Future<int> _restoreOnlineFavorites(
+    List<ProfileOnlineFavorite> favorites,
+  ) async {
+    var restored = 0;
+    if (favorites.isEmpty) return restored;
+    final libraryByVideoId = <String, Song>{};
+    for (final song in library.songs) {
+      final videoId = LibraryProfile.videoIdOf(song);
+      if (videoId != null) libraryByVideoId[videoId] = song;
+    }
+    for (final fav in favorites) {
+      final existing = libraryByVideoId[fav.videoId];
+      if (existing != null) {
+        // The song is already downloaded here; heart it instead of adding a
+        // second stream reference for the same video.
+        if (isFavorite(existing.id)) continue;
+        await toggleFavorite(existing.id, song: existing);
+        restored++;
+        continue;
+      }
+      final streamId = 'stream_${fav.videoId}';
+      if (isFavorite(streamId)) continue;
+      final title = fav.title.isEmpty ? fav.videoId : fav.title;
+      final song = Song(
+        id: streamId,
+        title: title,
+        fileName: '$title [${fav.videoId}].m4a',
+        size: 200 * 16000,
+        checksum: streamId,
+        sourceDeviceId: 'stream',
+        artwork: fav.artwork,
+        addedAt: DateTime.now(),
+      );
+      await identity.registerOnlineSongs([song]);
+      await toggleFavorite(streamId, song: song);
+      restored++;
+    }
+    return restored;
   }
 
   final Map<String, Future<String?>> _inFlightAddFromLink = {};
