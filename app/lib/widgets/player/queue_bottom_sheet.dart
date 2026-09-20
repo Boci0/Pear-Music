@@ -127,6 +127,11 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
   bool _hasDragged = false;
   bool _didScrollToCurrent = false;
 
+  /// Downward overscroll accumulated on the queue list, used to close the
+  /// sheet when the user swipes down on the list itself (standard bottom sheet
+  /// feel). Reset at the start and end of every scroll gesture.
+  double _topOverscroll = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -215,13 +220,38 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
   }
 
   void _toggle() {
-    if (_animController.isAnimating) return;
-
-    if (_animController.value > 0.30) {
+    // Decide from where the animation is heading, so a quick second tap still
+    // flips the sheet instead of being swallowed mid-animation. That swallowed
+    // tap is what made the card feel stuck ("locks the screen until you tap it
+    // again").
+    final target = _animController.isAnimating
+        ? (_animController.status == AnimationStatus.forward ? 1.0 : 0.0)
+        : _animController.value;
+    if (target > 0.30) {
       _collapse();
     } else {
       _expand();
     }
+  }
+
+  /// A downward swipe on the list, once the list is already at its top, closes
+  /// the sheet. Slow swipes deliver the overscroll in small increments, so it
+  /// is accumulated rather than thresholded per notification.
+  bool _onQueueScroll(ScrollNotification notification) {
+    if (notification is ScrollStartNotification ||
+        notification is ScrollEndNotification) {
+      _topOverscroll = 0.0;
+    } else if (notification is OverscrollNotification &&
+        notification.overscroll < 0) {
+      if (!_animController.isAnimating && _animController.value > 0.001) {
+        _topOverscroll -= notification.overscroll;
+        if (_topOverscroll >= 24.0) {
+          _topOverscroll = 0.0;
+          _collapse();
+        }
+      }
+    }
+    return false;
   }
 
   void _jump(double progress) {
@@ -277,6 +307,25 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
         _collapse();
       }
     }
+  }
+
+  /// The queue list, rebuilt fresh whenever the sheet rebuilds so the sheet
+  /// can wrap it in different hit-test layers while animating.
+  Widget _buildQueueList() {
+    return _QueueListView(
+      player: widget.player,
+      accent: widget.accent,
+      scrollController: _scrollController,
+      onSelectSong: (song, queue, index) {
+        _collapse();
+        widget.player.playSong(
+          song,
+          queue: queue,
+          sourceId: widget.player.queueSourceId,
+          initialIndex: index,
+        );
+      },
+    );
   }
 
   @override
@@ -340,21 +389,20 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
               if (_animController.value > 0.001) ...[
                 const Divider(height: 1, color: Color(0x1AFFFFFF)),
 
-                // Scrollable queue list
+                // Scrollable queue list. While the sheet animates, taps in the
+                // list area flip the sheet back instead of selecting a row
+                // that slid under the cursor. That is what made a quick second
+                // tap on the peek card feel dead, or accidentally start a song.
                 Expanded(
-                  child: _QueueListView(
-                    player: widget.player,
-                    accent: widget.accent,
-                    scrollController: _scrollController,
-                    onSelectSong: (song, queue, index) {
-                      _collapse();
-                      widget.player.playSong(
-                        song,
-                        queue: queue,
-                        sourceId: widget.player.queueSourceId,
-                        initialIndex: index,
-                      );
-                    },
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _onQueueScroll,
+                    child: _animController.isAnimating
+                        ? GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _toggle,
+                            child: IgnorePointer(child: _buildQueueList()),
+                          )
+                        : _buildQueueList(),
                   ),
                 ),
               ],

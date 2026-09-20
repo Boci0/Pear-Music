@@ -264,6 +264,199 @@ void main() {
     expect(sheetController.size, closeTo(0.50, 0.01));
   });
 
+  testWidgets('a quick second tap closes an in-flight expansion', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+
+    player.updateQueue(
+      [for (var i = 1; i <= 5; i++) _song('s$i', 'Song $i')],
+      sourceId: 'test',
+      sourceTitle: 'Test',
+    );
+
+    final sheetController = QueueSheetController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Positioned.fill(child: Placeholder()),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExpandableQueueSheet(
+                  player: player,
+                  controller: controller,
+                  accent: const Color(0xFF101014),
+                  minChildSize: 0.08,
+                  sheetController: sheetController,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    expect(sheetController.isExpanded, isFalse);
+
+    // Tap to expand, then tap again mid-animation. The second tap must flip
+    // the sheet instead of being swallowed, otherwise the card feels stuck.
+    // At this point the header has already swapped to its expanded layout, so
+    // the tap targets the expanded title.
+    await tester.tap(find.text('UP NEXT'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(sheetController.progress, greaterThan(0.30));
+    await tester.tap(find.text('Up Next'));
+    await tester.pumpAndSettle();
+
+    expect(sheetController.isExpanded, isFalse);
+    expect(sheetController.size, closeTo(0.08, 0.01));
+  });
+
+  testWidgets('a tap on the queue list during expansion flips back instead of playing a row', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+
+    player.updateQueue(
+      [for (var i = 1; i <= 5; i++) _song('s$i', 'Song $i')],
+      sourceId: 'test',
+      sourceTitle: 'Test',
+    );
+
+    final sheetController = QueueSheetController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Positioned.fill(child: Placeholder()),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExpandableQueueSheet(
+                  player: player,
+                  controller: controller,
+                  accent: const Color(0xFF101014),
+                  minChildSize: 0.08,
+                  sheetController: sheetController,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('UP NEXT'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    // The sheet is now mid-expansion, so the area near the bottom of the
+    // screen has slid under the cursor. A tap there must act as a second
+    // toggle instead of starting whatever row is underneath.
+    expect(sheetController.progress, greaterThan(0.0));
+    expect(sheetController.progress, lessThan(1.0));
+    await tester.tapAt(const Offset(400, 520));
+    await tester.pumpAndSettle();
+
+    expect(player.currentSong, isNull);
+    expect(sheetController.isExpanded, isFalse);
+    expect(sheetController.size, closeTo(0.08, 0.01));
+  });
+
+  testWidgets('swiping down on the queue list closes the sheet', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+
+    player.updateQueue(
+      [for (var i = 1; i <= 5; i++) _song('s$i', 'Song $i')],
+      sourceId: 'test',
+      sourceTitle: 'Test',
+    );
+
+    final sheetController = QueueSheetController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Positioned.fill(child: Placeholder()),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExpandableQueueSheet(
+                  player: player,
+                  controller: controller,
+                  accent: const Color(0xFF101014),
+                  minChildSize: 0.08,
+                  sheetController: sheetController,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('UP NEXT'));
+    await tester.pumpAndSettle();
+    expect(sheetController.isExpanded, isTrue);
+
+    // The list starts at its top, so a downward drag overscrolls and should
+    // close the sheet like a standard bottom sheet.
+    await tester.drag(find.text('Song 3'), const Offset(0, 140));
+    await tester.pumpAndSettle();
+
+    expect(sheetController.isExpanded, isFalse);
+    expect(sheetController.size, closeTo(0.08, 0.01));
+  });
+
   testWidgets('peek bar and row highlight correctly track currentSong identity', (
     tester,
   ) async {
