@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../services/player_service.dart';
+import '../../services/window_focus.dart';
 import '../tactile_button.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
@@ -209,7 +212,9 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
 
 /// Seek bar + current/total time. Subscribes to the throttled position stream
 /// (250 ms) so a position tick only rebuilds this small subtree instead of the
-/// whole player screen.
+/// whole player screen. The track is drawn as a per-track waveform with a
+/// pearl playhead riding on top; its ripple and bloom run only while audio
+/// plays and the window is focused.
 class PlayerSeekBar extends StatefulWidget {
   final PlayerService player;
   final Duration duration;
@@ -225,14 +230,82 @@ class PlayerSeekBar extends StatefulWidget {
   State<PlayerSeekBar> createState() => _PlayerSeekBarState();
 }
 
-class _PlayerSeekBarState extends State<PlayerSeekBar> {
+class _PlayerSeekBarState extends State<PlayerSeekBar>
+    with SingleTickerProviderStateMixin {
   final ValueNotifier<double?> _dragNotifier = ValueNotifier(null);
   bool _showRemaining = true;
   bool _isHovered = false;
   bool _isDragging = false;
 
+  /// Drives the cursor bloom breathing. Parked (no ticks, no repaints)
+  /// whenever playback or the window is idle.
+  late final AnimationController _glowController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3200),
+  );
+  bool _glowRunning = false;
+  bool _wasPlaying = false;
+  bool _windowFocused = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _wasPlaying = widget.player.playing;
+    widget.player.addListener(_onPlayerChanged);
+    _windowFocused = WindowFocus.focused.value;
+    WindowFocus.focused.addListener(_onWindowFocusChanged);
+    // Seed the initial state directly; the first build follows the mount.
+    _glowRunning = _wasPlaying && _windowFocused && !_isDragging;
+    if (_glowRunning) _glowController.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerSeekBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      oldWidget.player.removeListener(_onPlayerChanged);
+      widget.player.addListener(_onPlayerChanged);
+      _wasPlaying = widget.player.playing;
+      _syncGlow();
+    }
+  }
+
+  void _onPlayerChanged() {
+    final isPlaying = widget.player.playing;
+    // Ignore incidental notifications (position ticks, preload updates) and
+    // only react when playback actually toggles.
+    if (isPlaying == _wasPlaying) return;
+    _wasPlaying = isPlaying;
+    _syncGlow();
+  }
+
+  void _onWindowFocusChanged() {
+    final focused = WindowFocus.focused.value;
+    if (_windowFocused == focused) return;
+    _windowFocused = focused;
+    _syncGlow();
+  }
+
+  /// Runs the bloom only while audio plays, the window is focused, and the
+  /// user is not scrubbing.
+  void _syncGlow() {
+    final shouldRun = _wasPlaying && _windowFocused && !_isDragging;
+    if (shouldRun == _glowRunning) return;
+    _glowRunning = shouldRun;
+    if (shouldRun) {
+      _glowController.repeat();
+    } else {
+      _glowController.stop();
+      _glowController.reset();
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    widget.player.removeListener(_onPlayerChanged);
+    WindowFocus.focused.removeListener(_onWindowFocusChanged);
+    _glowController.dispose();
     _dragNotifier.dispose();
     super.dispose();
   }
@@ -263,20 +336,19 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 builder: (context, dragMs, _) {
                   final currentVal = (dragMs ?? baseMs).clamp(0.0, maxMs);
                   final progress = maxMs > 0 ? (currentVal / maxMs).clamp(0.0, 1.0) : 0.0;
-                  const double pearSize = 22.0;
-                  const double trackHeight = 5.0;
+                  const double nubWidth = _PlayheadNub.width;
                   const double containerHeight = 32.0;
 
                   return LayoutBuilder(
                     builder: (context, constraints) {
                       final totalWidth = constraints.maxWidth;
-                      if (totalWidth <= pearSize) return const SizedBox(height: containerHeight);
+                      if (totalWidth <= nubWidth) return const SizedBox(height: containerHeight);
 
-                      final usableWidth = totalWidth - pearSize;
-                      final pearLeft = progress * usableWidth;
+                      final usableWidth = totalWidth - nubWidth;
+                      final headX = progress * usableWidth;
 
                       void updatePosition(double localDx, {bool isEnd = false}) {
-                        final fraction = ((localDx - (pearSize / 2)) / usableWidth).clamp(0.0, 1.0);
+                        final fraction = ((localDx - (nubWidth / 2)) / usableWidth).clamp(0.0, 1.0);
                         final targetMs = fraction * maxMs;
                         if (isEnd) {
                           widget.player.seek(Duration(milliseconds: targetMs.round()));
@@ -297,11 +369,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                           onTapDown: (details) => updatePosition(details.localPosition.dx, isEnd: true),
                           onHorizontalDragStart: (details) {
                             setState(() => _isDragging = true);
+                            _syncGlow();
                             updatePosition(details.localPosition.dx);
                           },
                           onHorizontalDragUpdate: (details) => updatePosition(details.localPosition.dx),
                           onHorizontalDragEnd: (details) {
                             setState(() => _isDragging = false);
+                            _syncGlow();
                             final lastMs = _dragNotifier.value ?? currentVal;
                             widget.player.seek(Duration(milliseconds: lastMs.round()));
                             _dragNotifier.value = null;
@@ -309,6 +383,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                           },
                           onHorizontalDragCancel: () {
                             setState(() => _isDragging = false);
+                            _syncGlow();
                             _dragNotifier.value = null;
                             widget.player.setScrubbingPosition(null);
                           },
@@ -318,73 +393,40 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                               clipBehavior: Clip.none,
                               alignment: Alignment.centerLeft,
                               children: [
-                                // Inactive base track
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: pearSize / 2),
-                                  child: Container(
-                                    height: trackHeight,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.14),
-                                      borderRadius: BorderRadius.circular(trackHeight / 2),
+                                // Waveform track: played bars in accent, the
+                                // rest dim; a ripple travels along it while
+                                // audio runs
+                                Positioned(
+                                  left: nubWidth / 2,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: usableWidth,
+                                  child: CustomPaint(
+                                    painter: _WaveformPainter(
+                                      progress: progress,
+                                      accent: effectiveAccent,
+                                      idleColor: Colors.white.withValues(alpha: 0.13),
+                                      seed: widget.player.currentSong?.id.hashCode ?? 0,
+                                      wave: _glowRunning ? _glowController : null,
                                     ),
                                   ),
                                 ),
 
-                                // Active progress track
-                                if (progress > 0)
-                                  Positioned(
-                                    left: pearSize / 2,
-                                    child: Container(
-                                      width: pearLeft,
-                                      height: trackHeight,
-                                      decoration: BoxDecoration(
-                                        color: effectiveAccent,
-                                        borderRadius: BorderRadius.circular(trackHeight / 2),
-                                      ),
-                                    ),
-                                  ),
-
-                                // Pear thumb with centered radial halo and optical alignment
+                                // Pearl playhead; its bloom breathes softly
+                                // while the track plays
                                 Positioned(
-                                  left: pearLeft,
-                                  top: (containerHeight - pearSize) / 2,
+                                  left: headX,
+                                  top: (containerHeight - _PlayheadNub.height) / 2,
                                   child: IgnorePointer(
-                                    child: AnimatedScale(
-                                      scale: (_isDragging || _isHovered) ? 1.15 : 1.0,
-                                      duration: const Duration(milliseconds: 120),
-                                      curve: Curves.easeOutCubic,
-                                      child: Container(
-                                        width: pearSize,
-                                        height: pearSize,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: const Color(0xFF16161A),
-                                          border: Border.all(
-                                            color: effectiveAccent.withValues(
-                                              alpha: (_isDragging || _isHovered) ? 0.70 : 0.40,
-                                            ),
-                                            width: 1.0,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: effectiveAccent.withValues(
-                                                alpha: (_isDragging || _isHovered) ? 0.60 : 0.35,
-                                              ),
-                                              blurRadius: (_isDragging || _isHovered) ? 10.0 : 6.0,
-                                              spreadRadius: (_isDragging || _isHovered) ? 1.5 : 0.5,
-                                              offset: Offset.zero,
-                                            ),
-                                          ],
-                                        ),
-                                        alignment: const Alignment(0.0, -0.06),
-                                        child: Image.asset(
-                                          'assets/pear_logo.png',
-                                          width: pearSize * 0.78,
-                                          height: pearSize * 0.78,
-                                          color: effectiveAccent,
-                                          colorBlendMode: BlendMode.srcIn,
-                                          filterQuality: FilterQuality.medium,
-                                        ),
+                                    child: AnimatedBuilder(
+                                      animation: _glowController,
+                                      builder: (context, _) => _PlayheadNub(
+                                        accent: effectiveAccent,
+                                        active: _isDragging || _isHovered,
+                                        pulse: _glowRunning
+                                            ? 0.5 -
+                                                0.5 * math.cos(_glowController.value * 2 * math.pi)
+                                            : 0.0,
                                       ),
                                     ),
                                   ),
@@ -408,7 +450,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                       : Duration.zero;
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 11),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -453,7 +495,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   }
 }
 
-/// Volume icons + slider with an interactive rolling pear thumb.
+/// Volume icons + slider sharing the compact accent-dot thumb.
 class PlayerVolumeRow extends StatelessWidget {
   final Color? accent;
   const PlayerVolumeRow({super.key, this.accent});
@@ -467,8 +509,8 @@ class PlayerVolumeRow extends StatelessWidget {
   }
 }
 
-/// Volume slider featuring an adaptive rolling pear thumb that rotates
-/// proportionally to travel distance across the track.
+/// Volume slider: a thin accent thread with a small bead knob, deliberately
+/// plainer than the seek bar's glowing cursor.
 class PlayerVolumeSlider extends StatefulWidget {
   final Color? accent;
   const PlayerVolumeSlider({super.key, this.accent});
@@ -497,8 +539,8 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
         : (value < 0.5 ? Icons.volume_down_rounded : Icons.volume_up_rounded);
 
     final pctText = '${(value * 100).round()}%';
-    const double pearSize = 22.0;
-    const double trackHeight = 5.0;
+    const double knobSize = 11.0;
+    const double trackHeight = 3.5;
     const double containerHeight = 36.0;
 
     return Listener(
@@ -546,18 +588,18 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
             ),
           ),
 
-          // Central slider track with rolling pear
+          // Central volume thread with a bead knob
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final totalWidth = constraints.maxWidth;
-                if (totalWidth <= pearSize) return const SizedBox(height: containerHeight);
+                if (totalWidth <= knobSize) return const SizedBox(height: containerHeight);
 
-                final usableWidth = totalWidth - pearSize;
-                final pearLeft = value * usableWidth;
+                final usableWidth = totalWidth - knobSize;
+                final knobLeft = value * usableWidth;
 
                 void handleDragUpdate(double localDx) {
-                  final fraction = ((localDx - (pearSize / 2)) / usableWidth).clamp(0.0, 1.0);
+                  final fraction = ((localDx - (knobSize / 2)) / usableWidth).clamp(0.0, 1.0);
                   if (fraction > 0) _lastNonZeroVolume = fraction;
                   setState(() => _dragValue = fraction);
                   player.setVolume(fraction);
@@ -589,74 +631,42 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                         clipBehavior: Clip.none,
                         alignment: Alignment.centerLeft,
                         children: [
-                          // Base track background (inactive)
+                          // Unplayed track: same quiet hairline as the seek bar
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: pearSize / 2),
+                            padding: const EdgeInsets.symmetric(horizontal: knobSize / 2),
                             child: Container(
                               height: trackHeight,
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.14),
+                                color: Colors.white.withValues(alpha: 0.10),
                                 borderRadius: BorderRadius.circular(trackHeight / 2),
                               ),
                             ),
                           ),
 
-                          // Active progress track
+                          // Played track: flat accent, deliberately calmer than
+                          // the seek bar so the two never read as twins
                           if (value > 0)
                             Positioned(
-                              left: pearSize / 2,
+                              left: knobSize / 2,
                               child: Container(
-                                width: pearLeft,
+                                width: knobLeft,
                                 height: trackHeight,
                                 decoration: BoxDecoration(
-                                  color: effectiveAccent,
+                                  color: effectiveAccent.withValues(alpha: 0.90),
                                   borderRadius: BorderRadius.circular(trackHeight / 2),
                                 ),
                               ),
                             ),
 
-                          // Pear thumb with centered radial halo and optical alignment
+                          // Small bead knob
                           Positioned(
-                            left: pearLeft,
-                            top: (containerHeight - pearSize) / 2,
+                            left: knobLeft,
+                            top: (containerHeight - knobSize) / 2,
                             child: IgnorePointer(
-                              child: AnimatedScale(
-                                scale: (_isDragging || _isHovered) ? 1.15 : 1.0,
-                                duration: const Duration(milliseconds: 120),
-                                curve: Curves.easeOutCubic,
-                                child: Container(
-                                  width: pearSize,
-                                  height: pearSize,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: const Color(0xFF16161A),
-                                    border: Border.all(
-                                      color: effectiveAccent.withValues(
-                                        alpha: (_isDragging || _isHovered) ? 0.70 : 0.40,
-                                      ),
-                                      width: 1.0,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: effectiveAccent.withValues(
-                                          alpha: (_isDragging || _isHovered) ? 0.60 : 0.35,
-                                        ),
-                                        blurRadius: (_isDragging || _isHovered) ? 10.0 : 6.0,
-                                        spreadRadius: (_isDragging || _isHovered) ? 1.5 : 0.5,
-                                        offset: Offset.zero,
-                                      ),
-                                    ],
-                                  ),
-                                  alignment: const Alignment(0.0, -0.06),
-                                  child: Image.asset(
-                                    'assets/pear_logo.png',
-                                    width: pearSize * 0.78,
-                                    height: pearSize * 0.78,
-                                    color: effectiveAccent,
-                                    colorBlendMode: BlendMode.srcIn,
-                                    filterQuality: FilterQuality.medium,
-                                  ),
-                                ),
+                              child: _VolumeKnob(
+                                accent: effectiveAccent,
+                                active: _isDragging || _isHovered,
+                                size: knobSize,
                               ),
                             ),
                           ),
@@ -689,6 +699,189 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Round pearl playhead for the seek waveform: a circle reads as a handle
+/// against the vertical bars, and it is sized larger than the tallest bar.
+/// Grows on hover or drag; its bloom breathes with [pulse] while the track
+/// plays.
+class _PlayheadNub extends StatelessWidget {
+  /// Bead diameter, also used by the layout to reserve travel space.
+  static const double width = 16.0;
+
+  /// Same as [width]; the bead is round.
+  static const double height = 16.0;
+
+  final Color accent;
+  final bool active;
+
+  /// 0..1 playback pulse that gently brightens and widens the bloom.
+  final double pulse;
+
+  const _PlayheadNub({
+    required this.accent,
+    required this.active,
+    this.pulse = 0.0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: active ? 1.22 : 1.0,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            center: const Alignment(-0.35, -0.4),
+            radius: 0.9,
+            colors: [
+              Colors.white,
+              Color.lerp(accent, Colors.white, 0.50)!,
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withValues(alpha: 0.55 + pulse * 0.35),
+              blurRadius: 12 + pulse * 8,
+            ),
+            BoxShadow(
+              color: accent.withValues(alpha: 0.22 + pulse * 0.20),
+              blurRadius: 24 + pulse * 14,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Draws the seek track as a mirrored waveform. Bar heights come from layered
+/// sines plus an index hash (so each track gets a stable pattern), played bars
+/// warm toward white just behind the cursor, and a slow ripple travels along
+/// the bars whenever [wave] is ticking.
+class _WaveformPainter extends CustomPainter {
+  final double progress;
+  final Color accent;
+  final Color idleColor;
+  final int seed;
+  final Animation<double>? wave;
+
+  static const double _barWidth = 2.5;
+  static const double _gap = 2.5;
+  static const double _minHeight = 4.0;
+  static const double _maxHeight = 15.0;
+
+  _WaveformPainter({
+    required this.progress,
+    required this.accent,
+    required this.idleColor,
+    required this.seed,
+    required this.wave,
+  }) : super(repaint: wave);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pitch = _barWidth + _gap;
+    final count = (size.width / pitch).floor();
+    if (count <= 0) return;
+
+    final centerY = size.height / 2;
+    final headLocal = progress * size.width;
+    final phase = wave == null ? 0.0 : wave!.value * 2 * math.pi;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    for (var i = 0; i < count; i++) {
+      final left = i * pitch;
+      // Layered sines give a musical envelope; the hash keeps it organic.
+      final envelope = 0.55 +
+          0.30 * math.sin(i * 0.18 + 0.9) +
+          0.15 * math.sin(i * 0.045 + 2.1);
+      var height = _minHeight +
+          (_maxHeight - _minHeight) *
+              (envelope * (0.72 + 0.5 * _noise(i))).clamp(0.0, 1.0);
+      if (wave != null) {
+        height *= 1 + 0.16 * math.sin(phase + i * 0.55);
+      }
+      height = height.clamp(2.0, _maxHeight + 2.0);
+
+      final barCenter = left + _barWidth / 2;
+      if (barCenter <= headLocal) {
+        // Bars just behind the cursor warm toward white, kept subtle so the
+        // playhead bead stays the brightest thing on the track.
+        final closeness = ((headLocal - left) / 22).clamp(0.0, 1.0);
+        paint.color = Color.lerp(
+          accent,
+          Color.lerp(accent, Colors.white, 0.8)!,
+          0.22 * closeness,
+        )!;
+      } else {
+        paint.color = idleColor;
+      }
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, centerY - height / 2, _barWidth, height),
+          const Radius.circular(_barWidth / 2),
+        ),
+        paint,
+      );
+    }
+  }
+
+  double _noise(int i) {
+    final v = math.sin((i + seed) * 12.9898) * 43758.5453;
+    return (v - v.floorToDouble()).clamp(0.0, 1.0);
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.accent != accent ||
+        oldDelegate.idleColor != idleColor ||
+        oldDelegate.seed != seed ||
+        oldDelegate.wave != wave;
+  }
+}
+
+/// Small bead knob for the volume thread: flat accent, single soft glow, no
+/// playback effects.
+class _VolumeKnob extends StatelessWidget {
+  final Color accent;
+  final bool active;
+  final double size;
+
+  const _VolumeKnob({
+    required this.accent,
+    required this.active,
+    this.size = 11.0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: active ? 1.2 : 1.0,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: accent,
+          boxShadow: [
+            BoxShadow(
+              color: accent.withValues(alpha: active ? 0.45 : 0.28),
+              blurRadius: active ? 9 : 6,
+            ),
+          ],
+        ),
       ),
     );
   }
