@@ -206,8 +206,19 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         YouTubeSearchService.dispose();
       }
     } else if (state == AppLifecycleState.detached) {
-      debugPrint('[app] app detached: executing full cleanup');
-      unawaited(disposeAll());
+      // On Android the activity gets destroyed on every back gesture, but the
+      // FlutterEngine can keep running behind the media notification:
+      // audio_service pins it in a FlutterEngineCache for as long as its
+      // foreground service lives, so this isolate survives the activity and
+      // reopening the app lands right back in it. Tearing everything down
+      // here left that surviving isolate with disposed services and a
+      // controller that never notified again, which is why the reopened app
+      // looked frozen. Real process death releases everything anyway, and
+      // desktop exits go through didRequestAppExit instead.
+      if (defaultTargetPlatform != TargetPlatform.android) {
+        debugPrint('[app] app detached: executing full cleanup');
+        unawaited(disposeAll());
+      }
     }
   }
 
