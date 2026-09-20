@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/player_service.dart';
+import 'package:peerm_app/services/window_focus.dart';
 import 'package:peerm_app/widgets/player/rhythm_pulse.dart';
 
 class FakePlayerService extends ChangeNotifier implements PlayerService {
@@ -87,5 +88,44 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(buildCount, buildsAfterPause);
     expect(lastAura, 0.0);
+  });
+
+  testWidgets('RhythmPulseBuilder pauses while the window is unfocused',
+      (tester) async {
+    final player = FakePlayerService();
+    double lastAura = 0.0;
+    addTearDown(() => WindowFocus.focused.value = true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RhythmPulseBuilder(
+          player: player,
+          builder: (context, aura, child) {
+            lastAura = aura;
+            return Container();
+          },
+        ),
+      ),
+    );
+
+    player.setPlaying(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(lastAura, greaterThan(0.0));
+
+    // Window loses focus: the pulse eases out to zero.
+    WindowFocus.focused.value = false;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(lastAura, 0.0);
+
+    // Focus returns while still playing: the pulse resumes.
+    WindowFocus.focused.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(lastAura, greaterThan(0.0));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    player.dispose();
   });
 }

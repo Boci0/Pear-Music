@@ -31,6 +31,11 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "peerm/windows_updater",
           &flutter::StandardMethodCodec::GetInstance());
 
+  focus_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "peerm/window_focus",
+          &flutter::StandardMethodCodec::GetInstance());
+
   updater_channel_->SetMethodCallHandler(
       [](const flutter::MethodCall<flutter::EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -104,6 +109,7 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   updater_channel_ = nullptr;
+  focus_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -129,6 +135,19 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+
+    case WM_ACTIVATE: {
+      // WM_ACTIVATE also arrives as WA_INACTIVE when minimizing. Dart uses
+      // this to pause visualizer rendering when the window is open on screen
+      // but not being used.
+      const bool active = LOWORD(wparam) != WA_INACTIVE;
+      if (focus_channel_) {
+        focus_channel_->InvokeMethod(
+            "onActivate",
+            std::make_unique<flutter::EncodableValue>(active));
+      }
+      break;
+    }
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

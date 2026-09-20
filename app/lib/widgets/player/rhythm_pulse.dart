@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../services/player_service.dart';
+import '../../services/window_focus.dart';
 
 /// Provides a smooth, continuous ambient breathing glow synchronized with playback.
 /// Operates on a calm 4-second harmonic cycle with zero physical bouncing or tempo clashing.
@@ -29,6 +30,7 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
   late final Animation<double> _bloomAnimation;
   bool _wasPlaying = false;
   bool _isAppForeground = true;
+  bool _windowFocused = true;
 
   @override
   void initState() {
@@ -64,11 +66,10 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
     WidgetsBinding.instance.addObserver(this);
     _wasPlaying = widget.player.playing;
     widget.player.addListener(_onPlayerChanged);
+    _windowFocused = WindowFocus.focused.value;
+    WindowFocus.focused.addListener(_onWindowFocusChanged);
 
-    if (_wasPlaying) {
-      _pulseController.repeat(reverse: true);
-      _fadeController.forward();
-    }
+    _syncPulse();
   }
 
   @override
@@ -76,14 +77,32 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
     final isForeground = state == AppLifecycleState.resumed;
     if (_isAppForeground != isForeground) {
       _isAppForeground = isForeground;
-      if (!isForeground) {
-        if (_pulseController.isAnimating) {
-          _pulseController.stop();
-        }
-      } else {
-        if (widget.player.playing && !_pulseController.isAnimating) {
-          _pulseController.repeat(reverse: true);
-        }
+      _syncPulse();
+    }
+  }
+
+  void _onWindowFocusChanged() {
+    final focused = WindowFocus.focused.value;
+    if (_windowFocused == focused) return;
+    _windowFocused = focused;
+    _syncPulse();
+  }
+
+  /// True when the app is in the foreground and the window is the active one.
+  bool get _canPulse => _isAppForeground && _windowFocused;
+
+  /// Runs the breathing pulse while playing and visible, or eases it out.
+  void _syncPulse() {
+    if (widget.player.playing && _canPulse) {
+      if (!_pulseController.isAnimating) {
+        _pulseController.repeat(reverse: true);
+      }
+      _fadeController.forward();
+    } else {
+      _fadeController.reverse();
+      if (_fadeController.isDismissed && _pulseController.isAnimating) {
+        _pulseController.stop();
+        _pulseController.reset();
       }
     }
   }
@@ -104,25 +123,14 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
     // preload status changes, volume updates). Only transition when playback actually toggles.
     if (isPlaying == _wasPlaying) return;
     _wasPlaying = isPlaying;
-
-    if (isPlaying && _isAppForeground) {
-      if (!_pulseController.isAnimating) {
-        _pulseController.repeat(reverse: true);
-      }
-      _fadeController.forward();
-    } else {
-      _fadeController.reverse();
-      if (_fadeController.isDismissed && _pulseController.isAnimating) {
-        _pulseController.stop();
-        _pulseController.reset();
-      }
-    }
+    _syncPulse();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.player.removeListener(_onPlayerChanged);
+    WindowFocus.focused.removeListener(_onWindowFocusChanged);
     _pulseController.stop();
     _fadeController.stop();
     _pulseController.dispose();

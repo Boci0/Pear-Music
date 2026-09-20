@@ -35,6 +35,11 @@ class FlutterWindow : public Win32Window {
 
   // Dedicated channel to launch updater scripts outside the job object.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> updater_channel_;
+
+  // Pushes WM_ACTIVATE focus changes to Dart. The Flutter app lifecycle on
+  // Windows only reports minimize/restore, so the visualizer cannot otherwise
+  // learn that the window lost focus while still being visible.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> focus_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -18,12 +18,16 @@ import 'services/player_service.dart';
 import 'services/player_theme.dart';
 import 'services/self_test_service.dart';
 import 'services/session_diagnostics.dart';
+import 'services/window_focus.dart';
 import 'services/youtube_service.dart';
 
 Future<void> main([List<String> args = const []]) async {
   runZonedGuarded(() async {
     SessionDiagnostics.init();
     WidgetsFlutterBinding.ensureInitialized();
+    // Windows: feed WM_ACTIVATE focus changes to the visualizer widgets so
+    // they can pause rendering while the window is open but not in use.
+    WindowFocus.init();
 
     if (args.contains(SelfTestService.flag)) {
       await SelfTestService.run(args);

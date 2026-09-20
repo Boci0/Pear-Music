@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/player_service.dart';
+import 'package:peerm_app/services/window_focus.dart';
 import 'package:peerm_app/widgets/player/visual_synthesizer_bar.dart';
 
 class _FakePlayerService extends ChangeNotifier implements PlayerService {
@@ -111,6 +112,50 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     expect(find.byType(ArtworkVisualizer), findsNothing);
 
+    player.dispose();
+  });
+
+  testWidgets('ArtworkVisualizer survives window focus changes while playing',
+      (tester) async {
+    final player = _FakePlayerService();
+    addTearDown(() => WindowFocus.focused.value = true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 150,
+            child: ArtworkVisualizer(
+              player: player,
+              accentColor: Colors.teal,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    player.setPlaying(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Losing focus must stop the ticker and capture without errors.
+    WindowFocus.focused.value = false;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(find.byType(ArtworkVisualizer), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Regaining focus resumes rendering.
+    WindowFocus.focused.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byType(ArtworkVisualizer), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    player.setPlaying(false);
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pumpWidget(const SizedBox.shrink());
     player.dispose();
   });
 

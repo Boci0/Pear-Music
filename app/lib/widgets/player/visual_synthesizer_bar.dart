@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:system_audio_visualizer/system_audio_visualizer.dart';
 import '../../services/player_service.dart';
+import '../../services/window_focus.dart';
 
 /// An audio-reactive "butterfly" spectrum visualizer taking the full space of the album artwork.
 /// Bars are mirrored around the centre: the bass bulges from the middle and the
@@ -36,7 +37,14 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   int _lastTickMs = DateTime.now().millisecondsSinceEpoch;
   int _basePositionMs = 0;
   bool _isAppForeground = true;
+  bool _windowFocused = true;
   double _decayActivity = 0.0;
+
+  /// Repaint gate: bar motion is recomputed on every frame, but the canvas
+  /// only repaints at ~30 fps. The full-rate spectrum repaint is the heaviest
+  /// continuous cost while music plays and 30 fps still reads as smooth.
+  final ValueNotifier<int> _paintTick = ValueNotifier<int>(0);
+  int _lastPaintMs = 0;
 
   StreamSubscription<List<double>>? _fftSub;
   StreamSubscription<Duration>? _positionSub;
@@ -90,8 +98,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     )..addListener(_onTick);
     WidgetsBinding.instance.addObserver(this);
     widget.player.addListener(_onPlayerStateChanged);
+    _windowFocused = WindowFocus.focused.value;
+    WindowFocus.focused.addListener(_onWindowFocusChanged);
     _syncTicker();
-    if (widget.player.playing) {
+    if (widget.player.playing && _renderActive) {
       _startCapture();
     }
   }
@@ -373,7 +383,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     _lastTickMs = nowMs;
     final double k = (dt * 60.0).clamp(0.0, 1.0);
 
-    final isPlaying = widget.player.playing && _isAppForeground;
+    final isPlaying = widget.player.playing && _renderActive;
     final target = isPlaying ? 1.0 : 0.0;
 
     if (_decayActivity != target) {
@@ -383,10 +393,13 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       } else {
         _decayActivity = math.max(target, _decayActivity - step);
       }
-      if (!widget.player.playing && _decayActivity <= 0.001) {
+      // Stop the ticker whenever rendering is inactive (paused, backgrounded
+      // or unfocused), not only when playback itself stopped.
+      if (!isPlaying && _decayActivity <= 0.001) {
         _decayActivity = 0.0;
         _tickerController.stop();
         _stopCapture();
+        _requestPaint();
       }
     }
 
@@ -445,6 +458,19 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         _trailBins[i] = math.max(0.0, _trailBins[i] * decayMul - 0.015 * k);
       }
     }
+
+    // ~30 fps repaint cap. The physics above still runs every frame (motion
+    // speed comes from wall-clock deltas), only the canvas refresh is
+    // throttled: the full-rate spectrum repaint is the heaviest continuous
+    // cost while music plays.
+    if (nowMs - _lastPaintMs >= 32) {
+      _lastPaintMs = nowMs;
+      _requestPaint();
+    }
+  }
+
+  void _requestPaint() {
+    _paintTick.value++;
   }
 
   @override
@@ -452,13 +478,28 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     final isForeground = state == AppLifecycleState.resumed;
     if (_isAppForeground != isForeground) {
       _isAppForeground = isForeground;
-      if (isForeground && widget.player.playing) {
-        _startCapture();
-      } else if (!isForeground) {
-        _stopCapture();
-      }
-      _syncTicker();
+      _applyRenderActivity();
     }
+  }
+
+  void _onWindowFocusChanged() {
+    final focused = WindowFocus.focused.value;
+    if (_windowFocused == focused) return;
+    _windowFocused = focused;
+    _applyRenderActivity();
+  }
+
+  /// True when the app is in the foreground and the window is the active one.
+  bool get _renderActive => _isAppForeground && _windowFocused;
+
+  /// Reconciles capture + ticker state after a foreground or focus change.
+  void _applyRenderActivity() {
+    if (_renderActive && widget.player.playing) {
+      _startCapture();
+    } else if (!_renderActive) {
+      _stopCapture();
+    }
+    _syncTicker();
   }
 
   @override
@@ -477,7 +518,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   }
 
   void _syncTicker() {
-    if ((widget.player.playing || _decayActivity > 0.0) && _isAppForeground) {
+    if ((widget.player.playing || _decayActivity > 0.0) && _renderActive) {
       if (!_tickerController.isAnimating) {
         _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
         _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
@@ -487,6 +528,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     } else {
       if (_decayActivity <= 0.0 && _tickerController.isAnimating) {
         _tickerController.stop();
+        _requestPaint();
       }
     }
   }
@@ -509,6 +551,8 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     _positionSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     widget.player.removeListener(_onPlayerStateChanged);
+    WindowFocus.focused.removeListener(_onWindowFocusChanged);
+    _paintTick.dispose();
     _tickerController.dispose();
     super.dispose();
   }
@@ -533,22 +577,19 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           const RepaintBoundary(
             child: CustomPaint(painter: _VignettePainter()),
           ),
-          AnimatedBuilder(
-            animation: _tickerController,
-            builder: (context, _) {
-              return CustomPaint(
-                size: Size.infinite,
-                painter: _ArtworkVisualizerPainter(
-                  songMs: _smoothSongMs,
-                  isPlaying: widget.player.playing,
-                  activity: _decayActivity,
-                  accentColor: widget.accentColor,
-                  liveBins: _displayBins,
-                  trailBins: _trailBins,
-                  hasNativeFft: _hasNativeFft,
-                ),
-              );
-            },
+          // No AnimatedBuilder here: repaints are driven by [_paintTick] (the
+          // ~30 fps gate) through the painter's repaint listenable, so the
+          // widget tree is not rebuilt on every frame.
+          CustomPaint(
+            size: Size.infinite,
+            willChange: true,
+            painter: _ArtworkVisualizerPainter(
+              accentColor: widget.accentColor,
+              activity: () => _decayActivity,
+              liveBins: _displayBins,
+              trailBins: _trailBins,
+              repaint: _paintTick,
+            ),
           ),
         ],
       ),
@@ -586,27 +627,25 @@ class _VignettePainter extends CustomPainter {
 }
 
 class _ArtworkVisualizerPainter extends CustomPainter {
-  final double songMs;
-  final bool isPlaying;
-  final double activity;
   final Color accentColor;
+
+  /// Read at paint time because the value keeps decaying between rebuilds.
+  final double Function() activity;
   final List<double> liveBins;
   final List<double> trailBins;
-  final bool hasNativeFft;
 
   _ArtworkVisualizerPainter({
-    required this.songMs,
-    required this.isPlaying,
-    required this.activity,
     required this.accentColor,
+    required this.activity,
     required this.liveBins,
     required this.trailBins,
-    required this.hasNativeFft,
-  });
+    required Listenable repaint,
+  }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
+    final act = activity();
 
     // Mirrored "butterfly" spectrum bars across the full card width
     const int totalBars = 24;
@@ -621,8 +660,25 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final maxBarHeight = size.height * 0.40;
     const double minBarHeight = 4.0;
 
-    final barBottomColor = accentColor.withValues(alpha: 0.78 + (0.18 * activity));
+    final radius = Radius.circular(barWidth / 2.0);
+    final barBottomColor = accentColor.withValues(alpha: 0.78 + (0.18 * act));
     final barTopColor = Color.lerp(accentColor, Colors.white, 0.50)!.withValues(alpha: 0.95);
+
+    // The gradients are identical for every bar, so the gradient objects are
+    // built once per frame and only the per-bar shaders are created below.
+    final barGradient = LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [barBottomColor, barTopColor],
+    );
+    final trailGradient = LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [
+        Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * act),
+        Colors.white.withValues(alpha: 0.55 * act),
+      ],
+    );
 
     // Two reusable paints instead of fresh Paint objects per bar per frame.
     final trailPaint = Paint();
@@ -641,40 +697,28 @@ class _ArtworkVisualizerPainter extends CustomPainter {
 
       // Trailing buffer ghost bar (lighter tint, slow descent)
       if (trailAmp > amp) {
-        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * activity;
+        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * act;
         final trailY = size.height - bottomPadding - trailH;
         final trailRect = RRect.fromRectAndRadius(
           Rect.fromLTWH(barX, trailY, barWidth, trailH),
-          Radius.circular(barWidth / 2.0),
+          radius,
         );
-        trailPaint.shader = LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [
-            Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * activity),
-            Colors.white.withValues(alpha: 0.55 * activity),
-          ],
-        ).createShader(Rect.fromLTWH(barX, trailY, barWidth, trailH));
+        trailPaint.shader = trailGradient
+            .createShader(Rect.fromLTWH(barX, trailY, barWidth, trailH));
         canvas.drawRRect(trailRect, trailPaint);
       }
 
       // Foreground active bar
-      final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp * activity;
+      final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp * act;
       final barY = size.height - bottomPadding - barH;
 
       final barRect = RRect.fromRectAndRadius(
         Rect.fromLTWH(barX, barY, barWidth, barH),
-        Radius.circular(barWidth / 2.0),
+        radius,
       );
 
-      barPaint.shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: [
-          barBottomColor,
-          barTopColor,
-        ],
-      ).createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
+      barPaint.shader = barGradient
+          .createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
 
       canvas.drawRRect(barRect, barPaint);
     }
@@ -682,13 +726,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ArtworkVisualizerPainter oldDelegate) {
-    return oldDelegate.songMs != songMs ||
-        oldDelegate.isPlaying != isPlaying ||
-        oldDelegate.activity != activity ||
-        oldDelegate.accentColor != accentColor ||
-        oldDelegate.hasNativeFft != hasNativeFft ||
-        oldDelegate.liveBins != liveBins ||
-        oldDelegate.trailBins != trailBins;
+    return oldDelegate.accentColor != accentColor;
   }
 }
 
