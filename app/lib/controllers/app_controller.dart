@@ -63,28 +63,48 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     super.notifyListeners();
   }
 
+  /// YouTube identity of a song, spanning representations: library downloads
+  /// carry it in the file name, online entries in the id. Null for plain local
+  /// files, which cannot collide with an online copy.
+  String? _videoIdOf(Song? song, String songId) {
+    if (song != null) {
+      final fromFile = LibraryProfile.videoIdOf(song);
+      if (fromFile != null) return fromFile;
+    }
+    if (songId.startsWith('stream_') || songId.startsWith('yt_')) {
+      return RecommendationService.extractVideoId(songId) ??
+          songId.replaceFirst('stream_', '');
+    }
+    return null;
+  }
+
   List<Song> get favoriteSongs {
     if (_cachedFavoriteSongs != null) return _cachedFavoriteSongs!;
     final List<Song> result = [];
-    final seen = <String>{};
+    final seenIds = <String>{};
+    final seenVideoIds = <String>{};
+    void add(Song song) {
+      if (seenIds.contains(song.id)) return;
+      final videoId = _videoIdOf(song, song.id);
+      // One entry per video: the library download wins over the online entry,
+      // so a favourited song cannot show up twice after downloading it.
+      if (videoId != null && seenVideoIds.contains(videoId)) return;
+      result.add(song);
+      seenIds.add(song.id);
+      if (videoId != null) seenVideoIds.add(videoId);
+    }
+
     for (final s in library.songs) {
-      if (identity.isFavorite(s.id)) {
-        result.add(s);
-        seen.add(s.id);
-      }
+      if (identity.isFavorite(s.id)) add(s);
     }
     for (final s in identity.favoriteOnlineSongs.values) {
-      if (!seen.contains(s.id) && identity.isFavorite(s.id)) {
-        result.add(s);
-        seen.add(s.id);
-      }
+      if (identity.isFavorite(s.id)) add(s);
     }
     for (final id in identity.favoriteSongIds) {
-      if (!seen.contains(id) &&
-          (id.startsWith('stream_') || id.startsWith('yt_'))) {
+      if (id.startsWith('stream_') || id.startsWith('yt_')) {
         final videoId = RecommendationService.extractVideoId(id) ??
             id.replaceFirst('stream_', '');
-        final song = Song(
+        add(Song(
           id: id,
           title: 'Online Stream ($videoId)',
           fileName: 'stream_$videoId.m4a',
@@ -92,9 +112,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           checksum: id,
           sourceDeviceId: 'stream',
           addedAt: DateTime.now(),
-        );
-        result.add(song);
-        seen.add(id);
+        ));
       }
     }
     _cachedFavoriteSongs = result;
@@ -110,8 +128,59 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         (player.currentSong?.id == songId
             ? player.currentSong
             : findSongById(songId));
+    final wasFavorite = identity.isFavorite(songId);
     await identity.toggleFavorite(songId, song: resolvedSong);
+    // A video and its downloaded copy are the same song for the user, so the
+    // heart state follows every representation. Without this, downloading a
+    // favourited online song left two hearts that could only be toggled
+    // separately.
+    final videoId = _videoIdOf(resolvedSong, songId);
+    if (videoId != null) {
+      if (wasFavorite) {
+        await _removeVideoFavorites(videoId, exceptId: songId);
+      } else {
+        await _heartVideoCopies(videoId, exceptId: songId);
+      }
+    }
     notifyListeners();
+  }
+
+  /// Hearts the other representations of the same video (library downloads and
+  /// known online entries) so every heart icon shows the same state.
+  Future<void> _heartVideoCopies(String videoId,
+      {required String exceptId}) async {
+    for (final s in library.songs) {
+      if (s.id == exceptId || identity.isFavorite(s.id)) continue;
+      if (_videoIdOf(s, s.id) != videoId) continue;
+      await identity.toggleFavorite(s.id, song: s);
+    }
+    final streamId = 'stream_$videoId';
+    if (streamId != exceptId && !identity.isFavorite(streamId)) {
+      final online = identity.findOnlineSong(streamId);
+      if (online != null) {
+        await identity.toggleFavorite(streamId, song: online);
+      }
+    }
+  }
+
+  /// Clears the other representations of the same video so unfavouriting one
+  /// copy cannot leave a stale entry (or a second heart) behind.
+  Future<void> _removeVideoFavorites(String videoId,
+      {required String exceptId}) async {
+    final others = <String>{};
+    for (final s in library.songs) {
+      if (s.id == exceptId || !identity.isFavorite(s.id)) continue;
+      if (_videoIdOf(s, s.id) == videoId) others.add(s.id);
+    }
+    for (final id in identity.favoriteSongIds) {
+      if (id == exceptId) continue;
+      if (_videoIdOf(identity.findOnlineSong(id), id) == videoId) {
+        others.add(id);
+      }
+    }
+    if (others.isNotEmpty) {
+      await identity.removeFavorites(others);
+    }
   }
 
   SortOption get sortOption => identity.sortOption;

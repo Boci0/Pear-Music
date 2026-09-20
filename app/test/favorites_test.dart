@@ -133,5 +133,145 @@ void main() {
       await controller.toggleFavorite(onlineSong.id);
       expect(controller.favoriteSongs, isEmpty);
     });
+
+    test('downloading a favourited online song keeps a single favourite',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final identity = IdentityService(prefs);
+      final library = LibraryService();
+      final player = PlayerService(library, identity: identity);
+      final controller = AppController(
+        identity: identity,
+        library: library,
+        player: player,
+        youtube: YoutubeService(),
+      );
+
+      final onlineSong = _createSong(
+        id: 'stream_abc12345678',
+        title: 'Stream Favorite',
+        sourceDeviceId: 'stream',
+      );
+      final localSong = _createSong(id: 'local_1', title: 'Local Song');
+      library.setSongsForTesting([localSong]);
+
+      await controller.toggleFavorite(onlineSong.id, song: onlineSong);
+      expect(
+        controller.favoriteSongs.map((s) => s.id).toList(),
+        ['stream_abc12345678'],
+      );
+
+      // The download lands: same video, new library id carrying the [videoId]
+      // tag. saveStreamToLibrary hands the favourite over to the new copy.
+      final downloaded = Song(
+        id: 'lib_9',
+        title: 'Stream Favorite',
+        fileName: 'Stream Favorite [abc12345678].m4a',
+        size: 5000000,
+        checksum: 'chk_lib_9',
+        addedAt: DateTime(2025, 1, 2),
+      );
+      library.setSongsForTesting([localSong, downloaded]);
+      expect(controller.isFavorite(downloaded.id), isFalse);
+      await controller.toggleFavorite(downloaded.id, song: downloaded);
+
+      // One row only, and it is the library copy, not a second online entry.
+      expect(controller.favoriteSongs.length, 1);
+      expect(controller.favoriteSongs.first.id, 'lib_9');
+      expect(identity.isFavorite('stream_abc12345678'), isTrue);
+
+      // Unfavouriting the library copy clears the online copy as well.
+      await controller.toggleFavorite(downloaded.id, song: downloaded);
+      expect(controller.favoriteSongs, isEmpty);
+      expect(identity.isFavorite('stream_abc12345678'), isFalse);
+      expect(
+        identity.favoriteOnlineSongs.containsKey('stream_abc12345678'),
+        isFalse,
+      );
+    });
+
+    test('favouriting a downloaded copy also hearts a known online entry',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final identity = IdentityService(prefs);
+      final library = LibraryService();
+      final player = PlayerService(library, identity: identity);
+      final controller = AppController(
+        identity: identity,
+        library: library,
+        player: player,
+        youtube: YoutubeService(),
+      );
+
+      final onlineSong = _createSong(
+        id: 'stream_def12345678',
+        title: 'Known Online',
+        sourceDeviceId: 'stream',
+        artwork: 'https://example.com/known.jpg',
+      );
+      await identity.registerOnlineSongs([onlineSong]);
+
+      final downloaded = Song(
+        id: 'lib_10',
+        title: 'Known Online',
+        fileName: 'Known Online [def12345678].m4a',
+        size: 5000000,
+        checksum: 'chk_lib_10',
+        addedAt: DateTime(2025, 1, 2),
+      );
+      library.setSongsForTesting([downloaded]);
+
+      await controller.toggleFavorite(downloaded.id, song: downloaded);
+      expect(identity.isFavorite('stream_def12345678'), isTrue);
+      expect(controller.favoriteSongs.length, 1);
+      expect(controller.favoriteSongs.first.id, 'lib_10');
+
+      // Unfavouriting clears both representations.
+      await controller.toggleFavorite(downloaded.id, song: downloaded);
+      expect(identity.isFavorite('stream_def12345678'), isFalse);
+      expect(controller.favoriteSongs, isEmpty);
+    });
+
+    test('favouriting the online entry hearts an existing downloaded copy',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final identity = IdentityService(prefs);
+      final library = LibraryService();
+      final player = PlayerService(library, identity: identity);
+      final controller = AppController(
+        identity: identity,
+        library: library,
+        player: player,
+        youtube: YoutubeService(),
+      );
+
+      final onlineSong = _createSong(
+        id: 'stream_def12345678',
+        title: 'Known Online',
+        sourceDeviceId: 'stream',
+      );
+      final downloaded = Song(
+        id: 'lib_10',
+        title: 'Known Online',
+        fileName: 'Known Online [def12345678].m4a',
+        size: 5000000,
+        checksum: 'chk_lib_10',
+        addedAt: DateTime(2025, 1, 2),
+      );
+      library.setSongsForTesting([downloaded]);
+
+      await controller.toggleFavorite(onlineSong.id, song: onlineSong);
+      expect(identity.isFavorite(downloaded.id), isTrue);
+      expect(controller.favoriteSongs.length, 1);
+      expect(controller.favoriteSongs.first.id, 'lib_10');
+
+      // Unfavouriting from the search side clears the download as well.
+      await controller.toggleFavorite(onlineSong.id, song: onlineSong);
+      expect(identity.isFavorite(downloaded.id), isFalse);
+      expect(controller.favoriteSongs, isEmpty);
+    });
   });
 }
