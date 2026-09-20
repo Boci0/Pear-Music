@@ -1124,6 +1124,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> updateReducedEffects(bool val) async {
+    await identity.setReducedEffects(val);
+    notifyListeners();
+  }
+
   // ---------- playback (delegated) ----------
 
   Future<void> playSong(

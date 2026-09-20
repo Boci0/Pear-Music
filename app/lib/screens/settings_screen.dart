@@ -160,6 +160,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 18),
+          _sectionTitle(context, 'Performance'),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: SwitchListTile(
+              secondary: const Icon(Icons.battery_saver_rounded),
+              title: const Text('Reduced Effects'),
+              subtitle: const Text(
+                  'Static glow, no seek ripple and a calmer visualizer repaint. Cuts battery use on the player screen.'),
+              value: identity.reducedEffects,
+              onChanged: (val) async {
+                TactileFeedback.selection();
+                await controller.updateReducedEffects(val);
+              },
+            ),
+          ),
+          const SizedBox(height: 18),
           _sectionTitle(context, 'Discovery & Search'),
           Card(
             clipBehavior: Clip.antiAlias,

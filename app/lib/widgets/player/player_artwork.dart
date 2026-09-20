@@ -120,6 +120,9 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final useSynthesizer = context.select<AppController?, bool>(
       (c) => c?.identity.synthesizerBar ?? false,
     );
+    final reducedEffects = context.select<AppController?, bool>(
+      (c) => c?.identity.reducedEffects ?? false,
+    );
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -222,32 +225,36 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
     final playerService = context.read<PlayerService?>();
-    final staticGlow = RepaintBoundary(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          boxShadow: [
-            BoxShadow(
-              color: baseShadowColor.withValues(alpha: 0.45),
-              blurRadius: 36.0,
-              spreadRadius: 2.0,
-              offset: const Offset(0, 10),
+    // [glowAlpha] scales the halo brightness by baking it into the shadow
+    // alphas, so callers that never change it avoid an extra compositing layer
+    // per frame (the breathing path still animates via Opacity).
+    Widget buildGlow({double glowAlpha = 1.0}) => RepaintBoundary(
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              boxShadow: [
+                BoxShadow(
+                  color: baseShadowColor.withValues(alpha: 0.45 * glowAlpha),
+                  blurRadius: 36.0,
+                  spreadRadius: 2.0,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: baseShadowColor.withValues(alpha: 0.28 * glowAlpha),
+                  blurRadius: 18.0,
+                  spreadRadius: 1.0,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            BoxShadow(
-              color: baseShadowColor.withValues(alpha: 0.28),
-              blurRadius: 18.0,
-              spreadRadius: 1.0,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-      ),
-    );
+          ),
+        );
+    final staticGlow = buildGlow();
 
     final Widget glowWidget;
-    if (playerService != null) {
+    if (playerService != null && !reducedEffects) {
       glowWidget = RhythmPulseBuilder(
         player: playerService,
         child: staticGlow,
@@ -259,6 +266,11 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
           );
         },
       );
+    } else if (playerService != null) {
+      // Reduced effects: keep the halo but park the breathing animation at a
+      // fixed mid brightness, baked into the shadow alphas so no extra
+      // compositing layer is needed while frames are being produced.
+      glowWidget = buildGlow(glowAlpha: 0.66);
     } else {
       glowWidget = staticGlow;
     }

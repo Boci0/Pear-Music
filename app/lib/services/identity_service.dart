@@ -29,6 +29,7 @@ class IdentityService extends ChangeNotifier {
   static const _loudnessNormKey = 'peerm_loudness_normalization';
   static const _synthesizerBarKey = 'peerm_synthesizer_bar';
   static const _visualizerGlowKey = 'peerm_visualizer_glow';
+  static const _reducedEffectsKey = 'peerm_reduced_effects';
   static const _autoRerollSeedKey = 'peerm_auto_reroll_seed';
   static const _autoplayKey = 'peerm_autoplay';
   static const _popLyricsKey = 'peerm_pop_lyrics';
@@ -46,6 +47,7 @@ class IdentityService extends ChangeNotifier {
   late bool _loudnessNormalization;
   late bool _synthesizerBar;
   late bool _visualizerGlow;
+  late bool _reducedEffects;
   late bool _autoRerollSeed;
   late bool _autoplay;
   late bool _popLyrics;
@@ -95,6 +97,7 @@ class IdentityService extends ChangeNotifier {
     _synthesizerBar = false;
     _prefs.remove(_synthesizerBarKey);
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
+    _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
     _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
@@ -291,6 +294,15 @@ class IdentityService extends ChangeNotifier {
     if (_visualizerGlow == value) return;
     _visualizerGlow = value;
     await _prefs.setBool(_visualizerGlowKey, value);
+    notifyListeners();
+  }
+
+  bool get reducedEffects => _reducedEffects;
+
+  Future<void> setReducedEffects(bool value) async {
+    if (_reducedEffects == value) return;
+    _reducedEffects = value;
+    await _prefs.setBool(_reducedEffectsKey, value);
     notifyListeners();
   }
 

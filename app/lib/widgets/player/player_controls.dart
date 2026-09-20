@@ -246,6 +246,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
   bool _glowRunning = false;
   bool _wasPlaying = false;
   bool _windowFocused = true;
+  bool _reducedEffects = false;
 
   /// Quantized sample of [_glowController]: the 3.2 s cycle advances ~0.011 per
   /// step, i.e. ~28 updates per second. The ripple and the bead bloom are slow
@@ -267,7 +268,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
     _windowFocused = WindowFocus.focused.value;
     WindowFocus.focused.addListener(_onWindowFocusChanged);
     // Seed the initial state directly; the first build follows the mount.
-    _glowRunning = _wasPlaying && _windowFocused && !_isDragging;
+    _reducedEffects = context.read<AppController?>()?.identity.reducedEffects ?? false;
+    _glowRunning = _wasPlaying && _windowFocused && !_isDragging && !_reducedEffects;
     if (_glowRunning) {
       _glowController.repeat();
     }
@@ -303,7 +305,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
   /// Runs the bloom only while audio plays, the window is focused, and the
   /// user is not scrubbing.
   void _syncGlow() {
-    final shouldRun = _wasPlaying && _windowFocused && !_isDragging;
+    final shouldRun = _wasPlaying && _windowFocused && !_isDragging && !_reducedEffects;
     if (shouldRun == _glowRunning) return;
     _glowRunning = shouldRun;
     if (shouldRun) {
@@ -332,6 +334,17 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final effectiveAccent = widget.accent ?? colorScheme.primary;
+    final reducedEffects = context.select<AppController?, bool>(
+      (c) => c?.identity.reducedEffects ?? false,
+    );
+    if (reducedEffects != _reducedEffects) {
+      _reducedEffects = reducedEffects;
+      // Park or resume the ripple/bloom after this build completes;
+      // _syncGlow may call setState.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncGlow();
+      });
+    }
     final totalMs = widget.duration.inMilliseconds.toDouble();
 
     return StreamBuilder<Duration>(
@@ -424,7 +437,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
                                       accent: effectiveAccent,
                                       idleColor: Colors.white.withValues(alpha: 0.13),
                                       seed: widget.player.currentSong?.id.hashCode ?? 0,
-                                      wave: _glowRunning ? _waveTick : null,
+                                      wave: (_glowRunning && !reducedEffects) ? _waveTick : null,
                                     ),
                                   ),
                                 ),
@@ -435,16 +448,21 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
                                   left: headX,
                                   top: (containerHeight - _PlayheadNub.height) / 2,
                                   child: IgnorePointer(
-                                    child: ValueListenableBuilder<double>(
-                                      valueListenable: _waveTick,
-                                      builder: (context, waveValue, _) => _PlayheadNub(
-                                        accent: effectiveAccent,
-                                        active: _isDragging || _isHovered,
-                                        pulse: _glowRunning
-                                            ? 0.5 - 0.5 * math.cos(waveValue * 2 * math.pi)
-                                            : 0.0,
-                                      ),
-                                    ),
+                                    child: reducedEffects
+                                        ? _PlayheadNub(
+                                            accent: effectiveAccent,
+                                            active: _isDragging || _isHovered,
+                                          )
+                                        : ValueListenableBuilder<double>(
+                                            valueListenable: _waveTick,
+                                            builder: (context, waveValue, _) => _PlayheadNub(
+                                              accent: effectiveAccent,
+                                              active: _isDragging || _isHovered,
+                                              pulse: _glowRunning
+                                                  ? 0.5 - 0.5 * math.cos(waveValue * 2 * math.pi)
+                                                  : 0.0,
+                                            ),
+                                          ),
                                   ),
                                 ),
                               ],
