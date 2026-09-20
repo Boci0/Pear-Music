@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
+import '../../services/lyrics_display.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 import 'lyric_sync_sheet.dart';
@@ -46,6 +47,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
+    LyricsDisplay.mode.addListener(_onPaletteUpdated);
     _loadLyrics();
   }
 
@@ -102,6 +104,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     widget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
+    LyricsDisplay.mode.removeListener(_onPaletteUpdated);
     _positionSub?.cancel();
     super.dispose();
   }
@@ -186,8 +189,12 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     final glowColor = widget.accent ?? scheme.primary;
     // Dark text wins earlier for lyrics readability: saturated bright covers
     // (red, pink, orange) read poorly with white text even though the
-    // decorative tinting heuristic calls them dark.
-    final isLight = ArtworkPalette.prefersDarkText(widget.song);
+    // decorative tinting heuristic calls them dark. The heuristic is only a
+    // guess, so the Lyrics Options sheet lets the user force the text colour.
+    final isLight = LyricsDisplay.resolveDarkText(
+      mode: LyricsDisplay.mode.value,
+      artworkPrefersDarkText: ArtworkPalette.prefersDarkText(widget.song),
+    );
 
     if (_isLoading) {
       return Center(
@@ -358,27 +365,18 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                 wordSpacing: 1.0,
                 height: 1.40,
                 color: isLight ? const Color(0xFF141416) : Colors.white,
-                shadows: isLight
-                    ? [
-                        Shadow(
-                          color: Colors.white.withValues(alpha: 0.90),
-                          blurRadius: 8.0,
-                        ),
-                        Shadow(
-                          color: glowColor.withValues(alpha: 0.40),
-                          blurRadius: 4.0,
-                        ),
-                      ]
-                    : [
-                        Shadow(
-                          color: glowColor.withValues(alpha: 0.85),
-                          blurRadius: 8.0,
-                        ),
-                        Shadow(
-                          color: glowColor.withValues(alpha: 0.45),
-                          blurRadius: 4.0,
-                        ),
-                      ],
+                // The glow always follows the song accent so the lyric text
+                // matches the artwork palette in either text colour.
+                shadows: [
+                  Shadow(
+                    color: glowColor.withValues(alpha: isLight ? 0.55 : 0.85),
+                    blurRadius: 8.0,
+                  ),
+                  Shadow(
+                    color: glowColor.withValues(alpha: isLight ? 0.30 : 0.45),
+                    blurRadius: 4.0,
+                  ),
+                ],
               ),
             ),
           ),

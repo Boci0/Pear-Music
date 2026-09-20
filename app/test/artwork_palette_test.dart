@@ -111,4 +111,44 @@ void main() {
     expect(ArtworkPalette.hasResolved(song), isTrue);
     expect(notified, isTrue);
   });
+
+  test('a dark patch behind the lyrics beats a bright cover', () async {
+    // Bright cover with a dark square exactly in the middle, where the lyric
+    // text renders.
+    final image = img.Image(width: 96, height: 96);
+    img.fill(image, color: img.ColorRgb8(240, 240, 240));
+    for (var y = 36; y < 60; y++) {
+      for (var x = 36; x < 60; x++) {
+        image.setPixelRgb(x, y, 10, 10, 12);
+      }
+    }
+    final bytes = img.encodeJpg(image);
+    final (_, lum) = ArtworkPalette.computePaletteDataFromBytes(bytes);
+    expect(lum, lessThan(0.20));
+
+    final song = Song(
+      id: 'center_dark',
+      title: 'Center Dark',
+      fileName: 'f.mp3',
+      size: 1,
+      checksum: 'c',
+      addedAt: DateTime(2026),
+      artwork: base64Encode(bytes),
+    );
+    await ArtworkPalette.dominant(song);
+    expect(ArtworkPalette.prefersDarkText(song), isFalse);
+  });
+
+  test('a bright middle still prefers dark text despite dark edges', () {
+    final image = img.Image(width: 96, height: 96);
+    img.fill(image, color: img.ColorRgb8(240, 240, 240));
+    for (var y = 0; y < 14; y++) {
+      for (var x = 0; x < 96; x++) {
+        image.setPixelRgb(x, y, 8, 8, 10); // dark band along the top only
+      }
+    }
+    final (_, lum) =
+        ArtworkPalette.computePaletteDataFromBytes(img.encodeJpg(image));
+    expect(lum, greaterThan(0.20));
+  });
 }

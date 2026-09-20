@@ -13,6 +13,7 @@ import 'screens/home_shell.dart';
 import 'services/debug_log.dart';
 import 'services/identity_service.dart';
 import 'services/library_service.dart';
+import 'services/lyrics_display.dart';
 import 'services/pear_audio_handler.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
@@ -116,6 +117,7 @@ Future<void> _bootstrapAndRunApp() async {
 
   final prefs = await SharedPreferences.getInstance();
   final identity = IdentityService(prefs);
+  await LyricsDisplay.init(prefs);
   final library = LibraryService();
   final player = PlayerService(
     library,

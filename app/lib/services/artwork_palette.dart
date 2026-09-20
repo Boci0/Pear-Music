@@ -70,6 +70,10 @@ class ArtworkPalette {
   /// artwork. Unlike [isLightArtwork] (built for decorative tinting), this
   /// uses a lower luminance threshold so saturated bright covers (red, pink,
   /// orange) get dark text instead of hard-to-read white.
+  ///
+  /// The stored luminance factors in the darkest tenth of the central band,
+  /// so a cover that is bright overall but has a dark patch right behind the
+  /// lyrics still prefers white text.
   static bool prefersDarkText(Song? song) {
     if (song == null) return false;
     final lum = _resolvedLuminance[song.id];
@@ -360,7 +364,13 @@ class ArtworkPalette {
   }
 
   /// Runs in a background isolate: decodes, downsamples, and picks the most
-  /// "vibrant" frequent colour while calculating average relative luminance.
+  /// "vibrant" frequent colour while calculating a center-weighted relative
+  /// luminance.
+  ///
+  /// The luminance is weighted towards the middle of the cover because the
+  /// lyric text and overlays sit there: a cover can be bright overall yet have
+  /// a dark patch exactly behind the text, and the middle is what the text
+  /// colour decision has to match.
   static (Color, double) computePaletteDataFromBytes(Uint8List bytes) {
     try {
       final decoded = img.decodeImage(bytes);
@@ -369,14 +379,23 @@ class ArtworkPalette {
 
       final counts = <int, int>{};
       double totalLum = 0.0;
-      int pixelCount = 0;
+      double totalWeight = 0.0;
+      final centerLums = <double>[];
 
       for (final p in small) {
         final r = p.r.toInt();
         final g = p.g.toInt();
         final b = p.b.toInt();
-        totalLum += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
-        pixelCount++;
+        final lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+        // Full weight inside the central ~55% box, tapering to a quarter at
+        // the very edges so vignettes and dark frames matter less.
+        final dx = (p.x - 15.5).abs() / 15.5;
+        final dy = (p.y - 15.5).abs() / 15.5;
+        final d = math.max(dx, dy).clamp(0.0, 1.0);
+        final weight = d <= 0.55 ? 1.0 : 1.0 - ((d - 0.55) / 0.45) * 0.75;
+        totalLum += lum * weight;
+        totalWeight += weight;
+        if (d <= 0.55) centerLums.add(lum);
 
         final r16 = (r ~/ 16) * 16;
         final g16 = (g ~/ 16) * 16;
@@ -385,7 +404,17 @@ class ArtworkPalette {
         counts[key] = (counts[key] ?? 0) + 1;
       }
 
-      final avgLum = pixelCount > 0 ? (totalLum / pixelCount) : 0.0;
+      // The reported luminance blends the center-weighted mean with the 10th
+      // percentile of the central band: lyrics need the middle to be bright
+      // nearly everywhere, not just on average, so a dark patch right behind
+      // the text still flips it to white.
+      final meanLum = totalWeight > 0 ? (totalLum / totalWeight) : 0.0;
+      var avgLum = meanLum;
+      if (centerLums.length >= 10) {
+        centerLums.sort();
+        final p10 = centerLums[((centerLums.length - 1) * 0.10).floor()];
+        avgLum = math.min(meanLum, p10);
+      }
 
       int? best;
       double bestScore = -1;

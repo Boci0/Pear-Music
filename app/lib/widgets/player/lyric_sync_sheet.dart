@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/song.dart';
+import '../../services/lyrics_display.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 
@@ -18,14 +19,24 @@ Future<void> showLyricSyncSheet(
     isScrollControlled: true,
     showDragHandle: true,
     useSafeArea: true,
+    // Keep the sheet compact so the lyrics above stay visible while checking
+    // alternates; the content scrolls inside it instead of it expanding to
+    // full screen.
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.of(context).size.height * 0.60,
+    ),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (context) => _LyricSyncSheetContent(
-      song: song,
-      player: player,
-      initialSearchOpen: initialSearchOpen,
-      onLyricsUpdated: onLyricsUpdated,
+    builder: (context) => ScrollConfiguration(
+      // No visible scrollbars anywhere inside the sheet.
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: _LyricSyncSheetContent(
+        song: song,
+        player: player,
+        initialSearchOpen: initialSearchOpen,
+        onLyricsUpdated: onLyricsUpdated,
+      ),
     ),
   );
 }
@@ -224,7 +235,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Lyrics Timing & Options',
+                        'Lyrics Options',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -245,7 +256,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.65),
+                    color: scheme.onSurfaceVariant,
                     fontSize: 12,
                   ),
                 ),
@@ -268,7 +279,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.70),
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -282,7 +293,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: _currentOffsetMs == 0
-                              ? Colors.white
+                              ? scheme.onSurface
                               : scheme.primary,
                         ),
                       ),
@@ -301,7 +312,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.white.withValues(alpha: 0.50),
+                                    color: scheme.onSurfaceVariant,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -335,7 +346,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.white.withValues(alpha: 0.50),
+                                    color: scheme.onSurfaceVariant,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -357,7 +368,68 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         'Negative shows lyrics earlier; positive delays them.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 10.5,
-                          color: Colors.white.withValues(alpha: 0.45),
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Lyrics text colour
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Lyrics Colour',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<LyricsColorMode>(
+                        segments: const [
+                          ButtonSegment(
+                            value: LyricsColorMode.auto,
+                            label: Text('Auto'),
+                          ),
+                          ButtonSegment(
+                            value: LyricsColorMode.light,
+                            label: Text('White'),
+                          ),
+                          ButtonSegment(
+                            value: LyricsColorMode.dark,
+                            label: Text('Black'),
+                          ),
+                        ],
+                        selected: {LyricsDisplay.mode.value},
+                        onSelectionChanged: (selection) {
+                          LyricsDisplay.set(selection.first);
+                          setState(() {});
+                        },
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Auto matches the artwork; White or Black forces the lyric colour. The glow follows the song accent.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 10.5,
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -393,7 +465,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                               Icon(
                                 Icons.search_rounded,
                                 size: 16,
-                                color: Colors.white.withValues(alpha: 0.70),
+                                color: scheme.onSurfaceVariant,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
@@ -402,7 +474,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                                         fontSize: 12.5,
                                         fontWeight: FontWeight.w600,
-                                        color: Colors.white.withValues(alpha: 0.85),
+                                        color: scheme.onSurface,
                                       ),
                                 ),
                               ),
@@ -411,7 +483,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                     ? Icons.keyboard_arrow_up_rounded
                                     : Icons.keyboard_arrow_down_rounded,
                                 size: 20,
-                                color: Colors.white.withValues(alpha: 0.50),
+                                color: scheme.onSurfaceVariant,
                               ),
                             ],
                           ),
@@ -435,7 +507,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                         hintText: 'Song or artist name...',
                                         hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                               fontSize: 12.5,
-                                              color: Colors.white.withValues(alpha: 0.35),
+                                              color: scheme.onSurfaceVariant,
                                             ),
                                         isDense: true,
                                         contentPadding: const EdgeInsets.symmetric(
@@ -476,19 +548,22 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                       child: Text(
                                         'No alternate lyrics found on LRCLIB.',
                                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                              color: Colors.white.withValues(alpha: 0.50),
+                                              color: scheme.onSurfaceVariant,
                                               fontSize: 12,
                                             ),
                                       ),
                                     ),
                                   )
                                 else
-                                  ListView.separated(
-                                    shrinkWrap: true,
-                                    physics: const NeverScrollableScrollPhysics(),
-                                    itemCount: _candidates.length,
-                                    separatorBuilder: (_, _) => const SizedBox(height: 6),
-                                    itemBuilder: (context, index) {
+                                  ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxHeight: 220),
+                                    child: ListView.separated(
+                                      shrinkWrap: true,
+                                      padding: EdgeInsets.zero,
+                                      itemCount: _candidates.length,
+                                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                                      itemBuilder: (context, index) {
                                       final c = _candidates[index];
                                       final trackDur = widget.player.duration?.inSeconds ?? 0;
                                       final durSec = c.duration.round();
@@ -675,6 +750,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                       );
                                     },
                                   ),
+                                ),
                               ],
                             ],
                           ),

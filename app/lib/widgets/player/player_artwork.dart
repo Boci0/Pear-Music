@@ -387,7 +387,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             child: IgnorePointer(
                               ignoring: !isLyricsFullyOpen,
                               child: PlayerPillButton(
-                                tooltip: 'Lyrics timing & options',
+                                tooltip: 'Lyrics options',
                                 activeColor: baseShadowColor,
                                 isActive: false,
                                 onTap: () {
@@ -412,7 +412,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                                     ),
                                     SizedBox(width: 4.5),
                                     Text(
-                                      'Timing',
+                                      'Options',
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
