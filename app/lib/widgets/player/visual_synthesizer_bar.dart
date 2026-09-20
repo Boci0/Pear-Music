@@ -40,11 +40,11 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   bool _windowFocused = true;
   double _decayActivity = 0.0;
 
-  /// Repaint gate: bar motion is recomputed on every frame, but the canvas
-  /// only repaints at ~30 fps. The full-rate spectrum repaint is the heaviest
-  /// continuous cost while music plays and 30 fps still reads as smooth.
+  /// Repaint gate: the canvas repaints on every tick, so the bars move at the
+  /// display's refresh rate instead of a stepped 30 fps. Repaints stay cheap
+  /// because the painter shares one gradient shader across all bars per frame,
+  /// and the whole ticker parks whenever the window is unfocused or paused.
   final ValueNotifier<int> _paintTick = ValueNotifier<int>(0);
-  int _lastPaintMs = 0;
 
   StreamSubscription<List<double>>? _fftSub;
   StreamSubscription<Duration>? _positionSub;
@@ -459,14 +459,11 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       }
     }
 
-    // ~30 fps repaint cap. The physics above still runs every frame (motion
-    // speed comes from wall-clock deltas), only the canvas refresh is
-    // throttled: the full-rate spectrum repaint is the heaviest continuous
-    // cost while music plays.
-    if (nowMs - _lastPaintMs >= 32) {
-      _lastPaintMs = nowMs;
-      _requestPaint();
-    }
+    // Repaint on every tick (display refresh rate). This used to be throttled
+    // to ~30 fps because the full-rate spectrum repaint was the heaviest
+    // continuous cost; the painter now reuses a single gradient shader for all
+    // bars, so full-rate repaints stay cheap and the motion reads as fluid.
+    _requestPaint();
   }
 
   void _requestPaint() {
@@ -664,8 +661,17 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final barBottomColor = accentColor.withValues(alpha: 0.78 + (0.18 * act));
     final barTopColor = Color.lerp(accentColor, Colors.white, 0.50)!.withValues(alpha: 0.95);
 
-    // The gradients are identical for every bar, so the gradient objects are
-    // built once per frame and only the per-bar shaders are created below.
+    // One shader per frame for the whole bar band instead of one per bar:
+    // every bar is anchored at the band's bottom, so a shared vertical
+    // gradient still runs from the accent base up to the white tip, and tall
+    // bars reach further into the light. This drops ~48 createShader calls per
+    // frame down to two, which is what makes full-rate repaints affordable.
+    final bandRect = Rect.fromLTWH(
+      0,
+      size.height - bottomPadding - maxBarHeight,
+      size.width,
+      maxBarHeight,
+    );
     final barGradient = LinearGradient(
       begin: Alignment.bottomCenter,
       end: Alignment.topCenter,
@@ -680,9 +686,9 @@ class _ArtworkVisualizerPainter extends CustomPainter {
       ],
     );
 
-    // Two reusable paints instead of fresh Paint objects per bar per frame.
-    final trailPaint = Paint();
-    final barPaint = Paint();
+    // Two reusable paints, each with a shared shader, for all bars per frame.
+    final trailPaint = Paint()..shader = trailGradient.createShader(bandRect);
+    final barPaint = Paint()..shader = barGradient.createShader(bandRect);
 
     for (int i = 0; i < totalBars; i++) {
       double amp = 0.0;
@@ -695,17 +701,18 @@ class _ArtworkVisualizerPainter extends CustomPainter {
 
       final barX = startX + i * (barWidth + spacing);
 
-      // Trailing buffer ghost bar (lighter tint, slow descent)
+      // Trailing buffer ghost bar (lighter tint, slow descent). Skip ghosts
+      // that barely peek above the live bar; they only cost a draw.
       if (trailAmp > amp) {
         final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * act;
-        final trailY = size.height - bottomPadding - trailH;
-        final trailRect = RRect.fromRectAndRadius(
-          Rect.fromLTWH(barX, trailY, barWidth, trailH),
-          radius,
-        );
-        trailPaint.shader = trailGradient
-            .createShader(Rect.fromLTWH(barX, trailY, barWidth, trailH));
-        canvas.drawRRect(trailRect, trailPaint);
+        if (trailH > minBarHeight + 2.0) {
+          final trailY = size.height - bottomPadding - trailH;
+          final trailRect = RRect.fromRectAndRadius(
+            Rect.fromLTWH(barX, trailY, barWidth, trailH),
+            radius,
+          );
+          canvas.drawRRect(trailRect, trailPaint);
+        }
       }
 
       // Foreground active bar
@@ -716,9 +723,6 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         Rect.fromLTWH(barX, barY, barWidth, barH),
         radius,
       );
-
-      barPaint.shader = barGradient
-          .createShader(Rect.fromLTWH(barX, barY, barWidth, barH));
 
       canvas.drawRRect(barRect, barPaint);
     }
