@@ -247,30 +247,39 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         val executor = Executors.newSingleThreadExecutor()
         executor.execute {
             val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-            val wakeLock = powerManager?.newWakeLock(
-                android.os.PowerManager.PARTIAL_WAKE_LOCK,
-                "peerm:apk_update_wakelock"
-            )?.apply {
-                setReferenceCounted(false)
-                acquire(10 * 60 * 1000L)
+            var wakeLock: android.os.PowerManager.WakeLock? = null
+
+            // Slow connections can outlive the initial lock window, so the
+            // lock is released and re-acquired during the transfer instead of
+            // expiring mid-flight (which would let the CPU suspend and stall
+            // the socket).
+            fun refreshWakeLock() {
+                try {
+                    if (wakeLock == null) {
+                        wakeLock = powerManager?.newWakeLock(
+                            android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                            "peerm:apk_update_wakelock"
+                        )?.apply { setReferenceCounted(false) }
+                    }
+                    val lock = wakeLock ?: return
+                    if (lock.isHeld) lock.release()
+                    lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "Wake lock refresh failed: ${e.message}")
+                }
             }
+
+            refreshWakeLock()
 
             try {
                 val destFile = File(ctx.cacheDir, fileName)
+                val partFile = File(ctx.cacheDir, "$fileName.part")
+                val metaFile = File(ctx.cacheDir, "$fileName.part.meta")
 
                 // Reuse already downloaded and verified APK if present
                 if (!expectedSha256.isNullOrBlank() && destFile.exists() && destFile.length() > 0) {
                     try {
-                        val digest = java.security.MessageDigest.getInstance("SHA-256")
-                        destFile.inputStream().use { stream ->
-                            val buf = ByteArray(16384)
-                            var n: Int
-                            while (stream.read(buf).also { n = it } != -1) {
-                                digest.update(buf, 0, n)
-                            }
-                        }
-                        val currentHash = digest.digest().joinToString("") { "%02x".format(it) }
-                        if (currentHash.equals(expectedSha256.trim().lowercase(), ignoreCase = false)) {
+                        if (sha256OfFile(destFile).equals(expectedSha256.trim().lowercase(), ignoreCase = false)) {
                             android.util.Log.i(TAG, "Cached APK already verified: ${destFile.absolutePath}")
                             handleApkReady(ctx, destFile, notificationId, result)
                             return@execute
@@ -280,125 +289,279 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     }
                 }
 
-                var currentUrl = url
-                var connection: java.net.HttpURLConnection? = null
-                var redirects = 0
-                val maxRedirects = 6
-
-                while (redirects < maxRedirects) {
-                    val u = java.net.URL(currentUrl)
-                    connection = (u.openConnection() as java.net.HttpURLConnection).apply {
-                        connectTimeout = 15000
-                        readTimeout = 30000
-                        instanceFollowRedirects = true
-                        setRequestProperty("User-Agent", "PearMusic-Updater (Android)")
-                    }
-                    val code = connection.responseCode
-                    if (code == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
-                        code == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
-                        code == java.net.HttpURLConnection.HTTP_SEE_OTHER ||
-                        code == 307 || code == 308) {
-                        val location = connection.getHeaderField("Location")
-                        connection.disconnect()
-                        if (location != null && location.isNotEmpty()) {
-                            currentUrl = if (location.startsWith("http")) location else java.net.URL(u, location).toString()
-                            redirects++
-                            continue
-                        }
-                    }
-                    if (code != java.net.HttpURLConnection.HTTP_OK) {
-                        throw Exception("Server returned HTTP $code")
-                    }
-                    break
-                }
-
-                if (connection == null || connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                    throw Exception("Failed to open connection to update package")
-                }
-
                 // Integrity gate: refuse to install without an expected hash.
                 if (expectedSha256.isNullOrBlank()) {
                     destFile.delete()
+                    partFile.delete()
+                    metaFile.delete()
                     notificationManager.cancel(notificationId)
                     mainHandler.post {
                         result.error("hash_missing", "Release has no SHA-256 verification data; update aborted.", null)
                     }
                     return@execute
                 }
-                val digest = java.security.MessageDigest.getInstance("SHA-256")
 
-                val fileLength = connection.contentLength
-                val input = java.io.BufferedInputStream(connection.inputStream)
-                val output = java.io.FileOutputStream(destFile)
+                val expected = expectedSha256.trim().lowercase()
 
-                val data = ByteArray(16384)
-                var total: Long = 0
-                var count: Int
-                var lastProgress = 0
+                // A partial download only counts for the exact asset it came
+                // from. Anything else (newer release, re-uploaded asset) is
+                // discarded so a resume can never mix two different files.
+                val identity = "$expected\n$url"
+                val existingIdentity = try {
+                    if (metaFile.exists()) metaFile.readText() else null
+                } catch (_: Exception) {
+                    null
+                }
+                if (existingIdentity != identity) {
+                    partFile.delete()
+                    metaFile.delete()
+                }
 
-                while (input.read(data).also { count = it } != -1) {
-                    total += count
-                    digest.update(data, 0, count)
-                    output.write(data, 0, count)
-                    if (fileLength > 0) {
-                        val progress = ((total * 100) / fileLength).toInt().coerceIn(0, 100)
-                        if (progress - lastProgress >= 2 || progress == 100) {
-                            lastProgress = progress
-                            builder.setProgress(100, progress, false)
-                                .setContentText("$progress%")
-                            notificationManager.notify(notificationId, builder.build())
-                        }
-                    } else {
-                        val mb = String.format("%.1f MB", total / (1024.0 * 1024.0))
-                        builder.setProgress(0, 0, true)
-                            .setContentText(mb)
+                var attempt = 0
+                var lastError: Exception? = null
+                while (attempt < MAX_DOWNLOAD_ATTEMPTS) {
+                    attempt++
+                    if (attempt > 1) {
+                        builder.setContentTitle("Resuming update download...")
+                            .setContentText("Retrying (attempt $attempt of $MAX_DOWNLOAD_ATTEMPTS)")
                         notificationManager.notify(notificationId, builder.build())
+                        try {
+                            Thread.sleep((attempt - 1) * 2000L)
+                        } catch (_: InterruptedException) {
+                        }
+                        refreshWakeLock()
+                    }
+                    try {
+                        downloadApkToPartFile(
+                            url = url,
+                            partFile = partFile,
+                            metaFile = metaFile,
+                            identity = identity,
+                            expected = expected,
+                            notificationManager = notificationManager,
+                            notificationId = notificationId,
+                            builder = builder,
+                            refreshWakeLock = { refreshWakeLock() },
+                        )
+                        lastError = null
+                        break
+                    } catch (e: Exception) {
+                        lastError = e
+                        android.util.Log.w(TAG, "APK download attempt $attempt failed: ${e.message}")
                     }
                 }
-                output.flush()
-                output.close()
-                input.close()
-                connection.disconnect()
 
-                // Verify the streamed SHA-256 before handing off to the
-                // package installer. Delete the file immediately on mismatch.
-                val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-                if (!actualHash.equals(expectedSha256.trim().lowercase(), ignoreCase = false)) {
-                    android.util.Log.e(TAG, "APK checksum mismatch: $actualHash != $expectedSha256")
-                    destFile.delete()
-                    builder.setContentTitle("Update verification failed")
-                        .setContentText("Checksum mismatch; download deleted.")
-                        .setOngoing(false)
-                        .setProgress(0, 0, false)
-                        .setSmallIcon(android.R.drawable.stat_notify_error)
-                    notificationManager.notify(notificationId, builder.build())
-                    mainHandler.post {
-                        result.error("hash_mismatch", "SHA-256 checksum mismatch; update aborted.", null)
-                    }
-                    return@execute
+                lastError?.let { throw it }
+
+                // Move the verified download into place so the Dart side can
+                // reuse it for a direct install.
+                if (destFile.exists()) destFile.delete()
+                if (!partFile.renameTo(destFile)) {
+                    partFile.copyTo(destFile, overwrite = true)
+                    partFile.delete()
                 }
+                metaFile.delete()
 
                 handleApkReady(ctx, destFile, notificationId, result)
             } catch (e: Exception) {
-                builder.setContentTitle("Update download failed")
+                val failedChecksum = e is ApkUpdateException && e.code == UPDATE_ERROR_HASH_MISMATCH
+                builder.setContentTitle(if (failedChecksum) "Update verification failed" else "Update download failed")
                     .setContentText(e.message ?: "Unknown error")
                     .setOngoing(false)
                     .setProgress(0, 0, false)
                     .setSmallIcon(android.R.drawable.stat_notify_error)
                 notificationManager.notify(notificationId, builder.build())
                 mainHandler.post {
-                    result.error("download_failed", e.message, null)
+                    result.error(
+                        if (failedChecksum) UPDATE_ERROR_HASH_MISMATCH else UPDATE_ERROR_DOWNLOAD_FAILED,
+                        e.message,
+                        null
+                    )
                 }
             } finally {
                 try {
-                    if (wakeLock?.isHeld == true) {
-                        wakeLock.release()
+                    val lock = wakeLock
+                    if (lock?.isHeld == true) {
+                        lock.release()
                     }
                 } catch (_: Exception) {}
                 executor.shutdown()
             }
         }
     }
+
+    /// Downloads (or resumes) the update into [partFile] and verifies it
+    /// against [expected]. Throws on any failure; the part file is kept for a
+    /// later resume except when its contents are proven wrong.
+    private fun downloadApkToPartFile(
+        url: String,
+        partFile: File,
+        metaFile: File,
+        identity: String,
+        expected: String,
+        notificationManager: android.app.NotificationManager,
+        notificationId: Int,
+        builder: androidx.core.app.NotificationCompat.Builder,
+        refreshWakeLock: () -> Unit,
+    ) {
+        if (!metaFile.exists()) {
+            metaFile.writeText(identity)
+        }
+        var existingBytes = if (partFile.exists()) partFile.length() else 0L
+
+        // Follow redirects manually so the Range header survives the
+        // github.com -> CDN hop on resumed downloads.
+        var connection: java.net.HttpURLConnection? = null
+        var currentUrl = url
+        var redirects = 0
+        var code = 0
+        while (redirects <= MAX_REDIRECTS) {
+            val u = java.net.URL(currentUrl)
+            val conn = (u.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 30000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "PearMusic-Updater (Android)")
+                if (existingBytes > 0) {
+                    setRequestProperty("Range", "bytes=$existingBytes-")
+                }
+            }
+            code = conn.responseCode
+            if (code == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
+                code == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
+                code == java.net.HttpURLConnection.HTTP_SEE_OTHER ||
+                code == 307 || code == 308) {
+                val location = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (location.isNullOrEmpty()) break
+                currentUrl = if (location.startsWith("http")) location else java.net.URL(u, location).toString()
+                redirects++
+                continue
+            }
+            connection = conn
+            break
+        }
+
+        if (connection == null ||
+            (code != java.net.HttpURLConnection.HTTP_OK && code != 206 && code != 416)) {
+            connection?.disconnect()
+            throw Exception("Server returned HTTP $code")
+        }
+
+        // 416: the offset we asked for is at or past the end of the remote
+        // file. If the part file already hashes correctly it simply finished
+        // in an earlier run (the app died before it was renamed); otherwise it
+        // is unusable and the next attempt starts over.
+        if (code == 416) {
+            connection.disconnect()
+            if (partFile.exists() && sha256OfFile(partFile).equals(expected, ignoreCase = false)) {
+                return
+            }
+            partFile.delete()
+            metaFile.delete()
+            throw Exception("Partial download out of range; restarting")
+        }
+
+        if (code == 200 && existingBytes > 0) {
+            // The server ignored the Range request: start clean.
+            existingBytes = 0L
+        }
+
+        val remainingBytes = connection.contentLength.toLong()
+        val totalBytes = if (remainingBytes > 0) existingBytes + remainingBytes else -1L
+
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        if (existingBytes > 0) {
+            // Seed the digest with the bytes already on disk so the running
+            // hash still covers the whole file.
+            java.io.FileInputStream(partFile).use { fin ->
+                val buf = ByteArray(DOWNLOAD_BUFFER_SIZE)
+                var n: Int
+                while (fin.read(buf).also { n = it } != -1) {
+                    digest.update(buf, 0, n)
+                }
+            }
+        }
+
+        val input = java.io.BufferedInputStream(connection.inputStream, DOWNLOAD_BUFFER_SIZE)
+        val output = java.io.BufferedOutputStream(
+            java.io.FileOutputStream(partFile, existingBytes > 0),
+            DOWNLOAD_BUFFER_SIZE
+        )
+
+        var received = 0L
+        var written = existingBytes
+        var lastProgress = -1
+        var lastWakeCheck = android.os.SystemClock.elapsedRealtime()
+        try {
+            val data = ByteArray(DOWNLOAD_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(data)
+                if (count == -1) break
+                received += count
+                written += count
+                digest.update(data, 0, count)
+                output.write(data, 0, count)
+
+                if (totalBytes > 0) {
+                    val progress = ((written * 100) / totalBytes).toInt().coerceIn(0, 100)
+                    if (progress - lastProgress >= 2 || progress == 100) {
+                        lastProgress = progress
+                        builder.setProgress(100, progress, false)
+                            .setContentText("$progress%")
+                        notificationManager.notify(notificationId, builder.build())
+                    }
+                } else {
+                    val mb = String.format("%.1f MB", written / (1024.0 * 1024.0))
+                    builder.setProgress(0, 0, true)
+                        .setContentText(mb)
+                    notificationManager.notify(notificationId, builder.build())
+                }
+
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastWakeCheck > WAKE_REFRESH_INTERVAL_MS) {
+                    lastWakeCheck = now
+                    refreshWakeLock()
+                }
+            }
+        } finally {
+            try { output.flush() } catch (_: Exception) {}
+            try { output.close() } catch (_: Exception) {}
+            try { input.close() } catch (_: Exception) {}
+            try { connection.disconnect() } catch (_: Exception) {}
+        }
+
+        if (remainingBytes > 0 && received < remainingBytes) {
+            // Clean EOF before the promised byte count: the transfer was cut
+            // short. Keep the bytes so the next attempt can resume.
+            throw Exception("Connection closed early (${received} of ${remainingBytes} bytes)")
+        }
+
+        val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+        if (!actualHash.equals(expected, ignoreCase = false)) {
+            android.util.Log.e(TAG, "APK checksum mismatch: $actualHash != $expected")
+            partFile.delete()
+            metaFile.delete()
+            throw ApkUpdateException(
+                UPDATE_ERROR_HASH_MISMATCH,
+                "Checksum mismatch; the partial download was deleted and will restart."
+            )
+        }
+    }
+
+    private fun sha256OfFile(file: File): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        java.io.FileInputStream(file).use { stream ->
+            val buf = ByteArray(DOWNLOAD_BUFFER_SIZE)
+            var n: Int
+            while (stream.read(buf).also { n = it } != -1) {
+                digest.update(buf, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private class ApkUpdateException(val code: String, message: String) : Exception(message)
 
     private fun handleApkReady(
         ctx: Context,
@@ -779,5 +942,14 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         private const val CHANNEL = "peerm/ytdlp"
         private const val EVENTS = "peerm/ytdlp/progress"
         private const val TAG = "peerm_ytdlp"
+
+        // APK updater: resume, retry and wake lock tuning.
+        private const val MAX_DOWNLOAD_ATTEMPTS = 4
+        private const val MAX_REDIRECTS = 6
+        private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
+        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
+        private const val WAKE_REFRESH_INTERVAL_MS = 10 * 60 * 1000L
+        private const val UPDATE_ERROR_HASH_MISMATCH = "hash_mismatch"
+        private const val UPDATE_ERROR_DOWNLOAD_FAILED = "download_failed"
     }
 }

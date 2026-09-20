@@ -351,6 +351,11 @@ class UpdateService {
           if (actual.toLowerCase() == expected.trim().toLowerCase()) {
             return apkFile;
           }
+          // The cached file belongs to an older release or is corrupt:
+          // remove it so the downloader starts clean and the space is freed.
+          try {
+            await apkFile.delete();
+          } catch (_) {}
         }
       } else if (defaultTargetPlatform == TargetPlatform.windows &&
           info.zipUrl != null) {
@@ -362,6 +367,11 @@ class UpdateService {
           if (actual.toLowerCase() == expected.trim().toLowerCase()) {
             return zipFile;
           }
+          // Stale or corrupt download from an older attempt: delete it so
+          // the updater starts clean and the space is freed.
+          try {
+            await zipFile.delete();
+          } catch (_) {}
         }
       }
     } catch (e) {
