@@ -26,6 +26,15 @@ class LibraryProfile {
   static String? videoIdOf(Song song) =>
       _videoIdTag.firstMatch(song.fileName)?.group(1);
 
+  /// True when [content] carries the library profile marker. Playlist exports
+  /// do not, so importers can reject the wrong kind of M3U up front.
+  static bool isProfile(String content) {
+    for (final raw in content.split(RegExp(r'\r?\n'))) {
+      if (raw.trim() == marker) return true;
+    }
+    return false;
+  }
+
   /// Builds the profile file content for [songs]. Local-only songs are
   /// skipped and duplicate YouTube IDs are collapsed (first occurrence wins,
   /// library order is kept). YouTube IDs in [favoriteVideoIds] are marked

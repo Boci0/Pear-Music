@@ -216,4 +216,23 @@ not a link
       expect(online.first.artwork, 'https://example.com/one.jpg');
     });
   });
+
+  group('LibraryProfile.isProfile', () {
+    test('accepts files carrying the profile marker', () {
+      final built = LibraryProfile.build([
+        _song(id: 'a', title: 'One', fileName: 'a [dQw4w9WgXcQ].webm'),
+      ])!;
+      expect(LibraryProfile.isProfile(built), isTrue);
+    });
+
+    test('rejects playlist exports so importers can tell them apart', () {
+      const playlist = '''
+#EXTM3U
+#PLAYLIST:My Mix
+#EXTINF:-1,Song One
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+''';
+      expect(LibraryProfile.isProfile(playlist), isFalse);
+    });
+  });
 }

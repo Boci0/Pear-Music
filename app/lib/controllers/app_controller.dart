@@ -358,6 +358,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (!await file.exists()) return;
 
       final content = await file.readAsString();
+      if (LibraryProfile.isProfile(content)) {
+        _postMessage(
+          'That file is a library profile, not a playlist. Use Import Library Profile from the library header.',
+        );
+        return;
+      }
       final lines = content.split(RegExp(r'\r?\n'));
       final songIds = <String>[];
       final m3uDir = p.dirname(filePath);
@@ -718,6 +724,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
       onStatus?.call('Reading profile…');
       final fileContent = await file.readAsString();
+      if (!LibraryProfile.isProfile(fileContent)) {
+        _postMessage(
+          'That file is a playlist, not a library profile. Import playlists from the Playlists tab.',
+        );
+        return null;
+      }
       final entries = LibraryProfile.parse(fileContent);
       final favoriteIds = LibraryProfile.parseFavoriteIds(fileContent);
       final onlineFavorites = LibraryProfile.parseOnlineFavorites(fileContent);
