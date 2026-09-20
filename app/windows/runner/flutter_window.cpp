@@ -36,6 +36,11 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "peerm/window_focus",
           &flutter::StandardMethodCodec::GetInstance());
 
+  media_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "peerm/media_keys",
+          &flutter::StandardMethodCodec::GetInstance());
+
   updater_channel_->SetMethodCallHandler(
       [](const flutter::MethodCall<flutter::EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -110,6 +115,7 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   updater_channel_ = nullptr;
   focus_channel_ = nullptr;
+  media_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -145,6 +151,31 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         focus_channel_->InvokeMethod(
             "onActivate",
             std::make_unique<flutter::EncodableValue>(active));
+      }
+      break;
+    }
+
+    case WM_APPCOMMAND: {
+      // Hardware media keys arrive here and the Flutter engine has no use for
+      // them, so forward the transport commands to Dart and swallow them.
+      const int command = GET_APPCOMMAND_LPARAM(lparam);
+      const char* method = nullptr;
+      switch (command) {
+        case APPCOMMAND_MEDIA_PLAY_PAUSE:
+          method = "playPause";
+          break;
+        case APPCOMMAND_MEDIA_NEXTTRACK:
+          method = "next";
+          break;
+        case APPCOMMAND_MEDIA_PREVIOUSTRACK:
+          method = "previous";
+          break;
+        default:
+          break;
+      }
+      if (method != nullptr && media_channel_) {
+        media_channel_->InvokeMethod(method, nullptr);
+        return TRUE;
       }
       break;
     }

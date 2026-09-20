@@ -40,6 +40,10 @@ class FlutterWindow : public Win32Window {
   // Windows only reports minimize/restore, so the visualizer cannot otherwise
   // learn that the window lost focus while still being visible.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> focus_channel_;
+
+  // Forwards hardware media keys (delivered as WM_APPCOMMAND on Windows, which
+  // the Flutter engine ignores) so they can drive playback controls.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> media_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

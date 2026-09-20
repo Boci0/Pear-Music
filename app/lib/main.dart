@@ -14,6 +14,7 @@ import 'services/debug_log.dart';
 import 'services/identity_service.dart';
 import 'services/library_service.dart';
 import 'services/lyrics_display.dart';
+import 'services/media_keys.dart';
 import 'services/pear_audio_handler.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
@@ -21,6 +22,7 @@ import 'services/self_test_service.dart';
 import 'services/session_diagnostics.dart';
 import 'services/window_focus.dart';
 import 'services/youtube_service.dart';
+import 'widgets/playback_shortcuts.dart';
 
 Future<void> main([List<String> args = const []]) async {
   runZonedGuarded(() async {
@@ -124,6 +126,8 @@ Future<void> _bootstrapAndRunApp() async {
     identity: identity,
     audioHandler: audioHandler,
   );
+  // Hardware media keys (Windows forwards WM_APPCOMMAND over this channel).
+  MediaKeys.init(player);
   final youtube = YoutubeService();
   unawaited(YoutubeService.checkDesktopYtDlpUpdate());
   unawaited(YoutubeService.cleanupOrphanedTempDirs());
@@ -171,6 +175,12 @@ class PearMusicApp extends StatelessWidget {
             title: 'Pear Music',
             debugShowCheckedModeBanner: false,
             theme: theme,
+            // App-wide playback keys (media keys and Ctrl+Alt combos) wrap
+            // every route, so they work from any screen while a song is
+            // loaded. Text fields keep priority, so typing never triggers
+            // playback.
+            builder: (context, child) =>
+                PlaybackShortcuts(child: child ?? const SizedBox.shrink()),
             home: const _MessagesListener(child: HomeShell()),
           );
         },
