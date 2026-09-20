@@ -485,7 +485,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                   Expanded(
                     child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 140),
+                      // Same row inset as the library (tile padding only).
+                      padding: const EdgeInsets.fromLTRB(0, 4, 0, 140),
                       itemExtent: 61.0,
                       itemCount: _results.length,
                       itemBuilder: (context, index) {
@@ -695,7 +696,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                   if (_recommendedResults.isNotEmpty)
                     SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      // Matches the library rows: the tile already carries its
+                      // own 10px side padding, so no extra inset here.
+                      padding: EdgeInsets.zero,
                       sliver: SliverFixedExtentList(
                         itemExtent: 61.0,
                         delegate: SliverChildBuilderDelegate(
