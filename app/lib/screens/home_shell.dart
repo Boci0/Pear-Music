@@ -11,6 +11,7 @@ import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import '../widgets/tactile_button.dart';
 import 'explore_screen.dart';
+import 'history_screen.dart';
 import 'home_screen.dart';
 import 'playlists_screen.dart';
 import 'settings_screen.dart';
@@ -37,6 +38,7 @@ class _HomeShellState extends State<HomeShell> {
       ),
     ),
     ExploreScreen(isActive: _index == 2),
+    const HistoryScreen(),
     const SettingsScreen(),
   ];
 
@@ -168,7 +170,7 @@ class _MinimalistNavBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final itemWidth = constraints.maxWidth / 4;
+            final itemWidth = constraints.maxWidth / 5;
             return Stack(
               children: [
                 // Gliding solid pill indicator across tabs
@@ -220,10 +222,18 @@ class _MinimalistNavBar extends StatelessWidget {
                     _NavBarItem(
                       index: 3,
                       selectedIndex: selectedIndex,
+                      label: 'History',
+                      inactiveIcon: Icons.history_outlined,
+                      activeIcon: Icons.history_rounded,
+                      onTap: () => onDestinationSelected(3),
+                    ),
+                    _NavBarItem(
+                      index: 4,
+                      selectedIndex: selectedIndex,
                       label: 'Settings',
                       inactiveIcon: Icons.settings_outlined,
                       activeIcon: Icons.settings_rounded,
-                      onTap: () => onDestinationSelected(3),
+                      onTap: () => onDestinationSelected(4),
                     ),
                   ],
                 ),

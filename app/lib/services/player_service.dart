@@ -13,6 +13,7 @@ import '../models/song.dart';
 import 'artwork_palette.dart';
 import 'artwork_service.dart';
 import 'debug_log.dart';
+import 'history_service.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
 import 'lyrics_service.dart';
@@ -45,6 +46,9 @@ enum StreamRouteType {
 class PlayerService extends ChangeNotifier {
   final LibraryService library;
   final IdentityService? identity;
+
+  /// Optional play log. Every track that starts playing is recorded here.
+  final HistoryService? history;
   late final AudioPlayer _player;
   AndroidLoudnessEnhancer? _loudnessEnhancer;
   bool _loudnessNormalization = true;
@@ -103,7 +107,8 @@ class PlayerService extends ChangeNotifier {
   final List<StreamSubscription> _subs = [];
   final PearAudioHandler? audioHandler;
 
-  PlayerService(this.library, {this.identity, this.audioHandler, AudioPlayer? player}) {
+  PlayerService(this.library,
+      {this.identity, this.audioHandler, AudioPlayer? player, this.history}) {
     _player = player ?? AudioPlayer();
     if (identity != null) {
       _autoRerollSeed = identity!.autoRerollSeed;
@@ -955,6 +960,19 @@ class PlayerService extends ChangeNotifier {
 
   int _playRequestToken = 0;
 
+  /// Logs [song] as played. Stream songs are also registered as known online
+  /// songs so the history row can still resolve its title/artwork later (they
+  /// are not in the library until the user saves them).
+  void _recordHistory(Song song) {
+    final log = history;
+    if (log == null) return;
+    final id = identity;
+    if (id != null && song.sourceDeviceId == 'stream') {
+      unawaited(id.registerOnlineSong(song));
+    }
+    log.record(song);
+  }
+
   /// Play [song], optionally in the context of [queue] (e.g. a playlist).
   Future<void> playSong(
     Song song, {
@@ -1020,6 +1038,7 @@ class PlayerService extends ChangeNotifier {
     _pendingNaturalAdvance = false;
     _lastTrackLoadMs = -1;
     _updateActiveQueueCacheProtection();
+    _recordHistory(song);
     DebugLog.write(
       '[player] === playSong START === token=$token '
       'song="${song.title}" id=${song.id} source=${song.sourceDeviceId} '

@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'controllers/app_controller.dart';
 import 'screens/home_shell.dart';
 import 'services/debug_log.dart';
+import 'services/history_service.dart';
 import 'services/identity_service.dart';
 import 'services/library_service.dart';
 import 'services/lyrics_display.dart';
@@ -121,10 +122,12 @@ Future<void> _bootstrapAndRunApp() async {
   final identity = IdentityService(prefs);
   await LyricsDisplay.init(prefs);
   final library = LibraryService();
+  final history = HistoryService(prefs);
   final player = PlayerService(
     library,
     identity: identity,
     audioHandler: audioHandler,
+    history: history,
   );
   // Hardware media keys (Windows forwards WM_APPCOMMAND over this channel).
   MediaKeys.init(player);
@@ -137,21 +140,28 @@ Future<void> _bootstrapAndRunApp() async {
     library: library,
     player: player,
     youtube: youtube,
+    history: history,
   );
   await controller.init();
 
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);
-  runApp(PearMusicApp(controller: controller, playerTheme: playerTheme));
+  runApp(PearMusicApp(
+    controller: controller,
+    playerTheme: playerTheme,
+    history: history,
+  ));
 }
 
 class PearMusicApp extends StatelessWidget {
   final AppController controller;
   final PlayerTheme playerTheme;
+  final HistoryService history;
   const PearMusicApp({
     super.key,
     required this.controller,
     required this.playerTheme,
+    required this.history,
   });
 
   @override
@@ -162,6 +172,7 @@ class PearMusicApp extends StatelessWidget {
         ChangeNotifierProvider<IdentityService>.value(value: controller.identity),
         ChangeNotifierProvider<LibraryService>.value(value: controller.library),
         ChangeNotifierProvider<PlayerService>.value(value: controller.player),
+        ChangeNotifierProvider<HistoryService>.value(value: history),
         ChangeNotifierProvider<PlayerTheme>.value(value: playerTheme),
       ],
       // The whole app's theme is re-seeded from the current song's artwork

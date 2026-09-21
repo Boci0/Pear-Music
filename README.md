@@ -25,6 +25,7 @@
 * **Offline-First Playback**: Fast local audio playback from device storage, with automatic fallback to local tracks when offline.
 * **Endless Play**: Automatically queues related track recommendations when your current queue finishes, with background pre-buffering so the next track starts quickly.
 * **Save to Library & Favorites**: Bookmark streamed tracks and search results into your favorites and playlists with a single tap, with one heart shared across a song's stream, search, and library copies.
+* **Listening History**: A History tab keeps the tracks you played in order, local files and online streams side by side, so you can jump back into any of them; clearing it never touches your library.
 * **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with album artwork on the Android lockscreen, the notification shade, and Windows Media Transport Controls (SMTC). Hardware media keys work on desktop.
 * **Sleep Timer & Playback Speed**: Sleep triggers for the end of the track, a countdown, or the end of the queue; playback speed from 0.5x to 2.0x; and loudness normalization to even out volume between tracks.
 * **Performance & Diagnostics**: Reduced Effects mode for battery savings, streaming cache management with live usage stats, and a diagnostics console for stream and cache activity.

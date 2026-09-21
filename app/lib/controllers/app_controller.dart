@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
+import '../services/history_service.dart';
 import '../services/identity_service.dart';
 import '../services/library_profile.dart';
 import '../services/library_service.dart';
@@ -35,11 +36,16 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final PlayerService player;
   final YoutubeService youtube;
 
+  /// Play log backing the History tab. Optional so tests and any host that
+  /// does not need history can omit it.
+  final HistoryService? history;
+
   AppController({
     required this.identity,
     required this.library,
     required this.player,
     required this.youtube,
+    this.history,
   });
 
   List<Song> get songs => library.songs;
@@ -47,7 +53,48 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Set<String> get favoriteSongIds => identity.favoriteSongIds;
   bool isFavorite(String songId) => identity.isFavorite(songId);
 
+  /// Played songs, most recent first, resolved against the library and the
+  /// known online songs. Entries whose song is gone are skipped, so a deleted
+  /// song never leaves a dead row behind, and a song played once as a stream
+  /// and once as its downloaded copy occupies a single row (the newest
+  /// representation wins), matching how favorites treat video copies.
+  List<Song> get historySongs {
+    final cached = _cachedHistorySongs;
+    if (cached != null) return cached;
+    final log = history;
+    if (log == null || log.isEmpty) return const [];
+    final result = <Song>[];
+    final seenIds = <String>{};
+    final seenVideoIds = <String>{};
+    for (final entry in log.entries) {
+      if (seenIds.contains(entry.songId)) continue;
+      final song = findSongById(entry.songId);
+      if (song == null) continue;
+      final videoId = _videoIdOf(song, entry.songId);
+      if (videoId != null) {
+        if (seenVideoIds.contains(videoId)) continue;
+        seenVideoIds.add(videoId);
+      }
+      result.add(song);
+      seenIds.add(entry.songId);
+    }
+    _cachedHistorySongs = result;
+    return result;
+  }
+
+  Future<void> clearHistory() async {
+    await history?.clear();
+    notifyListeners();
+  }
+
+  /// Drops history entries whose song is no longer reachable, so the stored
+  /// list stays short after library removals.
+  void _pruneHistory() {
+    history?.prune((id) => findSongById(id) != null);
+  }
+
   List<Song>? _cachedFavoriteSongs;
+  List<Song>? _cachedHistorySongs;
   List<Song>? _lastSortInput;
   SortOption? _lastSortOption;
   List<Song>? _lastSortResult;
@@ -58,6 +105,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void notifyListeners() {
     if (_disposed) return;
     _cachedFavoriteSongs = null;
+    _cachedHistorySongs = null;
     _lastSortInput = null;
     _lastSortResult = null;
     super.notifyListeners();
@@ -234,10 +282,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       () => library.removeListener(notifyListeners),
       () => player.removeListener(notifyListeners),
       () => identity.removeListener(notifyListeners),
+      if (history != null) () => history!.removeListener(notifyListeners),
     ]);
     library.addListener(notifyListeners);
     player.addListener(notifyListeners);
     identity.addListener(notifyListeners);
+    history?.addListener(notifyListeners);
 
     if (!_isLifecycleObserved) {
       try {
@@ -1153,6 +1203,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     player.removeSongsFromQueue({song.id});
     await identity.removeFavorite(song.id);
     await library.removeSong(song.id);
+    _pruneHistory();
     _postMessage('Removed "${song.title}"');
   }
 
@@ -1161,6 +1212,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     player.removeSongsFromQueue(songIds);
     await identity.removeFavorites(songIds);
     await library.removeSongs(songIds);
+    _pruneHistory();
     _postMessage('Removed ${songs.length} ${songs.length == 1 ? "song" : "songs"}');
     notifyListeners();
   }
