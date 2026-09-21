@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -225,54 +225,33 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
     final playerService = context.read<PlayerService?>();
-    // [glowAlpha] scales the halo brightness by baking it into the shadow
-    // alphas, so callers that never change it avoid an extra compositing layer
-    // per frame (the breathing path still animates via Opacity).
-    Widget buildGlow({double glowAlpha = 1.0}) => RepaintBoundary(
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              borderRadius: radius,
-              boxShadow: [
-                BoxShadow(
-                  color: baseShadowColor.withValues(alpha: 0.45 * glowAlpha),
-                  blurRadius: 36.0,
-                  spreadRadius: 2.0,
-                  offset: const Offset(0, 10),
-                ),
-                BoxShadow(
-                  color: baseShadowColor.withValues(alpha: 0.28 * glowAlpha),
-                  blurRadius: 18.0,
-                  spreadRadius: 1.0,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-          ),
-        );
-    final staticGlow = buildGlow();
 
     final Widget glowWidget;
     if (playerService != null && !reducedEffects) {
       glowWidget = RhythmPulseBuilder(
         player: playerService,
-        child: staticGlow,
-        builder: (context, aura, child) {
-          final opacity = (0.38 + (0.62 * aura)).clamp(0.0, 1.0);
-          return Opacity(
-            opacity: opacity,
-            child: child,
-          );
-        },
+        builder: (context, aura, child) => _GlowHalo(
+          size: size,
+          radius: radius,
+          color: baseShadowColor,
+          alpha: (0.38 + (0.62 * aura)).clamp(0.0, 1.0),
+        ),
       );
     } else if (playerService != null) {
-      // Reduced effects: keep the halo but park the breathing animation at a
-      // fixed mid brightness, baked into the shadow alphas so no extra
-      // compositing layer is needed while frames are being produced.
-      glowWidget = buildGlow(glowAlpha: 0.66);
+      // Reduced effects: the same halo, parked at a fixed mid brightness.
+      glowWidget = _GlowHalo(
+        size: size,
+        radius: radius,
+        color: baseShadowColor,
+        alpha: 0.66,
+      );
     } else {
-      glowWidget = staticGlow;
+      glowWidget = _GlowHalo(
+        size: size,
+        radius: radius,
+        color: baseShadowColor,
+        alpha: 1.0,
+      );
     }
 
     final Widget? glassBackdrop = (song != null && playerService != null)
@@ -283,7 +262,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
               child: Transform.scale(
                 scale: 1.15,
                 child: ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  imageFilter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                   child: imageWidget,
                 ),
               ),
@@ -870,5 +849,180 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
     }
     return button;
   }
+}
+
+/// Padding around the artwork card that fits both blurred shadows.
+const double _kGlowPad = 110.0;
+
+/// BoxShadow converts a blur radius into a sigma with this factor (plus 0.5).
+/// Matching it keeps the cached halo identical to the live shadows.
+const double _kGlowSigma1 = 36.0 * 0.57735 + 0.5;
+const double _kGlowSigma2 = 18.0 * 0.57735 + 0.5;
+
+/// Ambient accent glow for the artwork card. The two blurred shadows are
+/// rasterised once per size/radius/colour into a texture, and every frame then
+/// draws that texture with the breathing alpha in the paint. This removes two
+/// full gaussian blurs plus an opacity layer from each frame of the player
+/// scene while keeping the look identical.
+class _GlowHalo extends StatefulWidget {
+  final double size;
+  final BorderRadius radius;
+  final Color color;
+  final double alpha;
+
+  const _GlowHalo({
+    required this.size,
+    required this.radius,
+    required this.color,
+    required this.alpha,
+  });
+
+  @override
+  State<_GlowHalo> createState() => _GlowHaloState();
+}
+
+class _GlowHaloState extends State<_GlowHalo> {
+  ui.Image? _image;
+  int _generation = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_image == null) _render();
+  }
+
+  @override
+  void didUpdateWidget(covariant _GlowHalo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.size != widget.size ||
+        oldWidget.radius != widget.radius ||
+        oldWidget.color != widget.color) {
+      _render();
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _image?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _render() async {
+    final generation = ++_generation;
+    // Half device resolution is plenty for a soft halo and keeps the cached
+    // texture around 2 MB instead of roughly 9 MB at this card size.
+    final scale = (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) * 0.5;
+    final width = widget.size + _kGlowPad * 2;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.scale(scale);
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(_kGlowPad, _kGlowPad, widget.size, widget.size),
+      widget.radius.topLeft,
+    );
+    canvas.drawRRect(
+      rrect.inflate(2).shift(const Offset(0, 10)),
+      Paint()
+        ..color = widget.color.withValues(alpha: 0.45)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma1),
+    );
+    canvas.drawRRect(
+      rrect.inflate(1).shift(const Offset(0, 4)),
+      Paint()
+        ..color = widget.color.withValues(alpha: 0.28)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma2),
+    );
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      (width * scale).round(),
+      (width * scale).round(),
+    );
+    picture.dispose();
+    if (!mounted || generation != _generation) {
+      image.dispose();
+      return;
+    }
+    setState(() {
+      _image?.dispose();
+      _image = image;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: CustomPaint(
+        size: Size(widget.size, widget.size),
+        painter: _GlowPainter(
+          image: _image,
+          color: widget.color,
+          radius: widget.radius,
+          alpha: widget.alpha,
+        ),
+      ),
+    );
+  }
+}
+
+class _GlowPainter extends CustomPainter {
+  final ui.Image? image;
+  final Color color;
+  final BorderRadius radius;
+  final double alpha;
+
+  _GlowPainter({
+    required this.image,
+    required this.color,
+    required this.radius,
+    required this.alpha,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final image = this.image;
+    final a = alpha.clamp(0.0, 1.0).toDouble();
+    if (image != null) {
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Rect.fromLTWH(
+          -_kGlowPad,
+          -_kGlowPad,
+          size.width + _kGlowPad * 2,
+          size.height + _kGlowPad * 2,
+        ),
+        Paint()
+          ..filterQuality = FilterQuality.low
+          ..color = Color.fromRGBO(255, 255, 255, a),
+      );
+      return;
+    }
+    // First frame(s) before the texture is ready: draw the live shadows so
+    // there is no flash of missing glow.
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      radius.topLeft,
+    );
+    canvas.drawRRect(
+      rrect.inflate(2).shift(const Offset(0, 10)),
+      Paint()
+        ..color = color.withValues(alpha: 0.45 * a)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma1),
+    );
+    canvas.drawRRect(
+      rrect.inflate(1).shift(const Offset(0, 4)),
+      Paint()
+        ..color = color.withValues(alpha: 0.28 * a)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma2),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GlowPainter oldDelegate) =>
+      oldDelegate.image != image ||
+      oldDelegate.color != color ||
+      oldDelegate.alpha != alpha ||
+      oldDelegate.radius != radius;
 }
 
