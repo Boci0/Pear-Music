@@ -278,6 +278,10 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     await library.init();
     await player.init();
 
+    // Playback failures explain themselves through the same snackbar feed as
+    // library actions, so the user always learns why a track stopped.
+    _subs.add(player.userMessages.listen(_postMessage));
+
     _removeNotifierListeners.addAll([
       () => library.removeListener(notifyListeners),
       () => player.removeListener(notifyListeners),

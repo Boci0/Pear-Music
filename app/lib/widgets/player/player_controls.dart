@@ -40,11 +40,14 @@ class PlayerTransport extends StatelessWidget {
           LoopSetting.all => 'Repeat all (album)',
           LoopSetting.off => 'No repeat',
         };
-        final String? stateLabel = player.isLoadingRecommendations
-            ? 'Finding next tracks...'
-            : player.isBuffering
-                ? 'Buffering track...'
-                : null;
+        final playbackError = player.playbackError;
+        final String? stateLabel = playbackError != null
+            ? playbackError.label
+            : player.isLoadingRecommendations
+                ? 'Finding next tracks...'
+                : player.isBuffering
+                    ? 'Buffering track...'
+                    : null;
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -93,8 +96,12 @@ class PlayerTransport extends StatelessWidget {
             if (stateLabel != null)
               Text(
                 stateLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: effectiveAccent,
+                  color:
+                      playbackError != null ? scheme.error : effectiveAccent,
                 ),
               )
             else
@@ -132,6 +139,7 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
     final player = widget.player;
     final isBuffering = player.isBuffering;
     final isPlaying = player.playing;
+    final hasError = player.playbackError != null;
 
     final bgColor = _isPressed
         ? effectiveColor.withValues(alpha: 0.86)
@@ -157,11 +165,13 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
             onTapCancel: () => setState(() => _isPressed = false),
             behavior: HitTestBehavior.opaque,
             child: Tooltip(
-              message: isBuffering
-                  ? 'Buffering...'
-                  : isPlaying
-                      ? 'Pause'
-                      : 'Play',
+              message: hasError
+                  ? 'Retry'
+                  : isBuffering
+                      ? 'Buffering...'
+                      : isPlaying
+                          ? 'Pause'
+                          : 'Play',
               child: AnimatedScale(
                 scale: _isPressed ? 0.92 : (_isHovered ? 1.04 : 1.0),
                 duration: const Duration(milliseconds: 140),

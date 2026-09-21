@@ -21,6 +21,7 @@ import 'services/player_service.dart';
 import 'services/player_theme.dart';
 import 'services/self_test_service.dart';
 import 'services/session_diagnostics.dart';
+import 'services/stream_cache_manager.dart';
 import 'services/window_focus.dart';
 import 'services/youtube_service.dart';
 import 'widgets/playback_shortcuts.dart';
@@ -132,7 +133,10 @@ Future<void> _bootstrapAndRunApp() async {
   // Hardware media keys (Windows forwards WM_APPCOMMAND over this channel).
   MediaKeys.init(player);
   final youtube = YoutubeService();
-  unawaited(YoutubeService.checkDesktopYtDlpUpdate());
+  // The yt-dlp spare is booted only after the self-update check: while the
+  // spare holds the binary open, Windows would block yt-dlp from replacing it.
+  unawaited(YoutubeService.checkDesktopYtDlpUpdate()
+      .then((_) => StreamCacheManager.prewarmDesktopYtDlp()));
   unawaited(YoutubeService.cleanupOrphanedTempDirs());
 
   final controller = AppController(

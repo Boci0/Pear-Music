@@ -72,10 +72,27 @@ class YoutubeService {
     return File(p.join(binDir.path, Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp'));
   }
 
+  static String? _cachedYtDlpPath;
+
   /// Locate a yt-dlp (or youtube-dl) executable. Checks PATH first, then the
   /// well-known winget shim folder (`%LOCALAPPDATA%\Microsoft\WinGet\Links`),
   /// and finally the app's local bin folder.
-  static Future<String?> ytDlpPath() async {
+  ///
+  /// The result is memoised: every stream fetch asks for the binary, and the
+  /// lookup can spawn `where.exe` / `which`. A cached path is only reused
+  /// while the file still exists, and a miss is never cached, so installing
+  /// yt-dlp while the app runs is still picked up on the next fetch.
+  static Future<String?> ytDlpPath({bool refresh = false}) async {
+    if (!refresh) {
+      final cached = _cachedYtDlpPath;
+      if (cached != null && File(cached).existsSync()) return cached;
+    }
+    final resolved = await _detectYtDlpPath();
+    _cachedYtDlpPath = resolved;
+    return resolved;
+  }
+
+  static Future<String?> _detectYtDlpPath() async {
     if (kIsWeb) return null;
     try {
       // Bundled binary directly alongside the executable (e.g. deployed standalone package)
@@ -230,23 +247,25 @@ class YoutubeService {
     } catch (_) {}
   }
 
-  /// Runs a background, non-blocking `yt-dlp -U` once per session on Windows
-  /// so the desktop binary stays updated against YouTube cipher changes.
+  /// Runs a once-per-session `yt-dlp -U` on Windows so the desktop binary
+  /// stays updated against YouTube cipher changes.
+  ///
+  /// The returned future completes when the update attempt is over (or after
+  /// 15 s), which matters for callers that must not touch the binary while the
+  /// updater is replacing it, such as the pre-booted spare.
   static Future<void> checkDesktopYtDlpUpdate() async {
     if (kIsWeb || !Platform.isWindows || _updateChecked) return;
     _updateChecked = true;
     try {
       final bin = await ytDlpPath();
       if (bin != null) {
-        unawaited(
-          Process.run(bin, ['-U'])
-              .timeout(const Duration(seconds: 15))
-              .then((r) {
-            debugPrint('[pearmusic] Desktop yt-dlp -U exit code: ${r.exitCode}');
-          }).catchError((e) {
-            debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
-          }),
-        );
+        try {
+          final r = await Process.run(bin, ['-U'])
+              .timeout(const Duration(seconds: 15));
+          debugPrint('[pearmusic] Desktop yt-dlp -U exit code: ${r.exitCode}');
+        } catch (e) {
+          debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
+        }
       }
     } catch (_) {}
   }

@@ -33,6 +33,29 @@ enum StreamRouteType {
   local, // Local file
 }
 
+/// A playback failure on the current track. The track stays loaded so the
+/// play button retries it, and [label] explains the failure where the
+/// player UI already shows status text.
+class PlaybackError {
+  final Song song;
+
+  /// Short line for the mini player / transport row.
+  final String label;
+
+  /// Full sentence for the app message feed (snack bar).
+  final String message;
+
+  /// Stream failure classification, when the failure came from a fetch.
+  final StreamFetchFailureKind? kind;
+
+  const PlaybackError({
+    required this.song,
+    required this.label,
+    required this.message,
+    this.kind,
+  });
+}
+
 /// Audio playback using just_audio (ExoPlayer on Android, media_kit/mpv on
 /// Windows). `JustAudioMediaKit.ensureInitialized()` must be called once in
 /// `main()` before the first `AudioPlayer` is created.
@@ -84,6 +107,11 @@ class PlayerService extends ChangeNotifier {
   String? _bufferingVideoId;    // which track is being resolved
   int _consecutiveStreamFailures = 0;
   bool _isPreloadingUpcoming = false;
+  PlaybackError? _playbackError;
+
+  /// User-facing playback messages (wired to the app's snackbar feed).
+  final StreamController<String> _userMessages =
+      StreamController<String>.broadcast();
 
   Timer? _sleepTimer;
   DateTime? _sleepTimerEndTime;
@@ -199,6 +227,84 @@ class PlayerService extends ChangeNotifier {
   }
 
   bool get isPreloadingUpcoming => _isPreloadingUpcoming;
+
+  /// The failure that stopped the current track, or null while playback is
+  /// healthy. Cleared as soon as a new load starts.
+  PlaybackError? get playbackError => _playbackError;
+
+  /// User-facing playback messages, consumed by the app's snackbar feed.
+  Stream<String> get userMessages => _userMessages.stream;
+
+  void _notifyUser(String message) {
+    if (!_userMessages.isClosed) _userMessages.add(message);
+  }
+
+  void _setPlaybackError(PlaybackError error) {
+    _playbackError = error;
+    notifyListeners();
+  }
+
+  /// Clears the error banner. [notify] is false when the caller is already
+  /// about to notify (for example when a new load starts).
+  void clearPlaybackError({bool notify = true}) {
+    if (_playbackError == null) return;
+    _playbackError = null;
+    if (notify) notifyListeners();
+  }
+
+  /// Builds the user-facing explanation for a failed stream fetch. YouTube
+  /// blocking a request (HTTP 403) is usually temporary and must offer a
+  /// retry instead of looking like the song is broken.
+  static PlaybackError describeStreamFailure(
+    StreamFetchFailure? failure,
+    Song song,
+  ) {
+    switch (failure?.kind) {
+      case StreamFetchFailureKind.blocked:
+        return PlaybackError(
+          song: song,
+          kind: StreamFetchFailureKind.blocked,
+          label: 'YouTube blocked this request. Tap play to retry.',
+          message: 'Couldn\'t play "${song.title}": YouTube refused the '
+              'request (blocked or bot check). This is usually temporary, '
+              'tap play to retry.',
+        );
+      case StreamFetchFailureKind.network:
+        return PlaybackError(
+          song: song,
+          kind: StreamFetchFailureKind.network,
+          label: 'Network problem. Tap play to retry.',
+          message: 'Couldn\'t play "${song.title}": the network dropped while '
+              'fetching the audio. Tap play to retry.',
+        );
+      case StreamFetchFailureKind.engine:
+        return PlaybackError(
+          song: song,
+          kind: StreamFetchFailureKind.engine,
+          label: 'yt-dlp is missing on this device.',
+          message: 'Couldn\'t play "${song.title}": yt-dlp is not installed '
+              'on this device. On the PC install it with: winget install '
+              'yt-dlp.yt-dlp (the phone has it built in).',
+        );
+      case StreamFetchFailureKind.unavailable:
+        return PlaybackError(
+          song: song,
+          kind: StreamFetchFailureKind.unavailable,
+          label: 'This video is unavailable on YouTube.',
+          message: '"${song.title}" is unavailable on YouTube and was '
+              'skipped.',
+        );
+      case StreamFetchFailureKind.unknown:
+      case null:
+        return PlaybackError(
+          song: song,
+          kind: failure?.kind,
+          label: 'Couldn\'t load this track. Tap play to retry.',
+          message: 'Couldn\'t play "${song.title}". Tap play to retry.',
+        );
+    }
+  }
+
 
   bool get hasNextTrack => _queueIndex >= 0 && _queueIndex + 1 < _queue.length;
 
@@ -990,6 +1096,7 @@ class PlayerService extends ChangeNotifier {
     final token = requestToken ?? ++_playRequestToken;
     _isManuallyPaused = false;
     _pendingNaturalAdvance = false;
+    clearPlaybackError(notify: false);
     _preloadDebounceTimer?.cancel();
     _isAdvancing = true;
     _isLoadingTrack = true;
@@ -1171,21 +1278,38 @@ class PlayerService extends ChangeNotifier {
           } else {
             _pendingNaturalAdvance = false;
             _consecutiveStreamFailures++;
+            final failure = StreamCacheManager.takeFetchFailure(videoId);
             DebugLog.write(
               '[player] Stream failed for ${song.title} '
-              '(failure $_consecutiveStreamFailures/3)',
+              '(failure $_consecutiveStreamFailures/3, '
+              'kind=${failure?.kind.name ?? 'unknown'}, '
+              'detail=${failure?.detail ?? 'n/a'})',
             );
             _isAdvancing = false;
             _isLoadingTrack = false;
             notifyListeners();
 
-            // Persistently keep the queue alive by auto-advancing to the next song instead of stopping
-            if (_consecutiveStreamFailures < 3 && _queue.length > 1) {
-              DebugLog.write('[player] Auto-advancing past failed stream "${song.title}" to next track');
+            final described = describeStreamFailure(failure, song);
+
+            // A deleted/private video can never start playing, so skipping is
+            // the only way forward. The skip stays bounded: three dead tracks
+            // in a row stop playback instead of cascading through the queue.
+            // Everything else (403 blocks, network trouble, missing engine)
+            // stays on this track with an explanation and a retry, because it
+            // usually works again a moment later.
+            if (failure?.kind == StreamFetchFailureKind.unavailable &&
+                _consecutiveStreamFailures < 3 &&
+                _queue.length > 1) {
+              DebugLog.write(
+                '[player] Auto-advancing past unavailable stream "${song.title}"',
+              );
+              _notifyUser(described.message);
               unawaited(next());
               return;
             }
 
+            _setPlaybackError(described);
+            _notifyUser(described.message);
             await _player.pause();
             notifyListeners();
             return;
@@ -1271,6 +1395,13 @@ class PlayerService extends ChangeNotifier {
       _consecutiveStreamFailures++;
       _isAdvancing = false;
       _isLoadingTrack = false;
+      final described = PlaybackError(
+        song: song,
+        label: 'Couldn\'t play this track. Tap play to retry.',
+        message: 'Couldn\'t play "${song.title}". Tap play to retry.',
+      );
+      _setPlaybackError(described);
+      _notifyUser(described.message);
       await _player.pause();
       notifyListeners();
     } finally {
@@ -1560,6 +1691,12 @@ class PlayerService extends ChangeNotifier {
       }
       return;
     }
+    // A failed load never produced a playable source, so the play button
+    // doubles as "retry this track" while an error is on screen.
+    if (_playbackError != null) {
+      await retryCurrent();
+      return;
+    }
     _isManuallyPaused = false;
     _publishNotificationState();
     notifyListeners();
@@ -1586,6 +1723,30 @@ class PlayerService extends ChangeNotifier {
     }
     _publishNotificationState();
     notifyListeners();
+  }
+
+  /// Retries the track that failed last: clears the error state and runs a
+  /// fresh load. When YouTube had blocked the request, yt-dlp's cached player
+  /// is dropped first because a stale player is a common cause of 403s.
+  Future<void> retryCurrent() async {
+    final song = currentSong;
+    if (song == null) return;
+    _lastInteraction = DateTime.now();
+    final wasBlocked = _playbackError?.kind == StreamFetchFailureKind.blocked;
+    clearPlaybackError(notify: false);
+    if (wasBlocked && song.sourceDeviceId == 'stream') {
+      DebugLog.write('[player] Retrying blocked stream "${song.title}" with a fresh yt-dlp player cache');
+      await StreamCacheManager.refreshYtDlpCache();
+    }
+    notifyListeners();
+    await playSong(
+      song,
+      queue: _queue.isEmpty ? null : _queue,
+      sourceId: queueSourceId,
+      sourceTitle: queueTitle,
+      initialIndex:
+          _queueIndex >= 0 && _queueIndex < _queue.length ? _queueIndex : null,
+    );
   }
 
   Future<void> toggle() async {
@@ -2046,6 +2207,7 @@ class PlayerService extends ChangeNotifier {
     StreamCacheManager.cancelPreload();
     await _player.stop();
     currentSong = null;
+    _playbackError = null;
     _currentLoadedFile = null;
     _currentLoadedFileSize = null;
     _currentLoadedFormat = null;
@@ -2083,6 +2245,7 @@ class PlayerService extends ChangeNotifier {
     }
     _player.dispose();
     scrubbingPositionNotifier.dispose();
+    _userMessages.close();
     audioHandler?.mediaItem.add(null);
     super.dispose();
   }

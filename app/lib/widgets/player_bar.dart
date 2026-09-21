@@ -103,7 +103,18 @@ class PlayerBar extends StatelessWidget {
                                   letterSpacing: -0.1,
                                 ),
                               ),
-                              if (player.isLoadingRecommendations ||
+                              if (player.playbackError != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  player.playbackError!.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.error,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ] else if (player.isLoadingRecommendations ||
                                   player.isBuffering) ...[
                                 const SizedBox(height: 2),
                                 Text(
@@ -130,7 +141,9 @@ class PlayerBar extends StatelessWidget {
                         TactileBounce(
                           onTap: () => controller.togglePlayback(),
                           scaleDown: 0.88,
-                          tooltip: player.playing ? 'Pause' : 'Play',
+                          tooltip: player.playbackError != null
+                              ? 'Retry'
+                              : (player.playing ? 'Pause' : 'Play'),
                           child: SizedBox(
                             width: 38,
                             height: 38,

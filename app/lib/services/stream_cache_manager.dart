@@ -11,6 +11,42 @@ import '../models/song.dart';
 import 'debug_log.dart';
 import 'library_service.dart';
 import 'youtube_service.dart';
+import 'ytdlp_prewarmer.dart';
+
+/// Why a stream fetch failed. Drives the playback error handling: only
+/// [unavailable] tracks are skipped automatically; everything else stays on
+/// the failed track with an explanation and a retry.
+enum StreamFetchFailureKind {
+  /// YouTube refused the request (HTTP 403 / bot check). Usually temporary.
+  blocked,
+
+  /// The video itself cannot be served (deleted, private, members-only).
+  unavailable,
+
+  /// Network trouble: timeouts, resets, no connection.
+  network,
+
+  /// yt-dlp is missing or broken on this device.
+  engine,
+
+  /// Anything not covered above.
+  unknown,
+}
+
+/// A failed stream fetch with enough context to explain it to the user.
+class StreamFetchFailure {
+  final String videoId;
+  final StreamFetchFailureKind kind;
+
+  /// Raw technical detail (yt-dlp stderr, plugin error), kept for diagnostics.
+  final String detail;
+
+  const StreamFetchFailure({
+    required this.videoId,
+    required this.kind,
+    required this.detail,
+  });
+}
 
 /// High-speed ephemeral radio cache manager.
 /// Streams audio directly into local disk files using optimized audio-only extractors.
@@ -45,6 +81,102 @@ class StreamCacheManager {
   /// Protects all tracks currently in the active queue from being evicted.
   static void setActiveQueueVideoIds(Iterable<String> ids) {
     _activeQueueVideoIds = ids.toSet();
+  }
+
+  /// Why a stream fetch failed. Playback uses this to decide between stopping
+  /// on the track with a retry and skipping a track that can never play.
+  /// YouTube's HTTP 403 / bot-check answers are usually temporary, so they
+  /// must never be treated as "this song is gone".
+  static final Map<String, StreamFetchFailure> _lastFetchFailures = {};
+
+  /// Test seam: when set, replaces the real yt-dlp download step. Tests use it
+  /// to simulate a failure (recording a failure via [recordFetchFailure]) or
+  /// a cache hit without touching the network.
+  @visibleForTesting
+  static Future<File?> Function(String videoId, {required bool isPreload})?
+      debugEnsureStreamCachedOverride;
+
+  /// Maps a raw yt-dlp / plugin error into something playback can act on.
+  static StreamFetchFailureKind classifyFetchFailure(String raw) {
+    final s = raw.toLowerCase();
+    // Check "gone for good" answers first: "Private video. Sign in if you have
+    // been granted access" also contains "sign in", which must not win. These
+    // are skipped: no amount of retrying makes them playable here.
+    if (s.contains('private video') ||
+        s.contains('video unavailable') ||
+        s.contains('this video is unavailable') ||
+        s.contains('no longer available') ||
+        s.contains('has been removed') ||
+        s.contains('members-only') ||
+        s.contains('available to this channel') ||
+        s.contains('removed by the uploader') ||
+        s.contains('account associated with this video has been terminated') ||
+        s.contains('not available in your country') ||
+        s.contains('not made this video available') ||
+        s.contains('confirm your age') ||
+        s.contains('inappropriate for some users')) {
+      return StreamFetchFailureKind.unavailable;
+    }
+    if (s.contains('403') ||
+        s.contains('forbidden') ||
+        s.contains('sign in to confirm') ||
+        s.contains('not a bot') ||
+        s.contains('botcheck') ||
+        s.contains('bot check')) {
+      return StreamFetchFailureKind.blocked;
+    }
+    if (s.contains('not installed') ||
+        s.contains('no such file') ||
+        s.contains('cannot find') ||
+        s.contains('yt-dlp is missing')) {
+      return StreamFetchFailureKind.engine;
+    }
+    if (s.contains('timed out') ||
+        s.contains('timeout') ||
+        s.contains('socket') ||
+        s.contains('connection') ||
+        s.contains('network') ||
+        s.contains('unable to download video data') ||
+        s.contains('read error') ||
+        s.contains('getaddrinfo')) {
+      return StreamFetchFailureKind.network;
+    }
+    return StreamFetchFailureKind.unknown;
+  }
+
+  /// Records why the last fetch of [videoId] failed, so the playback layer can
+  /// explain it instead of silently moving on.
+  static void recordFetchFailure(String videoId, String raw) {
+    _lastFetchFailures[videoId] = StreamFetchFailure(
+      videoId: videoId,
+      kind: classifyFetchFailure(raw),
+      detail: raw.trim(),
+    );
+    // The map only exists to carry one explanation to the caller; keep it tiny
+    // so a long session of preload failures cannot grow it without bound.
+    while (_lastFetchFailures.length > 40) {
+      _lastFetchFailures.remove(_lastFetchFailures.keys.first);
+    }
+  }
+
+  /// Removes and returns the failure recorded for [videoId], if any.
+  static StreamFetchFailure? takeFetchFailure(String videoId) {
+    return _lastFetchFailures.remove(videoId);
+  }
+
+  /// Drops yt-dlp's persistent player/session cache. A stale cached player is
+  /// a common cause of HTTP 403 responses, so an explicit retry rebuilds it.
+  static Future<void> refreshYtDlpCache() async {
+    try {
+      final dir = await getYtDlpCacheDirectory();
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+      _ytdlpCacheDir = null;
+      DebugLog.write('[cache] yt-dlp player cache refreshed for a clean retry');
+    } catch (e) {
+      DebugLog.write('[cache] could not refresh yt-dlp cache: $e');
+    }
   }
 
   static Directory? _cacheDir;
@@ -208,6 +340,71 @@ class StreamCacheManager {
   static String? _activeProcessId;
   static Process? _activeDesktopProcess;
 
+  /// Kills the running desktop fetch process, if any. Cancellation frees the
+  /// single connection immediately, which is what keeps skips and foreground
+  /// plays snappy; the pre-booted spare is idle and is left alone.
+  static void _killActiveDesktopEngine() {
+    final process = _activeDesktopProcess;
+    if (process != null) {
+      _activeDesktopProcess = null;
+      try {
+        YoutubeService.killProcessTree(process.pid);
+      } catch (_) {}
+    }
+  }
+
+  /// Options for a desktop stream fetch. The URL and the `-o` template are
+  /// added per invocation (see [YtDlpPrewarmer.buildStdinArgs]).
+  static List<String> _desktopStreamArgs(String ytdlpCachePath) {
+    return [
+      '-f',
+      getAudioFormatArg(),
+      '--cache-dir',
+      ytdlpCachePath,
+      '--extractor-args',
+      'youtube:skip=webpage,authcheck,translated_subs,hls',
+      '--no-playlist',
+      '--no-part',
+      '--no-mtime',
+      '--no-warnings',
+      '--no-check-certificates',
+      '--quiet',
+      '--force-ipv4',
+      '--concurrent-fragments',
+      '2',
+      '--http-chunk-size',
+      '5M',
+      '--buffer-size',
+      '64k',
+      '--socket-timeout',
+      '10',
+      '--retries',
+      '2',
+      '--extractor-retries',
+      '1',
+    ];
+  }
+
+  /// Boots a spare yt-dlp process so the next fetch starts without paying the
+  /// ~2 s startup. Called once after launch and again after every fetch, so
+  /// the cost lands while the app is idle.
+  static Future<void> prewarmDesktopYtDlp() async {
+    if (!YtDlpPrewarmer.enabled || kIsWeb || Platform.isAndroid) return;
+    try {
+      final bin = await YoutubeService.ytDlpPath();
+      if (bin == null) return;
+      final dir = await getCacheDirectory();
+      final ytdlpCache = await getYtDlpCacheDirectory();
+      await YtDlpPrewarmer.instance.prewarm(
+        bin: bin,
+        baseArgs: _desktopStreamArgs(ytdlpCache.path),
+        outputTemplate: p.join(dir.path, '%(id)s.%(ext)s'),
+      );
+    } catch (e) {
+      DebugLog.write('[ytdlp-prewarm] skipped: $e');
+    }
+  }
+
   /// Whether any audio stream download is currently active.
   static bool get isAnyDownloadActive => _activeDownloadingVideoId != null;
 
@@ -236,13 +433,7 @@ class StreamCacheManager {
           const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
         } catch (_) {}
       }
-      final desktopProc = _activeDesktopProcess;
-      if (desktopProc != null) {
-        _activeDesktopProcess = null;
-        try {
-          YoutubeService.killProcessTree(desktopProc.pid);
-        } catch (_) {}
-      }
+      _killActiveDesktopEngine();
       final abandoned = _activeDownloadingVideoId;
       if (abandoned != null && _inFlightDownloads.containsKey(abandoned)) {
         if (!_inFlightDownloads[abandoned]!.isCompleted) {
@@ -270,13 +461,7 @@ class StreamCacheManager {
           const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
         } catch (_) {}
       }
-      final desktopProc = _activeDesktopProcess;
-      if (desktopProc != null) {
-        _activeDesktopProcess = null;
-        try {
-          YoutubeService.killProcessTree(desktopProc.pid);
-        } catch (_) {}
-      }
+      _killActiveDesktopEngine();
       if (exceptVideoId == null) {
         for (final entry in _inFlightDownloads.entries) {
           if (!entry.value.isCompleted) {
@@ -365,6 +550,9 @@ class StreamCacheManager {
   static Future<File?> ensureStreamCached(String videoId, {bool isPreload = false}) async {
     final token = ++_downloadInvocationToken;
     final preloadSeq = _slidingWindowSequence;
+    // A new attempt starts clean: any explanation from an earlier attempt for
+    // this video must not be reused for the outcome of this one.
+    _lastFetchFailures.remove(videoId);
 
     final existing = await getCachedFile(videoId);
     if (existing != null) {
@@ -373,6 +561,22 @@ class StreamCacheManager {
     }
     if (token != _downloadInvocationToken) return null;
     if (isPreload && preloadSeq != _slidingWindowSequence) return null;
+
+    final override = debugEnsureStreamCachedOverride;
+    if (override != null) {
+      final result = await override(videoId, isPreload: isPreload);
+      if (result == null) {
+        _lastFetchFailures.putIfAbsent(
+          videoId,
+          () => StreamFetchFailure(
+            videoId: videoId,
+            kind: StreamFetchFailureKind.unknown,
+            detail: 'simulated failure',
+          ),
+        );
+      }
+      return result;
+    }
 
     // Single-flight deduplication: join existing download if already in progress for this videoId
     if (_inFlightDownloads.containsKey(videoId)) {
@@ -423,10 +627,7 @@ class StreamCacheManager {
         } catch (_) {}
         _activeProcessId = null;
       }
-      if (_activeDesktopProcess != null) {
-        YoutubeService.killProcessTree(_activeDesktopProcess!.pid);
-        _activeDesktopProcess = null;
-      }
+      _killActiveDesktopEngine();
       _activeDownloadingVideoId = null;
       _isActiveDownloadPreload = false;
     }
@@ -437,6 +638,12 @@ class StreamCacheManager {
     final completer = Completer<File?>();
     _inFlightDownloads[videoId] = completer;
     final stopwatch = Stopwatch()..start();
+
+    var failureRecorded = false;
+    void recordFailure(String raw) {
+      recordFetchFailure(videoId, raw);
+      failureRecorded = true;
+    }
 
     try {
       final dir = await getCacheDirectory();
@@ -481,6 +688,11 @@ class StreamCacheManager {
             DebugLog.write('[cache] Android yt-dlp download cancelled for $videoId');
           } else {
             DebugLog.write('[cache] Android yt-dlp FAILED for $videoId: $e');
+            recordFailure(
+              e is PlatformException
+                  ? '${e.code}: ${e.message ?? ''}'
+                  : '$e',
+            );
           }
           // Drop the half-written file so it can never be served as a cache hit.
           try {
@@ -507,104 +719,103 @@ class StreamCacheManager {
         bin = await YoutubeService.ensureYtDlpAvailable();
       }
       if (bin != null) {
-        DebugLog.write('[cache] Spawning desktop yt-dlp for $videoId');
-        final outputTemplate = p.join(dir.path, '$videoId.%(ext)s');
+        final binPath = bin;
+        final outputTemplate = p.join(dir.path, '%(id)s.%(ext)s');
         final ytdlpCache = await getYtDlpCacheDirectory();
-        final args = [
-          '-f',
-          getAudioFormatArg(),
-          '--cache-dir',
-          ytdlpCache.path,
-          '--extractor-args',
-          'youtube:skip=webpage,authcheck,translated_subs,hls',
-          '-o',
-          outputTemplate,
-          '--no-playlist',
-          '--no-part',
-          '--no-mtime',
-          '--no-warnings',
-          '--no-check-certificates',
-          '--quiet',
-          '--force-ipv4',
-          '--concurrent-fragments',
-          '2',
-          '--http-chunk-size',
-          '5M',
-          '--buffer-size',
-          '64k',
-          '--socket-timeout',
-          '10',
-          '--retries',
-          '2',
-          '--extractor-retries',
-          '1',
-          'https://www.youtube.com/watch?v=$videoId',
-        ];
-
-        final process = await Process.start(bin, args);
-        _activeDesktopProcess = process;
-
         const timeoutDuration = Duration(seconds: 120);
+        final baseArgs = _desktopStreamArgs(ytdlpCache.path);
 
-        process.stdout.drain().catchError((_) => null);
-        final stderrBuffer = StringBuffer();
-        process.stderr.transform(utf8.decoder).listen(
-          (data) {
-            stderrBuffer.write(data);
-          },
-          onError: (_) {},
-        );
-
-        int exitCode = -1;
-        try {
-          exitCode = await process.exitCode.timeout(timeoutDuration);
-        } on TimeoutException {
-          DebugLog.write(
-            '[cache] Desktop yt-dlp timed out for $videoId after ${timeoutDuration.inSeconds}s, killing process',
+        /// One desktop fetch: takes the pre-booted spare when available (it
+        /// already paid the ~2 s yt-dlp startup) or spawns on demand, feeds it
+        /// the URL over stdin and waits for the process to finish.
+        Future<File?> fetchWithYtDlp() async {
+          final process = await YtDlpPrewarmer.instance.startFetch(
+            url: 'https://www.youtube.com/watch?v=$videoId',
+            bin: binPath,
+            baseArgs: baseArgs,
+            outputTemplate: outputTemplate,
           );
-          YoutubeService.killProcessTree(process.pid);
-          await _deletePartialArtifacts(videoId);
-          rethrow;
-        } finally {
-          if (_activeDesktopProcess == process) {
-            _activeDesktopProcess = null;
+          if (process == null) {
+            DebugLog.write('[cache] Could not start yt-dlp for $videoId');
+            recordFailure('could not start yt-dlp');
+            await _deletePartialArtifacts(videoId);
+            return null;
           }
+          DebugLog.write('[cache] Started desktop yt-dlp for $videoId');
+          _activeDesktopProcess = process;
+
+          process.stdout.drain().catchError((_) => null);
+          final stderrBuffer = StringBuffer();
+          process.stderr.transform(utf8.decoder).listen(
+            (data) {
+              stderrBuffer.write(data);
+            },
+            onError: (_) {},
+          );
+
+          int exitCode = -1;
+          try {
+            exitCode = await process.exitCode.timeout(timeoutDuration);
+          } on TimeoutException {
+            DebugLog.write(
+              '[cache] Desktop yt-dlp timed out for $videoId after ${timeoutDuration.inSeconds}s, killing process',
+            );
+            recordFailure('download timed out after ${timeoutDuration.inSeconds}s');
+            YoutubeService.killProcessTree(process.pid);
+            await _deletePartialArtifacts(videoId);
+            rethrow;
+          } finally {
+            if (_activeDesktopProcess == process) {
+              _activeDesktopProcess = null;
+            }
+          }
+
+          if (exitCode != 0) {
+            final err = stderrBuffer.toString().trim();
+            if (err.isNotEmpty) {
+              DebugLog.write('[cache] yt-dlp exit=$exitCode stderr: $err');
+            }
+            recordFailure(err.isNotEmpty ? err : 'yt-dlp exited with code $exitCode');
+            // The process was killed or failed: a truncated file may be sitting
+            // at the final name (--no-part). Drop it so it is never adopted as
+            // a valid cache hit; the next attempt refetches cleanly.
+            await _deletePartialArtifacts(videoId);
+            return null;
+          }
+          return getCachedFile(videoId);
         }
 
-        if (exitCode != 0) {
-          final err = stderrBuffer.toString().trim();
-          if (err.isNotEmpty) {
-            DebugLog.write('[cache] yt-dlp exit=$exitCode stderr: $err');
+        final fetched = await fetchWithYtDlp();
+
+        if (fetched != null) {
+          final len = await fetched.length();
+          _setCachedTotalBytes(_cachedTotalBytes + len);
+          unawaited(enforceCacheQuota());
+          stopwatch.stop();
+          DebugLog.write(
+            '[cache] yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) at ${fetched.path}',
+          );
+          if (!completer.isCompleted) {
+            completer.complete(fetched);
           }
-          // The process was killed or failed: a truncated file may be sitting
-          // at the final name (--no-part). Drop it so it is never adopted as
-          // a valid cache hit; the next attempt refetches cleanly.
-          await _deletePartialArtifacts(videoId);
-        } else {
-          final cached = await getCachedFile(videoId);
-          if (cached != null) {
-            final len = await cached.length();
-            _setCachedTotalBytes(_cachedTotalBytes + len);
-            unawaited(enforceCacheQuota());
-            stopwatch.stop();
-            DebugLog.write(
-              '[cache] yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB) at ${cached.path}',
-            );
-            if (!completer.isCompleted) {
-              completer.complete(cached);
-            }
-            return cached;
-          }
+          return fetched;
         }
       } else if (!kIsWeb && !Platform.isAndroid) {
         DebugLog.write('[cache] yt-dlp binary not found on desktop');
+        recordFailure('yt-dlp is missing on this device');
       }
 
       if (!completer.isCompleted) {
         DebugLog.write('[cache] Download failed for $videoId after ${stopwatch.elapsedMilliseconds}ms');
+        if (!failureRecorded) {
+          recordFailure('stream download failed');
+        }
       }
     } catch (e) {
       DebugLog.write('[cache] ensureStreamCached error for $videoId: $e');
+      if (!failureRecorded) {
+        recordFailure('$e');
+      }
     } finally {
       if (_activeDownloadingVideoId == videoId) {
         _activeDownloadingVideoId = null;
@@ -616,6 +827,9 @@ class StreamCacheManager {
         completer.complete(null);
       }
       _inFlightDownloads.remove(videoId);
+      // Boot the next spare while the app is otherwise idle again, so the
+      // startup cost stays off the next fetch's critical path.
+      unawaited(prewarmDesktopYtDlp());
     }
     return null;
   }
