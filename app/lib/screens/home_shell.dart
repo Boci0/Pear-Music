@@ -150,6 +150,12 @@ class _MinimalistNavBar extends StatelessWidget {
   /// has to hold them plus the bar's own border.
   static const double barHeight = 64;
 
+  /// Corner rounding of the bar. Matches the mini player card above it (and the
+  /// app's other cards) instead of using a full pill: two stacked shapes with
+  /// radius 20 and "half the height" read as a mismatch, and the rounder ends
+  /// also crowded the first and last labels.
+  static const double barRadius = 20;
+
   /// Selected indicator: a capsule behind the icon alone. Sizing it from the
   /// icon instead of the label is what keeps the shape stable at any tab count,
   /// where a pill that had to wrap "Playlists" could only ever be as wide as a
@@ -183,22 +189,25 @@ class _MinimalistNavBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 2, 16, 10),
       height: barHeight,
       decoration: BoxDecoration(
-        color: const Color(0xFF151518),
-        borderRadius: BorderRadius.circular(barHeight / 2),
+        // Same surface, border and shadow as the mini player card directly
+        // above: the two are stacked, so a darker or duller bar reads as a
+        // mismatch rather than as a deliberate hierarchy.
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(barRadius),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
+          color: Colors.white.withValues(alpha: 0.14),
           width: _barBorder,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.45),
-            blurRadius: 18,
+            color: Colors.black.withValues(alpha: 0.60),
+            blurRadius: 20,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(barHeight / 2),
+        borderRadius: BorderRadius.circular(barRadius),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final itemWidth = constraints.maxWidth / 5;
@@ -352,7 +361,7 @@ class _NavBarItemState extends State<_NavBarItem> {
                       height: _MinimalistNavBar.indicatorHeight,
                       decoration: BoxDecoration(
                         color: (!isSelected && _isHovered)
-                            ? Colors.white.withValues(alpha: 0.07)
+                            ? Colors.white.withValues(alpha: 0.08)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(
                           _MinimalistNavBar.indicatorHeight / 2,
