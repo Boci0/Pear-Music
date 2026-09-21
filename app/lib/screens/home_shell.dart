@@ -144,25 +144,48 @@ class _MinimalistNavBar extends StatelessWidget {
     required this.onDestinationSelected,
   });
 
-  /// Bar height. With five tabs each item is narrow, so the height is what
-  /// keeps the selected pill roomy: [pillInsetY] on both sides leaves the pill
-  /// taller than its icon + label stack while still fitting the bar.
-  static const double barHeight = 62;
+  /// Bar height. The icon row and label row are fixed heights, so this only
+  /// has to hold them plus the bar's own padding.
+  static const double barHeight = 64;
 
-  /// Gap between an item's bounds and its pill. Kept at the smallest value that
-  /// still reads as a separate shape: at five tabs the pill has to hold the
-  /// longest label ("Playlists") on a 360dp phone, so every pixel spent here
-  /// comes out of the padding around that label.
-  static const double pillInsetX = 2;
-  static const double pillInsetY = 6;
+  /// Gap between an item's bounds and the rounded hover fill.
+  static const double itemInsetX = 2;
+  static const double itemInsetY = 4;
 
-  static const double _pillHeight = barHeight - pillInsetY * 2;
+  /// Selected indicator: a capsule behind the icon alone. Sizing it from the
+  /// icon instead of the label is what keeps the shape stable at any tab count,
+  /// where a pill that had to wrap "Playlists" could only ever be as wide as a
+  /// narrow item allows.
+  static const double indicatorWidth = 48;
+  static const double indicatorHeight = 30;
+
+  /// Fixed row heights, so the indicator can be positioned exactly over the icon
+  /// row without measuring text.
+  static const double _iconRowHeight = indicatorHeight;
+  static const double _labelRowHeight = 13;
+  static const double _rowGap = 3;
+  static const double _contentHeight =
+      _iconRowHeight + _rowGap + _labelRowHeight;
+
+  /// Outline width of the bar and of an item's hover fill. Both inset their
+  /// content by this much, so the indicator has to account for it.
+  static const double _barBorder = 1;
+
+  /// Top of the icon row inside the bar's inner box, derived from the very same
+  /// numbers the item lays its content out with (margins, border, centring), so
+  /// the two cannot drift apart.
+  static double _indicatorTopFor(double barInnerHeight) {
+    final itemInner =
+        barInnerHeight - itemInsetY * 2 - _barBorder * 2;
+    return itemInsetY + _barBorder + (itemInner - _contentHeight) / 2;
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return Container(
+      key: const ValueKey('nav_bar'),
       margin: const EdgeInsets.fromLTRB(16, 2, 16, 10),
       height: barHeight,
       decoration: BoxDecoration(
@@ -170,7 +193,7 @@ class _MinimalistNavBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(barHeight / 2),
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.08),
-          width: 1,
+          width: _barBorder,
         ),
         boxShadow: [
           BoxShadow(
@@ -185,20 +208,24 @@ class _MinimalistNavBar extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final itemWidth = constraints.maxWidth / 5;
+            final indicatorWidthForItem =
+                indicatorWidth.clamp(0.0, itemWidth - 16);
             return Stack(
               children: [
-                // Gliding solid pill indicator across tabs
+                // Gliding indicator, centred on the selected item's icon.
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeOutCubic,
-                  left: selectedIndex * itemWidth + pillInsetX,
-                  top: pillInsetY,
-                  bottom: pillInsetY,
-                  width: itemWidth - pillInsetX * 2,
+                  left: selectedIndex * itemWidth +
+                      (itemWidth - indicatorWidthForItem) / 2,
+                  top: _indicatorTopFor(constraints.maxHeight),
+                  height: indicatorHeight,
+                  width: indicatorWidthForItem,
                   child: Container(
+                    key: const ValueKey('nav_indicator'),
                     decoration: BoxDecoration(
                       color: scheme.primary.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(_pillHeight / 2),
+                      borderRadius: BorderRadius.circular(indicatorHeight / 2),
                       border: Border.all(
                         color: scheme.primary.withValues(alpha: 0.38),
                         width: 1,
@@ -308,19 +335,19 @@ class _NavBarItemState extends State<_NavBarItem> {
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOutCubic,
             margin: const EdgeInsets.symmetric(
-              horizontal: _MinimalistNavBar.pillInsetX,
-              vertical: _MinimalistNavBar.pillInsetY,
+              horizontal: _MinimalistNavBar.itemInsetX,
+              vertical: _MinimalistNavBar.itemInsetY,
             ),
             decoration: BoxDecoration(
               color: (!isSelected && _isHovered)
                   ? Colors.white.withValues(alpha: 0.08)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(25),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: (!isSelected && _isHovered)
                     ? Colors.white.withValues(alpha: 0.12)
                     : Colors.transparent,
-                width: 1,
+                width: _MinimalistNavBar._barBorder,
               ),
             ),
             child: Center(
@@ -332,29 +359,42 @@ class _NavBarItemState extends State<_NavBarItem> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      isSelected ? widget.activeIcon : widget.inactiveIcon,
-                      size: 22,
-                      color: isSelected
-                          ? scheme.primary
-                          : _isHovered
-                              ? Colors.white.withValues(alpha: 0.85)
-                              : Colors.white.withValues(alpha: 0.45),
+                    // Fixed-height icon row that the selected indicator is
+                    // positioned over, so the two cannot drift apart.
+                    SizedBox(
+                      height: _MinimalistNavBar.indicatorHeight,
+                      child: Center(
+                        child: Icon(
+                          isSelected ? widget.activeIcon : widget.inactiveIcon,
+                          size: 22,
+                          color: isSelected
+                              ? scheme.primary
+                              : _isHovered
+                                  ? Colors.white.withValues(alpha: 0.85)
+                                  : Colors.white.withValues(alpha: 0.45),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      widget.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontSize: 10.5,
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                        color: isSelected
-                            ? scheme.primary
-                            : _isHovered
-                                ? Colors.white.withValues(alpha: 0.85)
-                                : Colors.white.withValues(alpha: 0.45),
-                        letterSpacing: -0.4,
+                    const SizedBox(height: _MinimalistNavBar._rowGap),
+                    SizedBox(
+                      height: _MinimalistNavBar._labelRowHeight,
+                      child: Center(
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontSize: 10.5,
+                            height: 1.0,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                            color: isSelected
+                                ? scheme.primary
+                                : _isHovered
+                                    ? Colors.white.withValues(alpha: 0.85)
+                                    : Colors.white.withValues(alpha: 0.45),
+                            letterSpacing: -0.2,
+                          ),
+                        ),
                       ),
                     ),
                   ],
