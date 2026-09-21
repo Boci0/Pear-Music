@@ -10,6 +10,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
+import '../widgets/pear_app_bar.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/tactile_button.dart';
 
@@ -462,11 +463,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final Widget headerContent;
+    var headerActions = const <Widget>[];
     if (_isSearching) {
       headerContent = Row(
         key: const ValueKey('header_search'),
         children: [
-          IconButton(
+          TactileIconButton(
             tooltip: 'Close search',
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
@@ -533,7 +535,7 @@ class _HomeScreenState extends State<HomeScreen> {
       headerContent = Row(
         key: const ValueKey('header_selecting'),
         children: [
-          IconButton(
+          TactileIconButton(
             tooltip: 'Cancel selection',
             icon: const Icon(Icons.close),
             onPressed: () => setState(() {
@@ -541,95 +543,90 @@ class _HomeScreenState extends State<HomeScreen> {
               _selectedIds.clear();
             }),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
           Text(
             '${_selectedIds.length} selected',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w600,
             ),
           ),
-          const Spacer(),
-          IconButton(
-            tooltip: _selectedIds.length == songs.length ? 'Deselect all' : 'Select all',
-            icon: Icon(_selectedIds.length == songs.length ? Icons.deselect : Icons.select_all),
-            onPressed: () => _selectAll(songs),
-          ),
-          IconButton(
-            tooltip: 'Add to queue',
-            icon: const Icon(Icons.queue_music_rounded),
-            onPressed: _selectedIds.isEmpty ? null : () => _batchAddToQueue(controller, songs),
-          ),
-          IconButton(
-            tooltip: 'Add to playlist',
-            icon: const Icon(Icons.playlist_add),
-            onPressed: _selectedIds.isEmpty ? null : () => _batchAddToPlaylist(controller, songs),
-          ),
-          IconButton(
-            tooltip: 'Delete selected',
-            icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
-            onPressed: _selectedIds.isEmpty ? null : () => _batchDelete(controller, songs),
-          ),
         ],
       );
+      final nothingSelected = _selectedIds.isEmpty;
+      headerActions = [
+        TactileIconButton(
+          tooltip: _selectedIds.length == songs.length ? 'Deselect all' : 'Select all',
+          icon: Icon(_selectedIds.length == songs.length ? Icons.deselect : Icons.select_all),
+          onPressed: () => _selectAll(songs),
+        ),
+        TactileIconButton(
+          tooltip: 'Add to queue',
+          icon: const Icon(Icons.queue_music_rounded),
+          color: nothingSelected ? theme.disabledColor : null,
+          onPressed: nothingSelected ? null : () => _batchAddToQueue(controller, songs),
+        ),
+        TactileIconButton(
+          tooltip: 'Add to playlist',
+          icon: const Icon(Icons.playlist_add),
+          color: nothingSelected ? theme.disabledColor : null,
+          onPressed: nothingSelected ? null : () => _batchAddToPlaylist(controller, songs),
+        ),
+        TactileIconButton(
+          tooltip: 'Delete selected',
+          icon: const Icon(Icons.delete_outline),
+          color: nothingSelected ? theme.disabledColor : theme.colorScheme.error,
+          onPressed: nothingSelected ? null : () => _batchDelete(controller, songs),
+        ),
+      ];
     } else {
-      headerContent = Row(
-        key: const ValueKey('header_default'),
-        children: [
-          Image.asset(
-            'assets/pear_logo.png',
-            width: 28,
-            height: 28,
-            filterQuality: FilterQuality.medium,
-          ),
-          const SizedBox(width: 8),
-          const Text('Library'),
-          const Spacer(),
-          IconButton(
-            tooltip: 'Search library',
-            icon: const Icon(Icons.search),
-            onPressed: () => setState(() => _isSearching = true),
-          ),
-          IconButton(
-            tooltip: 'Add audio files',
-            icon: const Icon(Icons.add),
-            onPressed: () => controller.addFilesFromPicker(),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Library profile',
-            icon: const Icon(Icons.import_export),
-            onSelected: (value) async {
-              if (value == 'import') {
-                await _showLibraryProfileImportDialog(context, controller);
-              } else if (value == 'export') {
-                await controller.exportLibraryProfile();
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'import',
-                child: Text('Import library profile'),
-              ),
-              PopupMenuItem(
-                value: 'export',
-                child: Text('Export library profile'),
-              ),
-            ],
-          ),
-        ],
+      headerContent = const PearTabTitle(
+        'Library',
+        key: ValueKey('header_default'),
       );
+      headerActions = [
+        TactileIconButton(
+          tooltip: 'Search library',
+          icon: const Icon(Icons.search),
+          onPressed: () => setState(() => _isSearching = true),
+        ),
+        TactileIconButton(
+          tooltip: 'Add audio files',
+          icon: const Icon(Icons.add),
+          onPressed: () => controller.addFilesFromPicker(),
+        ),
+        PearMenuButton<String>(
+          tooltip: 'Library profile',
+          icon: Icons.import_export,
+          onSelected: (value) async {
+            if (value == 'import') {
+              await _showLibraryProfileImportDialog(context, controller);
+            } else if (value == 'export') {
+              await controller.exportLibraryProfile();
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'import',
+              child: Text('Import library profile'),
+            ),
+            PopupMenuItem(
+              value: 'export',
+              child: Text('Export library profile'),
+            ),
+          ],
+        ),
+      ];
     }
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        titleSpacing: 16,
-        centerTitle: false,
+      appBar: PearAppBar(
         title: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           child: headerContent,
         ),
+        actions: headerActions,
       ),
       body: body,
     );

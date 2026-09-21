@@ -8,6 +8,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
+import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_landscape_body.dart';
@@ -124,6 +125,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         PlaybackSpeedButton(player: player),
         SleepTimerButton(player: player),
         StreamQualityInfoButton(player: player),
+        const SizedBox(width: kAppBarActionInset),
       ],
     );
 

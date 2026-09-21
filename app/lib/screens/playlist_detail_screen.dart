@@ -7,6 +7,7 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
+import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
@@ -35,7 +36,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     // The playlist was deleted (e.g. from another flow) — leave.
     if (playlist == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Playlist')),
+        appBar: PearAppBar(
+          title: const Text('Playlist'),
+          showBackButton: true,
+        ),
         body: const Center(child: Text('This playlist no longer exists')),
       );
     }
@@ -59,8 +63,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: PearAppBar(
         title: Text(playlist.name),
+        showBackButton: true,
         actions: [
           TactileIconButton(
             tooltip: 'Export playlist (.m3u8)',

@@ -9,6 +9,7 @@ import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_search_service.dart';
+import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
 import '../widgets/youtube_song_tile.dart';
 
@@ -252,25 +253,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        titleSpacing: 16,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/pear_logo.png',
-              width: 28,
-              height: 28,
-              filterQuality: FilterQuality.medium,
-            ),
-            const SizedBox(width: 8),
-            const Text('Explore'),
-          ],
-        ),
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-      ),
+      appBar: const PearAppBar(label: 'Explore'),
       body: Column(
         children: [
           Padding(

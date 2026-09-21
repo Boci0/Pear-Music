@@ -5,6 +5,7 @@ import '../controllers/app_controller.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
+import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/tactile_button.dart';
 
@@ -77,23 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final identity = controller.identity;
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        titleSpacing: 16,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/pear_logo.png',
-              width: 28,
-              height: 28,
-              filterQuality: FilterQuality.medium,
-            ),
-            const SizedBox(width: 8),
-            const Text('Settings'),
-          ],
-        ),
-      ),
+      appBar: const PearAppBar(label: 'Settings'),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [

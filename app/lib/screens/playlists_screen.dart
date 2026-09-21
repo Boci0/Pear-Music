@@ -7,6 +7,7 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
+import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import '../widgets/tactile_button.dart';
@@ -24,22 +25,8 @@ class PlaylistsScreen extends StatelessWidget {
     final currentSongId = controller.player.currentSong?.id;
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        titleSpacing: 16,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/pear_logo.png',
-              width: 28,
-              height: 28,
-              filterQuality: FilterQuality.medium,
-            ),
-            const SizedBox(width: 8),
-            const Text('Playlists'),
-          ],
-        ),
+      appBar: PearAppBar(
+        label: 'Playlists',
         actions: [
           TactileIconButton(
             tooltip: 'Import playlist (.m3u8)',
