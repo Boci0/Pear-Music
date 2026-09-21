@@ -27,15 +27,15 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   AppLifecycleListener? _lifecycleListener;
-  final GlobalKey<NavigatorState> _playlistsNavKey = GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _playlistsNavKey =
+      GlobalKey<NavigatorState>();
 
   List<Widget> get _screens => [
     const HomeScreen(),
     Navigator(
       key: _playlistsNavKey,
-      onGenerateRoute: (settings) => PearPageRoute(
-        builder: (_) => const PlaylistsScreen(),
-      ),
+      onGenerateRoute: (settings) =>
+          PearPageRoute(builder: (_) => const PlaylistsScreen()),
     ),
     ExploreScreen(isActive: _index == 2),
     const HistoryScreen(),
@@ -46,8 +46,9 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     SessionDiagnostics.init();
-    const MethodChannel('com.peerm.peerm_app/memory')
-        .setMethodCallHandler((call) async {
+    const MethodChannel('com.peerm.peerm_app/memory').setMethodCallHandler((
+      call,
+    ) async {
       if (call.method == 'onTrimMemory') {
         ArtworkPalette.compactMemory();
         LyricsService.compactMemory();
@@ -66,7 +67,8 @@ class _HomeShellState extends State<HomeShell> {
           // Restore the artwork-derived theme after a background/foreground
           // cycle so the UI doesn't sit on the fallback colour.
           context.read<PlayerTheme>().reapply();
-        } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+        } else if (state == AppLifecycleState.paused ||
+            state == AppLifecycleState.hidden) {
           // Free unused decoded byte caches and live image entries to drop background memory footprint.
           ArtworkPalette.compactMemory();
           LyricsService.compactMemory();
@@ -97,7 +99,8 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _index == 0 && !(_playlistsNavKey.currentState?.canPop() ?? false),
+      canPop:
+          _index == 0 && !(_playlistsNavKey.currentState?.canPop() ?? false),
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_index == 1 && (_playlistsNavKey.currentState?.canPop() ?? false)) {
@@ -108,10 +111,7 @@ class _HomeShellState extends State<HomeShell> {
       },
       child: Scaffold(
         extendBody: true,
-        body: IndexedStack(
-          index: _index,
-          children: _screens,
-        ),
+        body: IndexedStack(index: _index, children: _screens),
         bottomNavigationBar: SafeArea(
           top: false,
           child: Column(
@@ -122,7 +122,9 @@ class _HomeShellState extends State<HomeShell> {
                 selectedIndex: _index,
                 onDestinationSelected: (i) {
                   if (i == 1 && _index == 1) {
-                    _playlistsNavKey.currentState?.popUntil((route) => route.isFirst);
+                    _playlistsNavKey.currentState?.popUntil(
+                      (route) => route.isFirst,
+                    );
                   }
                   setState(() => _index = i);
                 },
@@ -145,12 +147,8 @@ class _MinimalistNavBar extends StatelessWidget {
   });
 
   /// Bar height. The icon row and label row are fixed heights, so this only
-  /// has to hold them plus the bar's own padding.
+  /// has to hold them plus the bar's own border.
   static const double barHeight = 64;
-
-  /// Gap between an item's bounds and the rounded hover fill.
-  static const double itemInsetX = 2;
-  static const double itemInsetY = 4;
 
   /// Selected indicator: a capsule behind the icon alone. Sizing it from the
   /// icon instead of the label is what keeps the shape stable at any tab count,
@@ -160,25 +158,21 @@ class _MinimalistNavBar extends StatelessWidget {
   static const double indicatorHeight = 30;
 
   /// Fixed row heights, so the indicator can be positioned exactly over the icon
-  /// row without measuring text.
+  /// row without measuring text. Items apply no vertical margin of their own,
+  /// so the content block is simply centred in the bar.
   static const double _iconRowHeight = indicatorHeight;
   static const double _labelRowHeight = 13;
   static const double _rowGap = 3;
   static const double _contentHeight =
       _iconRowHeight + _rowGap + _labelRowHeight;
 
-  /// Outline width of the bar and of an item's hover fill. Both inset their
-  /// content by this much, so the indicator has to account for it.
+  /// Outline width of the bar itself, which insets its content by this much.
   static const double _barBorder = 1;
 
   /// Top of the icon row inside the bar's inner box, derived from the very same
-  /// numbers the item lays its content out with (margins, border, centring), so
-  /// the two cannot drift apart.
-  static double _indicatorTopFor(double barInnerHeight) {
-    final itemInner =
-        barInnerHeight - itemInsetY * 2 - _barBorder * 2;
-    return itemInsetY + _barBorder + (itemInner - _contentHeight) / 2;
-  }
+  /// numbers the item lays its content out with, so the two cannot drift apart.
+  static double _indicatorTopFor(double barInnerHeight) =>
+      (barInnerHeight - _contentHeight) / 2;
 
   @override
   Widget build(BuildContext context) {
@@ -208,15 +202,18 @@ class _MinimalistNavBar extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final itemWidth = constraints.maxWidth / 5;
-            final indicatorWidthForItem =
-                indicatorWidth.clamp(0.0, itemWidth - 16);
+            final indicatorWidthForItem = indicatorWidth.clamp(
+              0.0,
+              itemWidth - 16,
+            );
             return Stack(
               children: [
                 // Gliding indicator, centred on the selected item's icon.
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeOutCubic,
-                  left: selectedIndex * itemWidth +
+                  left:
+                      selectedIndex * itemWidth +
                       (itemWidth - indicatorWidthForItem) / 2,
                   top: _indicatorTopFor(constraints.maxHeight),
                   height: indicatorHeight,
@@ -224,59 +221,60 @@ class _MinimalistNavBar extends StatelessWidget {
                   child: Container(
                     key: const ValueKey('nav_indicator'),
                     decoration: BoxDecoration(
-                      color: scheme.primary.withValues(alpha: 0.22),
+                      color: scheme.primary.withValues(alpha: 0.24),
                       borderRadius: BorderRadius.circular(indicatorHeight / 2),
-                      border: Border.all(
-                        color: scheme.primary.withValues(alpha: 0.38),
-                        width: 1,
-                      ),
                     ),
                   ),
                 ),
-                // Navigation items
-                Row(
-                  children: [
-                    _NavBarItem(
-                      index: 0,
-                      selectedIndex: selectedIndex,
-                      label: 'Library',
-                      inactiveIcon: Icons.library_music_outlined,
-                      activeIcon: Icons.library_music_rounded,
-                      onTap: () => onDestinationSelected(0),
-                    ),
-                    _NavBarItem(
-                      index: 1,
-                      selectedIndex: selectedIndex,
-                      label: 'Playlists',
-                      inactiveIcon: Icons.queue_music_outlined,
-                      activeIcon: Icons.queue_music_rounded,
-                      onTap: () => onDestinationSelected(1),
-                    ),
-                    _NavBarItem(
-                      index: 2,
-                      selectedIndex: selectedIndex,
-                      label: 'Explore',
-                      inactiveIcon: Icons.explore_outlined,
-                      activeIcon: Icons.explore_rounded,
-                      onTap: () => onDestinationSelected(2),
-                    ),
-                    _NavBarItem(
-                      index: 3,
-                      selectedIndex: selectedIndex,
-                      label: 'History',
-                      inactiveIcon: Icons.history_outlined,
-                      activeIcon: Icons.history_rounded,
-                      onTap: () => onDestinationSelected(3),
-                    ),
-                    _NavBarItem(
-                      index: 4,
-                      selectedIndex: selectedIndex,
-                      label: 'Settings',
-                      inactiveIcon: Icons.settings_outlined,
-                      activeIcon: Icons.settings_rounded,
-                      onTap: () => onDestinationSelected(4),
-                    ),
-                  ],
+                // Navigation items. Filling the bar (rather than sitting at its
+                // top with their intrinsic height) is what keeps each item's
+                // icon row exactly where the indicator expects it.
+                Positioned.fill(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _NavBarItem(
+                        index: 0,
+                        selectedIndex: selectedIndex,
+                        label: 'Library',
+                        inactiveIcon: Icons.library_music_outlined,
+                        activeIcon: Icons.library_music_rounded,
+                        onTap: () => onDestinationSelected(0),
+                      ),
+                      _NavBarItem(
+                        index: 1,
+                        selectedIndex: selectedIndex,
+                        label: 'Playlists',
+                        inactiveIcon: Icons.queue_music_outlined,
+                        activeIcon: Icons.queue_music_rounded,
+                        onTap: () => onDestinationSelected(1),
+                      ),
+                      _NavBarItem(
+                        index: 2,
+                        selectedIndex: selectedIndex,
+                        label: 'Explore',
+                        inactiveIcon: Icons.explore_outlined,
+                        activeIcon: Icons.explore_rounded,
+                        onTap: () => onDestinationSelected(2),
+                      ),
+                      _NavBarItem(
+                        index: 3,
+                        selectedIndex: selectedIndex,
+                        label: 'History',
+                        inactiveIcon: Icons.history_outlined,
+                        activeIcon: Icons.history_rounded,
+                        onTap: () => onDestinationSelected(3),
+                      ),
+                      _NavBarItem(
+                        index: 4,
+                        selectedIndex: selectedIndex,
+                        label: 'Settings',
+                        inactiveIcon: Icons.settings_outlined,
+                        activeIcon: Icons.settings_rounded,
+                        onTap: () => onDestinationSelected(4),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             );
@@ -331,38 +329,35 @@ class _NavBarItemState extends State<_NavBarItem> {
           },
           onTapCancel: () => setState(() => _isPressed = false),
           behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
+          child: AnimatedScale(
+            scale: _isPressed ? 0.90 : 1.0,
+            duration: const Duration(milliseconds: 140),
             curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(
-              horizontal: _MinimalistNavBar.itemInsetX,
-              vertical: _MinimalistNavBar.itemInsetY,
-            ),
-            decoration: BoxDecoration(
-              color: (!isSelected && _isHovered)
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: (!isSelected && _isHovered)
-                    ? Colors.white.withValues(alpha: 0.12)
-                    : Colors.transparent,
-                width: _MinimalistNavBar._barBorder,
-              ),
-            ),
-            child: Center(
-              child: AnimatedScale(
-                scale: _isPressed ? 0.90 : (_isHovered ? 1.05 : 1.0),
-                duration: const Duration(milliseconds: 140),
-                curve: Curves.easeOutCubic,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Fixed-height icon row that the selected indicator is
-                    // positioned over, so the two cannot drift apart.
-                    SizedBox(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Fixed-height icon row that the selected indicator is
+                // positioned over, so the two cannot drift apart. The hover
+                // fill is the same capsule as the indicator: a rectangle
+                // around the whole item competed with the selected shape and
+                // read as a second, rougher pill.
+                SizedBox(
+                  height: _MinimalistNavBar.indicatorHeight,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      curve: Curves.easeOutCubic,
+                      width: _MinimalistNavBar.indicatorWidth,
                       height: _MinimalistNavBar.indicatorHeight,
+                      decoration: BoxDecoration(
+                        color: (!isSelected && _isHovered)
+                            ? Colors.white.withValues(alpha: 0.07)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(
+                          _MinimalistNavBar.indicatorHeight / 2,
+                        ),
+                      ),
                       child: Center(
                         child: Icon(
                           isSelected ? widget.activeIcon : widget.inactiveIcon,
@@ -370,36 +365,38 @@ class _NavBarItemState extends State<_NavBarItem> {
                           color: isSelected
                               ? scheme.primary
                               : _isHovered
-                                  ? Colors.white.withValues(alpha: 0.85)
-                                  : Colors.white.withValues(alpha: 0.45),
+                              ? Colors.white.withValues(alpha: 0.85)
+                              : Colors.white.withValues(alpha: 0.45),
                         ),
                       ),
                     ),
-                    const SizedBox(height: _MinimalistNavBar._rowGap),
-                    SizedBox(
-                      height: _MinimalistNavBar._labelRowHeight,
-                      child: Center(
-                        child: Text(
-                          widget.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontSize: 10.5,
-                            height: 1.0,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                            color: isSelected
-                                ? scheme.primary
-                                : _isHovered
-                                    ? Colors.white.withValues(alpha: 0.85)
-                                    : Colors.white.withValues(alpha: 0.45),
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: _MinimalistNavBar._rowGap),
+                SizedBox(
+                  height: _MinimalistNavBar._labelRowHeight,
+                  child: Center(
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontSize: 10.5,
+                        height: 1.0,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        color: isSelected
+                            ? scheme.primary
+                            : _isHovered
+                            ? Colors.white.withValues(alpha: 0.85)
+                            : Colors.white.withValues(alpha: 0.45),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
