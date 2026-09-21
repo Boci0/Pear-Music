@@ -2,8 +2,8 @@
 
 > A local-first music player and streaming discovery engine for Windows and Android. No cloud, no accounts.
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%20ZIP-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip)
-[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows%20Setup-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-Setup.exe)
+[![Download for Android](https://img.shields.io/badge/Download-Android%20ARM64-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built%20with-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 
@@ -17,27 +17,38 @@
 
 ## Key Features
 
-* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable genre chips, search music directly, and stream without accounts.
-* **Immersive Dynamic Player**: Full-bleed album artwork with ambient gradients extracted from track art, animated glow accents, and an interactive visualizer progress bar.
-* **Synchronized Lyrics**: Real-time synchronized lyrics with line-by-line highlighting, supporting local `.lrc` companion files and automatic LRCLIB lookups.
+* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable chips, search directly, and stream without accounts. An expanded search scope can include covers and community uploads alongside official audio.
+* **Immersive Dynamic Player**: Full-bleed album artwork with ambient gradients extracted from the track art, animated glow accents, and an interactive waveform seek bar with an optional audio visualizer.
+* **Synchronized Lyrics**: Real-time line-by-line highlighting from local `.lrc` companion files, with automatic lookups as a fallback, colour options that stay readable on busy artwork, and a live timing sheet for manual sync.
 * **Pull-Up Queue & Library Management**: Bottom sheet queue with drag-and-drop reordering, track removal, fast favoriting, and multi-playlist organization.
+* **Library Profiles & Playlists**: Export your library and favorites to a portable M3U8 profile and import it on another device; standard M3U8 playlists import and export as well. Android imports keep running in the background and skip songs you already have.
 * **Offline-First Playback**: Fast local audio playback from device storage, with automatic fallback to local tracks when offline.
-* **Endless Play**: Automatically queues related track recommendations when your current queue finishes, with background stream preloading to reduce buffering between tracks.
-* **Save to Library & Favorites**: Bookmark streamed tracks and search results into your favorites and playlists with a single tap.
-* **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with album artwork rendered on Android Lockscreen, Notification Shade, and Windows Media Transport Controls (SMTC).
-* **Automated In-App Updates**: Built-in version checks and direct 1-click in-app updates from GitHub releases.
-* **Live Diagnostics Console**: Integrated diagnostic log viewer and buffer for checking stream and cache activity.
-* **Loudness Normalization**: Leveling to reduce sudden volume jumps between tracks on supported platforms.
+* **Endless Play**: Automatically queues related track recommendations when your current queue finishes, with background pre-buffering so the next track starts quickly.
+* **Save to Library & Favorites**: Bookmark streamed tracks and search results into your favorites and playlists with a single tap, with one heart shared across a song's stream, search, and library copies.
+* **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with album artwork on the Android lockscreen, the notification shade, and Windows Media Transport Controls (SMTC). Hardware media keys work on desktop.
+* **Sleep Timer & Playback Speed**: Sleep triggers for the end of the track, a countdown, or the end of the queue; playback speed from 0.5x to 2.0x; and loudness normalization to even out volume between tracks.
+* **Performance & Diagnostics**: Reduced Effects mode for battery savings, streaming cache management with live usage stats, and a diagnostics console for stream and cache activity.
+* **Automated In-App Updates**: Built-in version checks with one-click updates from GitHub releases; the Android updater resumes interrupted downloads, verifies checksums, and installs the APK that matches your device architecture.
 
 ---
 
 ## Download
 
-| Platform | Package | Direct Link |
-| :--- | :--- | :--- |
-| **Windows (x64)** | `PearMusic-Windows-x64.zip` | [Download Windows ZIP](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip) |
-| **Android (ARM64)** | `PearMusic-Android-arm64.apk` | [Download Android ARM64](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk) |
-| **Android (ARMv7 32-bit)** | `PearMusic-Android-armv7.apk` | [Download Android ARMv7](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk) |
+Every build for the latest release is listed below and attached to the [releases page](https://github.com/Boci0/Pear-Music/releases/latest).
+
+| Platform | Architecture | Build | Download |
+| :--- | :--- | :--- | :--- |
+| **Windows 10/11** | x64 | Setup installer (recommended) | [PearMusic-Windows-Setup.exe](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-Setup.exe) |
+| **Windows 10/11** | x64 | Portable ZIP, no installation | [PearMusic-Windows-x64.zip](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip) |
+| **Android** | ARM64, most devices | APK | [PearMusic-Android-arm64.apk](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk) |
+| **Android** | ARMv7, older 32-bit devices | APK | [PearMusic-Android-armv7.apk](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk) |
+
+### Which file do I need?
+
+* **Windows**: Use the Setup installer. It installs per user without admin rights, adds Start Menu and optional Desktop shortcuts, and registers an uninstaller. Pick the portable ZIP only if you would rather run the app from an extracted folder.
+* **Android**: Use the ARM64 APK on any phone from the last decade. The ARMv7 APK is for older 32-bit devices only. You choose once at first install; in-app updates detect your device architecture and download the matching APK automatically.
+
+Verify a download against [`SHA256SUMS`](https://github.com/Boci0/Pear-Music/releases/latest/download/SHA256SUMS) with `Get-FileHash <file> -Algorithm SHA256` on Windows or `sha256sum <file>` on Linux and macOS.
 
 ---
 
@@ -45,9 +56,9 @@
 
 ### Prerequisites
 
-* **Flutter SDK**: `^3.12.0` (Dart 3.x+)
+* **Flutter SDK**: Stable channel, 3.44.9 (the version the release pipeline builds with); the project requires Dart 3.12.2+.
 * **Windows Development**: Visual Studio 2022 with **Desktop development with C++** workload installed.
-* **Android Development**: Android Studio / SDK (Target API 34+, Java 17+).
+* **Android Development**: Android Studio / SDK with compile SDK 37 installed and Java 17+.
 
 ### 1. Clone & Fetch Dependencies
 
@@ -79,9 +90,11 @@ flutter test
 # Android Split APKs (arm64-v8a, armeabi-v7a, x86_64)
 flutter build apk --split-per-abi --release
 
-# Windows Release Binary
+# Windows Release Binary (x64)
 flutter build windows --release
 ```
+
+Official releases ship the arm64-v8a and armeabi-v7a APKs. The x86_64 APK only matters for emulators and Intel-based devices.
 
 ---
 
@@ -96,6 +109,12 @@ To ensure uninterrupted background playback and persistent media controls on And
    * **Samsung / Pixel / Xiaomi**: Open **App Info -> Battery** and set to **Unrestricted** (or "Don't restrict").
 3. **Quick Settings Media Player**:
    * To keep the media player pinned in Quick Settings even when paused, enable **Settings -> Sound & Vibration -> Media -> Pin media player** (on supported Android versions).
+
+---
+
+## Support
+
+Found a bug or have an idea for a feature? [Open an issue](https://github.com/Boci0/Pear-Music/issues).
 
 ---
 
