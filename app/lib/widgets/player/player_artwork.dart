@@ -254,7 +254,18 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       );
     }
 
-    final Widget? glassBackdrop = (song != null && playerService != null)
+    // Whether there is a real cover to work with. Songs without artwork fall
+    // back to [_placeholder], and blurring that placeholder glyph for the
+    // lyrics backdrop smeared it into two soft blobs that read as a glow
+    // floating well away from the lyric line, so those songs get a flat panel
+    // instead of a blurred image.
+    final hasArtwork = effectiveNetworkUrl != null ||
+        (initialBytes?.isNotEmpty ?? false) ||
+        (song?.artwork?.isNotEmpty ?? false);
+
+    final Widget? glassBackdrop = (song != null &&
+            playerService != null &&
+            hasArtwork)
         ? RepaintBoundary(
             child: ClipRRect(
               borderRadius: radius,
@@ -312,6 +323,21 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           child: IgnorePointer(
                             ignoring: !isLyricsFullyOpen,
                             child: cachedBackdrop,
+                          ),
+                        ),
+                      // No cover to blur: settle the placeholder into a flat
+                      // panel so the lyrics sit on something calm.
+                      if (!hasArtwork &&
+                          song != null &&
+                          playerService != null &&
+                          isLyricsActive)
+                        FadeTransition(
+                          opacity: _blurAnimation,
+                          child: IgnorePointer(
+                            child: Container(
+                              color: scheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.94),
+                            ),
                           ),
                         ),
                       // Calms busy bright artwork so dark lyrics stay readable.
