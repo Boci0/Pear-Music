@@ -144,16 +144,30 @@ class _MinimalistNavBar extends StatelessWidget {
     required this.onDestinationSelected,
   });
 
+  /// Bar height. With five tabs each item is narrow, so the height is what
+  /// keeps the selected pill roomy: [pillInsetY] on both sides leaves the pill
+  /// taller than its icon + label stack while still fitting the bar.
+  static const double barHeight = 62;
+
+  /// Gap between an item's bounds and its pill. Kept at the smallest value that
+  /// still reads as a separate shape: at five tabs the pill has to hold the
+  /// longest label ("Playlists") on a 360dp phone, so every pixel spent here
+  /// comes out of the padding around that label.
+  static const double pillInsetX = 2;
+  static const double pillInsetY = 6;
+
+  static const double _pillHeight = barHeight - pillInsetY * 2;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 2, 16, 12),
-      height: 58,
+      margin: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+      height: barHeight,
       decoration: BoxDecoration(
         color: const Color(0xFF151518),
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(barHeight / 2),
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.08),
           width: 1,
@@ -167,7 +181,7 @@ class _MinimalistNavBar extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(barHeight / 2),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final itemWidth = constraints.maxWidth / 5;
@@ -177,14 +191,14 @@ class _MinimalistNavBar extends StatelessWidget {
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeOutCubic,
-                  left: selectedIndex * itemWidth + 5,
-                  top: 5,
-                  bottom: 5,
-                  width: itemWidth - 10,
+                  left: selectedIndex * itemWidth + pillInsetX,
+                  top: pillInsetY,
+                  bottom: pillInsetY,
+                  width: itemWidth - pillInsetX * 2,
                   child: Container(
                     decoration: BoxDecoration(
                       color: scheme.primary.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(_pillHeight / 2),
                       border: Border.all(
                         color: scheme.primary.withValues(alpha: 0.38),
                         width: 1,
@@ -293,12 +307,15 @@ class _NavBarItemState extends State<_NavBarItem> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+            margin: const EdgeInsets.symmetric(
+              horizontal: _MinimalistNavBar.pillInsetX,
+              vertical: _MinimalistNavBar.pillInsetY,
+            ),
             decoration: BoxDecoration(
               color: (!isSelected && _isHovered)
                   ? Colors.white.withValues(alpha: 0.08)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(25),
               border: Border.all(
                 color: (!isSelected && _isHovered)
                     ? Colors.white.withValues(alpha: 0.12)
@@ -317,25 +334,27 @@ class _NavBarItemState extends State<_NavBarItem> {
                   children: [
                     Icon(
                       isSelected ? widget.activeIcon : widget.inactiveIcon,
-                      size: 20,
+                      size: 22,
                       color: isSelected
                           ? scheme.primary
                           : _isHovered
                               ? Colors.white.withValues(alpha: 0.85)
                               : Colors.white.withValues(alpha: 0.45),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontSize: 10,
+                        fontSize: 10.5,
                         fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                         color: isSelected
                             ? scheme.primary
                             : _isHovered
                                 ? Colors.white.withValues(alpha: 0.85)
                                 : Colors.white.withValues(alpha: 0.45),
-                        letterSpacing: -0.1,
+                        letterSpacing: -0.4,
                       ),
                     ),
                   ],
