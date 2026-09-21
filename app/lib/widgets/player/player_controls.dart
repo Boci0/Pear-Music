@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
+import '../../services/ambient_ticker.dart';
 import '../../services/player_service.dart';
 import '../../services/window_focus.dart';
 import '../tactile_button.dart';
@@ -230,33 +231,44 @@ class PlayerSeekBar extends StatefulWidget {
   State<PlayerSeekBar> createState() => _PlayerSeekBarState();
 }
 
-class _PlayerSeekBarState extends State<PlayerSeekBar>
-    with SingleTickerProviderStateMixin {
+class _PlayerSeekBarState extends State<PlayerSeekBar> {
   final ValueNotifier<double?> _dragNotifier = ValueNotifier(null);
   bool _showRemaining = true;
   bool _isHovered = false;
   bool _isDragging = false;
 
-  /// Drives the cursor bloom breathing. Parked (no ticks, no repaints)
-  /// whenever playback or the window is idle.
-  late final AnimationController _glowController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 3200),
-  );
+  /// Phase of the 3.2 s cursor-bloom loop, advanced by the shared 30 Hz
+  /// [AmbientTicker]. Parked (no ticks, no repaints) whenever playback or the
+  /// window is idle.
+  double _wavePhase = 0.0;
+  bool _waveTicking = false;
   bool _glowRunning = false;
   bool _wasPlaying = false;
   bool _windowFocused = true;
   bool _reducedEffects = false;
 
-  /// Quantized sample of [_glowController]: the 3.2 s cycle advances ~0.011 per
+  /// Quantized sample of [_wavePhase]: the 3.2 s cycle advances ~0.011 per
   /// step, i.e. ~28 updates per second. The ripple and the bead bloom are slow
   /// ambient motions, so this looks identical to updating every frame while
-  /// halving the repaint/rebuild traffic on 60/120 Hz displays.
+  /// keeping the scene off the 60 Hz frame clock.
   final ValueNotifier<double> _waveTick = ValueNotifier<double>(0.0);
 
-  void _onGlowTick() {
-    final quantized = (_glowController.value * 90).floorToDouble() / 90;
+  void _onAmbientTick(Duration step) {
+    _wavePhase = (_wavePhase + step.inMicroseconds / 3200000.0) % 1.0;
+    final quantized = (_wavePhase * 90).floorToDouble() / 90;
     if (quantized != _waveTick.value) _waveTick.value = quantized;
+  }
+
+  void _startWaveTicker() {
+    if (_waveTicking) return;
+    _waveTicking = true;
+    AmbientTicker.instance.addListener(_onAmbientTick);
+  }
+
+  void _stopWaveTicker() {
+    if (!_waveTicking) return;
+    _waveTicking = false;
+    AmbientTicker.instance.removeListener(_onAmbientTick);
   }
 
   @override
@@ -264,14 +276,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
     super.initState();
     _wasPlaying = widget.player.playing;
     widget.player.addListener(_onPlayerChanged);
-    _glowController.addListener(_onGlowTick);
     _windowFocused = WindowFocus.focused.value;
     WindowFocus.focused.addListener(_onWindowFocusChanged);
     // Seed the initial state directly; the first build follows the mount.
     _reducedEffects = context.read<AppController?>()?.identity.reducedEffects ?? false;
     _glowRunning = _wasPlaying && _windowFocused && !_isDragging && !_reducedEffects;
     if (_glowRunning) {
-      _glowController.repeat();
+      _startWaveTicker();
     }
   }
 
@@ -309,10 +320,10 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
     if (shouldRun == _glowRunning) return;
     _glowRunning = shouldRun;
     if (shouldRun) {
-      _glowController.repeat();
+      _startWaveTicker();
     } else {
-      _glowController.stop();
-      _glowController.reset();
+      _stopWaveTicker();
+      _wavePhase = 0.0;
       _waveTick.value = 0.0;
     }
     if (mounted) setState(() {});
@@ -322,9 +333,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar>
   void dispose() {
     widget.player.removeListener(_onPlayerChanged);
     WindowFocus.focused.removeListener(_onWindowFocusChanged);
-    _glowController.removeListener(_onGlowTick);
+    _stopWaveTicker();
     _waveTick.dispose();
-    _glowController.dispose();
     _dragNotifier.dispose();
     super.dispose();
   }
