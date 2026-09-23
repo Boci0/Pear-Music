@@ -65,7 +65,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(412, 780);
+  Win32Window::Size size(432, 960);
   if (!window.Create(window_title, origin, size)) {
     if (mutex) ::CloseHandle(mutex);
     return EXIT_FAILURE;

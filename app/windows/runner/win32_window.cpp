@@ -198,16 +198,24 @@ bool Win32Window::Create(const std::wstring& title,
   int ph = Scale(size.height, scale_factor);
   long sl, st, sr, sb;
   bool max_flag = false;
+  bool has_saved_size = false;
+  int saved_w = 0;
+  int saved_h = 0;
   if (LoadSavedWindowState(&sl, &st, &sr, &sb, &max_flag)) {
     restored_bounds_ = true;
     restore_maximized_ = false;
     px = static_cast<int>(sl);
     py = static_cast<int>(st);
+    if (sr > sl && sb > st) {
+      has_saved_size = true;
+      saved_w = static_cast<int>(sr - sl);
+      saved_h = static_cast<int>(sb - st);
+    }
   }
 
-  // Lock window style to fixed phone dimensions (no maximize button, non-resizable frame)
+  // Allow resizable frame while defaulting to phone proportions (no maximize box)
   const DWORD window_style =
-      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME;
 
   MONITORINFO monitor_info = {sizeof(MONITORINFO)};
   if (GetMonitorInfo(monitor, &monitor_info)) {
@@ -223,10 +231,16 @@ bool Win32Window::Create(const std::wstring& title,
     }
   }
 
-  RECT win_rect = {0, 0, pw, ph};
-  AdjustWindowRect(&win_rect, window_style, FALSE);
-  const int win_w = win_rect.right - win_rect.left;
-  const int win_h = win_rect.bottom - win_rect.top;
+  int win_w, win_h;
+  if (has_saved_size && saved_w > 200 && saved_h > 300) {
+    win_w = saved_w;
+    win_h = saved_h;
+  } else {
+    RECT win_rect = {0, 0, pw, ph};
+    AdjustWindowRect(&win_rect, window_style, FALSE);
+    win_w = win_rect.right - win_rect.left;
+    win_h = win_rect.bottom - win_rect.top;
+  }
 
   HWND window = CreateWindow(window_class, title.c_str(), window_style,
                              px, py, win_w, win_h, nullptr, nullptr,

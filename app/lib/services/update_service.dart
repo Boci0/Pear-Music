@@ -338,6 +338,17 @@ class UpdateService {
     );
   }
 
+  static Future<void> _safeDeleteFile(File? file) async {
+    if (file == null) return;
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Safe delete suppressed for ${file.path}: $e');
+    }
+  }
+
   static Future<File?> getVerifiedDownloadedUpdate(UpdateInfo info) async {
     try {
       final tempDir = await getTemporaryDirectory();
@@ -362,17 +373,34 @@ class UpdateService {
         final expected = _findExpectedHash(info, p.basename(info.zipUrl!));
         if (expected == null || expected.isEmpty) return null;
         final zipFile = File(p.join(tempDir.path, 'peerm_update.zip'));
-        if (await zipFile.exists() && await zipFile.length() > 0) {
-          final actual = await computeFileSha256(zipFile);
-          if (actual.toLowerCase() == expected.trim().toLowerCase()) {
-            return zipFile;
+        try {
+          if (await zipFile.exists() && await zipFile.length() > 0) {
+            final actual = await computeFileSha256(zipFile);
+            if (actual.toLowerCase() == expected.trim().toLowerCase()) {
+              return zipFile;
+            }
+            await _safeDeleteFile(zipFile);
           }
-          // Stale or corrupt download from an older attempt: delete it so
-          // the updater starts clean and the space is freed.
-          try {
-            await zipFile.delete();
-          } catch (_) {}
-        }
+        } catch (_) {}
+
+        try {
+          final entries = tempDir.listSync();
+          for (final entry in entries) {
+            if (entry is File &&
+                p.basename(entry.path).startsWith('peerm_update_') &&
+                entry.path.endsWith('.zip')) {
+              try {
+                if (await entry.length() > 0) {
+                  final actual = await computeFileSha256(entry);
+                  if (actual.toLowerCase() == expected.trim().toLowerCase()) {
+                    return entry;
+                  }
+                  await _safeDeleteFile(entry);
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('[UpdateService] Check cached update failed: $e');

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -73,8 +74,8 @@ void main() {
 
     final bar = find.byKey(const ValueKey('nav_bar'));
     final indicator = find.byKey(const ValueKey('nav_indicator'));
-    expect(indicator, findsOneWidget);
-    expect(tester.getSize(indicator), _indicatorSize);
+    expect(tester.getSize(indicator).width, closeTo(_indicatorSize.width, 0.1));
+    expect(tester.getSize(indicator).height, closeTo(_indicatorSize.height, 0.1));
 
     Rect rectOf(Finder f) => tester.getRect(f);
     Finder navIcon(IconData icon) =>
@@ -98,7 +99,8 @@ void main() {
     await tester.pumpAndSettle();
     final playlistsIndicator = rectOf(indicator);
     final playlistsIcon = rectOf(navIcon(Icons.queue_music_rounded));
-    expect(playlistsIndicator.size, _indicatorSize);
+    expect(playlistsIndicator.size.width, closeTo(_indicatorSize.width, 0.1));
+    expect(playlistsIndicator.size.height, closeTo(_indicatorSize.height, 0.1));
     expect(
       playlistsIndicator.center.dx,
       closeTo(playlistsIcon.center.dx, 0.5),
@@ -107,5 +109,46 @@ void main() {
       playlistsIndicator.center.dx,
       greaterThan(libraryIndicator.center.dx),
     );
+  });
+
+  testWidgets('touch interaction does not leave hover highlight stuck',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    final bar = find.byKey(const ValueKey('nav_bar'));
+    final playlistsItem =
+        find.descendant(of: bar, matching: find.text('Playlists'));
+
+    // Dispatch a touch event (pointer kind = touch)
+    final touchGesture = await tester.startGesture(
+      tester.getCenter(playlistsItem),
+      kind: PointerDeviceKind.touch,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await touchGesture.up();
+    await tester.pumpAndSettle();
+
+    // Verify AnimatedContainers do not have white hover background
+    final animatedContainers = tester.widgetList<AnimatedContainer>(
+      find.descendant(of: bar, matching: find.byType(AnimatedContainer)),
+    );
+    for (final container in animatedContainers) {
+      final decoration = container.decoration as BoxDecoration?;
+      if (decoration != null && decoration.color != null) {
+        expect(
+          decoration.color,
+          isNot(equals(Colors.white.withValues(alpha: 0.08))),
+          reason: 'Hover highlight should not be visible after touch interaction',
+        );
+      }
+    }
   });
 }

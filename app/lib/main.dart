@@ -194,8 +194,41 @@ class PearMusicApp extends StatelessWidget {
             // every route, so they work from any screen while a song is
             // loaded. Text fields keep priority, so typing never triggers
             // playback.
-            builder: (context, child) =>
-                PlaybackShortcuts(child: child ?? const SizedBox.shrink()),
+            builder: (context, child) {
+              final mediaQuery = MediaQuery.of(context);
+              final width = mediaQuery.size.width;
+
+              // Responsive text and layout scaling:
+              // Standard mobile reference width is ~392 logical px.
+              // On compact phones (width <= 360), text scales gently (~0.92) to prevent clipping.
+              // On standard phones (390-412), scale is 1.0.
+              // On larger viewports (430+), scale gently expands (up to 1.15) for legibility.
+              final effectiveWidth = width > 520 ? 460.0 : width;
+              final double dynamicScale =
+                  (effectiveWidth / 392.0).clamp(0.88, 1.15);
+              final clampedTextScaler = mediaQuery.textScaler.clamp(
+                minScaleFactor: 0.85 * dynamicScale,
+                maxScaleFactor: 1.25 * dynamicScale,
+              );
+
+              Widget appChild = child ?? const SizedBox.shrink();
+
+              // Big screen / tablet / wide desktop window:
+              // Preserve the unified phone look (Rule 17) by constraining max width and centering.
+              if (width > 540) {
+                appChild = Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    child: ClipRect(child: appChild),
+                  ),
+                );
+              }
+
+              return MediaQuery(
+                data: mediaQuery.copyWith(textScaler: clampedTextScaler),
+                child: PlaybackShortcuts(child: appChild),
+              );
+            },
             home: const _MessagesListener(child: HomeShell()),
           );
         },

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -183,10 +184,12 @@ class _MinimalistNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final hMargin = screenWidth < 380 ? 10.0 : 16.0;
 
     return Container(
       key: const ValueKey('nav_bar'),
-      margin: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+      margin: EdgeInsets.fromLTRB(hMargin, 2, hMargin, 10),
       height: barHeight,
       decoration: BoxDecoration(
         // Same surface, border and shadow as the mini player card directly
@@ -320,23 +323,45 @@ class _NavBarItemState extends State<_NavBarItem> {
   bool _isPressed = false;
 
   @override
+  void didUpdateWidget(covariant _NavBarItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedIndex != oldWidget.selectedIndex && _isHovered) {
+      setState(() => _isHovered = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isSelected = widget.index == widget.selectedIndex;
     final scheme = Theme.of(context).colorScheme;
 
     return Expanded(
       child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
+        onEnter: (event) {
+          if (event.kind == PointerDeviceKind.mouse) {
+            setState(() => _isHovered = true);
+          }
+        },
+        onExit: (_) {
+          if (_isHovered) {
+            setState(() => _isHovered = false);
+          }
+        },
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTapDown: (_) => setState(() => _isPressed = true),
           onTapUp: (_) {
-            setState(() => _isPressed = false);
+            setState(() {
+              _isPressed = false;
+              _isHovered = false;
+            });
             TactileFeedback.click();
             widget.onTap();
           },
-          onTapCancel: () => setState(() => _isPressed = false),
+          onTapCancel: () => setState(() {
+            _isPressed = false;
+            _isHovered = false;
+          }),
           behavior: HitTestBehavior.opaque,
           child: AnimatedScale(
             scale: _isPressed ? 0.90 : 1.0,
@@ -385,22 +410,24 @@ class _NavBarItemState extends State<_NavBarItem> {
                 SizedBox(
                   height: _MinimalistNavBar._labelRowHeight,
                   child: Center(
-                    child: Text(
-                      widget.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontSize: 10.5,
-                        height: 1.0,
-                        fontWeight: isSelected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                        color: isSelected
-                            ? scheme.primary
-                            : _isHovered
-                            ? Colors.white.withValues(alpha: 0.85)
-                            : Colors.white.withValues(alpha: 0.45),
-                        letterSpacing: -0.2,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 10.5,
+                          height: 1.0,
+                          fontWeight: isSelected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          color: isSelected
+                              ? scheme.primary
+                              : _isHovered
+                              ? Colors.white.withValues(alpha: 0.85)
+                              : Colors.white.withValues(alpha: 0.45),
+                          letterSpacing: -0.2,
+                        ),
                       ),
                     ),
                   ),

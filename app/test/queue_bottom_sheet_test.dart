@@ -521,5 +521,73 @@ void main() {
     expect(sheetController.isExpanded, isTrue);
     expect(find.text('Song 3'), findsOneWidget);
   });
+
+  testWidgets('opening the queue scrolls to the currently playing song', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+
+    final songs = [for (var i = 1; i <= 30; i++) _song('s$i', 'Song $i')];
+    player.updateQueue(
+      songs,
+      sourceId: 'test',
+      sourceTitle: 'Test',
+    );
+
+    // Set playing song to Song 16 (index 15)
+    player.currentSong = songs[15];
+
+    final sheetController = QueueSheetController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Positioned.fill(child: Placeholder()),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExpandableQueueSheet(
+                  player: player,
+                  controller: controller,
+                  accent: const Color(0xFF101014),
+                  minChildSize: 0.08,
+                  sheetController: sheetController,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Open the queue
+    await tester.tap(find.text('UP NEXT'));
+    await tester.pumpAndSettle();
+
+    // Verify sheet is expanded
+    expect(sheetController.isExpanded, isTrue);
+
+    // Verify currently playing Song 16 is scrolled into view and found
+    expect(find.text('Song 16'), findsOneWidget);
+
+    // Verify ListView scroll offset is scrolled down past the top items
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    expect(scrollable.position.pixels, greaterThan(200.0));
+  });
 }
 

@@ -125,7 +125,6 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
 
   double _dragDistance = 0.0;
   bool _hasDragged = false;
-  bool _didScrollToCurrent = false;
 
   /// Downward overscroll accumulated on the queue list, used to close the
   /// sheet when the user swipes down on the list itself (standard bottom sheet
@@ -200,7 +199,6 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
       if (mounted && _scrollController.hasClients) {
         _scrollController.jumpTo(0.0);
       }
-      _didScrollToCurrent = false;
     });
   }
 
@@ -214,7 +212,7 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
     )
         .then((_) {
       if (mounted) {
-        _maybeScrollToCurrent();
+        _scrollToCurrentSong(animate: true);
       }
     });
   }
@@ -256,22 +254,58 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
 
   void _jump(double progress) {
     _animController.value = progress;
+    if (progress >= 1.0) {
+      _scrollToCurrentSong(animate: false);
+    }
   }
 
-  void _maybeScrollToCurrent() {
-    if (_didScrollToCurrent || !mounted) return;
-    if (!_scrollController.hasClients) return;
+  void _scrollToCurrentSong({bool animate = true}) {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
 
-    final index = widget.player.queueIndex;
-    if (index > 2) {
-      _didScrollToCurrent = true;
-      final targetOffset = (index - 1) * 58.0;
-      _scrollController.animateTo(
-        targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-      );
-    }
+      final queue = widget.player.queue;
+      if (queue.isEmpty) return;
+
+      final currentSongId = widget.player.currentSong?.id;
+      final index = currentSongId != null
+          ? queue.indexWhere((s) => s.id == currentSongId)
+          : widget.player.queueIndex;
+
+      if (index < 0 || index >= queue.length) return;
+
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      if (maxScroll == 0.0 && index > 2) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scrollController.hasClients) {
+            _scrollToCurrentSong(animate: animate);
+          }
+        });
+        return;
+      }
+
+      final double targetOffset;
+      if (_scrollController.position.hasViewportDimension) {
+        final viewportHeight = _scrollController.position.viewportDimension;
+        targetOffset =
+            (index * 58.0 - (viewportHeight * 0.25)).clamp(0.0, maxScroll);
+      } else {
+        targetOffset =
+            (index > 0 ? (index - 1) * 58.0 : 0.0).clamp(0.0, maxScroll);
+      }
+
+      if ((_scrollController.offset - targetOffset).abs() > 2.0) {
+        if (animate) {
+          _scrollController.animateTo(
+            targetOffset,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+          );
+        } else {
+          _scrollController.jumpTo(targetOffset);
+        }
+      }
+    });
   }
 
   void _handleDragStart(DragStartDetails details) {
@@ -396,13 +430,19 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
                 Expanded(
                   child: NotificationListener<ScrollNotification>(
                     onNotification: _onQueueScroll,
-                    child: _animController.isAnimating
-                        ? GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: _toggle,
-                            child: IgnorePointer(child: _buildQueueList()),
-                          )
-                        : _buildQueueList(),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _buildQueueList(),
+                        if (_animController.isAnimating)
+                          Positioned.fill(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _toggle,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ],

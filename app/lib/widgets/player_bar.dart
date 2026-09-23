@@ -36,8 +36,11 @@ class PlayerBar extends StatelessWidget {
         ) ??
         theme.colorScheme.surfaceContainerHigh;
 
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final hMargin = screenWidth < 380 ? 10.0 : 16.0;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      padding: EdgeInsets.fromLTRB(hMargin, 0, hMargin, 6),
       child: GestureDetector(
         onHorizontalDragEnd: (details) {
           final vx = details.primaryVelocity ?? 0;
