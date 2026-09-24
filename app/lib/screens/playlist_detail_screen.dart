@@ -466,143 +466,215 @@ class _SongRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () {
-              TactileFeedback.click();
-              onPlay();
-            },
-            hoverColor: Colors.white.withValues(alpha: 0.055),
-            child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: isCurrent
-                    ? LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.18),
-                          theme.colorScheme.primary.withValues(alpha: 0.02),
-                        ],
-                      )
-                    : null,
-              ),
-              child: SizedBox(
-                height: 58,
-                child: Stack(
-                  alignment: Alignment.centerLeft,
-                  children: [
-                    if (isCurrent)
-                      Positioned(
-                        left: 4,
-                        child: Container(
-                          width: 3.5,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(2),
+          child: GestureDetector(
+            onSecondaryTapDown: (details) =>
+                _showContextMenu(context, details.globalPosition),
+            child: InkWell(
+              onTap: () {
+                TactileFeedback.click();
+                onPlay();
+              },
+              hoverColor: Colors.white.withValues(alpha: 0.055),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: isCurrent
+                      ? LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            theme.colorScheme.primary.withValues(alpha: 0.18),
+                            theme.colorScheme.primary.withValues(alpha: 0.02),
+                          ],
+                        )
+                      : null,
+                ),
+                child: SizedBox(
+                  height: 58,
+                  child: Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      if (isCurrent)
+                        Positioned(
+                          left: 4,
+                          child: Container(
+                            width: 3.5,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 14, right: 6),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Wide rows move the size into a right-aligned column
-                          // so the row reads like a table on desktop.
-                          final wideRow = constraints.maxWidth >= 620;
-                          return Row(
-                            children: [
-                              artworkWidget,
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      song.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: isCurrent
-                                                ? theme.colorScheme.primary
-                                                : null,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    if (!wideRow)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 14, right: 6),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Wide rows move the size into a right-aligned column
+                            // so the row reads like a table on desktop.
+                            final wideRow = constraints.maxWidth >= 620;
+                            return Row(
+                              children: [
+                                artworkWidget,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
                                       Text(
-                                        song.sizeLabel,
+                                        song.title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.bodySmall
+                                        style: theme.textTheme.titleMedium
                                             ?.copyWith(
-                                              color: theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                              fontSize: 12.5,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                              color: isCurrent
+                                                  ? theme.colorScheme.primary
+                                                  : null,
                                             ),
                                       ),
-                                  ],
+                                      const SizedBox(height: 3),
+                                      if (!wideRow)
+                                        Text(
+                                          song.sizeLabel,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                                fontSize: 12.5,
+                                              ),
+                                        ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              if (wideRow)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 18),
-                                  child: Text(
-                                    song.sizeLabel,
-                                    maxLines: 1,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                      fontSize: 12.5,
+                                if (wideRow)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 18),
+                                    child: Text(
+                                      song.sizeLabel,
+                                      maxLines: 1,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            fontSize: 12.5,
+                                          ),
+                                    ),
+                                  ),
+                                TactileIconButton(
+                                  tooltip: 'Remove from playlist',
+                                  icon: Icon(
+                                    Icons.remove_circle_outline_rounded,
+                                    size: 19,
+                                    color: theme.colorScheme.onSurfaceVariant
+                                        .withValues(alpha: 0.6),
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                  onPressed: onRemove,
+                                ),
+                                ReorderableDragStartListener(
+                                  index: index,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 8,
+                                    ),
+                                    child: Icon(
+                                      Icons.drag_handle_rounded,
+                                      size: 20,
+                                      color: theme.colorScheme.onSurfaceVariant
+                                          .withValues(alpha: 0.5),
                                     ),
                                   ),
                                 ),
-                              TactileIconButton(
-                                tooltip: 'Remove from playlist',
-                                icon: Icon(
-                                  Icons.remove_circle_outline_rounded,
-                                  size: 19,
-                                  color: theme.colorScheme.onSurfaceVariant
-                                      .withValues(alpha: 0.6),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                  minWidth: 32,
-                                  minHeight: 32,
-                                ),
-                                onPressed: onRemove,
-                              ),
-                              ReorderableDragStartListener(
-                                index: index,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 8,
-                                  ),
-                                  child: Icon(
-                                    Icons.drag_handle_rounded,
-                                    size: 20,
-                                    color: theme.colorScheme.onSurfaceVariant
-                                        .withValues(alpha: 0.5),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
+                              ],
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Right-click context menu for a playlist row.
+  Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    final controller = context.read<AppController>();
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        _menuItem('play', Icons.play_arrow_rounded, 'Play'),
+        _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
+        _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
+        _menuItem(
+          'remove',
+          Icons.remove_circle_outline_rounded,
+          'Remove from playlist',
+          color: Theme.of(context).colorScheme.error,
+        ),
+      ],
+    );
+    if (!context.mounted || selected == null) return;
+    switch (selected) {
+      case 'play':
+        onPlay();
+      case 'play_next':
+        controller.playNext(song);
+      case 'add_to_queue':
+        controller.addToQueue(song);
+      case 'remove':
+        onRemove();
+    }
+  }
+
+  PopupMenuItem<String> _menuItem(
+    String value,
+    IconData icon,
+    String label, {
+    Color? color,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 42,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              label,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color),
+            ),
+          ),
+        ],
       ),
     );
   }
