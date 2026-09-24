@@ -349,6 +349,58 @@ class UpdateService {
     }
   }
 
+  /// Picks the file to download the Windows ZIP update into. Normally the
+  /// canonical `peerm_update.zip`; when that file is still held open (a
+  /// previous updater run, an antivirus scan), Windows refuses the delete, so
+  /// a per-attempt name is used instead of failing the whole update.
+  static Future<File> _resolveDownloadTarget(Directory tempDir) async {
+    final canonical = File(p.join(tempDir.path, 'peerm_update.zip'));
+    if (!await canonical.exists()) return canonical;
+    await _safeDeleteFile(canonical);
+    if (!await canonical.exists()) return canonical;
+
+    final unique = File(p.join(
+      tempDir.path,
+      'peerm_update_${DateTime.now().millisecondsSinceEpoch}.zip',
+    ));
+    debugPrint(
+      '[UpdateService] Canonical update file is locked; downloading to ${p.basename(unique.path)}',
+    );
+    await _safeDeleteFile(unique);
+    return unique;
+  }
+
+  /// Finds a verified ZIP left behind by an earlier attempt (per-attempt names
+  /// are used when the canonical file was locked). Unverifiable leftovers are
+  /// deleted so the temp directory does not accumulate them.
+  static Future<File?> _findVerifiedLeftover(
+    Directory tempDir,
+    String expected,
+  ) async {
+    try {
+      for (final entry in tempDir.listSync()) {
+        if (entry is! File) continue;
+        final name = p.basename(entry.path);
+        if (!name.startsWith('peerm_update_') || !name.endsWith('.zip')) {
+          continue;
+        }
+        if (await entry.length() == 0) continue;
+        final actual = await computeFileSha256(entry);
+        if (actual.toLowerCase() == expected.trim().toLowerCase()) {
+          return entry;
+        }
+        await _safeDeleteFile(entry);
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Leftover scan failed: $e');
+    }
+    return null;
+  }
+
+  @visibleForTesting
+  static Future<File> resolveDownloadTargetForTesting(Directory tempDir) =>
+      _resolveDownloadTarget(tempDir);
+
   static Future<File?> getVerifiedDownloadedUpdate(UpdateInfo info) async {
     try {
       final tempDir = await getTemporaryDirectory();
@@ -473,7 +525,7 @@ class UpdateService {
 
     try {
       final tempDir = await getTemporaryDirectory();
-      final zipFile = File(p.join(tempDir.path, 'peerm_update.zip'));
+      var zipFile = File(p.join(tempDir.path, 'peerm_update.zip'));
 
       // Integrity gate: never extract/relaunch without a matching SHA-256.
       final expected = _findExpectedHash(info, p.basename(zipUrl));
@@ -481,7 +533,7 @@ class UpdateService {
         debugPrint(
           '[UpdateService] No SHA-256 data for ${p.basename(zipUrl)}',
         );
-        if (await zipFile.exists()) await zipFile.delete();
+        await _safeDeleteFile(zipFile);
         if (context.mounted) {
           await _showMissingHashDialog(context, info);
         }
@@ -496,6 +548,16 @@ class UpdateService {
           debugPrint('[UpdateService] Reusing verified cached ZIP update.');
         }
       }
+      if (needDownload) {
+        final leftover = await _findVerifiedLeftover(tempDir, expected);
+        if (leftover != null) {
+          zipFile = leftover;
+          needDownload = false;
+          debugPrint(
+            '[UpdateService] Reusing verified ZIP from an earlier attempt.',
+          );
+        }
+      }
 
       if (needDownload) {
         scaffoldMessenger.showSnackBar(
@@ -504,7 +566,9 @@ class UpdateService {
             duration: Duration(seconds: 5),
           ),
         );
-        if (await zipFile.exists()) await zipFile.delete();
+        // Never fail because a stale file cannot be removed; fall back to a
+        // per-attempt name in that case.
+        zipFile = await _resolveDownloadTarget(tempDir);
 
         final client = HttpClient();
         client.userAgent = 'PearMusicApp/$currentVersion';
