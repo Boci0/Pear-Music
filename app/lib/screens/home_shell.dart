@@ -178,9 +178,9 @@ class _HomeShellState extends State<HomeShell>
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       decoration: const BoxDecoration(
-                        color: Color(0xFF131316),
+                        color: Color(0xFF1C1C20),
                         border: Border(
-                          bottom: BorderSide(color: Color(0x14FFFFFF)),
+                          bottom: BorderSide(color: Color(0x1AFFFFFF)),
                         ),
                       ),
                       child: const PearMenuBar(),
