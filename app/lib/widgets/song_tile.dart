@@ -41,6 +41,7 @@ class SongTile extends StatelessWidget {
     final action = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -202,6 +203,7 @@ class SongTile extends StatelessWidget {
             },
             onLongPress:
                 isSelecting ? null : (onLongPress ?? () => _showMenu(context)),
+            hoverColor: Colors.white.withValues(alpha: 0.055),
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -210,19 +212,13 @@ class SongTile extends StatelessWidget {
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                         colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.18),
                           theme.colorScheme.primary.withValues(alpha: 0.02),
                         ],
                       )
                     : null,
                 color: isSelected
                     ? theme.colorScheme.primaryContainer.withValues(alpha: 0.22)
-                    : null,
-                border: isCurrent
-                    ? Border.all(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.20),
-                        width: 1,
-                      )
                     : null,
               ),
               child: SizedBox(
@@ -266,14 +262,14 @@ class SongTile extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.titleMedium?.copyWith(
-                                    fontSize: 14.5,
-                                    height: 1.2,
-                                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+                                    fontSize: 15,
+                                    height: 1.25,
+                                    fontWeight: FontWeight.w600,
                                     color: isCurrent ? theme.colorScheme.primary : null,
                                     letterSpacing: -0.2,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 3),
                                 Row(
                                   children: [
                                     if (song.sourceDeviceId == 'stream') ...[
@@ -295,8 +291,8 @@ class SongTile extends StatelessWidget {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.bodySmall?.copyWith(
-                                          fontSize: 11.5,
-                                          height: 1.2,
+                                          fontSize: 12.5,
+                                          height: 1.25,
                                           color: theme.colorScheme.onSurfaceVariant,
                                         ),
                                       ),

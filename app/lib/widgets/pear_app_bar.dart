@@ -28,7 +28,13 @@ class PearTabTitle extends StatelessWidget {
       children: [
         const PearMark(),
         const SizedBox(width: 8),
-        Text(label),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+        ),
       ],
     );
   }

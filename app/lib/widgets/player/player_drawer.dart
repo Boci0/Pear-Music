@@ -99,15 +99,9 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
                               color: active
-                                  ? scheme.primary.withValues(alpha: 0.18)
+                                  ? scheme.primary.withValues(alpha: 0.20)
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: active
-                                    ? scheme.primary.withValues(alpha: 0.45)
-                                    : Colors.transparent,
-                                width: 1,
-                              ),
                             ),
                             child: Icon(
                               active ? Icons.casino_rounded : Icons.casino_outlined,

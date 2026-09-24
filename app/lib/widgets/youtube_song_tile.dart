@@ -44,8 +44,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
         child: Column(
@@ -287,6 +288,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               _streamAndPlay(context, controller);
             },
             onLongPress: () => _showOptions(context, controller),
+            hoverColor: Colors.white.withValues(alpha: 0.055),
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -295,15 +297,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                         colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.18),
                           theme.colorScheme.primary.withValues(alpha: 0.02),
                         ],
-                      )
-                    : null,
-                border: widget.isCurrent
-                    ? Border.all(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.20),
-                        width: 1,
                       )
                     : null,
               ),
@@ -341,14 +337,14 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.titleMedium?.copyWith(
-                                    fontSize: 14.5,
-                                    height: 1.2,
-                                    fontWeight: widget.isCurrent ? FontWeight.w600 : FontWeight.w500,
+                                    fontSize: 15,
+                                    height: 1.25,
+                                    fontWeight: FontWeight.w600,
                                     color: widget.isCurrent ? theme.colorScheme.primary : null,
                                     letterSpacing: -0.2,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 3),
                                 Row(
                                   children: [
                                     Icon(Icons.sensors_rounded,
@@ -360,9 +356,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.bodySmall?.copyWith(
-                                          fontSize: 11.5,
-                                          height: 1.2,
-                                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                                          fontSize: 12.5,
+                                          height: 1.25,
+                                          color: theme.colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ),

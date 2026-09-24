@@ -267,9 +267,6 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   decoration: BoxDecoration(
                     color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -382,9 +379,6 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   decoration: BoxDecoration(
                     color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -441,9 +435,6 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   decoration: BoxDecoration(
                     color: scheme.surfaceContainerHighest.withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -596,17 +587,11 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                       return Container(
                                         decoration: BoxDecoration(
                                           color: isCurrent
-                                              ? scheme.primary.withValues(alpha: 0.12)
-                                              : scheme.surfaceContainerHighest.withValues(alpha: 0.20),
+                                              ? scheme.primary.withValues(alpha: 0.14)
+                                              : (isCloseDuration
+                                                  ? scheme.primary.withValues(alpha: 0.07)
+                                                  : scheme.surfaceContainerHighest.withValues(alpha: 0.25)),
                                           borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(
-                                            color: isCurrent
-                                                ? scheme.primary.withValues(alpha: 0.45)
-                                                : (isCloseDuration
-                                                    ? scheme.primary.withValues(alpha: 0.25)
-                                                    : Colors.white.withValues(alpha: 0.06)),
-                                            width: isCurrent ? 1.2 : 0.8,
-                                          ),
                                         ),
                                         child: ListTile(
                                           dense: true,

@@ -134,4 +134,31 @@ void main() {
       );
     });
   }
+
+  testWidgets('Library header stays pinned left while crossfading into search',
+      (tester) async {
+    configureViewport(tester);
+    await tester.pumpWidget(await buildScreen(const HomeScreen()));
+    await tester.pumpAndSettle();
+
+    // Entering search swaps the min-width tab title for a full-width search
+    // header. Mid-transition both children share the app bar stack, and the
+    // default AnimatedSwitcher layout centred the fading title in the wider
+    // stack (pear + "Library" drifted to the middle of the bar).
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    final titleDx = tester.getTopLeft(find.text('Library')).dx;
+    expect(
+      titleDx,
+      lessThan(100),
+      reason: 'the fading title must stay at the leading edge (resting x is '
+          '16 + 28px mark + 8 gap = 52), not drift to the middle of the '
+          'search header',
+    );
+
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+  });
 }

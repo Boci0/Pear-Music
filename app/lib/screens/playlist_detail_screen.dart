@@ -454,6 +454,7 @@ class _SongRow extends StatelessWidget {
               TactileFeedback.click();
               onPlay();
             },
+            hoverColor: Colors.white.withValues(alpha: 0.055),
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -462,15 +463,9 @@ class _SongRow extends StatelessWidget {
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                         colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.18),
                           theme.colorScheme.primary.withValues(alpha: 0.02),
                         ],
-                      )
-                    : null,
-                border: isCurrent
-                    ? Border.all(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.20),
-                        width: 1,
                       )
                     : null,
               ),
@@ -507,19 +502,19 @@ class _SongRow extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.titleMedium?.copyWith(
-                                    fontSize: 14.5,
-                                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
                                     color: isCurrent ? theme.colorScheme.primary : null,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 3),
                                 Text(
                                   song.sizeLabel,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: theme.colorScheme.onSurfaceVariant,
-                                    fontSize: 12,
+                                    fontSize: 12.5,
                                   ),
                                 ),
                               ],

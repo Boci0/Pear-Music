@@ -277,9 +277,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                   child: Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF161616),
+                      color: Colors.white.withValues(alpha: 0.045),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF262626)),
                     ),
                     child: currentSong == null
                         ? Text(
@@ -342,9 +341,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                   child: Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF161616),
+                      color: Colors.white.withValues(alpha: 0.045),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF262626)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

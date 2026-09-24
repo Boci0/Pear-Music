@@ -356,6 +356,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               child: ChoiceChip(
                                 label: Text(genre),
                                 selected: isSelected,
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.05),
+                                selectedColor:
+                                    scheme.primary.withValues(alpha: 0.20),
+                                side: BorderSide.none,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                showCheckmark: false,
+                                labelStyle: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: isSelected
+                                      ? scheme.primary
+                                      : scheme.onSurfaceVariant,
+                                  letterSpacing: -0.1,
+                                ),
                                 onSelected: (selected) {
                                   if (_genreDragDistance > 8.0) return;
                                   TactileFeedback.click();
@@ -539,10 +558,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 end: Alignment.bottomRight,
                               ),
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: scheme.outlineVariant
-                                    .withValues(alpha: 0.25),
-                              ),
                             ),
                             child: Row(
                               children: [

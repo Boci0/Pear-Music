@@ -12,6 +12,7 @@ Future<void> showAddToPlaylistSheet(
 ) async {
   final result = await showModalBottomSheet<String>(
     context: context,
+    showDragHandle: true,
     builder: (_) => _PlaylistPickerSheet(controller: controller, song: song),
   );
   if (result == null || !context.mounted) return;
@@ -92,7 +93,8 @@ class _PlaylistPickerSheetState extends State<_PlaylistPickerSheet> {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Text(
               'Add "${widget.song.title}" to…',
-              style: theme.textTheme.titleMedium,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ),
           Flexible(

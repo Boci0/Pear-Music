@@ -245,6 +245,7 @@ class _PlaylistTile extends StatelessWidget {
                 ),
               );
             },
+            hoverColor: Colors.white.withValues(alpha: 0.055),
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
@@ -253,20 +254,14 @@ class _PlaylistTile extends StatelessWidget {
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                         colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.16),
+                          theme.colorScheme.primary.withValues(alpha: 0.18),
                           theme.colorScheme.primary.withValues(alpha: 0.02),
                         ],
                       )
                     : null,
                 color: isActive
                     ? null
-                    : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                border: Border.all(
-                  color: isActive
-                      ? theme.colorScheme.primary.withValues(alpha: 0.30)
-                      : Colors.white.withValues(alpha: 0.06),
-                  width: 1,
-                ),
+                    : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
               ),
               child: SizedBox(
                 height: 64,
@@ -305,7 +300,7 @@ class _PlaylistTile extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontSize: 15,
-                                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                                    fontWeight: FontWeight.w600,
                                     letterSpacing: -0.1,
                                   ),
                                 ),
@@ -371,6 +366,7 @@ class _PlaylistTile extends StatelessWidget {
     final action = await showModalBottomSheet<String>(
       context: context,
       useRootNavigator: true,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -603,11 +599,13 @@ class _EmptyPlaylists extends StatelessWidget {
               height: 76,
               decoration: BoxDecoration(
                 color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.25),
-                  width: 1,
-                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.16),
+                    blurRadius: 24,
+                  ),
+                ],
               ),
               child: Icon(
                 Icons.queue_music_rounded,

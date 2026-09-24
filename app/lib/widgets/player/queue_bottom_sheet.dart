@@ -649,15 +649,9 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
             decoration: BoxDecoration(
               color: widget.player.autoplay
-                  ? _readableAccent.withValues(alpha: 0.18)
+                  ? _readableAccent.withValues(alpha: 0.20)
                   : Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: widget.player.autoplay
-                  ? _readableAccent.withValues(alpha: 0.4)
-                  : Colors.white.withValues(alpha: 0.08),
-                width: 1,
-              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -710,15 +704,9 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                   padding: const EdgeInsets.all(5),
                   decoration: BoxDecoration(
                     color: active
-                        ? _readableAccent.withValues(alpha: 0.18)
+                        ? _readableAccent.withValues(alpha: 0.20)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: active
-                          ? _readableAccent.withValues(alpha: 0.45)
-                          : Colors.transparent,
-                      width: 1,
-                    ),
                   ),
                   child: Icon(
                     active ? Icons.casino_rounded : Icons.casino_outlined,
@@ -832,19 +820,14 @@ class _QueueRow extends StatelessWidget {
             onTap();
           },
           borderRadius: BorderRadius.circular(10),
+          hoverColor: Colors.white.withValues(alpha: 0.05),
           child: Container(
             height: 55,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               color: isCurrent
-                  ? readableAccent.withValues(alpha: 0.12)
+                  ? readableAccent.withValues(alpha: 0.14)
                   : Colors.transparent,
-              border: isCurrent
-                  ? Border.all(
-                      color: readableAccent.withValues(alpha: 0.22),
-                      width: 1,
-                    )
-                  : null,
             ),
             child: Row(
               children: [
@@ -892,9 +875,8 @@ class _QueueRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleMedium?.copyWith(
-                          fontSize: 13.5,
-                          fontWeight:
-                              isCurrent ? FontWeight.w600 : FontWeight.w500,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
                           color: isCurrent
                               ? readableAccent
                               : Colors.white.withValues(alpha: 0.9),
@@ -906,7 +888,7 @@ class _QueueRow extends StatelessWidget {
                         song.sizeLabel,
                         maxLines: 1,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          fontSize: 11,
+                          fontSize: 11.5,
                           color: Colors.white.withValues(alpha: 0.5),
                         ),
                       ),

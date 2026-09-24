@@ -114,6 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final playlists = controller.library.playlists;
     final playlist = await showModalBottomSheet<Playlist>(
       context: context,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -302,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     isSelected: !_showOnlyFavorites,
                     onTap: () => setState(() => _showOnlyFavorites = false),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _FilterPill(
                     key: const ValueKey('pill_favorites'),
                     icon: _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
@@ -310,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     isSelected: _showOnlyFavorites,
                     onTap: () => setState(() => _showOnlyFavorites = true),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _FilterPill(
                     key: const ValueKey('pill_sort'),
                     icon: Icons.sort_rounded,
@@ -318,9 +319,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     isSelected: false,
                     onTap: () => _showSortSheet(context, controller),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   if (songs.isNotEmpty) ...[
-                    const SizedBox(width: 8),
                     _FilterPill(
                       key: const ValueKey('pill_shuffle'),
                       icon: Icons.shuffle_rounded,
@@ -342,11 +342,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                     ),
                   ],
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _FilterPill(
                     key: const ValueKey('pill_select'),
                     icon: Icons.checklist_rounded,
-                    label: _isSelecting ? 'Done' : 'Select',
+                    label: _isSelecting ? 'Done' : null,
+                    tooltip: _isSelecting ? 'Finish selecting' : 'Select songs',
                     isSelected: _isSelecting,
                     onTap: () {
                       setState(() {
@@ -374,11 +375,13 @@ class _HomeScreenState extends State<HomeScreen> {
                               height: 76,
                               decoration: BoxDecoration(
                                 color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(22),
-                                border: Border.all(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.25),
-                                  width: 1,
-                                ),
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: theme.colorScheme.primary.withValues(alpha: 0.16),
+                                    blurRadius: 24,
+                                  ),
+                                ],
                               ),
                               child: Icon(
                                 Icons.favorite_border_rounded,
@@ -508,20 +511,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       : null,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
                   filled: true,
-                  fillColor: theme.colorScheme.surfaceContainer,
+                  fillColor: Colors.white.withValues(alpha: 0.06),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.6),
-                      width: 1.5,
+                      color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                      width: 1,
                     ),
                   ),
                 ),
@@ -622,8 +625,23 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: PearAppBar(
         title: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
+          // Sequenced crossfade: the leaving header fades out in the first
+          // half before the arriving one fades in, so the pear + tab title
+          // never ghost over the search field mid-swap.
+          switchInCurve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+          switchOutCurve: const Interval(0.55, 1.0, curve: Curves.easeInCubic),
+          // Keep both the outgoing and incoming headers pinned to the leading
+          // edge. The default layout centres its children in a Stack, which
+          // made the pear + tab title drift to the middle of the bar during
+          // the crossfade into search (the search header is full width while
+          // the title is min width).
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            alignment: AlignmentDirectional.centerStart,
+            children: [
+              ...previousChildren,
+              ?currentChild,
+            ],
+          ),
           child: headerContent,
         ),
         actions: headerActions,
@@ -634,15 +652,17 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _FilterPill extends StatefulWidget {
-  final String label;
+  final String? label;
   final IconData? icon;
+  final String? tooltip;
   final bool isSelected;
   final VoidCallback onTap;
 
   const _FilterPill({
     super.key,
-    required this.label,
+    this.label,
     this.icon,
+    this.tooltip,
     required this.isSelected,
     required this.onTap,
   });
@@ -660,20 +680,14 @@ class _FilterPillState extends State<_FilterPill> {
     final primary = theme.colorScheme.primary;
 
     final bgColor = widget.isSelected
-        ? primary.withValues(alpha: _isHovered ? 0.26 : 0.18)
+        ? primary.withValues(alpha: _isHovered ? 0.28 : 0.20)
         : (_isHovered
-            ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
-            : theme.colorScheme.surfaceContainer);
-
-    final borderColor = widget.isSelected
-        ? primary.withValues(alpha: _isHovered ? 0.55 : 0.35)
-        : (_isHovered
-            ? Colors.white.withValues(alpha: 0.14)
-            : Colors.white.withValues(alpha: 0.07));
+            ? Colors.white.withValues(alpha: 0.09)
+            : Colors.white.withValues(alpha: 0.05));
 
     final textColor = widget.isSelected
         ? primary
-        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.85);
+        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.9);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -687,17 +701,23 @@ class _FilterPillState extends State<_FilterPill> {
         scaleDown: 0.95,
         duration: const Duration(milliseconds: 80),
         onTap: widget.onTap,
+        tooltip: widget.tooltip,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 80),
+          duration: const Duration(milliseconds: 120),
           curve: Curves.easeOutQuad,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: borderColor,
-              width: 1,
-            ),
+            boxShadow: widget.isSelected
+                ? [
+                    BoxShadow(
+                      color: primary.withValues(alpha: 0.22),
+                      blurRadius: 14,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -705,19 +725,21 @@ class _FilterPillState extends State<_FilterPill> {
               if (widget.icon != null) ...[
                 Icon(
                   widget.icon,
-                  size: 14,
+                  size: 15,
                   color: textColor,
                 ),
                 const SizedBox(width: 6),
               ],
-              Text(
-                widget.label,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: textColor,
-                  letterSpacing: -0.1,
+              if (widget.label != null)
+                Text(
+                  widget.label!,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontSize: 13,
+                    fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                    color: textColor,
+                    letterSpacing: -0.1,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -734,7 +756,7 @@ void _showSortSheet(BuildContext context, AppController controller) {
     context: context,
     backgroundColor: theme.colorScheme.surfaceContainer,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (ctx) => SafeArea(
       child: Padding(
@@ -743,6 +765,17 @@ void _showSortSheet(BuildContext context, AppController controller) {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Text(
@@ -834,11 +867,13 @@ class _EmptyState extends StatelessWidget {
               height: 76,
               decoration: BoxDecoration(
                 color: primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: primary.withValues(alpha: 0.25),
-                  width: 1,
-                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: primary.withValues(alpha: 0.16),
+                    blurRadius: 24,
+                  ),
+                ],
               ),
               child: Icon(
                 Icons.library_music_rounded,

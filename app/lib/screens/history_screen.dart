@@ -122,11 +122,13 @@ class _EmptyHistory extends StatelessWidget {
               height: 76,
               decoration: BoxDecoration(
                 color: primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: primary.withValues(alpha: 0.25),
-                  width: 1,
-                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: primary.withValues(alpha: 0.16),
+                    blurRadius: 24,
+                  ),
+                ],
               ),
               child: Icon(
                 Icons.history_rounded,
