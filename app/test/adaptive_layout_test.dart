@@ -293,7 +293,7 @@ void main() {
     expect(shellStack.index, 1);
   });
 
-  testWidgets('very wide player swaps the queue peek for the Up Next panel', (
+  testWidgets('very wide player swaps the queue peek for the queue panel', (
     tester,
   ) async {
     setViewport(tester, const Size(1500, 900));
@@ -308,7 +308,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('queue_panel')), findsOneWidget);
     expect(find.byType(ExpandableQueueSheet), findsNothing);
-    expect(find.text('Up Next'), findsOneWidget);
+    expect(find.text('Queue'), findsOneWidget);
   });
 
   testWidgets('player below the panel threshold keeps the queue peek sheet', (

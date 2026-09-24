@@ -133,7 +133,7 @@ void main() {
     expect(sheetController.size, closeTo(0.50, 0.01));
 
     // Tap to collapse
-    await tester.tap(find.text('Up Next'));
+    await tester.tap(find.text('Queue'));
     await tester.pumpAndSettle();
     expect(sheetController.isExpanded, isFalse);
     expect(sheetController.size, closeTo(0.08, 0.01));
@@ -322,7 +322,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(sheetController.progress, greaterThan(0.30));
-    await tester.tap(find.text('Up Next'));
+    await tester.tap(find.text('Queue'));
     await tester.pumpAndSettle();
 
     expect(sheetController.isExpanded, isFalse);
@@ -588,6 +588,72 @@ void main() {
     // Verify ListView scroll offset is scrolled down past the top items
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(scrollable.position.pixels, greaterThan(200.0));
+  });
+
+  testWidgets('played queue rows recede and the current row stays accented', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+
+    final songs = [for (var i = 1; i <= 5; i++) _song('s$i', 'Song $i')];
+    player.updateQueue(
+      songs,
+      sourceId: 'test',
+      sourceTitle: 'Test',
+    );
+
+    // Song 4 (index 3) is playing, so the rows above it are played.
+    player.currentSong = songs[3];
+
+    final sheetController = QueueSheetController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Positioned.fill(child: Placeholder()),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExpandableQueueSheet(
+                  player: player,
+                  controller: controller,
+                  accent: const Color(0xFF101014),
+                  minChildSize: 0.08,
+                  sheetController: sheetController,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('UP NEXT'));
+    await tester.pumpAndSettle();
+
+    Color? titleColor(String title) =>
+        tester.widget<Text>(find.text(title)).style?.color;
+
+    final played = titleColor('Song 3')!;
+    final upcoming = titleColor('Song 5')!;
+    final current = titleColor('Song 4')!;
+
+    expect(played.a, lessThan(upcoming.a));
+    expect(current.a, greaterThan(played.a));
   });
 }
 

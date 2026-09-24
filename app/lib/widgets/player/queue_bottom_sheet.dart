@@ -614,7 +614,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
         Icon(Icons.queue_music_rounded, size: 20, color: _readableAccent),
         const SizedBox(width: 8),
         Text(
-          'Up Next',
+          'Queue',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 letterSpacing: -0.2,
@@ -782,7 +782,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'Up Next',
+                      'Queue',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         letterSpacing: -0.2,
@@ -953,6 +953,10 @@ class _QueueListView extends StatelessWidget {
           );
         }
 
+        final resolvedIndex = currentSongId != null
+            ? queue.indexWhere((s) => s.id == currentSongId)
+            : currentIndex;
+
         return ListView.builder(
           controller: scrollController,
           itemExtent: 58.0,
@@ -960,15 +964,15 @@ class _QueueListView extends StatelessWidget {
           itemCount: queue.length,
           itemBuilder: (context, i) {
             final song = queue[i];
-            final isCurrent = currentSongId != null
-                ? song.id == currentSongId
-                : i == currentIndex;
+            final isCurrent = i == resolvedIndex;
+            final isPlayed = resolvedIndex >= 0 && i < resolvedIndex;
 
             return _QueueRow(
               key: ValueKey('queue_row_${song.id}_$i'),
               song: song,
               index: i,
               isCurrent: isCurrent,
+              isPlayed: isPlayed,
               accent: accent,
               onTap: () => onSelectSong(song, queue, i),
               onRemove: () => player.removeFromQueue(i),
@@ -984,6 +988,7 @@ class _QueueRow extends StatelessWidget {
   final Song song;
   final int index;
   final bool isCurrent;
+  final bool isPlayed;
   final Color accent;
   final VoidCallback onTap;
   final VoidCallback onRemove;
@@ -993,6 +998,7 @@ class _QueueRow extends StatelessWidget {
     required this.song,
     required this.index,
     required this.isCurrent,
+    required this.isPlayed,
     required this.accent,
     required this.onTap,
     required this.onRemove,
@@ -1046,17 +1052,22 @@ class _QueueRow extends StatelessWidget {
                             style: theme.textTheme.labelSmall?.copyWith(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: Colors.white.withValues(alpha: 0.40),
+                              color: Colors.white.withValues(
+                                alpha: isPlayed ? 0.24 : 0.40,
+                              ),
                             ),
                           ),
                   ),
                 ),
 
                 // Artwork Thumbnail
-                _QueueArtworkThumbnail(
-                  song: song,
-                  isCurrent: isCurrent,
-                  accent: readableAccent,
+                Opacity(
+                  opacity: isPlayed ? 0.5 : 1.0,
+                  child: _QueueArtworkThumbnail(
+                    song: song,
+                    isCurrent: isCurrent,
+                    accent: readableAccent,
+                  ),
                 ),
 
                 const SizedBox(width: 12),
@@ -1076,7 +1087,9 @@ class _QueueRow extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           color: isCurrent
                               ? readableAccent
-                              : Colors.white.withValues(alpha: 0.9),
+                              : Colors.white.withValues(
+                                  alpha: isPlayed ? 0.42 : 0.9,
+                                ),
                           letterSpacing: -0.2,
                         ),
                       ),
@@ -1086,7 +1099,9 @@ class _QueueRow extends StatelessWidget {
                         maxLines: 1,
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontSize: 11.5,
-                          color: Colors.white.withValues(alpha: 0.5),
+                          color: Colors.white.withValues(
+                            alpha: isPlayed ? 0.32 : 0.5,
+                          ),
                         ),
                       ),
                     ],
@@ -1101,7 +1116,9 @@ class _QueueRow extends StatelessWidget {
                     tooltip: 'Remove from queue',
                     icon: Icon(
                       Icons.close_rounded,
-                      color: Colors.white.withValues(alpha: 0.60),
+                      color: Colors.white.withValues(
+                        alpha: isPlayed ? 0.30 : 0.60,
+                      ),
                     ),
                     onPressed: onRemove,
                   ),
