@@ -213,17 +213,6 @@ class PearMusicApp extends StatelessWidget {
 
               Widget appChild = child ?? const SizedBox.shrink();
 
-              // Big screen / tablet / wide desktop window:
-              // Preserve the unified phone look (Rule 17) by constraining max width and centering.
-              if (width > 540) {
-                appChild = Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: ClipRect(child: appChild),
-                  ),
-                );
-              }
-
               return MediaQuery(
                 data: mediaQuery.copyWith(textScaler: clampedTextScaler),
                 child: PlaybackShortcuts(child: appChild),

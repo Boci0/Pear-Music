@@ -8,8 +8,10 @@ import '../services/artwork_palette.dart';
 import '../services/lyrics_service.dart';
 import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
+import '../widgets/pear_content_frame.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
+import '../widgets/side_rail.dart';
 import '../widgets/tactile_button.dart';
 import 'explore_screen.dart';
 import 'history_screen.dart';
@@ -32,15 +34,21 @@ class _HomeShellState extends State<HomeShell> {
       GlobalKey<NavigatorState>();
 
   List<Widget> get _screens => [
-    const HomeScreen(),
-    Navigator(
-      key: _playlistsNavKey,
-      onGenerateRoute: (settings) =>
-          PearPageRoute(builder: (_) => const PlaylistsScreen()),
+    const PearContentFrame(maxWidth: 1000, child: HomeScreen()),
+    PearContentFrame(
+      maxWidth: 1240,
+      child: Navigator(
+        key: _playlistsNavKey,
+        onGenerateRoute: (settings) =>
+            PearPageRoute(builder: (_) => const PlaylistsScreen()),
+      ),
     ),
-    ExploreScreen(isActive: _index == 2),
-    const HistoryScreen(),
-    const SettingsScreen(),
+    PearContentFrame(
+      maxWidth: 1000,
+      child: ExploreScreen(isActive: _index == 2),
+    ),
+    const PearContentFrame(maxWidth: 1000, child: HistoryScreen()),
+    const PearContentFrame(maxWidth: 860, child: SettingsScreen()),
   ];
 
   @override
@@ -99,6 +107,8 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+
     return PopScope(
       canPop:
           _index == 0 && !(_playlistsNavKey.currentState?.canPop() ?? false),
@@ -112,29 +122,67 @@ class _HomeShellState extends State<HomeShell> {
       },
       child: Scaffold(
         extendBody: true,
-        body: IndexedStack(index: _index, children: _screens),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const PlayerBar(),
-              _MinimalistNavBar(
-                selectedIndex: _index,
-                onDestinationSelected: (i) {
-                  if (i == 1 && _index == 1) {
-                    _playlistsNavKey.currentState?.popUntil(
-                      (route) => route.isFirst,
-                    );
-                  }
-                  setState(() => _index = i);
-                },
+        body: isWide
+            ? Row(
+                children: [
+                  SideRail(
+                    selectedIndex: _index,
+                    onDestinationSelected: _onDestinationSelected,
+                  ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: IndexedStack(
+                            index: _index,
+                            children: _screens,
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints:
+                                  const BoxConstraints(maxWidth: 720),
+                              child: const SafeArea(
+                                top: false,
+                                child: PlayerBar(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : IndexedStack(index: _index, children: _screens),
+        bottomNavigationBar: isWide
+            ? null
+            : SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const PlayerBar(),
+                    _MinimalistNavBar(
+                      selectedIndex: _index,
+                      onDestinationSelected: _onDestinationSelected,
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
       ),
     );
+  }
+
+  void _onDestinationSelected(int i) {
+    if (i == 1 && _index == 1) {
+      _playlistsNavKey.currentState?.popUntil((route) => route.isFirst);
+    }
+    setState(() => _index = i);
   }
 }
 

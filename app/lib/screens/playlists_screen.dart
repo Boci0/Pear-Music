@@ -48,32 +48,58 @@ class PlaylistsScreen extends StatelessWidget {
               onCreate: () => _createPlaylist(context, controller),
               onImport: () => controller.importPlaylistFromM3u(),
             )
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
-              itemExtent: 72.0,
-              itemCount: playlists.length,
-              itemBuilder: (context, i) {
-                final pl = playlists[i];
-                final isCurrentPlaylist = controller.player.queueSourceId == 'playlist:${pl.id}' ||
-                    (currentSongId != null && pl.songIds.contains(currentSongId));
-                final isPlayingThisPlaylist = isCurrentPlaylist && controller.player.playing;
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                // Wide windows get a multi-column card grid; phones keep the
+                // single-column list.
+                final columns = (constraints.maxWidth / 420).floor().clamp(1, 3);
 
-                return _PlaylistTile(
-                  key: ValueKey(pl.id),
-                  playlist: pl,
-                  isActive: isCurrentPlaylist,
-                  isPlaying: isPlayingThisPlaylist,
-                  onPlay: () {
-                    if (isPlayingThisPlaylist) {
-                      controller.player.pause();
-                    } else if (isCurrentPlaylist && controller.player.currentSong != null) {
-                      controller.player.resume();
-                    } else {
-                      controller.playPlaylist(pl);
-                    }
-                  },
-                  onRename: () => _renamePlaylist(context, controller, pl),
-                  onDelete: () => _confirmDelete(context, controller, pl),
+                Widget tileAt(int i) {
+                  final pl = playlists[i];
+                  final isCurrentPlaylist =
+                      controller.player.queueSourceId == 'playlist:${pl.id}' ||
+                          (currentSongId != null &&
+                              pl.songIds.contains(currentSongId));
+                  final isPlayingThisPlaylist =
+                      isCurrentPlaylist && controller.player.playing;
+
+                  return _PlaylistTile(
+                    key: ValueKey(pl.id),
+                    playlist: pl,
+                    isActive: isCurrentPlaylist,
+                    isPlaying: isPlayingThisPlaylist,
+                    onPlay: () {
+                      if (isPlayingThisPlaylist) {
+                        controller.player.pause();
+                      } else if (isCurrentPlaylist &&
+                          controller.player.currentSong != null) {
+                        controller.player.resume();
+                      } else {
+                        controller.playPlaylist(pl);
+                      }
+                    },
+                    onRename: () => _renamePlaylist(context, controller, pl),
+                    onDelete: () => _confirmDelete(context, controller, pl),
+                  );
+                }
+
+                if (columns <= 1) {
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
+                    itemExtent: 72.0,
+                    itemCount: playlists.length,
+                    itemBuilder: (context, i) => tileAt(i),
+                  );
+                }
+                return GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    mainAxisExtent: 72,
+                    crossAxisSpacing: 4,
+                  ),
+                  itemCount: playlists.length,
+                  itemBuilder: (context, i) => tileAt(i),
                 );
               },
             ),

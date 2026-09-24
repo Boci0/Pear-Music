@@ -79,8 +79,9 @@ void SaveWindowState(HWND hwnd) {
     return;
   }
   const RECT& rect = placement.rcNormalPosition;
+  const int maximized = placement.showCmd == SW_SHOWMAXIMIZED ? 1 : 0;
   file << rect.left << L" " << rect.top << L" " << rect.right << L" "
-       << rect.bottom << L" 0";
+       << rect.bottom << L" " << maximized;
 }
 
 // Loads the saved bounds. Returns false (use defaults) when missing, corrupt,
@@ -203,7 +204,7 @@ bool Win32Window::Create(const std::wstring& title,
   int saved_h = 0;
   if (LoadSavedWindowState(&sl, &st, &sr, &sb, &max_flag)) {
     restored_bounds_ = true;
-    restore_maximized_ = false;
+    restore_maximized_ = max_flag;
     px = static_cast<int>(sl);
     py = static_cast<int>(st);
     if (sr > sl && sb > st) {
@@ -213,9 +214,10 @@ bool Win32Window::Create(const std::wstring& title,
     }
   }
 
-  // Allow resizable frame while defaulting to phone proportions (no maximize box)
-  const DWORD window_style =
-      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME;
+  // Resizable frame with maximize/restore; windows still default to phone
+  // proportions on first launch.
+  const DWORD window_style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
+                             WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
 
   MONITORINFO monitor_info = {sizeof(MONITORINFO)};
   if (GetMonitorInfo(monitor, &monitor_info)) {
@@ -256,7 +258,8 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(window_handle_,
+                    restore_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
 }
 
 void Win32Window::CenterOnScreen() {

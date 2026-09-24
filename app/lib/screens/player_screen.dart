@@ -137,10 +137,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    final landscape = !kIsWeb &&
-            (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
-        ? false
+    final isDesktopPlatform = !kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+    // Desktop windows keep the two-column split body once they are wide
+    // enough; phones keep using orientation so landscape phones get the split
+    // body too.
+    final landscape = isDesktopPlatform
+        ? MediaQuery.sizeOf(context).width >= 900
         : MediaQuery.orientationOf(context) == Orientation.landscape;
+    // The expandable queue peek stays available on wide desktop windows even
+    // though they use the landscape body.
+    final showQueuePeek = !landscape || isDesktopPlatform;
 
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
@@ -238,7 +245,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 // Dimming Scrim when queue is expanded (tap outside to collapse)
                 // Covers the full player screen from top to bottom so the top glow
                 // and app bar dim seamlessly without any horizontal cutoff boundary.
-                if (!landscape)
+                if (showQueuePeek)
                   Positioned.fill(
                     child: ListenableBuilder(
                       listenable: _sheetController,
@@ -260,7 +267,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
 
                 // YouTube Music style real-time expandable queue sheet
-                if (!landscape)
+                if (showQueuePeek)
                   Positioned(
                     left: 0,
                     right: 0,
@@ -274,14 +281,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         final maxHeight = (totalHeight * 0.50).clamp(peekHeight, totalHeight * 0.50);
 
                         return RepaintBoundary(
-                          child: ExpandableQueueSheet(
-                            player: player,
-                            controller: controller,
-                            accent: targetAccent,
-                            minChildSize: minChildSize,
-                            peekHeight: peekHeight,
-                            maxHeight: maxHeight,
-                            sheetController: _sheetController,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints:
+                                  const BoxConstraints(maxWidth: 760),
+                              child: ExpandableQueueSheet(
+                                player: player,
+                                controller: controller,
+                                accent: targetAccent,
+                                minChildSize: minChildSize,
+                                peekHeight: peekHeight,
+                                maxHeight: maxHeight,
+                                sheetController: _sheetController,
+                              ),
+                            ),
                           ),
                         );
                       },

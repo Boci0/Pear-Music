@@ -29,10 +29,10 @@ class PlayerLandscapeBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final artSize = (constraints.maxHeight * 0.52).clamp(120.0, 290.0);
+        final artSize = (constraints.maxHeight * 0.52).clamp(150.0, 400.0);
         return Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
+            constraints: const BoxConstraints(maxWidth: 1500),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

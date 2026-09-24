@@ -37,7 +37,7 @@ class PlayerPortraitBody extends StatelessWidget {
         // Allow artwork to sit comfortably with balanced margins
         // while bounding against available vertical space to prevent transport controls from being cramped.
         final maxByWidth = (constraints.maxWidth - 72.0).clamp(150.0, 305.0);
-        final maxByHeight = (availableHeight - peekHeight - 250.0).clamp(150.0, 305.0);
+        final maxByHeight = (availableHeight - peekHeight - 250.0).clamp(120.0, 305.0);
         final artSize = math.min(maxByWidth, maxByHeight);
 
         return RepaintBoundary(

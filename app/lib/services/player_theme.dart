@@ -170,6 +170,7 @@ class PlayerTheme extends ChangeNotifier {
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: surfaceDark,
+        constraints: BoxConstraints(maxWidth: 640),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
