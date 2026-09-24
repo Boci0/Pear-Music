@@ -143,14 +143,21 @@ void main() {
     },
   );
 
-  testWidgets('the Now Playing pane lists the upcoming queue', (tester) async {
+  testWidgets('the pane lists the whole queue with the playing track marked', (
+    tester,
+  ) async {
     setViewport(tester, const Size(1600, 900));
     final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
     await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
-    expect(find.text('Up Next'), findsOneWidget);
+    expect(find.text('Queue'), findsOneWidget);
+    expect(find.text('1 of 3'), findsOneWidget);
+    // The playing track stays in the list instead of being consumed, and the
+    // upcoming tracks keep their queue positions. The playing title also
+    // appears above the list, so it is matched loosely.
+    expect(find.text('Up Song 0'), findsWidgets);
     expect(find.text('Up Song 1'), findsOneWidget);
     expect(find.text('Up Song 2'), findsOneWidget);
   });
@@ -188,7 +195,7 @@ void main() {
     expect(find.byType(PlayerScreen), findsNothing);
     expect(find.byKey(const ValueKey('pane_collapse')), findsOneWidget);
     expect(find.byType(PlayerVolumeRow), findsOneWidget);
-    expect(find.text('Up Next'), findsOneWidget);
+    expect(find.text('Queue'), findsOneWidget);
 
     // The collapse button docks it back to the compact pane.
     await tester.tap(find.byKey(const ValueKey('pane_collapse')));

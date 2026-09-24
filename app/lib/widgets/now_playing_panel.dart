@@ -113,10 +113,6 @@ class NowPlayingPanel extends StatelessWidget {
     final controller = context.read<AppController>();
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
-    final queue = player.queue;
-    final upcoming = queue.length > player.queueIndex + 1
-        ? queue.sublist(player.queueIndex + 1)
-        : const <Song>[];
 
     return Column(
       key: const ValueKey('now_playing_panel_expanded'),
@@ -203,20 +199,19 @@ class NowPlayingPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
           child: PlayerVolumeRow(accent: control),
         ),
-        if (upcoming.isNotEmpty)
+        if (player.queue.isNotEmpty)
           SizedBox(
-            // Up Next yields space before the controls do: on shorter windows
-            // it shrinks so the seek bar and its time labels stay above the
-            // scroll edge.
+            // The queue yields space before the controls do: on shorter
+            // windows it shrinks so the seek bar and its time labels stay
+            // above the scroll edge.
             height: math.min(
               216.0,
               math.max(120.0, MediaQuery.sizeOf(context).height * 0.18),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _UpNextList(
+              child: _QueueContextList(
                 player: player,
-                upcoming: upcoming,
                 control: control,
                 theme: theme,
               ),
@@ -284,10 +279,6 @@ class NowPlayingPanel extends StatelessWidget {
                 final artSize = math
                     .min(constraints.maxWidth, constraints.maxHeight - 380)
                     .clamp(120.0, constraints.maxWidth);
-                final queue = player.queue;
-                final upcoming = queue.length > player.queueIndex + 1
-                    ? queue.sublist(player.queueIndex + 1)
-                    : const <Song>[];
                 return Column(
                   children: [
                     const Spacer(flex: 3),
@@ -372,12 +363,11 @@ class NowPlayingPanel extends StatelessWidget {
                     const SizedBox(height: 4),
                     PlayerVolumeRow(accent: control),
                     const SizedBox(height: 16),
-                    if (upcoming.isNotEmpty)
+                    if (player.queue.isNotEmpty)
                       Flexible(
                         flex: 4,
-                        child: _UpNextList(
+                        child: _QueueContextList(
                           player: player,
-                          upcoming: upcoming,
                           control: control,
                           theme: theme,
                         ),
@@ -547,22 +537,76 @@ class _Artwork extends StatelessWidget {
 
 /// Compact "Up Next" list under the pane controls: the next few queue tracks,
 /// tappable, the way classic desktop sidebars show what is coming.
-class _UpNextList extends StatelessWidget {
+/// The pane's queue view: the whole queue with the playing track marked, so
+/// finished tracks do not just vanish off the top and the position in the
+/// queue is always readable. Follows the playing row with an auto-scroll.
+class _QueueContextList extends StatefulWidget {
   final PlayerService player;
-  final List<Song> upcoming;
   final Color control;
   final ThemeData theme;
 
-  const _UpNextList({
+  const _QueueContextList({
     required this.player,
-    required this.upcoming,
     required this.control,
     required this.theme,
   });
 
   @override
+  State<_QueueContextList> createState() => _QueueContextListState();
+}
+
+class _QueueContextListState extends State<_QueueContextList> {
+  static const double _rowExtent = 27;
+
+  final ScrollController _scrollController = ScrollController();
+  int? _lastIndex;
+  String? _lastSongId;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Keeps the playing track in view as the queue advances: jump on the first
+  /// build, animate on track changes, and only when the track actually changes
+  /// (the player notifies on every position tick).
+  void _syncScrollToCurrent() {
+    final index = widget.player.queueIndex;
+    final songId = widget.player.currentSong?.id;
+    if (index == _lastIndex && songId == _lastSongId) return;
+    final animate = _lastIndex != null;
+    _lastIndex = index;
+    _lastSongId = songId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      final target =
+          (index * _rowExtent -
+                  position.viewportDimension / 2 +
+                  _rowExtent / 2)
+              .clamp(0.0, position.maxScrollExtent);
+      if (animate) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final showCount = math.min(upcoming.length, 30);
+    final player = widget.player;
+    final queue = player.queue;
+    final index = player.queueIndex;
+    final theme = widget.theme;
+    final control = widget.control;
+    _syncScrollToCurrent();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -571,7 +615,7 @@ class _UpNextList extends StatelessWidget {
             Icon(Icons.queue_music_rounded, size: 15, color: control),
             const SizedBox(width: 6),
             Text(
-              'Up Next',
+              'Queue',
               style: theme.textTheme.labelSmall?.copyWith(
                 fontSize: 11.5,
                 fontWeight: FontWeight.bold,
@@ -581,7 +625,7 @@ class _UpNextList extends StatelessWidget {
             ),
             const Spacer(),
             Text(
-              '${upcoming.length}',
+              '${index + 1} of ${queue.length}',
               style: theme.textTheme.labelSmall?.copyWith(
                 fontSize: 11,
                 color: Colors.white.withValues(alpha: 0.4),
@@ -590,12 +634,16 @@ class _UpNextList extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Flexible(
+        Expanded(
           child: ListView.builder(
+            controller: _scrollController,
             padding: EdgeInsets.zero,
-            itemCount: showCount,
+            itemExtent: _rowExtent,
+            itemCount: queue.length,
             itemBuilder: (context, i) {
-              final song = upcoming[i];
+              final song = queue[i];
+              final isCurrent = i == index;
+              final isPlayed = i < index;
               return InkWell(
                 borderRadius: BorderRadius.circular(8),
                 hoverColor: Colors.white.withValues(alpha: 0.05),
@@ -603,27 +651,30 @@ class _UpNextList extends StatelessWidget {
                   TactileFeedback.click();
                   player.playSong(
                     song,
-                    queue: player.queue,
+                    queue: queue,
                     sourceId: player.queueSourceId,
-                    initialIndex: player.queueIndex + 1 + i,
+                    initialIndex: i,
                   );
                 },
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 5,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
                   child: Row(
                     children: [
                       SizedBox(
                         width: 22,
-                        child: Text(
-                          '${i + 1}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 11,
-                            color: Colors.white.withValues(alpha: 0.35),
-                          ),
-                        ),
+                        child: isCurrent
+                            ? Icon(
+                                Icons.graphic_eq_rounded,
+                                size: 13,
+                                color: control,
+                              )
+                            : Text(
+                                '${i + 1}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontSize: 11,
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                ),
+                              ),
                       ),
                       Expanded(
                         child: Text(
@@ -632,7 +683,17 @@ class _UpNextList extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontSize: 12.5,
-                            color: Colors.white.withValues(alpha: 0.85),
+                            fontWeight: isCurrent
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            // Played tracks stay listed but recede, so the
+                            // queue reads as a fixed list with a moving cursor
+                            // instead of shrinking as it plays.
+                            color: isCurrent
+                                ? control
+                                : Colors.white.withValues(
+                                    alpha: isPlayed ? 0.38 : 0.85,
+                                  ),
                           ),
                         ),
                       ),
