@@ -32,8 +32,23 @@ Future<T?> showPearPopup<T>({
   double? mobileMaxHeightFactor,
   Color? barrierColor,
   bool useDialogSurface = true,
+  // When set, desktop menus open next to this global position (for example
+  // the three-dot button that triggered them) instead of in the middle of the
+  // window. Phones always use the sheet and ignore it.
+  Offset? anchor,
+  bool anchorAlignRight = false,
 }) {
   if (isDesktopPopupPlatform) {
+    final menuAnchor = anchor;
+    if (menuAnchor != null) {
+      return _showAnchoredPopup<T>(
+        context: context,
+        anchor: menuAnchor,
+        alignRight: anchorAlignRight,
+        maxWidth: maxWidth,
+        builder: builder,
+      );
+    }
     return showDialog<T>(
       context: context,
       useRootNavigator: true,
@@ -80,4 +95,99 @@ Future<T?> showPearPopup<T>({
     barrierColor: barrierColor,
     builder: effectiveBuilder,
   );
+}
+
+/// Opens a desktop popup card next to [anchor]: below it when there is room,
+/// flipped above when the anchor sits near the bottom edge, and always kept
+/// inside the window. This is the desktop "menu" flavor of [showPearPopup].
+Future<T?> _showAnchoredPopup<T>({
+  required BuildContext context,
+  required Offset anchor,
+  required bool alignRight,
+  required double maxWidth,
+  required WidgetBuilder builder,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    useRootNavigator: true,
+    barrierDismissible: true,
+    barrierLabel: 'Dismiss menu',
+    barrierColor: Colors.black.withValues(alpha: 0.10),
+    transitionDuration: const Duration(milliseconds: 120),
+    transitionBuilder: (ctx, animation, secondaryAnimation, child) =>
+        FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      child: child,
+    ),
+    pageBuilder: (ctx, animation, secondaryAnimation) {
+      final screen = MediaQuery.sizeOf(ctx);
+      const margin = 8.0;
+      final cardWidth = maxWidth <= screen.width - margin * 2
+          ? maxWidth
+          : screen.width - margin * 2;
+      var left = alignRight ? anchor.dx - cardWidth : anchor.dx;
+      left = left.clamp(margin, screen.width - cardWidth - margin);
+      final belowTop = anchor.dy + 6;
+      final spaceBelow = screen.height - belowTop - margin;
+      final spaceAbove = anchor.dy - 6 - margin;
+      final openAbove = spaceBelow < 240 && spaceAbove > spaceBelow;
+      final maxHeight =
+          (openAbove ? spaceAbove : spaceBelow).clamp(120.0, screen.height * 0.9);
+
+      final card = Material(
+        color: const Color(0xFF1F1F23),
+        elevation: 8,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: builder(ctx),
+        ),
+      );
+
+      return Stack(
+        children: [
+          if (openAbove)
+            Positioned(
+              left: left,
+              bottom: screen.height - (anchor.dy - 6),
+              width: cardWidth,
+              child: card,
+            )
+          else
+            Positioned(
+              left: left,
+              top: belowTop,
+              width: cardWidth,
+              child: card,
+            ),
+        ],
+      );
+    },
+  );
+}
+
+/// Global bottom-right corner of [context]'s render box, used to anchor a
+/// popup menu under the control that opened it. Returns null when the box
+/// cannot be measured, in which case the popup falls back to centered.
+Offset? popupAnchorBelowRight(
+  BuildContext context, {
+  double insetX = 0,
+  double insetY = 0,
+}) {
+  final box = context.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) return null;
+  final corner = box.localToGlobal(box.size.bottomRight(Offset.zero));
+  return Offset(corner.dx - insetX, corner.dy - insetY);
+}
+
+/// Global bottom-left corner of [context]'s render box (toolbar controls that
+/// should open their menu down and to the right).
+Offset? popupAnchorBelowLeft(BuildContext context) {
+  final box = context.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) return null;
+  return box.localToGlobal(box.size.bottomLeft(Offset.zero));
 }

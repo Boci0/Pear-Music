@@ -436,14 +436,19 @@ class _PlaylistTile extends StatelessWidget {
                             ),
                             onPressed: onPlay,
                           ),
-                          TactileIconButton(
-                            icon: Icon(
-                              Icons.more_vert_rounded,
-                              size: 20,
-                              color: theme.colorScheme.onSurfaceVariant,
+                          Builder(
+                            builder: (menuContext) => TactileIconButton(
+                              icon: Icon(
+                                Icons.more_vert_rounded,
+                                size: 20,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              tooltip: 'Playlist options',
+                              onPressed: () => _showMenu(
+                                context,
+                                anchor: popupAnchorBelowRight(menuContext),
+                              ),
                             ),
-                            tooltip: 'Playlist options',
-                            onPressed: () => _showMenu(context),
                           ),
                         ],
                       ),
@@ -458,7 +463,7 @@ class _PlaylistTile extends StatelessWidget {
     );
   }
 
-  Future<void> _showMenu(BuildContext context) async {
+  Future<void> _showMenu(BuildContext context, {Offset? anchor}) async {
     final controller = context.read<AppController>();
     final theme = Theme.of(context);
     final action = await showPearPopup<String>(
@@ -466,6 +471,8 @@ class _PlaylistTile extends StatelessWidget {
       useRootNavigator: true,
       showDragHandle: true,
       maxWidth: 360,
+      anchor: anchor,
+      anchorAlignRight: true,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
           child: Column(

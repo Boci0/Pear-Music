@@ -45,7 +45,7 @@ class SongTile extends StatelessWidget {
     this.metaSuffix,
   });
 
-  Future<void> _showMenu(BuildContext context) async {
+  Future<void> _showMenu(BuildContext context, {Offset? anchor}) async {
     final controller = context.read<AppController>();
     final isFav = controller.isFavorite(song.id);
     final action = await showPearPopup<String>(
@@ -53,6 +53,8 @@ class SongTile extends StatelessWidget {
       isScrollControlled: true,
       showDragHandle: true,
       maxWidth: 340,
+      anchor: anchor,
+      anchorAlignRight: true,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -329,7 +331,15 @@ class SongTile extends StatelessWidget {
               },
               onLongPress: isSelecting
                   ? null
-                  : (onLongPress ?? () => _showMenu(context)),
+                  : (onLongPress ??
+                      () => _showMenu(
+                            context,
+                            anchor: popupAnchorBelowRight(
+                              context,
+                              insetX: 10,
+                              insetY: 6,
+                            ),
+                          )),
               hoverColor: Colors.white.withValues(alpha: 0.055),
               child: Ink(
                 decoration: BoxDecoration(
@@ -537,12 +547,19 @@ class SongTile extends StatelessWidget {
                                   ],
                                 ],
                                 if (!isSelecting) ...[
-                                  _ActionButton(
-                                    icon: Icons.more_vert,
-                                    color: theme.colorScheme.onSurfaceVariant
-                                        .withValues(alpha: 0.8),
-                                    tooltip: 'More options',
-                                    onPressed: () => _showMenu(context),
+                                  Builder(
+                                    builder: (menuContext) => _ActionButton(
+                                      icon: Icons.more_vert,
+                                      color: theme.colorScheme.onSurfaceVariant
+                                          .withValues(alpha: 0.8),
+                                      tooltip: 'More options',
+                                      onPressed: () => _showMenu(
+                                        context,
+                                        anchor: popupAnchorBelowRight(
+                                          menuContext,
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ],

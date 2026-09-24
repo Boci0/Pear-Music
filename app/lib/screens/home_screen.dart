@@ -477,12 +477,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     onTap: () => setState(() => _showOnlyFavorites = true),
                   ),
                   const SizedBox(width: 6),
-                  _FilterPill(
-                    key: const ValueKey('pill_sort'),
-                    icon: Icons.sort_rounded,
-                    label: _sortLabel(controller.sortOption),
-                    isSelected: false,
-                    onTap: () => _showSortSheet(context, controller),
+                  Builder(
+                    builder: (sortContext) => _FilterPill(
+                      key: const ValueKey('pill_sort'),
+                      icon: Icons.sort_rounded,
+                      label: _sortLabel(controller.sortOption),
+                      isSelected: false,
+                      onTap: () => _showSortSheet(
+                        context,
+                        controller,
+                        anchor: popupAnchorBelowLeft(sortContext),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 6),
                   if (songs.isNotEmpty) ...[
@@ -931,7 +937,11 @@ class _FilterPillState extends State<_FilterPill> {
   }
 }
 
-void _showSortSheet(BuildContext context, AppController controller) {
+void _showSortSheet(
+  BuildContext context,
+  AppController controller, {
+  Offset? anchor,
+}) {
   final theme = Theme.of(context);
   final primary = theme.colorScheme.primary;
 
@@ -939,6 +949,7 @@ void _showSortSheet(BuildContext context, AppController controller) {
     context: context,
     showDragHandle: true,
     maxWidth: 360,
+    anchor: anchor,
     builder: (ctx) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),

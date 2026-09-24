@@ -44,12 +44,18 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     );
   }
 
-  void _showOptions(BuildContext context, AppController controller) {
+  void _showOptions(
+    BuildContext context,
+    AppController controller, {
+    Offset? anchor,
+  }) {
     final theme = Theme.of(context);
     showPearPopup<void>(
       context: context,
       showDragHandle: true,
       maxWidth: 380,
+      anchor: anchor,
+      anchorAlignRight: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -385,7 +391,11 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 TactileFeedback.click();
                 _streamAndPlay(context, controller);
               },
-              onLongPress: () => _showOptions(context, controller),
+              onLongPress: () => _showOptions(
+                context,
+                controller,
+                anchor: popupAnchorBelowRight(context, insetX: 10, insetY: 6),
+              ),
               hoverColor: Colors.white.withValues(alpha: 0.055),
               child: Ink(
                 decoration: BoxDecoration(
@@ -578,13 +588,18 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                   ),
                                   const SizedBox(width: 4),
                                 ],
-                                TactileIconButton(
-                                  icon: const Icon(Icons.more_vert, size: 20),
-                                  color: theme.colorScheme.onSurfaceVariant
-                                      .withValues(alpha: 0.75),
-                                  tooltip: 'Song options',
-                                  onPressed: () =>
-                                      _showOptions(context, controller),
+                                Builder(
+                                  builder: (menuContext) => TactileIconButton(
+                                    icon: const Icon(Icons.more_vert, size: 20),
+                                    color: theme.colorScheme.onSurfaceVariant
+                                        .withValues(alpha: 0.75),
+                                    tooltip: 'Song options',
+                                    onPressed: () => _showOptions(
+                                      context,
+                                      controller,
+                                      anchor: popupAnchorBelowRight(menuContext),
+                                    ),
+                                  ),
                                 ),
                               ],
                             );
