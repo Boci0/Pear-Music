@@ -12,6 +12,8 @@
 #include <flutter/standard_method_codec.h>
 #include <flutter/encodable_value.h>
 
+#include <winrt/Windows.Media.h>
+
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
  public:
@@ -51,6 +53,15 @@ class FlutterWindow : public Win32Window {
 
   // Caption the window had before the app started rewriting it.
   std::wstring original_title_;
+
+  // Windows System Media Transport Controls: the taskbar thumbnail buttons and
+  // the volume flyout media panel. This is the desktop counterpart of the
+  // Android media notification.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      media_session_channel_;
+  winrt::Windows::Media::SystemMediaTransportControls smtc_{nullptr};
+  winrt::event_token smtc_button_token_{};
+  winrt::event_token smtc_position_token_{};
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

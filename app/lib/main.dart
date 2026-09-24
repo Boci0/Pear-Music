@@ -16,6 +16,7 @@ import 'services/identity_service.dart';
 import 'services/library_service.dart';
 import 'services/lyrics_display.dart';
 import 'services/media_keys.dart';
+import 'services/media_session.dart';
 import 'services/pear_audio_handler.dart';
 import 'services/player_service.dart';
 import 'services/player_theme.dart';
@@ -133,6 +134,9 @@ Future<void> _bootstrapAndRunApp() async {
   );
   // Hardware media keys (Windows forwards WM_APPCOMMAND over this channel).
   MediaKeys.init(player);
+  // Windows taskbar / volume-flyout media panel (System Media Transport
+  // Controls).
+  MediaSession.init(player);
   // Desktop window caption follows the playing song.
   WindowTitle.init(player);
   final youtube = YoutubeService();
