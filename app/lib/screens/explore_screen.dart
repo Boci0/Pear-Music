@@ -112,12 +112,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
-  Future<void> _loadRecommendations({bool shuffle = false}) async {
+  Future<void> _loadRecommendations() async {
     if (_isLoadingRecommendations) return;
     setState(() {
       _isLoadingRecommendations = true;
     });
-    DebugLog.write('[explore] re-roll start (shuffle=$shuffle)');
+    DebugLog.write('[explore] re-roll start');
 
     try {
       final controller = context.read<AppController>();
@@ -130,9 +130,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final candidateLibrary = librarySongs
           .where((s) => s.title != _lastRecommendationSeedTitle)
           .toList();
-      final useLibrary =
-          candidateLibrary.isNotEmpty &&
-          (random.nextBool() || (shuffle && librarySongs.length > 1));
+      // Always follow a library song when one is available. The search-based
+      // fallback feeds return far fewer items (about 15) than a radio mix
+      // (about 50), and that size jump on re-roll read as the list growing.
+      final useLibrary = candidateLibrary.isNotEmpty;
 
       if (useLibrary) {
         final seed = candidateLibrary[random.nextInt(candidateLibrary.length)];
@@ -162,7 +163,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             final clean = RecommendationService.cleanSongQuery(seed);
             items = await YouTubeSearchService.search(
               '$clean songs',
-              limit: 15,
+              limit: 30,
             );
             if (items.isNotEmpty) source = 'radio-search';
           } catch (_) {}
@@ -187,7 +188,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         final chosen = pool[random.nextInt(pool.length)];
         seedLabel = chosen;
         _lastRecommendationSeedTitle = chosen;
-        items = await YouTubeSearchService.search(chosen, limit: 15);
+        items = await YouTubeSearchService.search(chosen, limit: 30);
         source = 'curated';
       }
 
@@ -745,8 +746,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                   tooltip: 'Re-roll recommendations',
                                   onPressed: _isLoadingRecommendations
                                       ? null
-                                      : () =>
-                                            _loadRecommendations(shuffle: true),
+                                      : _loadRecommendations,
                                 ),
                               ],
                             ),
