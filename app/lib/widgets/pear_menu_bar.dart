@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -88,6 +89,42 @@ class PearMenuBar extends StatelessWidget {
           SubmenuButton(
             style: _topStyle,
             menuChildren: [
+              // Transport first, with the keys the app actually listens to
+              // shown right in the menu, so the shortcuts are discoverable
+              // without reading the README.
+              MenuItemButton(
+                style: _itemStyle,
+                leadingIcon: Icon(
+                  player.playing
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  size: 16,
+                ),
+                onPressed: player.currentSong == null
+                    ? null
+                    : () => controller.togglePlayback(),
+                shortcut: const SingleActivator(LogicalKeyboardKey.space),
+                child: Text(player.playing ? 'Pause' : 'Play'),
+              ),
+              MenuItemButton(
+                style: _itemStyle,
+                leadingIcon: const Icon(Icons.skip_previous_rounded, size: 16),
+                onPressed: player.currentSong == null
+                    ? null
+                    : () => controller.previousTrack(),
+                shortcut: const SingleActivator(LogicalKeyboardKey.comma),
+                child: const Text('Previous Track'),
+              ),
+              MenuItemButton(
+                style: _itemStyle,
+                leadingIcon: const Icon(Icons.skip_next_rounded, size: 16),
+                onPressed: player.currentSong == null
+                    ? null
+                    : () => controller.nextTrack(),
+                shortcut: const SingleActivator(LogicalKeyboardKey.period),
+                child: const Text('Next Track'),
+              ),
+              const Divider(height: 1),
               MenuItemButton(
                 style: _itemStyle,
                 leadingIcon: const Icon(Icons.shuffle_rounded, size: 16),

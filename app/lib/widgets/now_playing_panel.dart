@@ -37,25 +37,59 @@ class NowPlayingPanel extends StatelessWidget {
     this.onToggleExpanded,
   });
 
+  /// Shared by the shell's width animation and the content cross-fade, so the
+  /// pane grows and swaps its content as one motion instead of two.
+  static const Duration expandTransitionDuration = Duration(milliseconds: 220);
+
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerService>();
     final song = player.currentSong;
     final theme = Theme.of(context);
+    final accent = song == null || song.artwork == null || song.artwork!.isEmpty
+        ? theme.colorScheme.primary
+        : ArtworkPalette.dominantSync(song);
 
     return Container(
       key: const ValueKey('now_playing_panel'),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF151518),
+        // Expanded mode carries a soft wash of the song's artwork colour from
+        // the top edge, the same gesture the full-screen player makes, so the
+        // pane reads as "the player" rather than a plain sidebar card.
+        gradient: song != null && expanded
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.center,
+                colors: [accent.withValues(alpha: 0.12), Colors.transparent],
+              )
+            : null,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
       ),
       child: song == null
           ? _buildEmptyState(theme)
-          : expanded
-          ? _buildExpandedState(context, player, song, theme)
-          : _buildPlayingState(context, player, song, theme),
+          : AnimatedSwitcher(
+              duration: expandTransitionDuration,
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              // Both states fill the pane, so give them tight constraints
+              // while they overlap: the default loose stack would break the
+              // Expanded-based expanded layout mid-transition.
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                fit: StackFit.expand,
+                children: [...previousChildren, ?currentChild],
+              ),
+              child: KeyedSubtree(
+                key: ValueKey(
+                  expanded ? 'pane_content_expanded' : 'pane_content_compact',
+                ),
+                child: expanded
+                    ? _buildExpandedState(context, player, song, theme)
+                    : _buildPlayingState(context, player, song, theme),
+              ),
+            ),
     );
   }
 
@@ -116,7 +150,17 @@ class NowPlayingPanel extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final artSize = math
-                  .min(constraints.maxWidth - 44, constraints.maxHeight * 0.54)
+                  .min(
+                    constraints.maxWidth - 44,
+                    math.min(
+                      constraints.maxHeight * 0.54,
+                      // Keep the info + transport + seek block (with its time
+                      // labels) above the fold on shorter windows: only the
+                      // artwork flexes, so no control silently drops below the
+                      // scroll edge.
+                      constraints.maxHeight - 320,
+                    ),
+                  )
                   .clamp(140.0, 520.0);
               return SingleChildScrollView(
                 child: Column(
@@ -161,7 +205,13 @@ class NowPlayingPanel extends StatelessWidget {
         ),
         if (upcoming.isNotEmpty)
           SizedBox(
-            height: math.min(216.0, MediaQuery.sizeOf(context).height * 0.26),
+            // Up Next yields space before the controls do: on shorter windows
+            // it shrinks so the seek bar and its time labels stay above the
+            // scroll edge.
+            height: math.min(
+              216.0,
+              math.max(120.0, MediaQuery.sizeOf(context).height * 0.18),
+            ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: _UpNextList(

@@ -44,6 +44,10 @@ class PlayerTheme extends ChangeNotifier {
     return ThemeData(
       useMaterial3: true,
       hoverColor: Colors.white.withValues(alpha: 0.04),
+      // Keyboard focus gets its own subtle fill (plus the Material focus
+      // overlay on icon buttons) so tabbing through the desktop shell is
+      // visible without being loud.
+      focusColor: Colors.white.withValues(alpha: 0.06),
       splashColor: scheme.primary.withValues(alpha: 0.08),
       highlightColor: Colors.transparent,
       colorScheme: scheme.copyWith(
@@ -59,6 +63,9 @@ class PlayerTheme extends ChangeNotifier {
           overlayColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.pressed)) {
               return scheme.primary.withValues(alpha: 0.14);
+            }
+            if (states.contains(WidgetState.focused)) {
+              return Colors.white.withValues(alpha: 0.10);
             }
             if (states.contains(WidgetState.hovered)) {
               return Colors.white.withValues(alpha: 0.06);
@@ -174,6 +181,93 @@ class PlayerTheme extends ChangeNotifier {
         ),
         side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         showCheckmark: false,
+      ),
+      // Desktop scrollbars: thin, rounded, and only visible while the pointer
+      // is near them, so long lists keep the borderless card look.
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged) ||
+              states.contains(WidgetState.hovered)) {
+            return Colors.white.withValues(alpha: 0.30);
+          }
+          return Colors.white.withValues(alpha: 0.16);
+        }),
+        thickness: const WidgetStatePropertyAll(6),
+        radius: const Radius.circular(999),
+        trackVisibility: const WidgetStatePropertyAll(false),
+        crossAxisMargin: 2,
+      ),
+      // Tooltips share the popup card material instead of the flat grey
+      // Material default, and wait a beat so they do not flash while the
+      // pointer crosses a toolbar.
+      tooltipTheme: TooltipThemeData(
+        waitDuration: const Duration(milliseconds: 420),
+        showDuration: const Duration(seconds: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: surfaceHighlight,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: Colors.white,
+        ),
+      ),
+      // The Explore search bar drops its elevated grey slab and matches the
+      // borderless field the library header uses.
+      searchBarTheme: SearchBarThemeData(
+        elevation: const WidgetStatePropertyAll(0),
+        backgroundColor: WidgetStatePropertyAll(
+          Colors.white.withValues(alpha: 0.06),
+        ),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+          ),
+        ),
+        side: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.focused)) {
+            return BorderSide(
+              color: scheme.primary.withValues(alpha: 0.5),
+            );
+          }
+          return BorderSide.none;
+        }),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 12),
+        ),
+        textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
+        hintStyle: WidgetStatePropertyAll(
+          TextStyle(
+            fontSize: 14,
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+          ),
+        ),
+      ),
+      // Borderless segmented buttons (the lyrics colour picker) so the last
+      // bordered control joins the app's chip language.
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          side: const WidgetStatePropertyAll(BorderSide.none),
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return scheme.primary.withValues(alpha: 0.20);
+            }
+            return Colors.white.withValues(alpha: 0.05);
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) return scheme.primary;
+            return scheme.onSurfaceVariant;
+          }),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          visualDensity: VisualDensity.compact,
+        ),
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {

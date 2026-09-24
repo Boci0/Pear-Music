@@ -320,4 +320,86 @@ void main() {
     expect(find.byKey(const ValueKey('queue_panel')), findsNothing);
     expect(find.byType(ExpandableQueueSheet), findsOneWidget);
   });
+
+  testWidgets('the pane cross-fades between compact and expanded content', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1600, 900));
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pane_content_compact')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('pane_content_expanded')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('pane_expand')));
+    // Mid-transition both contents overlap while the switch fades.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byKey(const ValueKey('pane_content_compact')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('pane_content_expanded')),
+      findsOneWidget,
+    );
+
+    // When the fade finishes only the expanded content is left.
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pane_content_compact')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('pane_content_expanded')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('switching tabs fades the body in', (tester) async {
+    setViewport(tester, const Size(400, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    FadeTransition bodyFade() => tester.widget<FadeTransition>(
+      find
+          .ancestor(
+            of: find.byType(IndexedStack).first,
+            matching: find.byType(FadeTransition),
+          )
+          .first,
+    );
+
+    expect(bodyFade().opacity.value, 1.0);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pump();
+    // The new tab starts faded out, then reaches full opacity.
+    expect(bodyFade().opacity.value, lessThan(1.0));
+    await tester.pumpAndSettle();
+    expect(bodyFade().opacity.value, 1.0);
+
+    final shellStack = tester.widget<IndexedStack>(
+      find.byType(IndexedStack).first,
+    );
+    expect(shellStack.index, 4);
+  });
+
+  testWidgets('the Playback menu offers transport with shortcut hints', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1280, 800));
+    final queue = [_song('s1', 'Song 1')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Playback'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Play'), findsOneWidget);
+    expect(find.text('Previous Track'), findsOneWidget);
+    expect(find.text('Next Track'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('Next Track'), findsNothing);
+  });
 }

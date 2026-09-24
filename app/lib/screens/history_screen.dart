@@ -6,6 +6,35 @@ import '../widgets/pear_app_bar.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/tactile_button.dart';
 
+/// Short "when was this played" label for the History meta line: "just now",
+/// "12 min ago", "3 h ago", "yesterday", "4 days ago", then a short date.
+String? _playedAgo(DateTime? time, DateTime now) {
+  if (time == null) return null;
+  final diff = now.difference(time);
+  if (diff.inMinutes < 1) return 'just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+  if (diff.inHours < 24) return '${diff.inHours} h ago';
+  if (diff.inDays == 1) return 'yesterday';
+  if (diff.inDays < 7) return '${diff.inDays} days ago';
+  final local = time.toLocal();
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final date = '${local.day} ${months[local.month - 1]}';
+  return local.year == now.year ? date : '$date ${local.year}';
+}
+
 /// History tab: every song that started playing, newest first, local files and
 /// online streams mixed together in one list.
 ///
@@ -52,6 +81,12 @@ class HistoryScreen extends StatelessWidget {
     final controller = context.watch<AppController>();
     final songs = controller.historySongs;
     final currentSongId = controller.player.currentSong?.id;
+    // Song id -> last play time, so each row can say when it was played.
+    final playedAt = {
+      for (final entry in controller.history?.entries ?? const [])
+        entry.songId: entry.playedAt,
+    };
+    final now = DateTime.now();
 
     return Scaffold(
       appBar: PearAppBar(
@@ -97,6 +132,7 @@ class HistoryScreen extends StatelessWidget {
                             sourceId: 'history',
                             sourceTitle: 'History',
                             isCurrent: currentSongId == song.id,
+                            metaSuffix: _playedAgo(playedAt[song.id], now),
                           ),
                         );
                       }

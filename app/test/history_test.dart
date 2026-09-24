@@ -288,5 +288,27 @@ void main() {
       // No clear action while the list is empty.
       expect(find.byIcon(Icons.delete_sweep_outlined), findsNothing);
     });
+
+    testWidgets('rows show when each song was played', (tester) async {
+      tester.view.physicalSize = const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final env = await createEnvironment();
+      final local = _song('local_1', 'Local File');
+      env.library.setSongsForTesting([local]);
+      env.history.record(
+        local,
+        at: DateTime.now().subtract(const Duration(hours: 3)),
+      );
+
+      await tester.pumpWidget(buildHarness(env.controller, env.history));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('3 h ago'), findsOneWidget);
+    });
   });
 }

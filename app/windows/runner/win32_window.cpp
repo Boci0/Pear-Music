@@ -38,6 +38,26 @@ int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
+// Resizable frame with maximize/restore; windows still default to phone
+// proportions on first launch.
+constexpr DWORD kWindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
+                               WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+
+// Smallest window that still fits the phone shell: below this the bottom
+// navigation labels clip and the player's transport row is cut off. Kept as
+// the client size; the window frame is added on top.
+constexpr int kMinClientWidth = 360;
+constexpr int kMinClientHeight = 520;
+
+// Minimum outer window size at the given scale factor, frame included.
+void MinWindowSizeForScale(double scale_factor, LONG* width, LONG* height) {
+  RECT rect = {0, 0, Scale(kMinClientWidth, scale_factor),
+               Scale(kMinClientHeight, scale_factor)};
+  AdjustWindowRect(&rect, kWindowStyle, FALSE);
+  *width = rect.right - rect.left;
+  *height = rect.bottom - rect.top;
+}
+
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
 // This API is only needed for PerMonitor V1 awareness mode.
 void EnableFullDpiSupportIfAvailable(HWND hwnd) {
@@ -216,8 +236,7 @@ bool Win32Window::Create(const std::wstring& title,
 
   // Resizable frame with maximize/restore; windows still default to phone
   // proportions on first launch.
-  const DWORD window_style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
-                             WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+  const DWORD window_style = kWindowStyle;
 
   MONITORINFO monitor_info = {sizeof(MONITORINFO)};
   if (GetMonitorInfo(monitor, &monitor_info)) {
@@ -242,6 +261,18 @@ bool Win32Window::Create(const std::wstring& title,
     AdjustWindowRect(&win_rect, window_style, FALSE);
     win_w = win_rect.right - win_rect.left;
     win_h = win_rect.bottom - win_rect.top;
+  }
+
+  // A state file written before the minimum existed (or by a resized-down
+  // window) must not create a window too small for the shell layout.
+  LONG min_win_w = 0;
+  LONG min_win_h = 0;
+  MinWindowSizeForScale(scale_factor, &min_win_w, &min_win_h);
+  if (win_w < min_win_w) {
+    win_w = static_cast<int>(min_win_w);
+  }
+  if (win_h < min_win_h) {
+    win_h = static_cast<int>(min_win_h);
   }
 
   HWND window = CreateWindow(window_class, title.c_str(), window_style,
@@ -352,6 +383,21 @@ Win32Window::MessageHandler(HWND hwnd,
         SetFocus(child_content_);
       }
       return 0;
+
+    case WM_GETMINMAXINFO: {
+      // Interactive resizing respects the same minimum the startup clamp
+      // applies, so the shell layout can never be squeezed into a broken
+      // state by a drag.
+      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      UINT dpi = FlutterDesktopGetDpiForMonitor(
+          MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST));
+      LONG min_w = 0;
+      LONG min_h = 0;
+      MinWindowSizeForScale(dpi / 96.0, &min_w, &min_h);
+      info->ptMinTrackSize.x = min_w;
+      info->ptMinTrackSize.y = min_h;
+      return 0;
+    }
 
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);

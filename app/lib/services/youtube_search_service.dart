@@ -25,9 +25,14 @@ class YouTubeSearchResult {
 
   String get durationFormatted {
     if (duration == null) return '--:--';
-    final m = duration!.inMinutes;
-    final s = (duration!.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+    final value = duration!;
+    final s = (value.inSeconds % 60).toString().padLeft(2, '0');
+    final h = value.inHours;
+    if (h > 0) {
+      final m = (value.inMinutes % 60).toString().padLeft(2, '0');
+      return '$h:$m:$s';
+    }
+    return '${value.inMinutes}:$s';
   }
 
   /// Converts this search result into a playable [Song] stream model.

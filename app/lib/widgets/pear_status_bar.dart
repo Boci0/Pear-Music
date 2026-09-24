@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
+import '../services/update_service.dart';
 
 /// Thin classic status bar along the bottom of wide windows: library counts on
 /// the left, current playback in the middle, app name on the right.
@@ -32,9 +33,9 @@ class PearStatusBar extends StatelessWidget {
           const Spacer(),
           const _PlaybackStatus(),
           const SizedBox(width: 20),
-          const Text(
-            'Pear Music',
-            style: TextStyle(fontSize: 11.5, color: Colors.white38),
+          Text(
+            'Pear Music v${UpdateService.currentVersion}',
+            style: const TextStyle(fontSize: 11.5, color: Colors.white38),
           ),
         ],
       ),

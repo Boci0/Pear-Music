@@ -31,7 +31,8 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell>
+    with SingleTickerProviderStateMixin {
   int _index = 0;
   // At 1250+ the Now Playing pane doubles as the expanded player: tapping the
   // compact pane grows it in place instead of pushing the full-screen route.
@@ -39,6 +40,19 @@ class _HomeShellState extends State<HomeShell> {
   AppLifecycleListener? _lifecycleListener;
   final GlobalKey<NavigatorState> _playlistsNavKey =
       GlobalKey<NavigatorState>();
+
+  /// Quick fade-in when the selected tab changes. The IndexedStack itself is
+  /// untouched (state is preserved); this only softens the hard cut between
+  /// tabs on every platform.
+  late final AnimationController _tabFade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+    value: 1,
+  );
+  late final Animation<double> _tabFadeCurve = CurvedAnimation(
+    parent: _tabFade,
+    curve: Curves.easeOutQuad,
+  );
 
   List<Widget> get _screens => [
     const PearContentFrame(maxWidth: 1460, child: HomeScreen()),
@@ -99,6 +113,7 @@ class _HomeShellState extends State<HomeShell> {
   void dispose() {
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
+    _tabFade.dispose();
     super.dispose();
   }
 
@@ -169,9 +184,12 @@ class _HomeShellState extends State<HomeShell> {
                             child: Stack(
                               children: [
                                 Positioned.fill(
-                                  child: IndexedStack(
-                                    index: _index,
-                                    children: _screens,
+                                  child: FadeTransition(
+                                    opacity: _tabFadeCurve,
+                                    child: IndexedStack(
+                                      index: _index,
+                                      children: _screens,
+                                    ),
                                   ),
                                 ),
                                 if (!useNowPlayingPane)
@@ -196,7 +214,8 @@ class _HomeShellState extends State<HomeShell> {
                           ),
                           if (useNowPlayingPane)
                             AnimatedContainer(
-                              duration: const Duration(milliseconds: 220),
+                              duration:
+                                  NowPlayingPanel.expandTransitionDuration,
                               curve: Curves.easeOutCubic,
                               width: _playerExpanded ? 520 : 360,
                               child: Padding(
@@ -219,7 +238,10 @@ class _HomeShellState extends State<HomeShell> {
                   ],
                 ),
               )
-            : IndexedStack(index: _index, children: _screens),
+            : FadeTransition(
+                opacity: _tabFadeCurve,
+                child: IndexedStack(index: _index, children: _screens),
+              ),
         bottomNavigationBar: isWide
             ? null
             : SafeArea(
@@ -243,6 +265,9 @@ class _HomeShellState extends State<HomeShell> {
     if (i == 1 && _index == 1) {
       _playlistsNavKey.currentState?.popUntil((route) => route.isFirst);
     }
+    // Fade the body in on every destination tap: switching tabs (or re-tapping
+    // the current one) reads as a deliberate transition instead of a hard cut.
+    _tabFade.forward(from: 0);
     setState(() => _index = i);
   }
 }

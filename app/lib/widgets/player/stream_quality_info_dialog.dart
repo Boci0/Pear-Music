@@ -84,9 +84,13 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
   }
 
   String _formatDuration(Duration d) {
-    final minutes = d.inMinutes;
     final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+    final hours = d.inHours;
+    if (hours > 0) {
+      final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
+      return '$hours:$minutes:$seconds';
+    }
+    return '${d.inMinutes}:$seconds';
   }
 
   String _formatAudioCodecAndContainer(String? format, String? path) {

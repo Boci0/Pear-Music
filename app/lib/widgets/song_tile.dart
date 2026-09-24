@@ -24,6 +24,10 @@ class SongTile extends StatelessWidget {
   final VoidCallback? onCtrlTap;
   final VoidCallback? onShiftTap;
 
+  /// Extra text appended to the meta line, e.g. "2 h ago" on the History tab.
+  /// Null keeps the plain source/size label.
+  final String? metaSuffix;
+
   const SongTile({
     super.key,
     required this.song,
@@ -37,6 +41,7 @@ class SongTile extends StatelessWidget {
     this.onLongPress,
     this.onCtrlTap,
     this.onShiftTap,
+    this.metaSuffix,
   });
 
   Future<void> _showMenu(BuildContext context) async {
@@ -275,11 +280,14 @@ class SongTile extends StatelessWidget {
     final controller = context.read<AppController>();
     final theme = Theme.of(context);
     final fromPeer = song.sourceDeviceId != null;
-    final metaLabel = song.sourceDeviceId == 'stream'
+    final baseMeta = song.sourceDeviceId == 'stream'
         ? 'Stream · Pear Radio'
         : fromPeer
         ? 'Shared · ${song.sizeLabel}'
         : 'Local · ${song.sizeLabel}';
+    final metaLabel = metaSuffix == null
+        ? baseMeta
+        : '$baseMeta · $metaSuffix';
 
     return RepaintBoundary(
       child: Padding(
@@ -443,7 +451,7 @@ class SongTile extends StatelessWidget {
                                 const SizedBox(width: 8),
                                 if (wideRow) ...[
                                   SizedBox(
-                                    width: 168,
+                                    width: 196,
                                     child: Row(
                                       mainAxisAlignment: MainAxisAlignment.end,
                                       children: [

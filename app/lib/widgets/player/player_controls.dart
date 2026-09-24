@@ -543,9 +543,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   }
 
   String _fmt(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
     final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+    final h = d.inHours;
+    if (h > 0) {
+      final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+      return '$h:$m:$s';
+    }
+    return '${d.inMinutes.toString().padLeft(2, '0')}:$s';
   }
 }
 
