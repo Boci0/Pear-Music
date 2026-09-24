@@ -10,7 +10,9 @@ import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
 import '../widgets/now_playing_panel.dart';
 import '../widgets/pear_content_frame.dart';
+import '../widgets/pear_menu_bar.dart';
 import '../widgets/pear_page_route.dart';
+import '../widgets/pear_status_bar.dart';
 import '../widgets/player_bar.dart';
 import '../widgets/side_rail.dart';
 import '../widgets/tactile_button.dart';
@@ -128,52 +130,63 @@ class _HomeShellState extends State<HomeShell> {
       child: Scaffold(
         extendBody: true,
         body: isWide
-            ? Row(
+            ? Column(
                 children: [
-                  SideRail(
-                    selectedIndex: _index,
-                    onDestinationSelected: _onDestinationSelected,
+                  PearMenuBar(
+                    selectedTab: _index,
+                    onSelectTab: _onDestinationSelected,
                   ),
                   Expanded(
-                    child: Stack(
+                    child: Row(
                       children: [
-                        Positioned.fill(
-                          child: IndexedStack(
-                            index: _index,
-                            children: _screens,
+                        SideRail(
+                          selectedIndex: _index,
+                          onDestinationSelected: _onDestinationSelected,
+                        ),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: IndexedStack(
+                                  index: _index,
+                                  children: _screens,
+                                ),
+                              ),
+                              if (!useNowPlayingPane)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Center(
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 720,
+                                      ),
+                                      child: const SafeArea(
+                                        top: false,
+                                        child: PlayerBar(),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                        if (!useNowPlayingPane)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 720,
-                                ),
-                                child: const SafeArea(
-                                  top: false,
-                                  child: PlayerBar(),
-                                ),
+                        if (useNowPlayingPane)
+                          SizedBox(
+                            width: 360,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
+                              child: const SafeArea(
+                                top: false,
+                                child: NowPlayingPanel(),
                               ),
                             ),
                           ),
                       ],
                     ),
                   ),
-                  if (useNowPlayingPane)
-                    SizedBox(
-                      width: 360,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
-                        child: const SafeArea(
-                          top: false,
-                          child: NowPlayingPanel(),
-                        ),
-                      ),
-                    ),
+                  const PearStatusBar(),
                 ],
               )
             : IndexedStack(index: _index, children: _screens),

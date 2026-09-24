@@ -154,6 +154,46 @@ void main() {
     expect(find.text('Up Song 2'), findsOneWidget);
   });
 
+  testWidgets('wide shell shows the classic menu bar and status bar', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1280, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pear_menu_bar')), findsOneWidget);
+    expect(find.text('File'), findsOneWidget);
+    expect(find.text('Playback'), findsOneWidget);
+    expect(find.text('View'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pear_status_bar')), findsOneWidget);
+    expect(find.textContaining('songs'), findsOneWidget);
+  });
+
+  testWidgets('the View menu switches shell tabs', (tester) async {
+    setViewport(tester, const Size(1280, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Playlists').last);
+    await tester.pumpAndSettle();
+
+    final shellStack = tester.widget<IndexedStack>(
+      find.byType(IndexedStack).first,
+    );
+    expect(shellStack.index, 1);
+  });
+
+  testWidgets('phone shell has no menu bar or status bar', (tester) async {
+    setViewport(tester, const Size(400, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pear_menu_bar')), findsNothing);
+    expect(find.byKey(const ValueKey('pear_status_bar')), findsNothing);
+  });
+
   testWidgets('phone widths keep the bottom navigation shell', (tester) async {
     setViewport(tester, const Size(360, 720));
     await tester.pumpWidget(await buildShell());
