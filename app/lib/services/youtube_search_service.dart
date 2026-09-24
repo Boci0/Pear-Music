@@ -32,7 +32,8 @@ class YouTubeSearchResult {
 
   /// Converts this search result into a playable [Song] stream model.
   Song toSong({String sourceDeviceId = 'stream'}) {
-    final cleanTitle = author.isNotEmpty && !title.toLowerCase().contains(author.toLowerCase())
+    final cleanTitle =
+        author.isNotEmpty && !title.toLowerCase().contains(author.toLowerCase())
         ? '$title - $author'
         : title;
     return Song(
@@ -71,11 +72,18 @@ class YouTubeSearchService {
     final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return const [];
 
-    final bool enableVideos = allowVideoResults ?? YouTubeSearchService.allowVideoResults;
+    final bool enableVideos =
+        allowVideoResults ?? YouTubeSearchService.allowVideoResults;
     final cacheKey = '$clean:$enableVideos';
 
-    if (_cache.containsKey(cacheKey)) {
-      return _cache[cacheKey]!;
+    final cached = _cache[cacheKey];
+    if (cached != null) {
+      if (cached.length >= limit) {
+        return cached.take(limit).toList();
+      }
+      // A smaller earlier request (path resolution, radio seed lookup) cached
+      // a short list for this query. Fall through to fetch a full set so an
+      // expanded search never returns fewer results than a tiny lookup.
     }
 
     // 1. Primary: YouTube Music Innertube API (structured, resilient, not blocked by 400)
@@ -87,13 +95,15 @@ class YouTubeSearchService {
       );
       if (innertubeResults.isNotEmpty) {
         final list = innertubeResults
-            .map((item) => YouTubeSearchResult(
-                  videoId: item.videoId,
-                  title: item.title,
-                  author: item.artist,
-                  duration: item.duration,
-                  thumbnailUrl: item.thumbnailUrl,
-                ))
+            .map(
+              (item) => YouTubeSearchResult(
+                videoId: item.videoId,
+                title: item.title,
+                author: item.artist,
+                duration: item.duration,
+                thumbnailUrl: item.thumbnailUrl,
+              ),
+            )
             .toList();
 
         if (_cache.length >= _maxCacheEntries) {
@@ -122,8 +132,8 @@ class YouTubeSearchService {
             thumbnailUrl: video.thumbnails.highResUrl.isNotEmpty
                 ? video.thumbnails.highResUrl
                 : (video.thumbnails.mediumResUrl.isNotEmpty
-                    ? video.thumbnails.mediumResUrl
-                    : video.thumbnails.lowResUrl),
+                      ? video.thumbnails.mediumResUrl
+                      : video.thumbnails.lowResUrl),
           ),
         );
       }

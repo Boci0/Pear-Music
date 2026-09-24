@@ -11,13 +11,33 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 import 'pear_page_route.dart';
+import 'player/playback_speed_dialog.dart';
+import 'player/player_artwork.dart';
+import 'player/player_console_dialog.dart';
 import 'player/player_controls.dart';
+import 'player/sleep_timer_dialog.dart';
+import 'player/stream_quality_info_dialog.dart';
 import 'tactile_button.dart';
 
 /// Old-school desktop "Now Playing" pane: big artwork, title, transport
-/// controls and a progress line, pinned to the right of the wide shell.
+/// controls and a progress line, pinned to the right of the wide shell. The
+/// pane also IS the expanded player on wide windows: tapping it grows it in
+/// place into the full player stack (artwork hero with the visualizer and
+/// lyrics pills, song info, transport, waveform seek bar, volume and Up Next)
+/// instead of pushing a separate full-screen route.
 class NowPlayingPanel extends StatelessWidget {
-  const NowPlayingPanel({super.key});
+  final bool expanded;
+
+  /// Called when the compact pane is tapped or the expanded player's collapse
+  /// button is pressed. When null the pane falls back to pushing the
+  /// full-screen player route.
+  final VoidCallback? onToggleExpanded;
+
+  const NowPlayingPanel({
+    super.key,
+    this.expanded = false,
+    this.onToggleExpanded,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +55,124 @@ class NowPlayingPanel extends StatelessWidget {
       ),
       child: song == null
           ? _buildEmptyState(theme)
+          : expanded
+          ? _buildExpandedState(context, player, song, theme)
           : _buildPlayingState(context, player, song, theme),
+    );
+  }
+
+  void _collapsePlayer(BuildContext context) {
+    // Mirror what leaving the full-screen player used to do: park the
+    // window-level effects so the visualizer and lyrics do not keep running
+    // once the pane is compact again.
+    context.read<AppController?>()?.updateSynthesizerBar(false);
+    PlayerArtwork.closeLyrics();
+    onToggleExpanded?.call();
+  }
+
+  /// The expanded player: the same vertical stack as the compact pane, but
+  /// with the complete control set at a larger size.
+  Widget _buildExpandedState(
+    BuildContext context,
+    PlayerService player,
+    Song song,
+    ThemeData theme,
+  ) {
+    final controller = context.read<AppController>();
+    final accent = ArtworkPalette.dominantSync(song);
+    final control = ArtworkPalette.controlAccent(accent);
+    final queue = player.queue;
+    final upcoming = queue.length > player.queueIndex + 1
+        ? queue.sublist(player.queueIndex + 1)
+        : const <Song>[];
+
+    return Column(
+      key: const ValueKey('now_playing_panel_expanded'),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 8, 8, 0),
+          child: Row(
+            children: [
+              TactileIconButton(
+                key: const ValueKey('pane_collapse'),
+                iconSize: 18,
+                icon: const Icon(Icons.close_fullscreen_rounded),
+                tooltip: 'Collapse player',
+                onPressed: () => _collapsePlayer(context),
+              ),
+              const Spacer(),
+              TactileIconButton(
+                iconSize: 18,
+                icon: const Icon(Icons.terminal_rounded),
+                tooltip: 'Diagnostics Console',
+                onPressed: () => PlayerConsoleDialog.show(context),
+              ),
+              PlaybackSpeedButton(player: player),
+              SleepTimerButton(player: player),
+              StreamQualityInfoButton(player: player),
+              const SizedBox(width: 4),
+            ],
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final artSize = math
+                  .min(constraints.maxWidth - 44, constraints.maxHeight * 0.54)
+                  .clamp(140.0, 520.0);
+              return SingleChildScrollView(
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    PlayerArtworkHero(
+                      song: song,
+                      size: artSize,
+                      artwork: ArtworkPalette.cachedBytes(song),
+                      accent: accent,
+                    ),
+                    const SizedBox(height: 14),
+                    PlayerSongInfo(song: song),
+                    const SizedBox(height: 4),
+                    PlayerTransport(
+                      player: player,
+                      controller: controller,
+                      accent: accent,
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: PlayerSeekBar(
+                        player: player,
+                        duration: player.duration ?? Duration.zero,
+                        accent: accent,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: PlayerVolumeRow(accent: control),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        if (upcoming.isNotEmpty)
+          SizedBox(
+            height: math.min(216.0, MediaQuery.sizeOf(context).height * 0.26),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _UpNextList(
+                player: player,
+                upcoming: upcoming,
+                control: control,
+                theme: theme,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -90,6 +227,10 @@ class NowPlayingPanel extends StatelessWidget {
     return InkWell(
       onTap: () {
         TactileFeedback.click();
+        if (onToggleExpanded != null) {
+          onToggleExpanded!();
+          return;
+        }
         Navigator.of(
           context,
         ).push(PearPageRoute(builder: (_) => const PlayerScreen()));

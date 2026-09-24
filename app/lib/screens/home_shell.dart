@@ -33,6 +33,9 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  // At 1250+ the Now Playing pane doubles as the expanded player: tapping the
+  // compact pane grows it in place instead of pushing the full-screen route.
+  bool _playerExpanded = false;
   AppLifecycleListener? _lifecycleListener;
   final GlobalKey<NavigatorState> _playlistsNavKey =
       GlobalKey<NavigatorState>();
@@ -142,64 +145,82 @@ class _HomeShellState extends State<HomeShell> {
       child: Scaffold(
         extendBody: true,
         body: isWide
-            ? Column(
-                children: [
-                  PearMenuBar(
-                    selectedTab: _index,
-                    onSelectTab: _onDestinationSelected,
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        SideRail(
-                          selectedIndex: _index,
-                          onDestinationSelected: _onDestinationSelected,
-                        ),
-                        Expanded(
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
-                                child: IndexedStack(
-                                  index: _index,
-                                  children: _screens,
+            ? CallbackShortcuts(
+                bindings: {
+                  // Escape collapses the expanded pane back to its compact
+                  // dock, like closing the old full-screen player.
+                  const SingleActivator(LogicalKeyboardKey.escape): () {
+                    if (_playerExpanded) {
+                      setState(() => _playerExpanded = false);
+                    }
+                  },
+                },
+                child: Column(
+                  children: [
+                    PearMenuBar(
+                      selectedTab: _index,
+                      onSelectTab: _onDestinationSelected,
+                    ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          SideRail(
+                            selectedIndex: _index,
+                            onDestinationSelected: _onDestinationSelected,
+                          ),
+                          Expanded(
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: IndexedStack(
+                                    index: _index,
+                                    children: _screens,
+                                  ),
                                 ),
-                              ),
-                              if (!useNowPlayingPane)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Center(
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxWidth: 720,
-                                      ),
-                                      child: const SafeArea(
-                                        top: false,
-                                        child: PlayerBar(),
+                                if (!useNowPlayingPane)
+                                  Positioned(
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Center(
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 720,
+                                        ),
+                                        child: const SafeArea(
+                                          top: false,
+                                          child: PlayerBar(),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        if (useNowPlayingPane)
-                          SizedBox(
-                            width: 360,
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
-                              child: const SafeArea(
-                                top: false,
-                                child: NowPlayingPanel(),
-                              ),
+                              ],
                             ),
                           ),
-                      ],
+                          if (useNowPlayingPane)
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOutCubic,
+                              width: _playerExpanded ? 520 : 360,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
+                                child: SafeArea(
+                                  top: false,
+                                  child: NowPlayingPanel(
+                                    expanded: _playerExpanded,
+                                    onToggleExpanded: () => setState(() {
+                                      _playerExpanded = !_playerExpanded;
+                                    }),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const PearStatusBar(),
-                ],
+                    const PearStatusBar(),
+                  ],
+                ),
               )
             : IndexedStack(index: _index, children: _screens),
         bottomNavigationBar: isWide

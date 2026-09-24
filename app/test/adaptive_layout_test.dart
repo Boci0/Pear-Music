@@ -154,6 +154,42 @@ void main() {
     expect(find.text('Up Song 2'), findsOneWidget);
   });
 
+  testWidgets('the pane expands into the full player in place', (tester) async {
+    setViewport(tester, const Size(1600, 900));
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('now_playing_panel_expanded')),
+      findsNothing,
+    );
+
+    // Tapping the compact pane grows it in place; no full-screen route.
+    await tester.tap(find.byKey(const ValueKey('now_playing_panel')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.byKey(const ValueKey('now_playing_panel_expanded')),
+      findsOneWidget,
+    );
+    expect(find.byType(PlayerScreen), findsNothing);
+    expect(find.byKey(const ValueKey('pane_collapse')), findsOneWidget);
+    expect(find.text('Up Next'), findsOneWidget);
+
+    // The collapse button docks it back to the compact pane.
+    await tester.tap(find.byKey(const ValueKey('pane_collapse')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.byKey(const ValueKey('now_playing_panel_expanded')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
+  });
+
   testWidgets('landscape phones keep the phone shell despite the width', (
     tester,
   ) async {
