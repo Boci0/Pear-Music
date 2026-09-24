@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../widgets/pear_app_bar.dart';
+import '../widgets/pear_popup.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import '../widgets/tactile_button.dart';
@@ -460,10 +461,11 @@ class _PlaylistTile extends StatelessWidget {
   Future<void> _showMenu(BuildContext context) async {
     final controller = context.read<AppController>();
     final theme = Theme.of(context);
-    final action = await showModalBottomSheet<String>(
+    final action = await showPearPopup<String>(
       context: context,
       useRootNavigator: true,
       showDragHandle: true,
+      maxWidth: 360,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
           child: Column(

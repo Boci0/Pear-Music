@@ -4,6 +4,7 @@ import '../../models/song.dart';
 import '../../services/lyrics_display.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
+import '../pear_popup.dart';
 
 /// Modal bottom sheet allowing users to fine-tune lyrics synchronization timing
 /// or search and select alternate lyrics from LRCLIB.
@@ -14,20 +15,17 @@ Future<void> showLyricSyncSheet(
   bool initialSearchOpen = false,
   VoidCallback? onLyricsUpdated,
 }) async {
-  await showModalBottomSheet<void>(
+  await showPearPopup<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     useSafeArea: true,
-    // Keep the sheet compact so the lyrics above stay visible while checking
+    // Keep the popup compact so the lyrics above stay visible while checking
     // alternates; the content scrolls inside it instead of it expanding to
     // full screen.
-    constraints: BoxConstraints(
-      maxHeight: MediaQuery.of(context).size.height * 0.60,
-    ),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    maxWidth: 520,
+    maxHeightFactor: 0.60,
+    mobileMaxHeightFactor: 0.60,
     builder: (context) => ScrollConfiguration(
       // No visible scrollbars anywhere inside the sheet.
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),

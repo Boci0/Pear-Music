@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../services/artwork_service.dart';
 import '../services/youtube_search_service.dart';
+import 'pear_popup.dart';
 import 'tactile_button.dart';
 
 /// A list tile representing a YouTube search result with instant streaming playback
@@ -45,12 +46,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
   void _showOptions(BuildContext context, AppController controller) {
     final theme = Theme.of(context);
-    showModalBottomSheet(
+    showPearPopup<void>(
       context: context,
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 380,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,

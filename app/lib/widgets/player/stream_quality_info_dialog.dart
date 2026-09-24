@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/song.dart';
 import '../../services/player_service.dart';
+import '../pear_popup.dart';
 import '../tactile_button.dart';
 
 /// Top bar button displaying a simple info icon next to the sleep timer.
@@ -28,9 +29,26 @@ class StreamQualityInfoButton extends StatelessWidget {
 /// Read-only information pane displaying audio stream diagnostics, track file
 /// metadata, cache details, and network policies.
 class StreamQualityInfoDialog extends StatefulWidget {
-  const StreamQualityInfoDialog({super.key});
+  const StreamQualityInfoDialog({super.key, this.desktop = false});
+
+  /// Desktop card look: all-corner radius and no sheet drag grip.
+  final bool desktop;
 
   static Future<void> show(BuildContext context) {
+    if (isDesktopPopupPlatform) {
+      // The pane paints its own dark card, so the dialog surface stays out of
+      // the way and the card gets all four corners rounded.
+      return showPearPopup<void>(
+        context: context,
+        maxWidth: 560,
+        maxHeightFactor: 0.82,
+        barrierColor: Colors.black54,
+        useDialogSurface: false,
+        builder: (ctx) => const RepaintBoundary(
+          child: StreamQualityInfoDialog(desktop: true),
+        ),
+      );
+    }
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -156,10 +174,14 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
     final copyTarget = filePath ?? (currentSong?.id ?? '');
     _checkCanOpen(filePath);
 
+    final cardRadius = widget.desktop
+        ? BorderRadius.circular(24)
+        : const BorderRadius.vertical(top: Radius.circular(24));
+
     return RepaintBoundary(
       child: Material(
         color: const Color(0xFF0D0D0D),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: cardRadius,
         clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
@@ -174,18 +196,19 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Drag handle
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 12, bottom: 8),
-                    width: 38,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF333333),
-                      borderRadius: BorderRadius.circular(2),
+                // Drag handle (phone sheet only; the desktop card has no grip)
+                if (!widget.desktop)
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 8),
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF333333),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
 
                 // Header
                 Padding(

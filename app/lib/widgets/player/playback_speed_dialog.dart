@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
+import '../pear_popup.dart';
 import '../tactile_button.dart';
 
 /// Modal bottom sheet allowing the user to select playback speed.
@@ -10,12 +11,10 @@ Future<void> showPlaybackSpeedDialog(
 ) async {
   const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
-  await showModalBottomSheet<void>(
+  await showPearPopup<void>(
     context: context,
     showDragHandle: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    maxWidth: 420,
     builder: (context) {
       final scheme = Theme.of(context).colorScheme;
       final currentSpeed = player.speed;

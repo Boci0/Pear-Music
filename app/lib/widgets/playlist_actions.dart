@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/song.dart';
+import 'pear_popup.dart';
 
 /// Shows a bottom sheet letting the user add [song] to an existing playlist
 /// or create a new one. Shows a confirmation SnackBar afterwards.
@@ -10,9 +11,10 @@ Future<void> showAddToPlaylistSheet(
   AppController controller,
   Song song,
 ) async {
-  final result = await showModalBottomSheet<String>(
+  final result = await showPearPopup<String>(
     context: context,
     showDragHandle: true,
+    maxWidth: 400,
     builder: (_) => _PlaylistPickerSheet(controller: controller, song: song),
   );
   if (result == null || !context.mounted) return;

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
+import '../pear_popup.dart';
 import '../tactile_button.dart';
 
 /// Modal dialog allowing the user to select or cancel a sleep timer.
@@ -10,12 +11,11 @@ Future<void> showSleepTimerDialog(
   BuildContext context,
   PlayerService player,
 ) async {
-  await showModalBottomSheet<void>(
+  await showPearPopup<void>(
     context: context,
     showDragHandle: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    maxWidth: 420,
+    maxHeightFactor: 0.9,
     builder: (context) {
       return ListenableBuilder(
         listenable: player,

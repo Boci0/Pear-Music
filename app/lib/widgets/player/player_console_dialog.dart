@@ -8,14 +8,17 @@ import 'package:flutter/services.dart';
 import '../../services/debug_log.dart';
 import '../../services/session_diagnostics.dart';
 import '../../services/stream_cache_manager.dart';
+import '../pear_popup.dart';
 
 /// Interactive live terminal diagnostics console for real-time stream inspection.
 class PlayerConsoleDialog extends StatefulWidget {
   const PlayerConsoleDialog({super.key});
 
   static Future<void> show(BuildContext context) {
-    final isWide = MediaQuery.sizeOf(context).width >= 800;
-    if (isWide) {
+    // Desktop windows always get the card; tablets join in past 800 wide.
+    final asDialog =
+        isDesktopPopupPlatform || MediaQuery.sizeOf(context).width >= 800;
+    if (asDialog) {
       return showDialog<void>(
         context: context,
         builder: (ctx) => const Dialog(

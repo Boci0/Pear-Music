@@ -12,6 +12,7 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
 import '../widgets/pear_app_bar.dart';
+import '../widgets/pear_popup.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/tactile_button.dart';
 
@@ -142,9 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
         .where((s) => _selectedIds.contains(s.id))
         .toList();
     final playlists = controller.library.playlists;
-    final playlist = await showModalBottomSheet<Playlist>(
+    final playlist = await showPearPopup<Playlist>(
       context: context,
       showDragHandle: true,
+      maxWidth: 400,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -933,12 +935,10 @@ void _showSortSheet(BuildContext context, AppController controller) {
   final theme = Theme.of(context);
   final primary = theme.colorScheme.primary;
 
-  showModalBottomSheet(
+  showPearPopup<void>(
     context: context,
-    backgroundColor: theme.colorScheme.surfaceContainer,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    showDragHandle: true,
+    maxWidth: 360,
     builder: (ctx) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -946,17 +946,6 @@ void _showSortSheet(BuildContext context, AppController controller) {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Text(
