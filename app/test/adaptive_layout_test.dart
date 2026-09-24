@@ -165,8 +165,18 @@ void main() {
       findsNothing,
     );
 
-    // Tapping the compact pane grows it in place; no full-screen route.
+    // The compact card itself is not a button: tapping its body must not
+    // expand the player.
     await tester.tap(find.byKey(const ValueKey('now_playing_panel')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      find.byKey(const ValueKey('now_playing_panel_expanded')),
+      findsNothing,
+    );
+
+    // The explicit expand button grows it in place; no full-screen route.
+    await tester.tap(find.byKey(const ValueKey('pane_expand')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 

@@ -6,11 +6,9 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/song.dart';
-import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
-import 'pear_page_route.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
 import 'player/player_console_dialog.dart';
@@ -224,129 +222,138 @@ class NowPlayingPanel extends StatelessWidget {
         ? 'Shared · ${song.sizeLabel}'
         : 'Local · ${song.sizeLabel}';
 
-    return InkWell(
-      onTap: () {
-        TactileFeedback.click();
-        if (onToggleExpanded != null) {
-          onToggleExpanded!();
-          return;
-        }
-        Navigator.of(
-          context,
-        ).push(PearPageRoute(builder: (_) => const PlayerScreen()));
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final artSize = math
-                .min(constraints.maxWidth, constraints.maxHeight - 380)
-                .clamp(120.0, constraints.maxWidth);
-            final queue = player.queue;
-            final upcoming = queue.length > player.queueIndex + 1
-                ? queue.sublist(player.queueIndex + 1)
-                : const <Song>[];
-            return Column(
-              children: [
-                const Spacer(flex: 3),
-                SizedBox(
-                  width: artSize,
-                  height: artSize,
-                  child: _Artwork(song: song),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  song.title,
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  meta,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: 12.5,
-                    color: Colors.white.withValues(alpha: 0.55),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final artSize = math
+                    .min(constraints.maxWidth, constraints.maxHeight - 380)
+                    .clamp(120.0, constraints.maxWidth);
+                final queue = player.queue;
+                final upcoming = queue.length > player.queueIndex + 1
+                    ? queue.sublist(player.queueIndex + 1)
+                    : const <Song>[];
+                return Column(
                   children: [
-                    TactileIconButton(
-                      icon: Icon(Icons.skip_previous, color: control),
-                      iconSize: 28,
-                      tooltip: 'Previous',
-                      onPressed: () => controller.previousTrack(),
+                    const Spacer(flex: 3),
+                    SizedBox(
+                      width: artSize,
+                      height: artSize,
+                      child: _Artwork(song: song),
                     ),
-                    const SizedBox(width: 4),
-                    TactileBounce(
-                      onTap: () => controller.togglePlayback(),
-                      scaleDown: 0.88,
-                      tooltip: player.playbackError != null
-                          ? 'Retry'
-                          : (player.playing ? 'Pause' : 'Play'),
-                      child: SizedBox(
-                        width: 52,
-                        height: 52,
-                        child: Center(
-                          child: player.isBuffering
-                              ? SizedBox(
-                                  width: 34,
-                                  height: 34,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: control,
-                                  ),
-                                )
-                              : Icon(
-                                  player.playing
-                                      ? Icons.pause_circle_filled
-                                      : Icons.play_circle_filled,
-                                  size: 52,
-                                  color: control,
-                                ),
-                        ),
+                    const SizedBox(height: 16),
+                    Text(
+                      song.title,
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    TactileIconButton(
-                      icon: Icon(Icons.skip_next, color: control),
-                      iconSize: 28,
-                      tooltip: 'Next',
-                      onPressed: () => controller.nextTrack(),
+                    const SizedBox(height: 4),
+                    Text(
+                      meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 12.5,
+                        color: Colors.white.withValues(alpha: 0.55),
+                      ),
                     ),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TactileIconButton(
+                          icon: Icon(Icons.skip_previous, color: control),
+                          iconSize: 28,
+                          tooltip: 'Previous',
+                          onPressed: () => controller.previousTrack(),
+                        ),
+                        const SizedBox(width: 4),
+                        TactileBounce(
+                          onTap: () => controller.togglePlayback(),
+                          scaleDown: 0.88,
+                          tooltip: player.playbackError != null
+                              ? 'Retry'
+                              : (player.playing ? 'Pause' : 'Play'),
+                          child: SizedBox(
+                            width: 52,
+                            height: 52,
+                            child: Center(
+                              child: player.isBuffering
+                                  ? SizedBox(
+                                      width: 34,
+                                      height: 34,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: control,
+                                      ),
+                                    )
+                                  : Icon(
+                                      player.playing
+                                          ? Icons.pause_circle_filled
+                                          : Icons.play_circle_filled,
+                                      size: 52,
+                                      color: control,
+                                    ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        TactileIconButton(
+                          icon: Icon(Icons.skip_next, color: control),
+                          iconSize: 28,
+                          tooltip: 'Next',
+                          onPressed: () => controller.nextTrack(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _ProgressLine(player: player, color: control, theme: theme),
+                    const SizedBox(height: 4),
+                    PlayerVolumeRow(accent: control),
+                    const SizedBox(height: 16),
+                    if (upcoming.isNotEmpty)
+                      Flexible(
+                        flex: 4,
+                        child: _UpNextList(
+                          player: player,
+                          upcoming: upcoming,
+                          control: control,
+                          theme: theme,
+                        ),
+                      )
+                    else
+                      const Spacer(flex: 4),
                   ],
-                ),
-                const SizedBox(height: 10),
-                _ProgressLine(player: player, color: control, theme: theme),
-                const SizedBox(height: 4),
-                PlayerVolumeRow(accent: control),
-                const SizedBox(height: 16),
-                if (upcoming.isNotEmpty)
-                  Flexible(
-                    flex: 4,
-                    child: _UpNextList(
-                      player: player,
-                      upcoming: upcoming,
-                      control: control,
-                      theme: theme,
-                    ),
-                  )
-                else
-                  const Spacer(flex: 4),
-              ],
-            );
-          },
+                );
+              },
+            ),
+          ),
         ),
-      ),
+        if (onToggleExpanded != null)
+          Positioned(
+            top: 10,
+            right: 10,
+            child: TactileIconButton(
+              key: const ValueKey('pane_expand'),
+              iconSize: 18,
+              icon: const Icon(Icons.open_in_full_rounded),
+              tooltip: 'Expand player',
+              onPressed: () {
+                TactileFeedback.click();
+                onToggleExpanded!();
+              },
+            ),
+          ),
+      ],
     );
   }
 }
