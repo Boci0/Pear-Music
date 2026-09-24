@@ -98,12 +98,45 @@ class PlayerTheme extends ChangeNotifier {
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
+        titleTextStyle: const TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+        ),
+      ),
+      // Desktop menus (menu bar, sort, library profile, right-click context
+      // menus) share one card look instead of the default flat Material menu.
+      popupMenuTheme: PopupMenuThemeData(
+        color: surfaceHighlight,
+        elevation: 8,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: const WidgetStatePropertyAll(surfaceHighlight),
+          elevation: const WidgetStatePropertyAll(8),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 6),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+          ),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surfaceDark,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
@@ -114,8 +147,10 @@ class PlayerTheme extends ChangeNotifier {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide:
-              BorderSide(color: scheme.primary.withValues(alpha: 0.6), width: 1.5),
+          borderSide: BorderSide(
+            color: scheme.primary.withValues(alpha: 0.6),
+            width: 1.5,
+          ),
         ),
       ),
       chipTheme: ChipThemeData(
@@ -123,8 +158,16 @@ class PlayerTheme extends ChangeNotifier {
         selectedColor: scheme.primary.withValues(alpha: 0.18),
         secondarySelectedColor: scheme.primary.withValues(alpha: 0.18),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-        labelStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: scheme.onSurface),
-        secondaryLabelStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: scheme.primary),
+        labelStyle: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: scheme.onSurface,
+        ),
+        secondaryLabelStyle: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: scheme.primary,
+        ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
@@ -176,9 +219,7 @@ class PlayerTheme extends ChangeNotifier {
         ),
       ),
       listTileTheme: ListTileThemeData(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       iconTheme: IconThemeData(color: scheme.onSurface),
       primaryColor: scheme.primary,
@@ -188,10 +229,9 @@ class PlayerTheme extends ChangeNotifier {
   static ThemeData _build(Color accent) {
     final cached = _cache[accent];
     if (cached != null) return cached;
-    final built = buildFromScheme(ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: Brightness.dark,
-    ));
+    final built = buildFromScheme(
+      ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark),
+    );
     // Bounded cache: evict the oldest accent so the cache can't grow without
     // bound as more songs with distinct artwork colours are played.
     if (_cache.length >= _cacheMax) {
@@ -212,7 +252,10 @@ class PlayerTheme extends ChangeNotifier {
   void _onPlayerChanged() {
     final song = _player.currentSong;
     final id = song?.id;
-    if (id == _appliedSongId && (song == null || ArtworkPalette.hasResolved(song))) return;
+    if (id == _appliedSongId &&
+        (song == null || ArtworkPalette.hasResolved(song))) {
+      return;
+    }
     _appliedSongId = id;
     if (song == null) {
       // Nothing playing -> back to the default purple theme.
