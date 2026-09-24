@@ -145,17 +145,19 @@ class NowPlayingPanel extends StatelessWidget {
                         accent: accent,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: PlayerVolumeRow(accent: control),
-                    ),
                     const SizedBox(height: 14),
                   ],
                 ),
               );
             },
           ),
+        ),
+        // Volume lives outside the scroll area: at shorter window heights it
+        // used to end up below the fold with no scrollbar cue, which read as
+        // a missing control.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
+          child: PlayerVolumeRow(accent: control),
         ),
         if (upcoming.isNotEmpty)
           SizedBox(

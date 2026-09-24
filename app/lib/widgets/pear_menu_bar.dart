@@ -2,22 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
-import '../screens/player_screen.dart';
 import '../services/player_service.dart';
-import 'pear_page_route.dart';
 import 'player/playback_speed_dialog.dart';
 
-/// Classic desktop menu bar (File / Playback / View / Help) for wide windows,
-/// the way Windows apps have always been laid out.
+/// Classic desktop menu bar for wide windows. Deliberately app-level only:
+/// navigation lives in the side rail and transport lives on the Now Playing
+/// pane, so the menus never repeat either.
 class PearMenuBar extends StatelessWidget {
-  final int selectedTab;
-  final void Function(int index) onSelectTab;
-
-  const PearMenuBar({
-    super.key,
-    required this.selectedTab,
-    required this.onSelectTab,
-  });
+  const PearMenuBar({super.key});
 
   static const ButtonStyle _itemStyle = ButtonStyle(
     minimumSize: WidgetStatePropertyAll(Size(0, 32)),
@@ -88,30 +80,6 @@ class PearMenuBar extends StatelessWidget {
             menuChildren: [
               MenuItemButton(
                 style: _itemStyle,
-                leadingIcon: Icon(
-                  player.playing
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  size: 16,
-                ),
-                onPressed: () => controller.togglePlayback(),
-                child: Text(player.playing ? 'Pause' : 'Play'),
-              ),
-              MenuItemButton(
-                style: _itemStyle,
-                leadingIcon: const Icon(Icons.skip_previous_rounded, size: 16),
-                onPressed: () => controller.previousTrack(),
-                child: const Text('Previous'),
-              ),
-              MenuItemButton(
-                style: _itemStyle,
-                leadingIcon: const Icon(Icons.skip_next_rounded, size: 16),
-                onPressed: () => controller.nextTrack(),
-                child: const Text('Next'),
-              ),
-              const Divider(height: 1),
-              MenuItemButton(
-                style: _itemStyle,
                 leadingIcon: const Icon(Icons.shuffle_rounded, size: 16),
                 trailingIcon: player.shuffle ? check() : null,
                 onPressed: () => player.toggleShuffle(),
@@ -142,44 +110,6 @@ class PearMenuBar extends StatelessWidget {
               ),
             ],
             child: const Text('Playback'),
-          ),
-          SubmenuButton(
-            style: _topStyle,
-            menuChildren: [
-              for (final (i, label) in const [
-                (0, 'Library'),
-                (1, 'Playlists'),
-                (2, 'Explore'),
-                (3, 'History'),
-                (4, 'Settings'),
-              ])
-                MenuItemButton(
-                  style: _itemStyle,
-                  leadingIcon: Icon(switch (i) {
-                    0 => Icons.library_music_outlined,
-                    1 => Icons.queue_music_rounded,
-                    2 => Icons.explore_outlined,
-                    3 => Icons.history_rounded,
-                    _ => Icons.settings_outlined,
-                  }, size: 16),
-                  trailingIcon: selectedTab == i ? check() : null,
-                  onPressed: () => onSelectTab(i),
-                  child: Text(label),
-                ),
-              const Divider(height: 1),
-              MenuItemButton(
-                style: _itemStyle,
-                leadingIcon: const Icon(
-                  Icons.play_circle_outline_rounded,
-                  size: 16,
-                ),
-                onPressed: () => Navigator.of(
-                  context,
-                ).push(PearPageRoute(builder: (_) => const PlayerScreen())),
-                child: const Text('Player'),
-              ),
-            ],
-            child: const Text('View'),
           ),
           SubmenuButton(
             style: _topStyle,

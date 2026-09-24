@@ -157,10 +157,7 @@ class _HomeShellState extends State<HomeShell> {
                 },
                 child: Column(
                   children: [
-                    PearMenuBar(
-                      selectedTab: _index,
-                      onSelectTab: _onDestinationSelected,
-                    ),
+                    const PearMenuBar(),
                     Expanded(
                       child: Row(
                         children: [

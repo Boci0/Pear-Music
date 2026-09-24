@@ -516,24 +516,49 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ),
                     ),
                     Expanded(
-                      child: ListView.builder(
-                        // Same row inset as the library (tile padding only).
-                        padding: const EdgeInsets.fromLTRB(0, 4, 0, 140),
-                        itemExtent: 61.0,
-                        itemCount: _results.length,
-                        itemBuilder: (context, index) {
-                          final item = _results[index];
-                          final isCurrent =
-                              currentSongId == 'stream_${item.videoId}' ||
-                              (currentSongId != null &&
-                                  RecommendationService.extractVideoId(
-                                        currentSongId,
-                                      ) ==
-                                      item.videoId);
-                          return YouTubeSongTile(
-                            result: item,
-                            allResults: _results,
-                            isCurrent: isCurrent,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Same multi-column rhythm as the library: wide
+                          // windows get two or three result columns.
+                          final columns = (constraints.maxWidth / 460)
+                              .floor()
+                              .clamp(1, 3);
+                          Widget tileFor(int index) {
+                            final item = _results[index];
+                            final isCurrent =
+                                currentSongId == 'stream_${item.videoId}' ||
+                                (currentSongId != null &&
+                                    RecommendationService.extractVideoId(
+                                          currentSongId,
+                                        ) ==
+                                        item.videoId);
+                            return YouTubeSongTile(
+                              result: item,
+                              allResults: _results,
+                              isCurrent: isCurrent,
+                            );
+                          }
+
+                          if (columns <= 1) {
+                            return ListView.builder(
+                              // Same row inset as the library (tile padding only).
+                              padding: const EdgeInsets.fromLTRB(0, 4, 0, 140),
+                              itemExtent: 61.0,
+                              itemCount: _results.length,
+                              itemBuilder: (context, index) => tileFor(index),
+                            );
+                          }
+
+                          return GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(0, 4, 0, 140),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  mainAxisExtent: 61.0,
+                                  crossAxisSpacing: 10,
+                                ),
+                            itemCount: _results.length,
+                            itemBuilder: (context, index) => tileFor(index),
                           );
                         },
                       ),
@@ -739,44 +764,64 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ),
                     ),
                     if (_recommendedResults.isNotEmpty)
-                      SliverPadding(
-                        // Matches the library rows: the tile already carries its
-                        // own 10px side padding, so no extra inset here.
-                        padding: EdgeInsets.zero,
-                        sliver: SliverFixedExtentList(
-                          itemExtent: 61.0,
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) {
-                              final item = _recommendedResults[index];
-                              final isCurrent =
-                                  currentSongId == 'stream_${item.videoId}' ||
-                                  (currentSongId != null &&
-                                      RecommendationService.extractVideoId(
-                                            currentSongId,
-                                          ) ==
-                                          item.videoId);
-                              return YouTubeSongTile(
-                                key: ValueKey('rec_${item.videoId}'),
-                                result: item,
-                                allResults: _recommendedResults,
-                                isCurrent: isCurrent,
-                              );
-                            },
-                            childCount: _recommendedResults.length,
-                            findChildIndexCallback: (Key key) {
-                              final valueKey = key as ValueKey<String>?;
-                              if (valueKey == null) return null;
-                              final id = valueKey.value.replaceFirst(
-                                'rec_',
-                                '',
-                              );
-                              final idx = _recommendedResults.indexWhere(
-                                (r) => r.videoId == id,
-                              );
-                              return idx >= 0 ? idx : null;
-                            },
-                          ),
-                        ),
+                      SliverLayoutBuilder(
+                        builder: (context, constraints) {
+                          // Match the library: one column on narrow windows,
+                          // two or three on wide ones.
+                          final columns = (constraints.crossAxisExtent / 460)
+                              .floor()
+                              .clamp(1, 3);
+
+                          int? findIndex(Key key) {
+                            final valueKey = key as ValueKey<String>?;
+                            if (valueKey == null) return null;
+                            final id = valueKey.value.replaceFirst('rec_', '');
+                            final idx = _recommendedResults.indexWhere(
+                              (r) => r.videoId == id,
+                            );
+                            return idx >= 0 ? idx : null;
+                          }
+
+                          Widget tileFor(int index) {
+                            final item = _recommendedResults[index];
+                            final isCurrent =
+                                currentSongId == 'stream_${item.videoId}' ||
+                                (currentSongId != null &&
+                                    RecommendationService.extractVideoId(
+                                          currentSongId,
+                                        ) ==
+                                        item.videoId);
+                            return YouTubeSongTile(
+                              key: ValueKey('rec_${item.videoId}'),
+                              result: item,
+                              allResults: _recommendedResults,
+                              isCurrent: isCurrent,
+                            );
+                          }
+
+                          if (columns <= 1) {
+                            return SliverFixedExtentList(
+                              itemExtent: 61.0,
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) => tileFor(index),
+                                childCount: _recommendedResults.length,
+                                findChildIndexCallback: findIndex,
+                              ),
+                            );
+                          }
+
+                          return SliverGrid.builder(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  mainAxisExtent: 61.0,
+                                  crossAxisSpacing: 10,
+                                ),
+                            itemCount: _recommendedResults.length,
+                            findChildIndexCallback: findIndex,
+                            itemBuilder: (context, index) => tileFor(index),
+                          );
+                        },
                       ),
                     const SliverToBoxAdapter(child: SizedBox(height: 140)),
                   ],

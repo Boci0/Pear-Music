@@ -13,6 +13,7 @@ import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/player_theme.dart';
 import 'package:peerm_app/services/youtube_service.dart';
+import 'package:peerm_app/widgets/player/player_controls.dart';
 import 'package:peerm_app/widgets/player/queue_bottom_sheet.dart';
 import 'package:peerm_app/widgets/player_bar.dart';
 import 'package:provider/provider.dart';
@@ -186,6 +187,7 @@ void main() {
     );
     expect(find.byType(PlayerScreen), findsNothing);
     expect(find.byKey(const ValueKey('pane_collapse')), findsOneWidget);
+    expect(find.byType(PlayerVolumeRow), findsOneWidget);
     expect(find.text('Up Next'), findsOneWidget);
 
     // The collapse button docks it back to the compact pane.
@@ -224,25 +226,9 @@ void main() {
     expect(find.byKey(const ValueKey('pear_menu_bar')), findsOneWidget);
     expect(find.text('File'), findsOneWidget);
     expect(find.text('Playback'), findsOneWidget);
-    expect(find.text('View'), findsOneWidget);
+    expect(find.text('Help'), findsOneWidget);
     expect(find.byKey(const ValueKey('pear_status_bar')), findsOneWidget);
     expect(find.textContaining('songs'), findsOneWidget);
-  });
-
-  testWidgets('the View menu switches shell tabs', (tester) async {
-    setViewport(tester, const Size(1280, 800));
-    await tester.pumpWidget(await buildShell());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('View'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Playlists').last);
-    await tester.pumpAndSettle();
-
-    final shellStack = tester.widget<IndexedStack>(
-      find.byType(IndexedStack).first,
-    );
-    expect(shellStack.index, 1);
   });
 
   testWidgets('phone shell has no menu bar or status bar', (tester) async {
