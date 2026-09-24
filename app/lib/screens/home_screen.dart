@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
@@ -28,11 +29,13 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showOnlyFavorites = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final Set<String> _selectedIds = {};
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -310,6 +313,62 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Shared search field: the phone header shows it only in search mode while
+  /// wide desktop headers keep it visible all the time.
+  Widget _buildLibrarySearchField({required bool autofocus}) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 40,
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        autofocus: autofocus,
+        style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
+        decoration: InputDecoration(
+          hintText: 'Search library...',
+          hintStyle: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 14,
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+          ),
+          prefixIcon: const Icon(Icons.search, size: 18),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16),
+                  onPressed: () {
+                    setState(() {
+                      _searchQuery = '';
+                      _searchController.clear();
+                    });
+                  },
+                )
+              : null,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 0,
+          ),
+          filled: true,
+          fillColor: Colors.white.withValues(alpha: 0.06),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(
+              color: theme.colorScheme.primary.withValues(alpha: 0.5),
+              width: 1,
+            ),
+          ),
+        ),
+        onChanged: (v) => setState(() => _searchQuery = v),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
@@ -538,59 +597,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           const SizedBox(width: 4),
-          Expanded(
-            child: SizedBox(
-              height: 40,
-              child: TextField(
-                controller: _searchController,
-                autofocus: true,
-                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'Search library...',
-                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                    fontSize: 14,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.6,
-                    ),
-                  ),
-                  prefixIcon: const Icon(Icons.search, size: 18),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 16),
-                          onPressed: () {
-                            setState(() {
-                              _searchQuery = '';
-                              _searchController.clear();
-                            });
-                          },
-                        )
-                      : null,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 0,
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.06),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.5),
-                      width: 1,
-                    ),
-                  ),
-                ),
-                onChanged: (v) => setState(() => _searchQuery = v),
-              ),
-            ),
-          ),
+          Expanded(child: _buildLibrarySearchField(autofocus: true)),
         ],
       );
     } else if (_isSelecting) {
@@ -655,16 +662,34 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ];
     } else {
-      headerContent = const PearTabTitle(
-        'Library',
-        key: ValueKey('header_default'),
-      );
+      final isWideHeader = MediaQuery.sizeOf(context).width >= 900;
+      if (isWideHeader) {
+        // Desktop keeps the search field in the header at all times instead of
+        // hiding it behind an icon.
+        headerContent = Row(
+          key: const ValueKey('header_default'),
+          children: [
+            const PearTabTitle('Library'),
+            const SizedBox(width: 24),
+            SizedBox(
+              width: 360,
+              child: _buildLibrarySearchField(autofocus: false),
+            ),
+          ],
+        );
+      } else {
+        headerContent = const PearTabTitle(
+          'Library',
+          key: ValueKey('header_default'),
+        );
+      }
       headerActions = [
-        TactileIconButton(
-          tooltip: 'Search library',
-          icon: const Icon(Icons.search),
-          onPressed: () => setState(() => _isSearching = true),
-        ),
+        if (!isWideHeader)
+          TactileIconButton(
+            tooltip: 'Search library',
+            icon: const Icon(Icons.search),
+            onPressed: () => setState(() => _isSearching = true),
+          ),
         TactileIconButton(
           tooltip: 'Add audio files',
           icon: const Icon(Icons.add),
@@ -694,29 +719,65 @@ class _HomeScreenState extends State<HomeScreen> {
       ];
     }
 
-    return Scaffold(
-      appBar: PearAppBar(
-        title: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          // Sequenced crossfade: the leaving header fades out in the first
-          // half before the arriving one fades in, so the pear + tab title
-          // never ghost over the search field mid-swap.
-          switchInCurve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
-          switchOutCurve: const Interval(0.55, 1.0, curve: Curves.easeInCubic),
-          // Keep both the outgoing and incoming headers pinned to the leading
-          // edge. The default layout centres its children in a Stack, which
-          // made the pear + tab title drift to the middle of the bar during
-          // the crossfade into search (the search header is full width while
-          // the title is min width).
-          layoutBuilder: (currentChild, previousChildren) => Stack(
-            alignment: AlignmentDirectional.centerStart,
-            children: [...previousChildren, ?currentChild],
+    return CallbackShortcuts(
+      bindings: {
+        // Desktop conveniences: Ctrl+F focuses the library search field and
+        // Escape backs out of search or selection, like a native window.
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
+          if (MediaQuery.sizeOf(context).width >= 900) {
+            _searchFocusNode.requestFocus();
+          } else if (!_isSearching) {
+            setState(() => _isSearching = true);
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_isSelecting) {
+            setState(() {
+              _isSelecting = false;
+              _selectedIds.clear();
+            });
+          } else if (_searchQuery.isNotEmpty) {
+            setState(() {
+              _searchQuery = '';
+              _searchController.clear();
+            });
+          } else if (_isSearching) {
+            setState(() => _isSearching = false);
+          }
+        },
+      },
+      child: Scaffold(
+        appBar: PearAppBar(
+          title: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            // Sequenced crossfade: the leaving header fades out in the first
+            // half before the arriving one fades in, so the pear + tab title
+            // never ghost over the search field mid-swap.
+            switchInCurve: const Interval(
+              0.45,
+              1.0,
+              curve: Curves.easeOutCubic,
+            ),
+            switchOutCurve: const Interval(
+              0.55,
+              1.0,
+              curve: Curves.easeInCubic,
+            ),
+            // Keep both the outgoing and incoming headers pinned to the leading
+            // edge. The default layout centres its children in a Stack, which
+            // made the pear + tab title drift to the middle of the bar during
+            // the crossfade into search (the search header is full width while
+            // the title is min width).
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              alignment: AlignmentDirectional.centerStart,
+              children: [...previousChildren, ?currentChild],
+            ),
+            child: headerContent,
           ),
-          child: headerContent,
+          actions: headerActions,
         ),
-        actions: headerActions,
+        body: body,
       ),
-      body: body,
     );
   }
 }

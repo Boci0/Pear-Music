@@ -198,6 +198,92 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     );
   }
 
+  /// Right-click context menu mirroring the long-press sheet options.
+  Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    final controller = context.read<AppController>();
+    final isFav = controller.isFavorite('stream_${widget.result.videoId}');
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        _menuItem('stream', Icons.play_circle_outline, 'Stream Now'),
+        _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
+        _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
+        if (!_isDownloading)
+          _menuItem('download', Icons.download, 'Download to Library'),
+        _menuItem(
+          'favorite',
+          isFav ? Icons.favorite : Icons.favorite_border,
+          isFav ? 'Remove from favorites' : 'Add to favorites',
+          color: isFav ? Theme.of(context).colorScheme.primary : null,
+        ),
+        _menuItem('copy_title', Icons.copy_rounded, 'Copy title'),
+      ],
+    );
+    if (!context.mounted || selected == null) return;
+    final song = widget.result.toSong();
+    switch (selected) {
+      case 'stream':
+        _streamAndPlay(context, controller);
+      case 'play_next':
+        controller.playNext(song);
+      case 'add_to_queue':
+        controller.addToQueue(song);
+      case 'download':
+        _downloadToLibrary(context, controller);
+      case 'favorite':
+        await controller.toggleFavorite(
+          'stream_${widget.result.videoId}',
+          song: song,
+        );
+      case 'copy_title':
+        await Clipboard.setData(ClipboardData(text: widget.result.title));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Copied "${widget.result.title}" to clipboard'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+    }
+  }
+
+  PopupMenuItem<String> _menuItem(
+    String value,
+    IconData icon,
+    String label, {
+    Color? color,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 42,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              label,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _downloadToLibrary(
     BuildContext context,
     AppController controller,
@@ -291,218 +377,223 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
         child: Material(
           color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              TactileFeedback.click();
-              _streamAndPlay(context, controller);
-            },
-            onLongPress: () => _showOptions(context, controller),
-            hoverColor: Colors.white.withValues(alpha: 0.055),
-            child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: widget.isCurrent
-                    ? LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.18),
-                          theme.colorScheme.primary.withValues(alpha: 0.02),
-                        ],
-                      )
-                    : null,
-              ),
-              child: SizedBox(
-                height: 58,
-                child: Stack(
-                  alignment: Alignment.centerLeft,
-                  children: [
-                    if (widget.isCurrent)
-                      Positioned(
-                        left: 4,
-                        child: Container(
-                          width: 3.5,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(2),
+          child: GestureDetector(
+            onSecondaryTapDown: (details) =>
+                _showContextMenu(context, details.globalPosition),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                TactileFeedback.click();
+                _streamAndPlay(context, controller);
+              },
+              onLongPress: () => _showOptions(context, controller),
+              hoverColor: Colors.white.withValues(alpha: 0.055),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: widget.isCurrent
+                      ? LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            theme.colorScheme.primary.withValues(alpha: 0.18),
+                            theme.colorScheme.primary.withValues(alpha: 0.02),
+                          ],
+                        )
+                      : null,
+                ),
+                child: SizedBox(
+                  height: 58,
+                  child: Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      if (widget.isCurrent)
+                        Positioned(
+                          left: 4,
+                          child: Container(
+                            width: 3.5,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 14, right: 8),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Wide rows (desktop) move the meta line into a
-                          // right-aligned column so the row reads like a table.
-                          final wideRow = constraints.maxWidth >= 620;
-                          final onlineMeta =
-                              'Online · ${widget.result.author}${widget.result.duration != null ? ' · ${widget.result.durationFormatted}' : ''}';
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _artwork(theme),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      widget.result.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontSize: 15,
-                                            height: 1.25,
-                                            fontWeight: FontWeight.w600,
-                                            color: widget.isCurrent
-                                                ? theme.colorScheme.primary
-                                                : null,
-                                            letterSpacing: -0.2,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    if (!wideRow)
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.sensors_rounded,
-                                            size: 13,
-                                            color: theme.colorScheme.tertiary,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              onlineMeta,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    fontSize: 12.5,
-                                                    height: 1.25,
-                                                    color: theme
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
-                                                  ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              if (wideRow) ...[
-                                SizedBox(
-                                  width: 168,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 14, right: 8),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Wide rows (desktop) move the meta line into a
+                            // right-aligned column so the row reads like a table.
+                            final wideRow = constraints.maxWidth >= 620;
+                            final onlineMeta =
+                                'Online · ${widget.result.author}${widget.result.duration != null ? ' · ${widget.result.durationFormatted}' : ''}';
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                _artwork(theme),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Icon(
-                                        Icons.sensors_rounded,
-                                        size: 13,
-                                        color: theme.colorScheme.tertiary,
+                                      Text(
+                                        widget.result.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              fontSize: 15,
+                                              height: 1.25,
+                                              fontWeight: FontWeight.w600,
+                                              color: widget.isCurrent
+                                                  ? theme.colorScheme.primary
+                                                  : null,
+                                              letterSpacing: -0.2,
+                                            ),
                                       ),
-                                      const SizedBox(width: 4),
-                                      Flexible(
-                                        child: Text(
-                                          onlineMeta,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                fontSize: 12.5,
-                                                color: theme
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
+                                      const SizedBox(height: 3),
+                                      if (!wideRow)
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.sensors_rounded,
+                                              size: 13,
+                                              color: theme.colorScheme.tertiary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                onlineMeta,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      fontSize: 12.5,
+                                                      height: 1.25,
+                                                      color: theme
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
                                               ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                SizedBox(
-                                  width: 44,
-                                  child: isFav
-                                      ? TactileIconButton(
-                                          icon: const Icon(
-                                            Icons.favorite,
-                                            size: 19,
+                                const SizedBox(width: 8),
+                                if (wideRow) ...[
+                                  SizedBox(
+                                    width: 168,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        Icon(
+                                          Icons.sensors_rounded,
+                                          size: 13,
+                                          color: theme.colorScheme.tertiary,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            onlineMeta,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  fontSize: 12.5,
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
                                           ),
-                                          color: theme.colorScheme.primary,
-                                          tooltip: 'Favorite',
-                                          onPressed: () =>
-                                              controller.toggleFavorite(
-                                                'stream_${widget.result.videoId}',
-                                                song: widget.result.toSong(),
-                                              ),
-                                        )
-                                      : null,
-                                ),
-                                SizedBox(
-                                  width: 22,
-                                  child: widget.isCurrent
-                                      ? Icon(
-                                          Icons.graphic_eq_rounded,
-                                          size: 18,
-                                          color: theme.colorScheme.primary,
-                                        )
-                                      : null,
-                                ),
-                              ],
-                              if (_isDownloading) ...[
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                  ),
-                                  child: SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      value: _downloadProgress,
-                                      strokeWidth: 2,
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                              ],
-                              if (!wideRow && isFav) ...[
-                                TactileIconButton(
-                                  icon: const Icon(Icons.favorite, size: 19),
-                                  color: theme.colorScheme.primary,
-                                  tooltip: 'Favorite',
-                                  onPressed: () => controller.toggleFavorite(
-                                    'stream_${widget.result.videoId}',
-                                    song: widget.result.toSong(),
+                                  const SizedBox(width: 10),
+                                  SizedBox(
+                                    width: 44,
+                                    child: isFav
+                                        ? TactileIconButton(
+                                            icon: const Icon(
+                                              Icons.favorite,
+                                              size: 19,
+                                            ),
+                                            color: theme.colorScheme.primary,
+                                            tooltip: 'Favorite',
+                                            onPressed: () =>
+                                                controller.toggleFavorite(
+                                                  'stream_${widget.result.videoId}',
+                                                  song: widget.result.toSong(),
+                                                ),
+                                          )
+                                        : null,
                                   ),
+                                  SizedBox(
+                                    width: 22,
+                                    child: widget.isCurrent
+                                        ? Icon(
+                                            Icons.graphic_eq_rounded,
+                                            size: 18,
+                                            color: theme.colorScheme.primary,
+                                          )
+                                        : null,
+                                  ),
+                                ],
+                                if (_isDownloading) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                    child: SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        value: _downloadProgress,
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                if (!wideRow && isFav) ...[
+                                  TactileIconButton(
+                                    icon: const Icon(Icons.favorite, size: 19),
+                                    color: theme.colorScheme.primary,
+                                    tooltip: 'Favorite',
+                                    onPressed: () => controller.toggleFavorite(
+                                      'stream_${widget.result.videoId}',
+                                      song: widget.result.toSong(),
+                                    ),
+                                  ),
+                                ],
+                                if (!wideRow && widget.isCurrent) ...[
+                                  Icon(
+                                    Icons.graphic_eq_rounded,
+                                    size: 18,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                TactileIconButton(
+                                  icon: const Icon(Icons.more_vert, size: 20),
+                                  color: theme.colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.75),
+                                  tooltip: 'Song options',
+                                  onPressed: () =>
+                                      _showOptions(context, controller),
                                 ),
                               ],
-                              if (!wideRow && widget.isCurrent) ...[
-                                Icon(
-                                  Icons.graphic_eq_rounded,
-                                  size: 18,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 4),
-                              ],
-                              TactileIconButton(
-                                icon: const Icon(Icons.more_vert, size: 20),
-                                color: theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.75),
-                                tooltip: 'Song options',
-                                onPressed: () =>
-                                    _showOptions(context, controller),
-                              ),
-                            ],
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

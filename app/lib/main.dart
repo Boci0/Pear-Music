@@ -23,6 +23,7 @@ import 'services/self_test_service.dart';
 import 'services/session_diagnostics.dart';
 import 'services/stream_cache_manager.dart';
 import 'services/window_focus.dart';
+import 'services/window_title.dart';
 import 'services/youtube_service.dart';
 import 'widgets/playback_shortcuts.dart';
 
@@ -132,6 +133,8 @@ Future<void> _bootstrapAndRunApp() async {
   );
   // Hardware media keys (Windows forwards WM_APPCOMMAND over this channel).
   MediaKeys.init(player);
+  // Desktop window caption follows the playing song.
+  WindowTitle.init(player);
   final youtube = YoutubeService();
   // The yt-dlp spare is booted only after the self-update check: while the
   // spare holds the binary open, Windows would block yt-dlp from replacing it.

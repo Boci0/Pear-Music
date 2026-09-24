@@ -11,6 +11,7 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 import 'pear_page_route.dart';
+import 'player/player_controls.dart';
 import 'tactile_button.dart';
 
 /// Old-school desktop "Now Playing" pane: big artwork, title, transport
@@ -98,7 +99,7 @@ class NowPlayingPanel extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final artSize = math
-                .min(constraints.maxWidth, constraints.maxHeight - 250)
+                .min(constraints.maxWidth, constraints.maxHeight - 290)
                 .clamp(120.0, constraints.maxWidth);
             return Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -181,6 +182,8 @@ class NowPlayingPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 _ProgressLine(player: player, color: control, theme: theme),
+                const SizedBox(height: 4),
+                PlayerVolumeRow(accent: control),
               ],
             );
           },

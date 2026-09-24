@@ -44,6 +44,13 @@ class FlutterWindow : public Win32Window {
   // Forwards hardware media keys (delivered as WM_APPCOMMAND on Windows, which
   // the Flutter engine ignores) so they can drive playback controls.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> media_channel_;
+
+  // Mirrors the playing song into the window caption ("Song · Pear Music"),
+  // the way desktop players show what is playing in the title bar.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> title_channel_;
+
+  // Caption the window had before the app started rewriting it.
+  std::wstring original_title_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

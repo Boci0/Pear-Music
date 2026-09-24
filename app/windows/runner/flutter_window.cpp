@@ -41,6 +41,59 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "peerm/media_keys",
           &flutter::StandardMethodCodec::GetInstance());
 
+  title_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "peerm/window_title",
+          &flutter::StandardMethodCodec::GetInstance());
+
+  title_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        if (call.method_name() == "setTitle") {
+          const auto* title = std::get_if<std::string>(call.arguments());
+          if (!title) {
+            result->Error("INVALID_ARGS", "Expected string title");
+            return;
+          }
+          int len = ::MultiByteToWideChar(CP_UTF8, 0, title->c_str(), -1, nullptr, 0);
+          if (len <= 0) {
+            result->Error("CONVERSION_FAILED", "Failed to convert title to UTF-16");
+            return;
+          }
+          std::vector<wchar_t> wtitle(len);
+          ::MultiByteToWideChar(CP_UTF8, 0, title->c_str(), -1, wtitle.data(), len);
+          ::SetWindowTextW(GetHandle(), wtitle.data());
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "resetTitle") {
+          if (original_title_.empty()) {
+            wchar_t buffer[512];
+            int copied = ::GetWindowTextW(GetHandle(), buffer, 512);
+            original_title_.assign(buffer, copied > 0 ? copied : 0);
+          }
+          ::SetWindowTextW(GetHandle(), original_title_.c_str());
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "getTitle") {
+          wchar_t buffer[512];
+          int copied = ::GetWindowTextW(GetHandle(), buffer, 512);
+          if (copied < 0) {
+            copied = 0;
+          }
+          if (original_title_.empty() && copied > 0) {
+            original_title_.assign(buffer, copied);
+          }
+          int utf8_len = ::WideCharToMultiByte(CP_UTF8, 0, buffer, copied,
+                                               nullptr, 0, nullptr, nullptr);
+          std::string utf8(utf8_len > 0 ? utf8_len : 0, '\0');
+          if (utf8_len > 0) {
+            ::WideCharToMultiByte(CP_UTF8, 0, buffer, copied, utf8.data(),
+                                  utf8_len, nullptr, nullptr);
+          }
+          result->Success(flutter::EncodableValue(utf8));
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   updater_channel_->SetMethodCallHandler(
       [](const flutter::MethodCall<flutter::EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -116,6 +169,7 @@ void FlutterWindow::OnDestroy() {
   updater_channel_ = nullptr;
   focus_channel_ = nullptr;
   media_channel_ = nullptr;
+  title_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

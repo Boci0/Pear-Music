@@ -119,6 +119,89 @@ class SongTile extends StatelessWidget {
       ),
     );
     if (!context.mounted) return;
+    if (action != null) {
+      await _applyAction(context, controller, action);
+    }
+  }
+
+  /// Right-click context menu: the desktop native equivalent of the long-press
+  /// sheet, anchored at the pointer with the same actions.
+  Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    final controller = context.read<AppController>();
+    final isFav = controller.isFavorite(song.id);
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        _menuItem('radio', Icons.sensors_rounded, 'Start Radio'),
+        _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
+        _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
+        if (song.sourceDeviceId == 'stream')
+          _menuItem('save_stream', Icons.download_rounded, 'Save to library'),
+        _menuItem(
+          'favorite',
+          isFav ? Icons.favorite : Icons.favorite_border,
+          isFav ? 'Remove from favorites' : 'Add to favorites',
+          color: isFav ? Theme.of(context).colorScheme.primary : null,
+        ),
+        _menuItem('playlist', Icons.playlist_add, 'Add to playlist'),
+        _menuItem('copy_title', Icons.copy_rounded, 'Copy title'),
+        if (song.sourceDeviceId != 'stream')
+          _menuItem(
+            'remove',
+            Icons.delete_outline,
+            'Remove from library',
+            color: Theme.of(context).colorScheme.error,
+          ),
+      ],
+    );
+    if (!context.mounted) return;
+    if (selected != null) {
+      await _applyAction(context, controller, selected);
+    }
+  }
+
+  PopupMenuItem<String> _menuItem(
+    String value,
+    IconData icon,
+    String label, {
+    Color? color,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 42,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              label,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Runs a menu choice. Shared by the long-press sheet and the right-click
+  /// context menu so both stay in sync.
+  Future<void> _applyAction(
+    BuildContext context,
+    AppController controller,
+    String action,
+  ) async {
+    if (!context.mounted) return;
     if (action == 'play_next') {
       controller.playNext(song);
     } else if (action == 'add_to_queue') {
@@ -203,240 +286,248 @@ class SongTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () {
-              TactileFeedback.click();
-              if (isSelecting) {
-                onSelectionChanged?.call(!isSelected);
-              } else {
-                controller.playSong(
-                  song,
-                  queue: queue,
-                  sourceId: sourceId,
-                  sourceTitle: sourceTitle,
-                );
-              }
-            },
-            onLongPress: isSelecting
-                ? null
-                : (onLongPress ?? () => _showMenu(context)),
-            hoverColor: Colors.white.withValues(alpha: 0.055),
-            child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: isCurrent
-                    ? LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.18),
-                          theme.colorScheme.primary.withValues(alpha: 0.02),
-                        ],
-                      )
-                    : null,
-                color: isSelected
-                    ? theme.colorScheme.primaryContainer.withValues(alpha: 0.22)
-                    : null,
-              ),
-              child: SizedBox(
-                height: 58,
-                child: Stack(
-                  alignment: Alignment.centerLeft,
-                  children: [
-                    if (isCurrent)
-                      Positioned(
-                        left: 4,
-                        child: Container(
-                          width: 3.5,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(2),
+          child: GestureDetector(
+            onSecondaryTapDown: (details) =>
+                _showContextMenu(context, details.globalPosition),
+            child: InkWell(
+              onTap: () {
+                TactileFeedback.click();
+                if (isSelecting) {
+                  onSelectionChanged?.call(!isSelected);
+                } else {
+                  controller.playSong(
+                    song,
+                    queue: queue,
+                    sourceId: sourceId,
+                    sourceTitle: sourceTitle,
+                  );
+                }
+              },
+              onLongPress: isSelecting
+                  ? null
+                  : (onLongPress ?? () => _showMenu(context)),
+              hoverColor: Colors.white.withValues(alpha: 0.055),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: isCurrent
+                      ? LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            theme.colorScheme.primary.withValues(alpha: 0.18),
+                            theme.colorScheme.primary.withValues(alpha: 0.02),
+                          ],
+                        )
+                      : null,
+                  color: isSelected
+                      ? theme.colorScheme.primaryContainer.withValues(
+                          alpha: 0.22,
+                        )
+                      : null,
+                ),
+                child: SizedBox(
+                  height: 58,
+                  child: Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      if (isCurrent)
+                        Positioned(
+                          left: 4,
+                          child: Container(
+                            width: 3.5,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 14, right: 12),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Wide rows (desktop) move the meta line into a
-                          // right-aligned column so the row reads like a table
-                          // instead of a title stranded next to the menu dots.
-                          final wideRow = constraints.maxWidth >= 620;
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              if (isSelecting) ...[
-                                Checkbox(
-                                  value: isSelected,
-                                  onChanged: onSelectionChanged,
-                                ),
-                                const SizedBox(width: 6),
-                              ],
-                              _Artwork(song: song, isCurrent: isCurrent),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      song.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontSize: 15,
-                                            height: 1.25,
-                                            fontWeight: FontWeight.w600,
-                                            color: isCurrent
-                                                ? theme.colorScheme.primary
-                                                : null,
-                                            letterSpacing: -0.2,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    if (!wideRow)
-                                      Row(
-                                        children: [
-                                          if (song.sourceDeviceId ==
-                                              'stream') ...[
-                                            Icon(
-                                              Icons.sensors_rounded,
-                                              size: 13,
-                                              color: theme.colorScheme.primary,
-                                            ),
-                                            const SizedBox(width: 4),
-                                          ] else if (fromPeer) ...[
-                                            Icon(
-                                              Icons.cloud_done_outlined,
-                                              size: 13,
-                                              color: theme.colorScheme.primary,
-                                            ),
-                                            const SizedBox(width: 4),
-                                          ],
-                                          Expanded(
-                                            child: Text(
-                                              metaLabel,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    fontSize: 12.5,
-                                                    height: 1.25,
-                                                    color: theme
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
-                                                  ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              if (wideRow) ...[
-                                SizedBox(
-                                  width: 168,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 14, right: 12),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Wide rows (desktop) move the meta line into a
+                            // right-aligned column so the row reads like a table
+                            // instead of a title stranded next to the menu dots.
+                            final wideRow = constraints.maxWidth >= 620;
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                if (isSelecting) ...[
+                                  Checkbox(
+                                    value: isSelected,
+                                    onChanged: onSelectionChanged,
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                _Artwork(song: song, isCurrent: isCurrent),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      if (song.sourceDeviceId == 'stream') ...[
-                                        Icon(
-                                          Icons.sensors_rounded,
-                                          size: 13,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                      ] else if (fromPeer) ...[
-                                        Icon(
-                                          Icons.cloud_done_outlined,
-                                          size: 13,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                      ],
-                                      Flexible(
-                                        child: Text(
-                                          metaLabel,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                fontSize: 12.5,
-                                                color: theme
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
-                                              ),
-                                        ),
+                                      Text(
+                                        song.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              fontSize: 15,
+                                              height: 1.25,
+                                              fontWeight: FontWeight.w600,
+                                              color: isCurrent
+                                                  ? theme.colorScheme.primary
+                                                  : null,
+                                              letterSpacing: -0.2,
+                                            ),
                                       ),
+                                      const SizedBox(height: 3),
+                                      if (!wideRow)
+                                        Row(
+                                          children: [
+                                            if (song.sourceDeviceId ==
+                                                'stream') ...[
+                                              Icon(
+                                                Icons.sensors_rounded,
+                                                size: 13,
+                                                color:
+                                                    theme.colorScheme.primary,
+                                              ),
+                                              const SizedBox(width: 4),
+                                            ] else if (fromPeer) ...[
+                                              Icon(
+                                                Icons.cloud_done_outlined,
+                                                size: 13,
+                                                color:
+                                                    theme.colorScheme.primary,
+                                              ),
+                                              const SizedBox(width: 4),
+                                            ],
+                                            Expanded(
+                                              child: Text(
+                                                metaLabel,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      fontSize: 12.5,
+                                                      height: 1.25,
+                                                      color: theme
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                SizedBox(
-                                  width: 44,
-                                  child: isFav && !isSelecting
-                                      ? _ActionButton(
-                                          icon: Icons.favorite,
-                                          color: theme.colorScheme.primary,
-                                          tooltip: 'Favorite',
-                                          onPressed: () =>
-                                              controller.toggleFavorite(
-                                                song.id,
-                                                song: song,
-                                              ),
-                                        )
-                                      : null,
-                                ),
-                                SizedBox(
-                                  width: 22,
-                                  child: isCurrent && !isSelecting
-                                      ? Icon(
-                                          Icons.graphic_eq_rounded,
-                                          size: 18,
-                                          color: theme.colorScheme.primary,
-                                        )
-                                      : null,
-                                ),
-                              ] else ...[
-                                if (!isSelecting && isFav) ...[
-                                  _ActionButton(
-                                    icon: Icons.favorite,
-                                    color: theme.colorScheme.primary,
-                                    tooltip: 'Favorite',
-                                    onPressed: () => controller.toggleFavorite(
-                                      song.id,
-                                      song: song,
+                                const SizedBox(width: 8),
+                                if (wideRow) ...[
+                                  SizedBox(
+                                    width: 168,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        if (song.sourceDeviceId ==
+                                            'stream') ...[
+                                          Icon(
+                                            Icons.sensors_rounded,
+                                            size: 13,
+                                            color: theme.colorScheme.primary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                        ] else if (fromPeer) ...[
+                                          Icon(
+                                            Icons.cloud_done_outlined,
+                                            size: 13,
+                                            color: theme.colorScheme.primary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                        ],
+                                        Flexible(
+                                          child: Text(
+                                            metaLabel,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  fontSize: 12.5,
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(width: 4),
-                                ],
-                                if (!isSelecting && isCurrent) ...[
-                                  Icon(
-                                    Icons.graphic_eq_rounded,
-                                    size: 18,
-                                    color: theme.colorScheme.primary,
+                                  const SizedBox(width: 10),
+                                  SizedBox(
+                                    width: 44,
+                                    child: isFav && !isSelecting
+                                        ? _ActionButton(
+                                            icon: Icons.favorite,
+                                            color: theme.colorScheme.primary,
+                                            tooltip: 'Favorite',
+                                            onPressed: () =>
+                                                controller.toggleFavorite(
+                                                  song.id,
+                                                  song: song,
+                                                ),
+                                          )
+                                        : null,
                                   ),
-                                  const SizedBox(width: 4),
+                                  SizedBox(
+                                    width: 22,
+                                    child: isCurrent && !isSelecting
+                                        ? Icon(
+                                            Icons.graphic_eq_rounded,
+                                            size: 18,
+                                            color: theme.colorScheme.primary,
+                                          )
+                                        : null,
+                                  ),
+                                ] else ...[
+                                  if (!isSelecting && isFav) ...[
+                                    _ActionButton(
+                                      icon: Icons.favorite,
+                                      color: theme.colorScheme.primary,
+                                      tooltip: 'Favorite',
+                                      onPressed: () => controller
+                                          .toggleFavorite(song.id, song: song),
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  if (!isSelecting && isCurrent) ...[
+                                    Icon(
+                                      Icons.graphic_eq_rounded,
+                                      size: 18,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                ],
+                                if (!isSelecting) ...[
+                                  _ActionButton(
+                                    icon: Icons.more_vert,
+                                    color: theme.colorScheme.onSurfaceVariant
+                                        .withValues(alpha: 0.8),
+                                    tooltip: 'More options',
+                                    onPressed: () => _showMenu(context),
+                                  ),
                                 ],
                               ],
-                              if (!isSelecting) ...[
-                                _ActionButton(
-                                  icon: Icons.more_vert,
-                                  color: theme.colorScheme.onSurfaceVariant
-                                      .withValues(alpha: 0.8),
-                                  tooltip: 'More options',
-                                  onPressed: () => _showMenu(context),
-                                ),
-                              ],
-                            ],
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
