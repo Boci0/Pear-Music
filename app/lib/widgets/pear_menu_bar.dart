@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
+import 'about_dialog.dart';
 import 'player/playback_speed_dialog.dart';
 
 /// Classic desktop menu bar for wide windows. Deliberately app-level only:
@@ -164,20 +165,7 @@ class PearMenuBar extends StatelessWidget {
               MenuItemButton(
                 style: _itemStyle,
                 leadingIcon: const Icon(Icons.info_outline_rounded, size: 16),
-                onPressed: () => showAboutDialog(
-                  context: context,
-                  applicationName: 'Pear Music',
-                  applicationIcon: Icon(
-                    Icons.music_note_rounded,
-                    size: 32,
-                    color: theme.colorScheme.primary,
-                  ),
-                  children: const [
-                    Text(
-                      'A local first music player with YouTube streaming support.',
-                    ),
-                  ],
-                ),
+                onPressed: () => showPearMusicAboutDialog(context),
                 child: const Text('About Pear Music'),
               ),
             ],
