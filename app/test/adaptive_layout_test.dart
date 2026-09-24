@@ -154,6 +154,20 @@ void main() {
     expect(find.text('Up Song 2'), findsOneWidget);
   });
 
+  testWidgets('landscape phones keep the phone shell despite the width', (
+    tester,
+  ) async {
+    // A phone in landscape can be 900+ logical px wide but its short side is
+    // far below tablet size, so it must not get the desktop chrome.
+    setViewport(tester, const Size(900, 420));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('side_rail')), findsNothing);
+    expect(find.byKey(const ValueKey('pear_menu_bar')), findsNothing);
+    expect(find.byKey(const ValueKey('nav_bar')), findsOneWidget);
+  });
+
   testWidgets('wide shell shows the classic menu bar and status bar', (
     tester,
   ) async {

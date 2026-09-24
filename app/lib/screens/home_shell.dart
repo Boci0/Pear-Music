@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -110,11 +111,22 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final windowWidth = MediaQuery.sizeOf(context).width;
-    final isWide = windowWidth >= 900;
+    final size = MediaQuery.sizeOf(context);
+    final windowWidth = size.width;
+    // Desktop operating systems always get the wide shell. Other platforms
+    // (phones in landscape, tablets) only switch once the short side is at
+    // least 600 logical px, so a rotated phone never turns into a desktop
+    // window with a menu bar and side rail.
+    final isDesktopOs =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    final isWide =
+        windowWidth >= 900 && (isDesktopOs || size.shortestSide >= 600);
     // Old-school desktop layout: at 1250+ a permanent Now Playing pane sits
     // on the right and replaces the floating mini player.
-    final useNowPlayingPane = windowWidth >= 1250;
+    final useNowPlayingPane = isWide && windowWidth >= 1250;
 
     return PopScope(
       canPop:
