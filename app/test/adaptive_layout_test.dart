@@ -41,7 +41,11 @@ void main() {
         });
   });
 
-  Future<Widget> buildShell({List<Song>? songs}) async {
+  Future<Widget> buildShell({
+    List<Song>? songs,
+    List<Song>? queue,
+    int? playIndex,
+  }) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
@@ -49,6 +53,10 @@ void main() {
     if (songs != null) library.setSongsForTesting(songs);
     final history = HistoryService(prefs);
     final player = PlayerService(library, identity: identity, history: history);
+    if (queue != null) {
+      player.updateQueue(queue);
+      if (playIndex != null) player.currentSong = queue[playIndex];
+    }
     final controller = AppController(
       identity: identity,
       library: library,
@@ -133,6 +141,18 @@ void main() {
       expect(find.byType(PlayerBar), findsNothing);
     },
   );
+
+  testWidgets('the Now Playing pane lists the upcoming queue', (tester) async {
+    setViewport(tester, const Size(1600, 900));
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
+    expect(find.text('Up Next'), findsOneWidget);
+    expect(find.text('Up Song 1'), findsOneWidget);
+    expect(find.text('Up Song 2'), findsOneWidget);
+  });
 
   testWidgets('phone widths keep the bottom navigation shell', (tester) async {
     setViewport(tester, const Size(360, 720));

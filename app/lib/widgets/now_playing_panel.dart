@@ -99,11 +99,15 @@ class NowPlayingPanel extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final artSize = math
-                .min(constraints.maxWidth, constraints.maxHeight - 290)
+                .min(constraints.maxWidth, constraints.maxHeight - 380)
                 .clamp(120.0, constraints.maxWidth);
+            final queue = player.queue;
+            final upcoming = queue.length > player.queueIndex + 1
+                ? queue.sublist(player.queueIndex + 1)
+                : const <Song>[];
             return Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                const Spacer(flex: 3),
                 SizedBox(
                   width: artSize,
                   height: artSize,
@@ -184,6 +188,19 @@ class NowPlayingPanel extends StatelessWidget {
                 _ProgressLine(player: player, color: control, theme: theme),
                 const SizedBox(height: 4),
                 PlayerVolumeRow(accent: control),
+                const SizedBox(height: 16),
+                if (upcoming.isNotEmpty)
+                  Flexible(
+                    flex: 4,
+                    child: _UpNextList(
+                      player: player,
+                      upcoming: upcoming,
+                      control: control,
+                      theme: theme,
+                    ),
+                  )
+                else
+                  const Spacer(flex: 4),
               ],
             );
           },
@@ -325,5 +342,116 @@ class _Artwork extends StatelessWidget {
     }
 
     return ClipRRect(borderRadius: BorderRadius.circular(16), child: image);
+  }
+}
+
+/// Compact "Up Next" list under the pane controls: the next few queue tracks,
+/// tappable, the way classic desktop sidebars show what is coming.
+class _UpNextList extends StatelessWidget {
+  final PlayerService player;
+  final List<Song> upcoming;
+  final Color control;
+  final ThemeData theme;
+
+  const _UpNextList({
+    required this.player,
+    required this.upcoming,
+    required this.control,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final showCount = math.min(upcoming.length, 30);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.queue_music_rounded, size: 15, color: control),
+            const SizedBox(width: 6),
+            Text(
+              'Up Next',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.6,
+                color: Colors.white.withValues(alpha: 0.75),
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '${upcoming.length}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontSize: 11,
+                color: Colors.white.withValues(alpha: 0.4),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Flexible(
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: showCount,
+            itemBuilder: (context, i) {
+              final song = upcoming[i];
+              return InkWell(
+                borderRadius: BorderRadius.circular(8),
+                hoverColor: Colors.white.withValues(alpha: 0.05),
+                onTap: () {
+                  TactileFeedback.click();
+                  player.playSong(
+                    song,
+                    queue: player.queue,
+                    sourceId: player.queueSourceId,
+                    initialIndex: player.queueIndex + 1 + i,
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 5,
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 22,
+                        child: Text(
+                          '${i + 1}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontSize: 11,
+                            color: Colors.white.withValues(alpha: 0.35),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 12.5,
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        song.sizeLabel,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 11,
+                          color: Colors.white.withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }

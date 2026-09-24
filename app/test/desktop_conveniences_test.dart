@@ -16,13 +16,13 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Song _song(String id, String title) => Song(
-      id: id,
-      title: title,
-      fileName: '$id.mp3',
-      size: 1024,
-      checksum: 'chk_$id',
-      addedAt: DateTime(2026, 1, 1),
-    );
+  id: id,
+  title: title,
+  fileName: '$id.mp3',
+  size: 1024,
+  checksum: 'chk_$id',
+  addedAt: DateTime(2026, 1, 1),
+);
 
 /// Desktop conventions: right-click context menus and the persistent search
 /// field in the wide library header.
@@ -33,12 +33,14 @@ void main() {
     const channel = MethodChannel('plugins.flutter.io/path_provider');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-      return Directory.systemTemp.path;
-    });
+          return Directory.systemTemp.path;
+        });
   });
 
-  Future<({AppController controller, LibraryService library, PlayerService player})>
-      createEnvironment() async {
+  Future<
+    ({AppController controller, LibraryService library, PlayerService player})
+  >
+  createEnvironment() async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
@@ -93,6 +95,31 @@ void main() {
     expect(find.text('Start Radio'), findsOneWidget);
     expect(find.text('Add to queue'), findsOneWidget);
     expect(find.text('Remove from library'), findsOneWidget);
+  });
+
+  testWidgets('ctrl click starts a selection of the clicked row', (
+    tester,
+  ) async {
+    final env = await createEnvironment();
+    final song = _song('local_1', 'Local File');
+    env.library.setSongsForTesting([song]);
+    var ctrlTapped = false;
+
+    await tester.pumpWidget(
+      buildHarness(
+        controller: env.controller,
+        player: env.player,
+        child: SongTile(song: song, onCtrlTap: () => ctrlTapped = true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(find.byType(SongTile));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(ctrlTapped, isTrue);
   });
 
   testWidgets('wide library header keeps the search field visible', (

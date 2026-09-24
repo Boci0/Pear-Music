@@ -254,6 +254,12 @@ class _HomeScreenState extends State<HomeScreen> {
             _selectedIds.add(song.id);
           });
         },
+        onCtrlTap: () {
+          setState(() {
+            _isSelecting = true;
+            _selectedIds.add(song.id);
+          });
+        },
       ),
     );
   }
@@ -729,6 +735,16 @@ class _HomeScreenState extends State<HomeScreen> {
           } else if (!_isSearching) {
             setState(() => _isSearching = true);
           }
+        },
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true): () {
+          if (songs.isEmpty) return;
+          if (_isSelecting && _selectedIds.length == songs.length) return;
+          setState(() {
+            _isSelecting = true;
+            _selectedIds
+              ..clear()
+              ..addAll(songs.map((s) => s.id));
+          });
         },
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_isSelecting) {
