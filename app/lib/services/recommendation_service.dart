@@ -305,6 +305,10 @@ class RecommendationService {
                 !_sessionPlayedVideoIds.contains(item.videoId))
             .toList();
         if (freshItems.length >= 5) {
+          DebugLog.write(
+            '[radio] cache hit: $videoId -> ${freshItems.length} items '
+            '(cached ${cached.items.length})',
+          );
           return RecommendationBatch(
             items: freshItems,
             continuationToken: cached.continuationToken,
@@ -357,6 +361,9 @@ class RecommendationService {
   }
 
   static void _cacheRadioBatch(String videoId, RecommendationBatch batch) {
+    DebugLog.write(
+      '[radio] cached fresh batch: $videoId -> ${batch.items.length} items',
+    );
     if (_radioCache.length >= _maxCacheSize) {
       _radioCache.remove(_radioCache.keys.first);
     }

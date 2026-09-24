@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/debug_log.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_search_service.dart';
@@ -116,12 +117,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
     setState(() {
       _isLoadingRecommendations = true;
     });
+    DebugLog.write('[explore] re-roll start (shuffle=$shuffle)');
 
     try {
       final controller = context.read<AppController>();
       final librarySongs = controller.songs;
       final random = Random();
       List<YouTubeSearchResult> items = [];
+      String source = 'none';
       String seedLabel = 'Trending Mix';
 
       final candidateLibrary = librarySongs
@@ -139,6 +142,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         try {
           final batch = await RecommendationService.fetchRadio(seed);
           if (batch.items.isNotEmpty) {
+            source = 'radio';
             items = batch.items
                 .map(
                   (item) => YouTubeSearchResult(
@@ -160,6 +164,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
               '$clean songs',
               limit: 15,
             );
+            if (items.isNotEmpty) source = 'radio-search';
           } catch (_) {}
         }
       }
@@ -183,16 +188,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
         seedLabel = chosen;
         _lastRecommendationSeedTitle = chosen;
         items = await YouTubeSearchService.search(chosen, limit: 15);
+        source = 'curated';
       }
 
       if (mounted) {
+        final previousCount = _recommendedResults.length;
         setState(() {
           _recommendedResults = items;
           _recommendationSeedLabel = seedLabel;
           _isLoadingRecommendations = false;
         });
+        DebugLog.write(
+          '[explore] re-roll done: source=$source seed="$seedLabel" '
+          'items=${items.length} previous=$previousCount',
+        );
       }
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[explore] re-roll failed: $e');
       if (mounted) {
         setState(() {
           _isLoadingRecommendations = false;
