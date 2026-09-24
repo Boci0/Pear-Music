@@ -72,27 +72,53 @@ class HistoryScreen extends StatelessWidget {
               slivers: [
                 SliverPadding(
                   padding: const EdgeInsets.only(top: 8, bottom: 140),
-                  sliver: SliverFixedExtentList.builder(
-                    itemExtent: 61.0,
-                    itemCount: songs.length,
-                    findChildIndexCallback: (Key key) {
-                      final valueKey = key as ValueKey<String>?;
-                      if (valueKey == null) return null;
-                      final index =
-                          songs.indexWhere((s) => s.id == valueKey.value);
-                      return index >= 0 ? index : null;
-                    },
-                    itemBuilder: (context, i) {
-                      final song = songs[i];
-                      return RepaintBoundary(
-                        child: SongTile(
-                          key: ValueKey(song.id),
-                          song: song,
-                          queue: songs,
-                          sourceId: 'history',
-                          sourceTitle: 'History',
-                          isCurrent: currentSongId == song.id,
+                  sliver: SliverLayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = (constraints.crossAxisExtent / 460)
+                          .floor()
+                          .clamp(1, 3);
+
+                      int? findIndex(Key key) {
+                        final valueKey = key as ValueKey<String>?;
+                        if (valueKey == null) return null;
+                        final index = songs.indexWhere(
+                          (s) => s.id == valueKey.value,
+                        );
+                        return index >= 0 ? index : null;
+                      }
+
+                      Widget tileAt(int i) {
+                        final song = songs[i];
+                        return RepaintBoundary(
+                          child: SongTile(
+                            key: ValueKey(song.id),
+                            song: song,
+                            queue: songs,
+                            sourceId: 'history',
+                            sourceTitle: 'History',
+                            isCurrent: currentSongId == song.id,
+                          ),
+                        );
+                      }
+
+                      if (columns <= 1) {
+                        return SliverFixedExtentList.builder(
+                          itemExtent: 61.0,
+                          itemCount: songs.length,
+                          findChildIndexCallback: findIndex,
+                          itemBuilder: (context, i) => tileAt(i),
+                        );
+                      }
+
+                      return SliverGrid.builder(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          mainAxisExtent: 61.0,
+                          crossAxisSpacing: 10,
                         ),
+                        itemCount: songs.length,
+                        findChildIndexCallback: findIndex,
+                        itemBuilder: (context, i) => tileAt(i),
                       );
                     },
                   ),
@@ -130,11 +156,7 @@ class _EmptyHistory extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Icon(
-                Icons.history_rounded,
-                size: 36,
-                color: primary,
-              ),
+              child: Icon(Icons.history_rounded, size: 36, color: primary),
             ),
             const SizedBox(height: 18),
             Text(
@@ -150,7 +172,9 @@ class _EmptyHistory extends StatelessWidget {
               'local files and online streams.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
                 fontSize: 13,
               ),
             ),

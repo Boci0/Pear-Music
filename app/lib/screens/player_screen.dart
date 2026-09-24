@@ -11,6 +11,7 @@ import '../services/player_service.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_console_dialog.dart';
+import '../widgets/player/player_desktop_body.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
 import '../widgets/player/playback_speed_dialog.dart';
@@ -145,9 +146,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final landscape = isDesktopPlatform
         ? MediaQuery.sizeOf(context).width >= 900
         : MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Very wide desktop windows trade the pull-up queue peek for a permanent
+    // Up Next panel beside the controls.
+    final useQueuePanel =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1250;
     // The expandable queue peek stays available on wide desktop windows even
     // though they use the landscape body.
-    final showQueuePeek = !landscape || isDesktopPlatform;
+    final showQueuePeek = (!landscape || isDesktopPlatform) && !useQueuePanel;
 
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
@@ -221,13 +226,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               ? Padding(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 24, vertical: 8),
-                                  child: PlayerLandscapeBody(
-                                    controller: controller,
-                                    player: player,
-                                    song: song,
-                                    duration: duration,
-                                    accent: targetAccent,
-                                  ),
+                                  child: useQueuePanel
+                                      ? PlayerDesktopBody(
+                                          controller: controller,
+                                          player: player,
+                                          song: song,
+                                          duration: duration,
+                                          accent: targetAccent,
+                                          panelWidth: (MediaQuery.sizeOf(
+                                                      context)
+                                                  .width *
+                                              0.28)
+                                              .clamp(340.0, 440.0),
+                                        )
+                                      : PlayerLandscapeBody(
+                                          controller: controller,
+                                          player: player,
+                                          song: song,
+                                          duration: duration,
+                                          accent: targetAccent,
+                                        ),
                                 )
                               : PlayerPortraitBody(
                                   controller: controller,

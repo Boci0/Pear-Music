@@ -725,6 +725,203 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
   }
 }
 
+/// Static queue panel for very wide windows: the same queue list and controls
+/// as the expanded sheet, pinned as a full-height card instead of a pull-up
+/// sheet.
+class PlayerQueuePanel extends StatefulWidget {
+  final PlayerService player;
+  final Color accent;
+
+  const PlayerQueuePanel({
+    super.key,
+    required this.player,
+    required this.accent,
+  });
+
+  @override
+  State<PlayerQueuePanel> createState() => _PlayerQueuePanelState();
+}
+
+class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final readableAccent = ArtworkPalette.readableAccent(widget.accent);
+
+    return Container(
+      key: const ValueKey('queue_panel'),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: const Color(0xFF151518),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+            child: ListenableBuilder(
+              listenable: widget.player,
+              builder: (context, _) {
+                final queueLength = widget.player.queue.length;
+                final autoplay = widget.player.autoplay;
+                return Row(
+                  children: [
+                    Icon(
+                      Icons.queue_music_rounded,
+                      size: 20,
+                      color: readableAccent,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Up Next',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: readableAccent.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '$queueLength',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: readableAccent,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+
+                    // Endless Play toggle
+                    InkWell(
+                      onTap: () {
+                        TactileFeedback.selection();
+                        widget.player.setAutoplay(!autoplay);
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: autoplay
+                              ? readableAccent.withValues(alpha: 0.20)
+                              : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 13,
+                              color: autoplay
+                                  ? readableAccent
+                                  : Colors.white.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Endless',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: autoplay
+                                    ? readableAccent
+                                    : Colors.white.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+
+                    // Reroll recommendations
+                    ListenableBuilder(
+                      listenable: widget.player,
+                      builder: (context, _) {
+                        final active = widget.player.autoRerollSeed;
+                        return Tooltip(
+                          message: active
+                              ? 'Auto-reroll seed: ON (tap to turn OFF)'
+                              : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
+                          child: InkWell(
+                            onTap: () {
+                              TactileFeedback.click();
+                              widget.player.toggleAutoRerollSeed();
+                            },
+                            onLongPress: () {
+                              TactileFeedback.selection();
+                              widget.player.rerollUpcomingQueue();
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? readableAccent.withValues(alpha: 0.20)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                active
+                                    ? Icons.casino_rounded
+                                    : Icons.casino_outlined,
+                                size: 18,
+                                color: active
+                                    ? readableAccent
+                                    : readableAccent.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1, color: Color(0x1AFFFFFF)),
+          Expanded(
+            child: _QueueListView(
+              player: widget.player,
+              accent: widget.accent,
+              scrollController: _scrollController,
+              onSelectSong: (song, queue, index) {
+                widget.player.playSong(
+                  song,
+                  queue: queue,
+                  sourceId: widget.player.queueSourceId,
+                  initialIndex: index,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _QueueListView extends StatelessWidget {
   final PlayerService player;
   final Color accent;

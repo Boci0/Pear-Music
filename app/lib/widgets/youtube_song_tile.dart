@@ -29,7 +29,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
   bool _isDownloading = false;
   double? _downloadProgress;
 
-  Future<void> _streamAndPlay(BuildContext context, AppController controller) async {
+  Future<void> _streamAndPlay(
+    BuildContext context,
+    AppController controller,
+  ) async {
     final song = widget.result.toSong();
     final queue = widget.allResults?.map((r) => r.toSong()).toList();
     await controller.player.playSong(
@@ -57,7 +60,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 borderRadius: BorderRadius.circular(6),
                 child: widget.result.thumbnailUrl != null
                     ? Image.network(
-                        ArtworkService.optimizeArtworkUrl(widget.result.thumbnailUrl!),
+                        ArtworkService.optimizeArtworkUrl(
+                          widget.result.thumbnailUrl!,
+                        ),
                         width: 48,
                         height: 48,
                         cacheWidth: 100,
@@ -89,7 +94,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 widget.result.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               subtitle: Text(
                 widget.result.author,
@@ -153,7 +160,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                     isFav ? Icons.favorite : Icons.favorite_border,
                     color: isFav ? theme.colorScheme.primary : null,
                   ),
-                  title: Text(isFav ? 'Remove from favorites' : 'Add to favorites'),
+                  title: Text(
+                    isFav ? 'Remove from favorites' : 'Add to favorites',
+                  ),
                   onTap: () async {
                     Navigator.of(ctx).pop();
                     await controller.toggleFavorite(song.id, song: song);
@@ -166,12 +175,16 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               title: const Text('Copy title'),
               onTap: () async {
                 Navigator.of(ctx).pop();
-                await Clipboard.setData(ClipboardData(text: widget.result.title));
+                await Clipboard.setData(
+                  ClipboardData(text: widget.result.title),
+                );
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).hideCurrentSnackBar();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Copied "${widget.result.title}" to clipboard'),
+                      content: Text(
+                        'Copied "${widget.result.title}" to clipboard',
+                      ),
                       duration: const Duration(seconds: 2),
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -224,10 +237,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
     if (res.error != null) {
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(res.error!),
-          backgroundColor: Colors.redAccent,
-        ),
+        SnackBar(content: Text(res.error!), backgroundColor: Colors.redAccent),
       );
     } else if (res.song != null) {
       messenger.showSnackBar(
@@ -322,92 +332,174 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                       ),
                     Padding(
                       padding: const EdgeInsets.only(left: 14, right: 8),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          _artwork(theme),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.result.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontSize: 15,
-                                    height: 1.25,
-                                    fontWeight: FontWeight.w600,
-                                    color: widget.isCurrent ? theme.colorScheme.primary : null,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Row(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Wide rows (desktop) move the meta line into a
+                          // right-aligned column so the row reads like a table.
+                          final wideRow = constraints.maxWidth >= 620;
+                          final onlineMeta =
+                              'Online · ${widget.result.author}${widget.result.duration != null ? ' · ${widget.result.durationFormatted}' : ''}';
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              _artwork(theme),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Icon(Icons.sensors_rounded,
-                                        size: 13, color: theme.colorScheme.tertiary),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        'Online · ${widget.result.author}${widget.result.duration != null ? ' · ${widget.result.durationFormatted}' : ''}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          fontSize: 12.5,
-                                          height: 1.25,
-                                          color: theme.colorScheme.onSurfaceVariant,
-                                        ),
-                                      ),
+                                    Text(
+                                      widget.result.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontSize: 15,
+                                            height: 1.25,
+                                            fontWeight: FontWeight.w600,
+                                            color: widget.isCurrent
+                                                ? theme.colorScheme.primary
+                                                : null,
+                                            letterSpacing: -0.2,
+                                          ),
                                     ),
+                                    const SizedBox(height: 3),
+                                    if (!wideRow)
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.sensors_rounded,
+                                            size: 13,
+                                            color: theme.colorScheme.tertiary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              onlineMeta,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 12.5,
+                                                    height: 1.25,
+                                                    color: theme
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                   ],
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (_isDownloading) ...[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  value: _downloadProgress,
-                                  strokeWidth: 2,
+                              ),
+                              const SizedBox(width: 8),
+                              if (wideRow) ...[
+                                SizedBox(
+                                  width: 168,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Icon(
+                                        Icons.sensors_rounded,
+                                        size: 13,
+                                        color: theme.colorScheme.tertiary,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          onlineMeta,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontSize: 12.5,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: 10),
+                                SizedBox(
+                                  width: 44,
+                                  child: isFav
+                                      ? TactileIconButton(
+                                          icon: const Icon(
+                                            Icons.favorite,
+                                            size: 19,
+                                          ),
+                                          color: theme.colorScheme.primary,
+                                          tooltip: 'Favorite',
+                                          onPressed: () =>
+                                              controller.toggleFavorite(
+                                                'stream_${widget.result.videoId}',
+                                                song: widget.result.toSong(),
+                                              ),
+                                        )
+                                      : null,
+                                ),
+                                SizedBox(
+                                  width: 22,
+                                  child: widget.isCurrent
+                                      ? Icon(
+                                          Icons.graphic_eq_rounded,
+                                          size: 18,
+                                          color: theme.colorScheme.primary,
+                                        )
+                                      : null,
+                                ),
+                              ],
+                              if (_isDownloading) ...[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                  ),
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      value: _downloadProgress,
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              if (!wideRow && isFav) ...[
+                                TactileIconButton(
+                                  icon: const Icon(Icons.favorite, size: 19),
+                                  color: theme.colorScheme.primary,
+                                  tooltip: 'Favorite',
+                                  onPressed: () => controller.toggleFavorite(
+                                    'stream_${widget.result.videoId}',
+                                    song: widget.result.toSong(),
+                                  ),
+                                ),
+                              ],
+                              if (!wideRow && widget.isCurrent) ...[
+                                Icon(
+                                  Icons.graphic_eq_rounded,
+                                  size: 18,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              TactileIconButton(
+                                icon: const Icon(Icons.more_vert, size: 20),
+                                color: theme.colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.75),
+                                tooltip: 'Song options',
+                                onPressed: () =>
+                                    _showOptions(context, controller),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-                          if (isFav) ...[
-                            TactileIconButton(
-                              icon: const Icon(Icons.favorite, size: 19),
-                              color: theme.colorScheme.primary,
-                              tooltip: 'Favorite',
-                              onPressed: () => controller.toggleFavorite(
-                                'stream_${widget.result.videoId}',
-                                song: widget.result.toSong(),
-                              ),
-                            ),
-                          ],
-                          if (widget.isCurrent) ...[
-                            Icon(
-                              Icons.graphic_eq_rounded,
-                              size: 18,
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-                          TactileIconButton(
-                            icon: const Icon(Icons.more_vert, size: 20),
-                            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
-                            tooltip: 'Song options',
-                            onPressed: () => _showOptions(context, controller),
-                          ),
-                        ],
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ],

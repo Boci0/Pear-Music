@@ -61,7 +61,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _batchDelete(AppController controller, List<Song> songs) async {
     if (_selectedIds.isEmpty) return;
-    final selectedSongs = songs.where((s) => _selectedIds.contains(s.id)).toList();
+    final selectedSongs = songs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
     final count = selectedSongs.length;
     final ok = await showDialog<bool>(
       context: context,
@@ -99,7 +101,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _batchAddToQueue(AppController controller, List<Song> songs) {
     if (_selectedIds.isEmpty) return;
-    final selectedSongs = songs.where((s) => _selectedIds.contains(s.id)).toList();
+    final selectedSongs = songs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
     controller.addSongsToQueue(selectedSongs);
     setState(() {
       _isSelecting = false;
@@ -108,9 +112,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _batchAddToPlaylist(
-      AppController controller, List<Song> songs) async {
+    AppController controller,
+    List<Song> songs,
+  ) async {
     if (_selectedIds.isEmpty) return;
-    final selectedSongs = songs.where((s) => _selectedIds.contains(s.id)).toList();
+    final selectedSongs = songs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
     final playlists = controller.library.playlists;
     final playlist = await showModalBottomSheet<Playlist>(
       context: context,
@@ -120,8 +128,10 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text('Add ${selectedSongs.length} songs to playlist',
-                  style: Theme.of(ctx).textTheme.titleMedium),
+              title: Text(
+                'Add ${selectedSongs.length} songs to playlist',
+                style: Theme.of(ctx).textTheme.titleMedium,
+              ),
             ),
             const Divider(height: 1),
             if (playlists.isEmpty)
@@ -155,7 +165,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Added ${selectedSongs.length} songs to ${playlist.name}'),
+              'Added ${selectedSongs.length} songs to ${playlist.name}',
+            ),
           ),
         );
         setState(() {
@@ -167,7 +178,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showCreatePlaylistDialog(
-      AppController controller, List<Song> selectedSongs) async {
+    AppController controller,
+    List<Song> selectedSongs,
+  ) async {
     final nameController = TextEditingController();
     try {
       final name = await showDialog<String>(
@@ -199,8 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                  'Added ${selectedSongs.length} songs to ${p.name}'),
+              content: Text('Added ${selectedSongs.length} songs to ${p.name}'),
             ),
           );
           setState(() {
@@ -214,11 +226,96 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// One library row, shared by the single and multi-column lists.
+  Widget _tileFor(
+    Song song,
+    List<Song> songs,
+    String? currentSongId, {
+    required String sourceId,
+    required String sourceTitle,
+  }) {
+    return RepaintBoundary(
+      child: SongTile(
+        key: ValueKey(song.id),
+        song: song,
+        queue: songs,
+        sourceId: sourceId,
+        sourceTitle: sourceTitle,
+        isCurrent: currentSongId == song.id,
+        isSelecting: _isSelecting,
+        isSelected: _selectedIds.contains(song.id),
+        onSelectionChanged: (val) => _toggleSelection(song.id, val ?? false),
+        onLongPress: () {
+          setState(() {
+            _isSelecting = true;
+            _selectedIds.add(song.id);
+          });
+        },
+      ),
+    );
+  }
+
+  /// The song list sliver. Wide windows lay the songs out in 2-3 columns so
+  /// the list does not stretch into one very long row; phones keep the plain
+  /// single column.
+  Widget _songsSliver(
+    List<Song> songs,
+    String? currentSongId, {
+    required String sourceId,
+    required String sourceTitle,
+  }) {
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final columns = (constraints.crossAxisExtent / 460).floor().clamp(1, 3);
+
+        int? findIndex(Key key) {
+          final valueKey = key as ValueKey<String>?;
+          if (valueKey == null) return null;
+          final index = songs.indexWhere((s) => s.id == valueKey.value);
+          return index >= 0 ? index : null;
+        }
+
+        if (columns <= 1) {
+          return SliverFixedExtentList.builder(
+            itemExtent: 61.0,
+            itemCount: songs.length,
+            findChildIndexCallback: findIndex,
+            itemBuilder: (context, i) => _tileFor(
+              songs[i],
+              songs,
+              currentSongId,
+              sourceId: sourceId,
+              sourceTitle: sourceTitle,
+            ),
+          );
+        }
+
+        return SliverGrid.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisExtent: 61.0,
+            crossAxisSpacing: 10,
+          ),
+          itemCount: songs.length,
+          findChildIndexCallback: findIndex,
+          itemBuilder: (context, i) => _tileFor(
+            songs[i],
+            songs,
+            currentSongId,
+            sourceId: sourceId,
+            sourceTitle: sourceTitle,
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    List<Song> rawSongs =
-        _showOnlyFavorites ? controller.favoriteSongs : controller.songs;
+    List<Song> rawSongs = _showOnlyFavorites
+        ? controller.favoriteSongs
+        : controller.songs;
 
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
@@ -251,38 +348,11 @@ class _HomeScreenState extends State<HomeScreen> {
           else
             SliverPadding(
               padding: const EdgeInsets.only(bottom: 24, top: 8),
-              sliver: SliverFixedExtentList.builder(
-                itemExtent: 61.0,
-                itemCount: songs.length,
-                findChildIndexCallback: (Key key) {
-                  final valueKey = key as ValueKey<String>?;
-                  if (valueKey == null) return null;
-                  final index = songs.indexWhere((s) => s.id == valueKey.value);
-                  return index >= 0 ? index : null;
-                },
-                itemBuilder: (context, i) {
-                  final song = songs[i];
-                  return RepaintBoundary(
-                    child: SongTile(
-                      key: ValueKey(song.id),
-                      song: song,
-                      queue: songs,
-                      sourceId: 'search',
-                      sourceTitle: 'Search',
-                      isCurrent: currentSongId == song.id,
-                      isSelecting: _isSelecting,
-                      isSelected: _selectedIds.contains(song.id),
-                      onSelectionChanged: (val) =>
-                          _toggleSelection(song.id, val ?? false),
-                      onLongPress: () {
-                        setState(() {
-                          _isSelecting = true;
-                          _selectedIds.add(song.id);
-                        });
-                      },
-                    ),
-                  );
-                },
+              sliver: _songsSliver(
+                songs,
+                currentSongId,
+                sourceId: 'search',
+                sourceTitle: 'Search',
               ),
             ),
         ],
@@ -306,7 +376,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(width: 6),
                   _FilterPill(
                     key: const ValueKey('pill_favorites'),
-                    icon: _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+                    icon: _showOnlyFavorites
+                        ? Icons.favorite
+                        : Icons.favorite_border,
                     label: 'Favorites (${controller.favoriteSongs.length})',
                     isSelected: _showOnlyFavorites,
                     onTap: () => setState(() => _showOnlyFavorites = true),
@@ -336,8 +408,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller.playSong(
                           list[Random().nextInt(list.length)],
                           queue: list,
-                          sourceId: _showOnlyFavorites ? 'favorites' : 'library',
-                          sourceTitle: _showOnlyFavorites ? 'Favorites' : 'Library',
+                          sourceId: _showOnlyFavorites
+                              ? 'favorites'
+                              : 'library',
+                          sourceTitle: _showOnlyFavorites
+                              ? 'Favorites'
+                              : 'Library',
                         );
                       },
                     ),
@@ -374,11 +450,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               width: 76,
                               height: 76,
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                                color: theme.colorScheme.primary.withValues(
+                                  alpha: 0.12,
+                                ),
                                 borderRadius: BorderRadius.circular(24),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: theme.colorScheme.primary.withValues(alpha: 0.16),
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.16,
+                                    ),
                                     blurRadius: 24,
                                   ),
                                 ],
@@ -402,7 +482,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               'Tap the heart icon on any local or online song to add it to your favorites.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                                color: theme.colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.7),
                                 fontSize: 13,
                               ),
                             ),
@@ -415,38 +496,11 @@ class _HomeScreenState extends State<HomeScreen> {
           else
             SliverPadding(
               padding: const EdgeInsets.only(bottom: 140),
-              sliver: SliverFixedExtentList.builder(
-                itemExtent: 61.0,
-                itemCount: songs.length,
-                findChildIndexCallback: (Key key) {
-                  final valueKey = key as ValueKey<String>?;
-                  if (valueKey == null) return null;
-                  final index = songs.indexWhere((s) => s.id == valueKey.value);
-                  return index >= 0 ? index : null;
-                },
-                itemBuilder: (context, i) {
-                  final song = songs[i];
-                  return RepaintBoundary(
-                    child: SongTile(
-                      key: ValueKey(song.id),
-                      song: song,
-                      queue: songs,
-                      sourceId: _showOnlyFavorites ? 'favorites' : 'library',
-                      sourceTitle: _showOnlyFavorites ? 'Favorites' : 'Library',
-                      isCurrent: currentSongId == song.id,
-                      isSelecting: _isSelecting,
-                      isSelected: _selectedIds.contains(song.id),
-                      onSelectionChanged: (val) =>
-                          _toggleSelection(song.id, val ?? false),
-                      onLongPress: () {
-                        setState(() {
-                          _isSelecting = true;
-                          _selectedIds.add(song.id);
-                        });
-                      },
-                    ),
-                  );
-                },
+              sliver: _songsSliver(
+                songs,
+                currentSongId,
+                sourceId: _showOnlyFavorites ? 'favorites' : 'library',
+                sourceTitle: _showOnlyFavorites ? 'Favorites' : 'Library',
               ),
             ),
         ],
@@ -495,7 +549,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   hintText: 'Search library...',
                   hintStyle: theme.textTheme.bodyMedium?.copyWith(
                     fontSize: 14,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.6,
+                    ),
                   ),
                   prefixIcon: const Icon(Icons.search, size: 18),
                   suffixIcon: _searchQuery.isNotEmpty
@@ -509,7 +565,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                         )
                       : null,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 0,
+                  ),
                   filled: true,
                   fillColor: Colors.white.withValues(alpha: 0.06),
                   border: OutlineInputBorder(
@@ -558,27 +617,41 @@ class _HomeScreenState extends State<HomeScreen> {
       final nothingSelected = _selectedIds.isEmpty;
       headerActions = [
         TactileIconButton(
-          tooltip: _selectedIds.length == songs.length ? 'Deselect all' : 'Select all',
-          icon: Icon(_selectedIds.length == songs.length ? Icons.deselect : Icons.select_all),
+          tooltip: _selectedIds.length == songs.length
+              ? 'Deselect all'
+              : 'Select all',
+          icon: Icon(
+            _selectedIds.length == songs.length
+                ? Icons.deselect
+                : Icons.select_all,
+          ),
           onPressed: () => _selectAll(songs),
         ),
         TactileIconButton(
           tooltip: 'Add to queue',
           icon: const Icon(Icons.queue_music_rounded),
           color: nothingSelected ? theme.disabledColor : null,
-          onPressed: nothingSelected ? null : () => _batchAddToQueue(controller, songs),
+          onPressed: nothingSelected
+              ? null
+              : () => _batchAddToQueue(controller, songs),
         ),
         TactileIconButton(
           tooltip: 'Add to playlist',
           icon: const Icon(Icons.playlist_add),
           color: nothingSelected ? theme.disabledColor : null,
-          onPressed: nothingSelected ? null : () => _batchAddToPlaylist(controller, songs),
+          onPressed: nothingSelected
+              ? null
+              : () => _batchAddToPlaylist(controller, songs),
         ),
         TactileIconButton(
           tooltip: 'Delete selected',
           icon: const Icon(Icons.delete_outline),
-          color: nothingSelected ? theme.disabledColor : theme.colorScheme.error,
-          onPressed: nothingSelected ? null : () => _batchDelete(controller, songs),
+          color: nothingSelected
+              ? theme.disabledColor
+              : theme.colorScheme.error,
+          onPressed: nothingSelected
+              ? null
+              : () => _batchDelete(controller, songs),
         ),
       ];
     } else {
@@ -637,10 +710,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // the title is min width).
           layoutBuilder: (currentChild, previousChildren) => Stack(
             alignment: AlignmentDirectional.centerStart,
-            children: [
-              ...previousChildren,
-              ?currentChild,
-            ],
+            children: [...previousChildren, ?currentChild],
           ),
           child: headerContent,
         ),
@@ -682,12 +752,14 @@ class _FilterPillState extends State<_FilterPill> {
     final bgColor = widget.isSelected
         ? primary.withValues(alpha: _isHovered ? 0.28 : 0.20)
         : (_isHovered
-            ? Colors.white.withValues(alpha: 0.09)
-            : Colors.white.withValues(alpha: 0.05));
+              ? Colors.white.withValues(alpha: 0.09)
+              : Colors.white.withValues(alpha: 0.05));
 
     final textColor = widget.isSelected
         ? primary
-        : theme.colorScheme.onSurfaceVariant.withValues(alpha: _isHovered ? 1.0 : 0.9);
+        : theme.colorScheme.onSurfaceVariant.withValues(
+            alpha: _isHovered ? 1.0 : 0.9,
+          );
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -723,11 +795,7 @@ class _FilterPillState extends State<_FilterPill> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (widget.icon != null) ...[
-                Icon(
-                  widget.icon,
-                  size: 15,
-                  color: textColor,
-                ),
+                Icon(widget.icon, size: 15, color: textColor),
                 const SizedBox(width: 6),
               ],
               if (widget.label != null)
@@ -735,7 +803,9 @@ class _FilterPillState extends State<_FilterPill> {
                   widget.label!,
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontSize: 13,
-                    fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                    fontWeight: widget.isSelected
+                        ? FontWeight.w600
+                        : FontWeight.w500,
                     color: textColor,
                     letterSpacing: -0.1,
                   ),
@@ -780,14 +850,18 @@ void _showSortSheet(BuildContext context, AppController controller) {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Text(
                 'Sort Library',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             const Divider(height: 1),
             ListTile(
               leading: Icon(
                 Icons.calendar_today_rounded,
-                color: controller.sortOption == SortOption.dateAdded ? primary : null,
+                color: controller.sortOption == SortOption.dateAdded
+                    ? primary
+                    : null,
               ),
               title: const Text('Date Added'),
               trailing: controller.sortOption == SortOption.dateAdded
@@ -802,7 +876,9 @@ void _showSortSheet(BuildContext context, AppController controller) {
             ListTile(
               leading: Icon(
                 Icons.sort_by_alpha_rounded,
-                color: controller.sortOption == SortOption.title ? primary : null,
+                color: controller.sortOption == SortOption.title
+                    ? primary
+                    : null,
               ),
               title: const Text('Title (A-Z)'),
               trailing: controller.sortOption == SortOption.title
@@ -817,7 +893,9 @@ void _showSortSheet(BuildContext context, AppController controller) {
             ListTile(
               leading: Icon(
                 Icons.data_usage_rounded,
-                color: controller.sortOption == SortOption.size ? primary : null,
+                color: controller.sortOption == SortOption.size
+                    ? primary
+                    : null,
               ),
               title: const Text('File Size'),
               trailing: controller.sortOption == SortOption.size
@@ -882,17 +960,21 @@ class _EmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            Text('Your music library is empty',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
-                )),
+            Text(
+              'Your music library is empty',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               'Tap "Add music" to pick audio files.\nOn Windows you can also drag & drop files here.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
                 fontSize: 13,
               ),
             ),
@@ -905,7 +987,10 @@ class _EmptyState extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                 ),
                 onPressed: null,
                 icon: const Icon(Icons.add, size: 18),
@@ -1020,8 +1105,9 @@ class _LibraryProfileImportDialogState
       if (_bytes > 0) return _fmtBytes(_bytes);
       return _phase.isNotEmpty ? _phase : 'Preparing…';
     }
-    final speed =
-        _speedBytesPerSec > 0 ? ' at ${_fmtBytes(_speedBytesPerSec)}/s' : '';
+    final speed = _speedBytesPerSec > 0
+        ? ' at ${_fmtBytes(_speedBytesPerSec)}/s'
+        : '';
     return '${_fmtBytes(_bytes)} of ${_fmtBytes(_totalBytes)}$speed';
   }
 
@@ -1153,4 +1239,3 @@ class _LibraryProfileImportDialogState
     );
   }
 }
-

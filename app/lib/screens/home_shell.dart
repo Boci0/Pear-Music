@@ -8,6 +8,7 @@ import '../services/artwork_palette.dart';
 import '../services/lyrics_service.dart';
 import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
+import '../widgets/now_playing_panel.dart';
 import '../widgets/pear_content_frame.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
@@ -34,9 +35,9 @@ class _HomeShellState extends State<HomeShell> {
       GlobalKey<NavigatorState>();
 
   List<Widget> get _screens => [
-    const PearContentFrame(maxWidth: 1000, child: HomeScreen()),
+    const PearContentFrame(maxWidth: 1460, child: HomeScreen()),
     PearContentFrame(
-      maxWidth: 1240,
+      maxWidth: 1300,
       child: Navigator(
         key: _playlistsNavKey,
         onGenerateRoute: (settings) =>
@@ -44,11 +45,11 @@ class _HomeShellState extends State<HomeShell> {
       ),
     ),
     PearContentFrame(
-      maxWidth: 1000,
+      maxWidth: 1200,
       child: ExploreScreen(isActive: _index == 2),
     ),
-    const PearContentFrame(maxWidth: 1000, child: HistoryScreen()),
-    const PearContentFrame(maxWidth: 860, child: SettingsScreen()),
+    const PearContentFrame(maxWidth: 1460, child: HistoryScreen()),
+    const PearContentFrame(maxWidth: 960, child: SettingsScreen()),
   ];
 
   @override
@@ -107,7 +108,11 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    final isWide = windowWidth >= 900;
+    // Old-school desktop layout: at 1250+ a permanent Now Playing pane sits
+    // on the right and replaces the floating mini player.
+    final useNowPlayingPane = windowWidth >= 1250;
 
     return PopScope(
       canPop:
@@ -138,24 +143,37 @@ class _HomeShellState extends State<HomeShell> {
                             children: _screens,
                           ),
                         ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints:
-                                  const BoxConstraints(maxWidth: 720),
-                              child: const SafeArea(
-                                top: false,
-                                child: PlayerBar(),
+                        if (!useNowPlayingPane)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 720,
+                                ),
+                                child: const SafeArea(
+                                  top: false,
+                                  child: PlayerBar(),
+                                ),
                               ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),
+                  if (useNowPlayingPane)
+                    SizedBox(
+                      width: 360,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
+                        child: const SafeArea(
+                          top: false,
+                          child: NowPlayingPanel(),
+                        ),
+                      ),
+                    ),
                 ],
               )
             : IndexedStack(index: _index, children: _screens),

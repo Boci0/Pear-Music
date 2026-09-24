@@ -36,10 +36,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     // The playlist was deleted (e.g. from another flow) — leave.
     if (playlist == null) {
       return Scaffold(
-        appBar: PearAppBar(
-          title: const Text('Playlist'),
-          showBackButton: true,
-        ),
+        appBar: PearAppBar(title: const Text('Playlist'), showBackButton: true),
         body: const Center(child: Text('This playlist no longer exists')),
       );
     }
@@ -47,7 +44,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     if (_optimisticIds != null) {
       final currentSet = playlist.songIds.toSet();
       final optSet = _optimisticIds!.toSet();
-      if (currentSet.length != optSet.length || !currentSet.containsAll(optSet)) {
+      if (currentSet.length != optSet.length ||
+          !currentSet.containsAll(optSet)) {
         _optimisticIds = null;
       } else if (listEquals(_optimisticIds, playlist.songIds)) {
         _optimisticIds = null;
@@ -94,9 +92,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                        color: theme.colorScheme.primaryContainer.withValues(
+                          alpha: 0.3,
+                        ),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -198,8 +201,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     itemExtent: 61.0,
                     buildDefaultDragHandles: false,
                     itemCount: songs.length,
-                    onReorderItem: (oldIndex, newIndex) =>
-                        _reorder(controller, playlist, songs, oldIndex, newIndex),
+                    onReorderItem: (oldIndex, newIndex) => _reorder(
+                      controller,
+                      playlist,
+                      songs,
+                      oldIndex,
+                      newIndex,
+                    ),
                     proxyDecorator: (child, index, animation) {
                       return AnimatedBuilder(
                         animation: animation,
@@ -229,13 +237,15 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         onPlay: isPlaying
                             ? () => controller.togglePlayback()
                             : () => controller.player.playSong(
-                                  song,
-                                  queue: songs,
-                                  sourceId: 'playlist:${playlist.id}',
-                                  sourceTitle: playlist.name,
-                                ),
-                        onRemove: () => controller
-                            .removeSongFromPlaylist(playlist.id, song.id),
+                                song,
+                                queue: songs,
+                                sourceId: 'playlist:${playlist.id}',
+                                sourceTitle: playlist.name,
+                              ),
+                        onRemove: () => controller.removeSongFromPlaylist(
+                          playlist.id,
+                          song.id,
+                        ),
                       );
                     },
                   ),
@@ -252,7 +262,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     int oldIndex,
     int newIndex,
   ) {
-    if (oldIndex < 0 || oldIndex >= songs.length || newIndex < 0 || newIndex >= songs.length) {
+    if (oldIndex < 0 ||
+        oldIndex >= songs.length ||
+        newIndex < 0 ||
+        newIndex >= songs.length) {
       return;
     }
     final mutableSongs = List<Song>.from(songs);
@@ -312,7 +325,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: Text('Delete "${playlist.name}"?'),
         content: const Text(
-            'The songs stay in your library; only the playlist is removed.'),
+          'The songs stay in your library; only the playlist is removed.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -356,7 +370,8 @@ class _SongRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final initialBytes = ArtworkPalette.cachedBytes(song) ??
+    final initialBytes =
+        ArtworkPalette.cachedBytes(song) ??
         (song.artwork != null &&
                 song.artwork!.isNotEmpty &&
                 !song.artwork!.startsWith('http') &&
@@ -406,7 +421,9 @@ class _SongRow extends StatelessWidget {
           future: ArtworkPalette.bytesAsync(song),
           builder: (context, snapshot) {
             final bytes = snapshot.data ?? initialBytes;
-            if (bytes == null || bytes.isEmpty) return _placeholder(theme.colorScheme);
+            if (bytes == null || bytes.isEmpty) {
+              return _placeholder(theme.colorScheme);
+            }
             return ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Image.memory(
@@ -488,62 +505,96 @@ class _SongRow extends StatelessWidget {
                       ),
                     Padding(
                       padding: const EdgeInsets.only(left: 14, right: 6),
-                      child: Row(
-                        children: [
-                          artworkWidget,
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  song.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: isCurrent ? theme.colorScheme.primary : null,
-                                  ),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Wide rows move the size into a right-aligned column
+                          // so the row reads like a table on desktop.
+                          final wideRow = constraints.maxWidth >= 620;
+                          return Row(
+                            children: [
+                              artworkWidget,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      song.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: isCurrent
+                                                ? theme.colorScheme.primary
+                                                : null,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    if (!wideRow)
+                                      Text(
+                                        song.sizeLabel,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                              fontSize: 12.5,
+                                            ),
+                                      ),
+                                  ],
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  song.sizeLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          TactileIconButton(
-                            tooltip: 'Remove from playlist',
-                            icon: Icon(
-                              Icons.remove_circle_outline_rounded,
-                              size: 19,
-                              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                            ),
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                            onPressed: onRemove,
-                          ),
-                          ReorderableDragStartListener(
-                            index: index,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                              child: Icon(
-                                Icons.drag_handle_rounded,
-                                size: 20,
-                                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
                               ),
-                            ),
-                          ),
-                        ],
+                              if (wideRow)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 18),
+                                  child: Text(
+                                    song.sizeLabel,
+                                    maxLines: 1,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      fontSize: 12.5,
+                                    ),
+                                  ),
+                                ),
+                              TactileIconButton(
+                                tooltip: 'Remove from playlist',
+                                icon: Icon(
+                                  Icons.remove_circle_outline_rounded,
+                                  size: 19,
+                                  color: theme.colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.6),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                                onPressed: onRemove,
+                              ),
+                              ReorderableDragStartListener(
+                                index: index,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 8,
+                                  ),
+                                  child: Icon(
+                                    Icons.drag_handle_rounded,
+                                    size: 20,
+                                    color: theme.colorScheme.onSurfaceVariant
+                                        .withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -592,16 +643,20 @@ class _EmptyPlaylist extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.music_off,
-                size: 56, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.music_off,
+              size: 56,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 12),
             Text('This playlist is empty', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               'Long-press a song in your library to add it here.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

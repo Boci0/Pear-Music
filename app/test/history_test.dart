@@ -260,10 +260,13 @@ void main() {
 
       expect(find.text('Online Stream Song'), findsOneWidget);
       expect(find.text('Local File'), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.text('Online Stream Song')).dy,
-        lessThan(tester.getTopLeft(find.text('Local File')).dy),
-      );
+      // Newest first in reading order. Wide layouts may place the two songs
+      // side by side in a grid, so only fall back to the x axis then.
+      final firstPos = tester.getTopLeft(find.text('Online Stream Song'));
+      final secondPos = tester.getTopLeft(find.text('Local File'));
+      final newestFirst = firstPos.dy < secondPos.dy ||
+          (firstPos.dy == secondPos.dy && firstPos.dx < secondPos.dx);
+      expect(newestFirst, isTrue);
 
       await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
       await tester.pumpAndSettle();
