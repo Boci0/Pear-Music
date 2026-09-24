@@ -772,6 +772,14 @@ class _HomeScreenState extends State<HomeScreen> {
               ..addAll(songs.map((s) => s.id));
           });
         },
+        const SingleActivator(LogicalKeyboardKey.delete): () {
+          // Text fields consume Delete themselves before this handler runs;
+          // the guard is belt and braces for exotic focus states.
+          if (_searchFocusNode.hasFocus) return;
+          if (_isSelecting && _selectedIds.isNotEmpty) {
+            _batchDelete(controller, songs);
+          }
+        },
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_isSelecting) {
             setState(() {
