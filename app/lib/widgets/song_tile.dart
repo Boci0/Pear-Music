@@ -22,6 +22,7 @@ class SongTile extends StatelessWidget {
   final ValueChanged<bool?>? onSelectionChanged;
   final VoidCallback? onLongPress;
   final VoidCallback? onCtrlTap;
+  final VoidCallback? onShiftTap;
 
   const SongTile({
     super.key,
@@ -35,6 +36,7 @@ class SongTile extends StatelessWidget {
     this.onSelectionChanged,
     this.onLongPress,
     this.onCtrlTap,
+    this.onShiftTap,
   });
 
   Future<void> _showMenu(BuildContext context) async {
@@ -295,7 +297,13 @@ class SongTile extends StatelessWidget {
               onTap: () {
                 TactileFeedback.click();
                 if (isSelecting) {
-                  onSelectionChanged?.call(!isSelected);
+                  if (onShiftTap != null &&
+                      HardwareKeyboard.instance.isShiftPressed) {
+                    // Shift+click extends the selection, like a file list.
+                    onShiftTap!.call();
+                  } else {
+                    onSelectionChanged?.call(!isSelected);
+                  }
                 } else if (onCtrlTap != null &&
                     HardwareKeyboard.instance.isControlPressed) {
                   // Ctrl+click starts a selection, like a desktop file list.

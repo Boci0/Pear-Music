@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final Set<String> _selectedIds = {};
+  int? _lastClickedIndex;
 
   @override
   void dispose() {
@@ -48,6 +49,24 @@ class _HomeScreenState extends State<HomeScreen> {
         _selectedIds.add(songId);
       } else {
         _selectedIds.remove(songId);
+      }
+    });
+  }
+
+  /// Shift+click: extend the selection from the last clicked row to [index],
+  /// like a desktop file list.
+  void _selectRangeTo(List<Song> songs, int index) {
+    final anchor = _lastClickedIndex;
+    setState(() {
+      _isSelecting = true;
+      if (anchor == null || anchor >= songs.length) {
+        _selectedIds.add(songs[index].id);
+        return;
+      }
+      final start = min(anchor, index);
+      final end = max(anchor, index);
+      for (var i = start; i <= end; i++) {
+        _selectedIds.add(songs[i].id);
       }
     });
   }
@@ -237,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String sourceId,
     required String sourceTitle,
   }) {
+    final index = songs.indexOf(song);
     return RepaintBoundary(
       child: SongTile(
         key: ValueKey(song.id),
@@ -247,19 +267,25 @@ class _HomeScreenState extends State<HomeScreen> {
         isCurrent: currentSongId == song.id,
         isSelecting: _isSelecting,
         isSelected: _selectedIds.contains(song.id),
-        onSelectionChanged: (val) => _toggleSelection(song.id, val ?? false),
+        onSelectionChanged: (val) {
+          _lastClickedIndex = index;
+          _toggleSelection(song.id, val ?? false);
+        },
         onLongPress: () {
+          _lastClickedIndex = index;
           setState(() {
             _isSelecting = true;
             _selectedIds.add(song.id);
           });
         },
         onCtrlTap: () {
+          _lastClickedIndex = index;
           setState(() {
             _isSelecting = true;
             _selectedIds.add(song.id);
           });
         },
+        onShiftTap: () => _selectRangeTo(songs, index),
       ),
     );
   }

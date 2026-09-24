@@ -52,14 +52,17 @@ class PlaylistsScreen extends StatelessWidget {
               builder: (context, constraints) {
                 // Wide windows get a multi-column card grid; phones keep the
                 // single-column list.
-                final columns = (constraints.maxWidth / 420).floor().clamp(1, 3);
+                final columns = (constraints.maxWidth / 420).floor().clamp(
+                  1,
+                  3,
+                );
 
                 Widget tileAt(int i) {
                   final pl = playlists[i];
                   final isCurrentPlaylist =
                       controller.player.queueSourceId == 'playlist:${pl.id}' ||
-                          (currentSongId != null &&
-                              pl.songIds.contains(currentSongId));
+                      (currentSongId != null &&
+                          pl.songIds.contains(currentSongId));
                   final isPlayingThisPlaylist =
                       isCurrentPlaylist && controller.player.playing;
 
@@ -83,12 +86,18 @@ class PlaylistsScreen extends StatelessWidget {
                   );
                 }
 
+                Widget itemAt(int i) => i < playlists.length
+                    ? tileAt(i)
+                    : _NewPlaylistTile(
+                        onTap: () => _createPlaylist(context, controller),
+                      );
+
                 if (columns <= 1) {
                   return ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
                     itemExtent: 72.0,
-                    itemCount: playlists.length,
-                    itemBuilder: (context, i) => tileAt(i),
+                    itemCount: playlists.length + 1,
+                    itemBuilder: (context, i) => itemAt(i),
                   );
                 }
                 return GridView.builder(
@@ -98,8 +107,8 @@ class PlaylistsScreen extends StatelessWidget {
                     mainAxisExtent: 72,
                     crossAxisSpacing: 4,
                   ),
-                  itemCount: playlists.length,
-                  itemBuilder: (context, i) => tileAt(i),
+                  itemCount: playlists.length + 1,
+                  itemBuilder: (context, i) => itemAt(i),
                 );
               },
             ),
@@ -156,8 +165,10 @@ class PlaylistsScreen extends StatelessWidget {
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: Text('Delete "${playlist.name}"?'),
-        content: const Text('The songs stay in your library; only the playlist '
-            'is removed.'),
+        content: const Text(
+          'The songs stay in your library; only the playlist '
+          'is removed.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -217,6 +228,56 @@ class PlaylistsScreen extends StatelessWidget {
     } finally {
       nameController.dispose();
     }
+  }
+}
+
+/// Trailing "New playlist" card at the end of the playlist list or grid.
+class _NewPlaylistTile extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _NewPlaylistTile({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          hoverColor: Colors.white.withValues(alpha: 0.055),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.30,
+              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 16),
+                Icon(
+                  Icons.add_rounded,
+                  size: 22,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'New playlist',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -287,7 +348,9 @@ class _PlaylistTile extends StatelessWidget {
                     : null,
                 color: isActive
                     ? null
-                    : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                    : theme.colorScheme.surfaceContainerHighest.withValues(
+                        alpha: 0.5,
+                      ),
               ),
               child: SizedBox(
                 height: 64,
@@ -332,10 +395,15 @@ class _PlaylistTile extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: isActive
-                                        ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                                        ? theme.colorScheme.primary.withValues(
+                                            alpha: 0.15,
+                                          )
                                         : Colors.white.withValues(alpha: 0.05),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
@@ -344,7 +412,8 @@ class _PlaylistTile extends StatelessWidget {
                                     style: theme.textTheme.labelSmall?.copyWith(
                                       color: isActive
                                           ? theme.colorScheme.primary
-                                          : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                                          : theme.colorScheme.onSurfaceVariant
+                                                .withValues(alpha: 0.8),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w500,
                                     ),
@@ -354,7 +423,9 @@ class _PlaylistTile extends StatelessWidget {
                             ),
                           ),
                           TactileIconButton(
-                            tooltip: isPlaying ? 'Pause' : (isActive ? 'Resume' : 'Play all'),
+                            tooltip: isPlaying
+                                ? 'Pause'
+                                : (isActive ? 'Resume' : 'Play all'),
                             icon: Icon(
                               isPlaying
                                   ? Icons.pause_circle_filled_rounded
@@ -441,7 +512,9 @@ class _PlaylistTile extends StatelessWidget {
                 ),
                 title: Text(
                   'Delete playlist',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
                 ),
                 onTap: () => Navigator.pop(ctx, 'delete'),
               ),
@@ -473,10 +546,7 @@ class _PlaylistArtwork extends StatelessWidget {
   final Song? firstSong;
   final bool isActive;
 
-  const _PlaylistArtwork({
-    required this.firstSong,
-    required this.isActive,
-  });
+  const _PlaylistArtwork({required this.firstSong, required this.isActive});
 
   @override
   Widget build(BuildContext context) {
@@ -500,14 +570,16 @@ class _PlaylistArtwork extends StatelessWidget {
       );
     } else {
       final song = firstSong!;
-      final bytes = ArtworkPalette.cachedBytes(song) ??
+      final bytes =
+          ArtworkPalette.cachedBytes(song) ??
           (song.artwork != null &&
                   song.artwork!.isNotEmpty &&
                   !song.artwork!.startsWith('http') &&
                   song.artwork!.length < 65536
               ? ArtworkPalette.bytes(song)
               : null);
-      final isNetwork = song.artwork != null && song.artwork!.startsWith('http');
+      final isNetwork =
+          song.artwork != null && song.artwork!.startsWith('http');
       if (isNetwork) {
         content = ClipRRect(
           borderRadius: BorderRadius.circular(10),
@@ -606,10 +678,7 @@ class _PlaylistArtwork extends StatelessWidget {
 class _EmptyPlaylists extends StatelessWidget {
   final VoidCallback onCreate;
   final VoidCallback onImport;
-  const _EmptyPlaylists({
-    required this.onCreate,
-    required this.onImport,
-  });
+  const _EmptyPlaylists({required this.onCreate, required this.onImport});
 
   @override
   Widget build(BuildContext context) {
@@ -653,7 +722,9 @@ class _EmptyPlaylists extends StatelessWidget {
               'Group your favorite songs into collections or import an existing .m3u8 playlist.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
                 fontSize: 13,
               ),
             ),
@@ -672,10 +743,17 @@ class _EmptyPlaylists extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
                     ),
                     onPressed: onCreate,
-                    icon: Icon(Icons.add_rounded, size: 20, color: theme.colorScheme.onPrimary),
+                    icon: Icon(
+                      Icons.add_rounded,
+                      size: 20,
+                      color: theme.colorScheme.onPrimary,
+                    ),
                     label: Text(
                       'New playlist',
                       style: TextStyle(
@@ -690,15 +768,23 @@ class _EmptyPlaylists extends StatelessWidget {
                   onTap: onImport,
                   child: FilledButton.tonalIcon(
                     style: FilledButton.styleFrom(
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                      backgroundColor:
+                          theme.colorScheme.surfaceContainerHighest,
                       foregroundColor: theme.colorScheme.onSurface,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
                     ),
                     onPressed: onImport,
-                    icon: Icon(Icons.file_download_outlined, size: 20, color: theme.colorScheme.onSurface),
+                    icon: Icon(
+                      Icons.file_download_outlined,
+                      size: 20,
+                      color: theme.colorScheme.onSurface,
+                    ),
                     label: Text(
                       'Import playlist (.m3u8)',
                       style: TextStyle(

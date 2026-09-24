@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/controllers/app_controller.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/screens/home_screen.dart';
+import 'package:peerm_app/screens/playlists_screen.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
@@ -120,6 +121,51 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(ctrlTapped, isTrue);
+  });
+
+  testWidgets('shift click reports a range selection tap', (tester) async {
+    final env = await createEnvironment();
+    final song = _song('local_1', 'Local File');
+    env.library.setSongsForTesting([song]);
+    var shiftTapped = false;
+    var toggled = false;
+
+    await tester.pumpWidget(
+      buildHarness(
+        controller: env.controller,
+        player: env.player,
+        child: SongTile(
+          song: song,
+          isSelecting: true,
+          onShiftTap: () => shiftTapped = true,
+          onSelectionChanged: (_) => toggled = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.tap(find.byType(SongTile));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+
+    expect(shiftTapped, isTrue);
+    expect(toggled, isFalse);
+  });
+
+  testWidgets('playlists screen offers a New playlist tile', (tester) async {
+    final env = await createEnvironment();
+    await env.controller.createPlaylist('Mix');
+    await tester.pumpWidget(
+      buildHarness(
+        controller: env.controller,
+        player: env.player,
+        child: const PlaylistsScreen(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('New playlist'), findsOneWidget);
   });
 
   testWidgets('wide library header keeps the search field visible', (
