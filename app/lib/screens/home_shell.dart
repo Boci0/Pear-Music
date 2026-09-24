@@ -172,7 +172,19 @@ class _HomeShellState extends State<HomeShell>
                 },
                 child: Column(
                   children: [
-                    const PearMenuBar(),
+                    // Chrome strip: distinct tone + hairline so the top bar
+                    // reads as chrome from a distance instead of dead space
+                    // (mirror of the status bar at the bottom).
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF131316),
+                        border: Border(
+                          bottom: BorderSide(color: Color(0x14FFFFFF)),
+                        ),
+                      ),
+                      child: const PearMenuBar(),
+                    ),
                     Expanded(
                       child: Row(
                         children: [

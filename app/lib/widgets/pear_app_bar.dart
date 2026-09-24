@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'pear_popup.dart';
+
 /// The pear mark shown at the start of every tab header.
 class PearMark extends StatelessWidget {
   final double size;
@@ -23,11 +25,19 @@ class PearTabTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // At rail widths the side rail already carries the mark, so repeating it
+    // in every tab title reads as clutter. Phones and narrow windows keep it
+    // (they have no rail).
+    final size = MediaQuery.sizeOf(context);
+    final showMark =
+        size.width < 900 || !(isDesktopPopupPlatform || size.shortestSide >= 600);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const PearMark(),
-        const SizedBox(width: 8),
+        if (showMark) ...[
+          const PearMark(),
+          const SizedBox(width: 8),
+        ],
         Text(
           label,
           style: Theme.of(context).textTheme.titleLarge?.copyWith(

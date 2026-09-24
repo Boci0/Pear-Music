@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/controllers/app_controller.dart';
 import 'package:peerm_app/models/song.dart';
+import 'package:peerm_app/screens/home_screen.dart';
 import 'package:peerm_app/screens/home_shell.dart';
 import 'package:peerm_app/screens/player_screen.dart';
 import 'package:peerm_app/services/history_service.dart';
@@ -13,6 +14,7 @@ import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/player_theme.dart';
 import 'package:peerm_app/services/youtube_service.dart';
+import 'package:peerm_app/widgets/pear_app_bar.dart';
 import 'package:peerm_app/widgets/player/player_controls.dart';
 import 'package:peerm_app/widgets/player/queue_bottom_sheet.dart';
 import 'package:peerm_app/widgets/player_bar.dart';
@@ -291,6 +293,37 @@ void main() {
       find.byType(IndexedStack).first,
     );
     expect(shellStack.index, 1);
+  });
+
+  testWidgets('the pear mark lives in the rail, not in every desktop tab title', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1280, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PearMark), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('side_rail')),
+        matching: find.byType(PearMark),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('phones keep the pear mark in the tab title', (tester) async {
+    setViewport(tester, const Size(400, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(HomeScreen),
+        matching: find.byType(PearMark),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('very wide player swaps the queue peek for the queue panel', (
