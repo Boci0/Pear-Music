@@ -147,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               secondary: const Icon(Icons.battery_saver_rounded),
               title: const Text('Reduced Effects'),
               subtitle: const Text(
-                  'Static glow and no seek ripple. With the visualizer off the player scene stops repainting, which cuts battery use.'),
+                  'Static glow, no seek ripple, no glass blur and no button bounce. With the visualizer off the player scene stops repainting, which cuts battery use.'),
               value: identity.reducedEffects,
               onChanged: (val) async {
                 TactileFeedback.selection();
