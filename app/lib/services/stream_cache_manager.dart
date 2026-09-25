@@ -62,7 +62,29 @@ class ResolvedStream {
   /// Container extension of the chosen format (webm, m4a).
   final String? ext;
 
-  const ResolvedStream({required this.url, this.headers = const {}, this.ext});
+  /// Exact size of the audio file in bytes, when YouTube reports it.
+  final int? filesize;
+
+  /// The cache file the fetch is writing, when playback should read that
+  /// instead of requesting [url] itself (Android: YouTube blocks the phone's
+  /// player from fetching the link directly, but not yt-dlp).
+  final String? localPath;
+
+  const ResolvedStream({
+    required this.url,
+    this.headers = const {},
+    this.ext,
+    this.filesize,
+    this.localPath,
+  });
+
+  ResolvedStream withLocalPath(String path) => ResolvedStream(
+    url: url,
+    headers: headers,
+    ext: ext,
+    filesize: filesize,
+    localPath: path,
+  );
 }
 
 class StreamCacheManager {
@@ -374,10 +396,12 @@ class StreamCacheManager {
         });
       }
       final ext = data['ext'];
+      final filesize = data['filesize'];
       return ResolvedStream(
         url: url,
         headers: headers,
         ext: ext is String ? ext : null,
+        filesize: filesize is int && filesize > 0 ? filesize : null,
       );
     } catch (_) {
       return null;
@@ -412,6 +436,9 @@ class StreamCacheManager {
   /// Video id of each running Android fetch, keyed by its process id, so a
   /// link the plugin reports can be matched to its video.
   static final Map<String, String> _androidFetchVideoIds = {};
+
+  /// Output file of each running Android fetch, keyed by its process id.
+  static final Map<String, String> _androidFetchPaths = {};
   static bool _androidLinkHandlerInstalled = false;
 
   /// Listens for the Android plugin's `streamResolved` calls: the embedded
@@ -436,9 +463,13 @@ class StreamCacheManager {
     final line = args['line'];
     if (processId is! String || line is! String) return null;
     final videoId = _androidFetchVideoIds[processId];
-    final stream = parseStreamLine(line);
-    if (videoId != null && stream != null) {
-      DebugLog.write('[cache] Android direct stream link ready for $videoId');
+    final parsed = parseStreamLine(line);
+    if (videoId != null && parsed != null) {
+      // Playback reads the file yt-dlp is writing rather than the link:
+      // YouTube turns the phone's player away when it requests it directly.
+      final path = _androidFetchPaths[processId];
+      final stream = path == null ? parsed : parsed.withLocalPath(path);
+      DebugLog.write('[cache] Android stream ready for $videoId (file: $path)');
       _publishResolvedStream(videoId, stream);
     }
     return null;
@@ -447,8 +478,14 @@ class StreamCacheManager {
   /// Test seam: registers a running Android fetch, as the embedded download
   /// path does, so [handleAndroidPluginCall] can match its links.
   @visibleForTesting
-  static void debugTrackAndroidFetch(String processId, String videoId) =>
-      _androidFetchVideoIds[processId] = videoId;
+  static void debugTrackAndroidFetch(
+    String processId,
+    String videoId, {
+    String? outputPath,
+  }) {
+    _androidFetchVideoIds[processId] = videoId;
+    if (outputPath != null) _androidFetchPaths[processId] = outputPath;
+  }
 
   static String? _activeDownloadingVideoId;
   static bool _isActiveDownloadPreload = false;
@@ -482,7 +519,7 @@ class StreamCacheManager {
     return [
       '--no-simulate',
       '--print',
-      'video:$streamLinePrefix%(.{url,http_headers,ext})j',
+      'video:$streamLinePrefix%(.{url,http_headers,ext,filesize})j',
       '-f',
       getAudioFormatArg(),
       '--cache-dir',
@@ -811,6 +848,7 @@ class StreamCacheManager {
         _activeProcessId = processId;
         _installAndroidLinkHandler();
         _androidFetchVideoIds[processId] = videoId;
+        _androidFetchPaths[processId] = tempPart.path;
         try {
           DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
           const channel = MethodChannel('peerm/ytdlp');
@@ -858,6 +896,7 @@ class StreamCacheManager {
           } catch (_) {}
         } finally {
           _androidFetchVideoIds.remove(processId);
+          _androidFetchPaths.remove(processId);
           if (_activeProcessId == processId) {
             _activeProcessId = null;
           }

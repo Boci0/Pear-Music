@@ -844,13 +844,13 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--retries", "2")
                     req.addOption("--extractor-retries", "1")
                     req.addOption("--fragment-retries", "2")
-                    // Print the chosen format's direct link (and the headers
-                    // to fetch it with) as soon as it is picked, before the
-                    // download starts, so the app can play while the file is
-                    // still being cached. --print implies a dry run without
-                    // --no-simulate.
+                    // Print the chosen format (link, headers, extension and
+                    // size) as soon as it is picked, before the download
+                    // starts. The app then plays the file while it is still
+                    // being written, and uses the size to allow seeking.
+                    // --print implies a dry run without --no-simulate.
                     req.addOption("--no-simulate")
-                    req.addOption("--print", "video:$STREAM_LINE_PREFIX%(.{url,http_headers,ext})j")
+                    req.addOption("--print", "video:$STREAM_LINE_PREFIX%(.{url,http_headers,ext,filesize})j")
                     return req
                 }
 

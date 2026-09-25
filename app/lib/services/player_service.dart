@@ -13,6 +13,7 @@ import '../models/song.dart';
 import 'artwork_palette.dart';
 import 'artwork_service.dart';
 import 'debug_log.dart';
+import 'growing_file_audio_source.dart';
 import 'history_service.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
@@ -134,6 +135,10 @@ class PlayerService extends ChangeNotifier {
 
   final List<StreamSubscription> _subs = [];
   final PearAudioHandler? audioHandler;
+
+  /// The still-downloading file the current track plays from (Android), kept
+  /// so its file handle can be released when playback moves on.
+  GrowingFileAudioSource? _growingSource;
 
   PlayerService(this.library,
       {this.identity, this.audioHandler, AudioPlayer? player, this.history}) {
@@ -1184,6 +1189,9 @@ class PlayerService extends ChangeNotifier {
     );
 
     final stopwatch = Stopwatch()..start();
+    final previousGrowing = _growingSource;
+    _growingSource = null;
+    if (previousGrowing != null) unawaited(previousGrowing.close());
     try {
       await _player.setLoopMode(LoopMode.off);
       if (token != _playRequestToken) return;
@@ -1270,11 +1278,27 @@ class PlayerService extends ChangeNotifier {
           if (token != _playRequestToken) return;
           var streaming = false;
           if (link != null) {
+            // Android hands over the file being written (YouTube blocks the
+            // phone's player from the link itself); desktop streams the link.
+            final localPath = link.localPath;
+            final growing = localPath == null
+                ? null
+                : GrowingFileAudioSource(
+                    path: localPath,
+                    done: download.then((_) {}, onError: (_) {}),
+                    expectedLength: link.filesize,
+                    contentType: link.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
+                  );
             try {
               await _player.setAudioSource(
-                AudioSource.uri(Uri.parse(link.url), headers: link.headers),
+                growing ??
+                    AudioSource.uri(Uri.parse(link.url), headers: link.headers),
               );
-              if (token != _playRequestToken) return;
+              if (token != _playRequestToken) {
+                if (growing != null) unawaited(growing.close());
+                return;
+              }
+              _growingSource = growing;
               _isBufferingNext = false;
               _bufferingVideoId = null;
               _currentRouteType = StreamRouteType.direct;
@@ -1291,8 +1315,9 @@ class PlayerService extends ChangeNotifier {
               // Only the success is used; the fetch keeps caching the file.
               unawaited(download.catchError((_) => null));
             } catch (e) {
+              if (growing != null) unawaited(growing.close());
               DebugLog.write(
-                '[player] Direct link would not play ($e); waiting for the cached file instead',
+                '[player] Early stream would not play ($e); waiting for the cached file instead',
               );
             }
           }
@@ -2299,6 +2324,8 @@ class PlayerService extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _playRequestToken++;
+    unawaited(_growingSource?.close());
+    _growingSource = null;
     _preloadDebounceTimer?.cancel();
     _autoRerollDebounceTimer?.cancel();
     _saveVolumeDebounceTimer?.cancel();

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:peerm_app/models/song.dart';
+import 'package:peerm_app/services/growing_file_audio_source.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
@@ -120,7 +121,11 @@ void main() {
           (videoId, {required isPreload}) async {
         // What the embedded download path does, then the plugin reporting
         // the printed line over the method channel.
-        StreamCacheManager.debugTrackAndroidFetch('peerm-fast-1', videoId);
+        StreamCacheManager.debugTrackAndroidFetch(
+          'peerm-fast-1',
+          videoId,
+          outputPath: '/cache/$videoId.m4a',
+        );
         await StreamCacheManager.handleAndroidPluginCall(
           const MethodCall('streamResolved', {
             'processId': 'peerm-fast-1',
@@ -139,6 +144,8 @@ void main() {
       expect(received, hasLength(1));
       expect(received.single.url, 'https://a.googlevideo.com/p?x=1');
       expect(received.single.ext, 'm4a');
+      expect(received.single.localPath, '/cache/androidVid1.m4a',
+          reason: 'Android plays the file being written, not the link');
     });
 
     test('links for an unknown process are ignored', () async {
@@ -187,6 +194,40 @@ void main() {
       final source = audio.loaded.single as UriAudioSource;
       expect(source.uri.toString(), _link.url);
       expect(source.headers, _link.headers);
+      expect(player.playbackError, isNull);
+
+      downloadDone.complete(null);
+      await Future<void>.delayed(Duration.zero);
+    });
+
+    test('on Android playback reads the file being written, not the link',
+        () async {
+      final audio = _RecordingAudioPlayer(failUris: true);
+      final player = PlayerService(LibraryService(), player: audio);
+      final song = _streamSong('zyxwvutsrqp', 'Phone Song');
+      final writing = p.join(sandbox.path, 'zyxwvutsrqp.m4a');
+      final downloadDone = Completer<File?>();
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        StreamCacheManager.debugPublishResolvedStream(
+          videoId,
+          const ResolvedStream(
+            url: 'https://blocked.googlevideo.com/x',
+            ext: 'm4a',
+            filesize: 1234,
+          ).withLocalPath(writing),
+        );
+        return downloadDone.future;
+      };
+
+      await player.playSong(song, queue: [song]);
+
+      expect(audio.loaded, hasLength(1));
+      expect(audio.loaded.single, isA<GrowingFileAudioSource>(),
+          reason: 'the blocked link must never be requested by the player');
+      final growing = audio.loaded.single as GrowingFileAudioSource;
+      expect(growing.path, writing);
+      expect(growing.expectedLength, 1234);
       expect(player.playbackError, isNull);
 
       downloadDone.complete(null);
