@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
+import '../services/player_theme.dart';
 import '../services/update_service.dart';
 
 /// Thin classic status bar along the bottom of wide windows: library counts on
@@ -19,7 +20,12 @@ class PearStatusBar extends StatelessWidget {
       height: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF131316),
+        // Ambient tint: the chrome follows the current song's colour.
+        color: PlayerTheme.ambientBlend(
+          Theme.of(context).colorScheme,
+          const Color(0xFF131316),
+          alpha: 0.06,
+        ),
         border: Border(
           top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),

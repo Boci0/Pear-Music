@@ -36,10 +36,28 @@ class PlayerTheme extends ChangeNotifier {
   /// colours (primaryColor, textTheme, iconTheme, inputDecorationTheme, ...)
   /// always match the scheme being shown. That keeps the transition a smooth
   /// fade instead of a snap at the halfway point.
+  /// Blends the song accent into a neutral colour: the single place the
+  /// "music colours the room" strength lives. Used by the theme itself and by
+  /// the shell chrome (menu strip, status bar) so everything tints together.
+  static Color ambientBlend(
+    ColorScheme scheme,
+    Color base, {
+    double alpha = 0.08,
+  }) {
+    return Color.alphaBlend(scheme.primary.withValues(alpha: alpha), base);
+  }
+
   static ThemeData buildFromScheme(ColorScheme scheme) {
-    const bgDark = Color(0xFF0C0C0E);
-    const surfaceDark = Color(0xFF151518);
-    const surfaceHighlight = Color(0xFF1F1F23);
+    const baseBg = Color(0xFF0C0C0E);
+    const baseSurface = Color(0xFF151518);
+    const baseHighlight = Color(0xFF1F1F23);
+
+    // The music colours the room: the canvas and every neutral surface pick up
+    // a whisper of the song's accent, so the whole window follows the artwork
+    // instead of staying pure grey. Idle uses the emerald fallback accent.
+    final bgDark = ambientBlend(scheme, baseBg);
+    final surfaceDark = ambientBlend(scheme, baseSurface, alpha: 0.06);
+    final surfaceHighlight = ambientBlend(scheme, baseHighlight, alpha: 0.06);
 
     return ThemeData(
       useMaterial3: true,
@@ -83,7 +101,7 @@ class PlayerTheme extends ChangeNotifier {
           TargetPlatform.macOS: _FastFadePageTransitionsBuilder(),
         },
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: bgDark,
         scrolledUnderElevation: 0,
         elevation: 0,
@@ -124,7 +142,7 @@ class PlayerTheme extends ChangeNotifier {
       ),
       menuTheme: MenuThemeData(
         style: MenuStyle(
-          backgroundColor: const WidgetStatePropertyAll(surfaceHighlight),
+          backgroundColor: WidgetStatePropertyAll(surfaceHighlight),
           elevation: const WidgetStatePropertyAll(8),
           padding: const WidgetStatePropertyAll(
             EdgeInsets.symmetric(vertical: 6),
@@ -305,7 +323,7 @@ class PlayerTheme extends ChangeNotifier {
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
+      bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: surfaceDark,
         constraints: BoxConstraints(maxWidth: 640),
         shape: RoundedRectangleBorder(

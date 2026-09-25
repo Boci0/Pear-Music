@@ -186,9 +186,14 @@ class _HomeShellState extends State<HomeShell>
                     // (mirror of the status bar at the bottom).
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 4),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1C1C20),
-                        border: Border(
+                      decoration: BoxDecoration(
+                        // Ambient tint: the chrome follows the song's colour.
+                        color: PlayerTheme.ambientBlend(
+                          Theme.of(context).colorScheme,
+                          const Color(0xFF1C1C20),
+                          alpha: 0.06,
+                        ),
+                        border: const Border(
                           bottom: BorderSide(color: Color(0x1AFFFFFF)),
                         ),
                       ),
