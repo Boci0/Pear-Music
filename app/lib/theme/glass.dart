@@ -31,6 +31,10 @@ class PearGlassTokens {
   /// Tint laid over the blurred backdrop: a dark base so text stays readable,
   /// with a faint white sheen that fades from top to bottom.
   static const double baseAlpha = 0.55;
+
+  /// Denser base for popups, menus and sheets, which open over busy content
+  /// and hold small text.
+  static const double popupAlpha = 0.74;
   static const double sheenTop = 0.08;
   static const double sheenBottom = 0.03;
 
@@ -84,6 +88,10 @@ class PearGlass extends StatelessWidget {
   /// underneath; see the library comment.
   final bool blur;
 
+  /// Strength of the dark base under the sheen; defaults to
+  /// [PearGlassTokens.baseAlpha].
+  final double? opacity;
+
   const PearGlass({
     super.key,
     required this.child,
@@ -92,6 +100,7 @@ class PearGlass extends StatelessWidget {
     this.shadow = true,
     this.edge = PearGlassEdge.all,
     this.blur = false,
+    this.opacity,
   });
 
   /// The panel fill: a sheen gradient over the blurred backdrop, or an opaque
@@ -101,8 +110,10 @@ class PearGlass extends StatelessWidget {
     required bool reduced,
     Color? tint,
     BorderRadius? borderRadius,
+    double? opacity,
   }) {
     final base = tint ?? scheme.surface;
+    final alpha = opacity ?? PearGlassTokens.baseAlpha;
     if (reduced) {
       return BoxDecoration(
         color: Color.alphaBlend(
@@ -120,11 +131,11 @@ class PearGlass extends StatelessWidget {
         colors: [
           Color.alphaBlend(
             Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
-            base.withValues(alpha: PearGlassTokens.baseAlpha),
+            base.withValues(alpha: alpha),
           ),
           Color.alphaBlend(
             Colors.white.withValues(alpha: PearGlassTokens.sheenBottom),
-            base.withValues(alpha: PearGlassTokens.baseAlpha + 0.1),
+            base.withValues(alpha: (alpha + 0.1).clamp(0.0, 1.0)),
           ),
         ],
       ),
@@ -142,6 +153,7 @@ class PearGlass extends StatelessWidget {
         reduced: reduced,
         tint: tint,
         borderRadius: borderRadius,
+        opacity: opacity,
       ),
       child: child,
     );

@@ -10,7 +10,6 @@ import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_artwork.dart';
-import '../widgets/player/player_console_dialog.dart';
 import '../widgets/player/player_desktop_body.dart';
 import '../widgets/player/player_landscape_body.dart';
 import '../widgets/player/player_portrait_body.dart';
@@ -118,11 +117,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
       actions: [
-        TactileIconButton(
-          tooltip: 'Diagnostics Console',
-          icon: const Icon(Icons.terminal_rounded),
-          onPressed: () => PlayerConsoleDialog.show(context),
-        ),
         PlaybackSpeedButton(player: player),
         SleepTimerButton(player: player),
         StreamQualityInfoButton(player: player),

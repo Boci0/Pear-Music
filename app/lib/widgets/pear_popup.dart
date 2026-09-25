@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../theme/glass.dart';
+
 /// True when popups should use the desktop treatment (a centered card) instead
 /// of the phone push-up sheet: Windows, Linux and macOS.
 bool get isDesktopPopupPlatform =>
@@ -55,23 +57,32 @@ Future<T?> showPearPopup<T>({
       barrierColor: barrierColor ?? Colors.black.withValues(alpha: 0.55),
       builder: (ctx) {
         final height = MediaQuery.sizeOf(ctx).height;
-        return Dialog(
-          // Some content (the diagnostics panes) paints its own card; drop the
-          // dialog surface and border so only that card shows.
-          backgroundColor: useDialogSurface ? null : Colors.transparent,
-          elevation: useDialogSurface ? null : 0,
-          shape: useDialogSurface
-              ? null
-              : const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(24)),
-                ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: maxWidth,
-              maxHeight: height * maxHeightFactor,
-            ),
-            child: builder(ctx),
+        final content = ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: maxWidth,
+            maxHeight: height * maxHeightFactor,
           ),
+          child: builder(ctx),
+        );
+        // The dialog surface is a frosted glass card. Some content (the
+        // Info pane) paints its own card, so it gets no surface at all.
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(24)),
+          ),
+          child: useDialogSurface
+              ? PearGlass(
+                  borderRadius: const BorderRadius.all(Radius.circular(24)),
+                  blur: true,
+                  opacity: PearGlassTokens.popupAlpha,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: content,
+                  ),
+                )
+              : content,
         );
       },
     );
@@ -86,6 +97,9 @@ Future<T?> showPearPopup<T>({
           child: builder(ctx),
         );
   }
+  // The phone sheet is a frosted glass panel rising from the bottom edge.
+  const sheetRadius = BorderRadius.vertical(top: Radius.circular(24));
+  final sheetBuilder = effectiveBuilder;
   return showModalBottomSheet<T>(
     context: context,
     useRootNavigator: useRootNavigator,
@@ -93,7 +107,18 @@ Future<T?> showPearPopup<T>({
     showDragHandle: showDragHandle,
     useSafeArea: useSafeArea,
     barrierColor: barrierColor,
-    builder: effectiveBuilder,
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    builder: (ctx) => PearGlass(
+      borderRadius: sheetRadius,
+      blur: true,
+      shadow: false,
+      opacity: PearGlassTokens.popupAlpha,
+      child: Material(
+        type: MaterialType.transparency,
+        child: sheetBuilder(ctx),
+      ),
+    ),
   );
 }
 
@@ -113,10 +138,15 @@ Future<T?> _showAnchoredPopup<T>({
     barrierDismissible: true,
     barrierLabel: 'Dismiss menu',
     barrierColor: Colors.black.withValues(alpha: 0.10),
-    transitionDuration: const Duration(milliseconds: 120),
+    transitionDuration: const Duration(milliseconds: 200),
+    // The menu fades in and pops open from its anchor, with a slight
+    // overshoot so it feels springy rather than just appearing.
     transitionBuilder: (ctx, animation, secondaryAnimation, child) =>
         FadeTransition(
-      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      opacity: CurvedAnimation(
+        parent: animation,
+        curve: const Interval(0, 0.6, curve: Curves.easeOut),
+      ),
       child: child,
     ),
     pageBuilder: (ctx, animation, secondaryAnimation) {
@@ -134,18 +164,30 @@ Future<T?> _showAnchoredPopup<T>({
       final maxHeight =
           (openAbove ? spaceAbove : spaceBelow).clamp(120.0, screen.height * 0.9);
 
-      final card = Material(
-        color: const Color(0xFF1F1F23),
-        elevation: 8,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      final scale = Tween<double>(begin: 0.92, end: 1).animate(
+        CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutBack,
+          reverseCurve: Curves.easeIn,
         ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxHeight),
-          child: builder(ctx),
+      );
+      final card = PearGlass(
+        borderRadius: BorderRadius.circular(16),
+        blur: true,
+        opacity: PearGlassTokens.popupAlpha,
+        child: Material(
+          type: MaterialType.transparency,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: builder(ctx),
+          ),
         ),
+      );
+      // Pops from the corner nearest the control that opened it.
+      final popping = ScaleTransition(
+        scale: scale,
+        alignment: Alignment(alignRight ? 1 : -1, openAbove ? 1 : -1),
+        child: card,
       );
 
       return Stack(
@@ -155,14 +197,14 @@ Future<T?> _showAnchoredPopup<T>({
               left: left,
               bottom: screen.height - (anchor.dy - 6),
               width: cardWidth,
-              child: card,
+              child: popping,
             )
           else
             Positioned(
               left: left,
               top: belowTop,
               width: cardWidth,
-              child: card,
+              child: popping,
             ),
         ],
       );

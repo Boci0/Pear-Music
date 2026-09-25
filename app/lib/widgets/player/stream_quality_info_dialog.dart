@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/song.dart';
 import '../../services/player_service.dart';
+import '../../theme/glass.dart';
 import '../pear_popup.dart';
 import '../tactile_button.dart';
 
@@ -179,10 +180,13 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
         : const BorderRadius.vertical(top: Radius.circular(24));
 
     return RepaintBoundary(
-      child: Material(
-        color: const Color(0xFF0D0D0D),
+      child: PearGlass(
         borderRadius: cardRadius,
-        clipBehavior: Clip.antiAlias,
+        blur: true,
+        shadow: widget.desktop,
+        opacity: PearGlassTokens.popupAlpha,
+        child: Material(
+        type: MaterialType.transparency,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -204,7 +208,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                       width: 38,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF333333),
+                        color: Colors.white.withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -251,8 +255,10 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.white,
-                            backgroundColor: const Color(0xFF1E1E1E),
-                            side: const BorderSide(color: Color(0xFF333333)),
+                            backgroundColor: Colors.white.withValues(alpha: 0.06),
+                            side: BorderSide(
+                              color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -273,8 +279,10 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
-                              backgroundColor: const Color(0xFF1E1E1E),
-                              side: const BorderSide(color: Color(0xFF333333)),
+                              backgroundColor: Colors.white.withValues(alpha: 0.06),
+                              side: BorderSide(
+                                color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -406,6 +414,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
         ),
       ),
     ),
+      ),
   );
   }
 

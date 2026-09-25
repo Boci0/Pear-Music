@@ -13,7 +13,6 @@ import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
-import 'player/player_console_dialog.dart';
 import 'player/player_controls.dart';
 import 'player/sleep_timer_dialog.dart';
 import 'player/stream_quality_info_dialog.dart';
@@ -164,12 +163,6 @@ class NowPlayingPanel extends StatelessWidget {
                 onPressed: () => _collapsePlayer(context),
               ),
               const Spacer(),
-              TactileIconButton(
-                iconSize: 18,
-                icon: const Icon(Icons.terminal_rounded),
-                tooltip: 'Diagnostics Console',
-                onPressed: () => PlayerConsoleDialog.show(context),
-              ),
               PlaybackSpeedButton(player: player),
               SleepTimerButton(player: player),
               StreamQualityInfoButton(player: player),

@@ -47,13 +47,20 @@ class _HomeShellState extends State<HomeShell>
   /// tabs on every platform.
   late final AnimationController _tabFade = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 180),
+    duration: const Duration(milliseconds: 260),
     value: 1,
   );
   late final Animation<double> _tabFadeCurve = CurvedAnimation(
     parent: _tabFade,
-    curve: Curves.easeOutQuad,
+    curve: Curves.easeOutCubic,
   );
+
+  /// The new tab rises a few pixels as it fades in, so switching tabs has a
+  /// little motion rather than only a cross-fade.
+  late final Animation<Offset> _tabRise = Tween<Offset>(
+    begin: const Offset(0, 0.012),
+    end: Offset.zero,
+  ).animate(_tabFadeCurve);
 
   /// One shared content width for every tab. Same cap means every tab's
   /// header and content dock to the same edges and end at the same x, so no
@@ -206,9 +213,12 @@ class _HomeShellState extends State<HomeShell>
                                 Positioned.fill(
                                   child: FadeTransition(
                                     opacity: _tabFadeCurve,
-                                    child: IndexedStack(
-                                      index: _index,
-                                      children: _screens,
+                                    child: SlideTransition(
+                                      position: _tabRise,
+                                      child: IndexedStack(
+                                        index: _index,
+                                        children: _screens,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -269,7 +279,10 @@ class _HomeShellState extends State<HomeShell>
               )
             : FadeTransition(
                 opacity: _tabFadeCurve,
-                child: IndexedStack(index: _index, children: _screens),
+                child: SlideTransition(
+                  position: _tabRise,
+                  child: IndexedStack(index: _index, children: _screens),
+                ),
               ),
         bottomNavigationBar: isWide
             ? null
@@ -364,9 +377,10 @@ class _MinimalistNavBar extends StatelessWidget {
               return Stack(
                 children: [
                   // Gliding indicator, centred on the selected item's icon.
+                  // easeOutBack lets it overshoot a touch and settle back.
                   AnimatedPositioned(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeOutCubic,
+                    duration: const Duration(milliseconds: 340),
+                    curve: Curves.easeOutBack,
                     left:
                         selectedIndex * itemWidth +
                         (itemWidth - indicatorWidthForItem) / 2,

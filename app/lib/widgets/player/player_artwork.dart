@@ -10,7 +10,6 @@ import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
-import 'player_console_dialog.dart';
 import 'rhythm_pulse.dart';
 import 'visual_synthesizer_bar.dart';
 import '../tactile_button.dart';
@@ -694,9 +693,8 @@ class PlayerSongInfo extends StatelessWidget {
         ],
       );
     } else if (isStream) {
-      content = GestureDetector(
+      content = KeyedSubtree(
         key: const ValueKey('source_stream'),
-        onLongPress: () => PlayerConsoleDialog.show(context),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

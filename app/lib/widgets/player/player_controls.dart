@@ -462,8 +462,8 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                                   ),
                                 ),
 
-                                // Pearl playhead; its bloom breathes softly
-                                // while the track plays
+                                // Accent pill playhead; its glow breathes
+                                // softly while the track plays
                                 Positioned(
                                   left: headX,
                                   top: (containerHeight - _PlayheadNub.height) / 2,
@@ -762,21 +762,26 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
   }
 }
 
-/// Round pearl playhead for the seek waveform: a circle reads as a handle
-/// against the vertical bars, and it is sized larger than the tallest bar.
-/// Grows on hover or drag; its bloom breathes with [pulse] while the track
-/// plays.
+/// Seek playhead: a slim upright pill in the track's accent, shaped like the
+/// waveform bars it rides on so it reads as part of the track rather than a
+/// separate bead. It stretches while hovered or dragged, and its accent glow
+/// breathes softly while the track plays.
 class _PlayheadNub extends StatelessWidget {
-  /// Bead diameter, also used by the layout to reserve travel space.
+  /// Layout box width, also used by the layout to reserve travel space. The
+  /// pill itself is centred inside it.
   static const double width = 16.0;
 
-  /// Same as [width]; the bead is round.
-  static const double height = 16.0;
+  /// Layout box height; the pill is centred vertically inside it.
+  static const double height = 26.0;
+
+  static const double _pillWidth = 4.5;
+  static const double _pillHeight = 20.0;
+  static const double _pillHeightActive = 26.0;
 
   final Color accent;
   final bool active;
 
-  /// 0..1 playback pulse that gently brightens and widens the bloom.
+  /// 0..1 playback pulse that gently brightens and widens the glow.
   final double pulse;
 
   const _PlayheadNub({
@@ -787,33 +792,26 @@ class _PlayheadNub extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedScale(
-      scale: active ? 1.22 : 1.0,
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOutCubic,
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            center: const Alignment(-0.35, -0.4),
-            radius: 0.9,
-            colors: [
-              Colors.white,
-              Color.lerp(accent, Colors.white, 0.50)!,
+    final fill = Color.lerp(accent, Colors.white, 0.35)!;
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
+          width: active ? _pillWidth + 1 : _pillWidth,
+          height: active ? _pillHeightActive : _pillHeight,
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(_pillWidth),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.40 + pulse * 0.20),
+                blurRadius: 8 + pulse * 4,
+              ),
             ],
           ),
-          boxShadow: [
-            BoxShadow(
-              color: accent.withValues(alpha: 0.55 + pulse * 0.35),
-              blurRadius: 12 + pulse * 8,
-            ),
-            BoxShadow(
-              color: accent.withValues(alpha: 0.22 + pulse * 0.20),
-              blurRadius: 24 + pulse * 14,
-            ),
-          ],
         ),
       ),
     );
@@ -880,7 +878,7 @@ class _WaveformPainter extends CustomPainter {
       final barCenter = left + _barWidth / 2;
       if (barCenter <= headLocal) {
         // Bars just behind the cursor warm toward white, kept subtle so the
-        // playhead bead stays the brightest thing on the track.
+        // playhead pill stays the brightest thing on the track.
         final closeness = ((headLocal - left) / 22).clamp(0.0, 1.0);
         paint.color = closeness >= 1.0
             ? warmFull

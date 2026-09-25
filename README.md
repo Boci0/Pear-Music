@@ -28,7 +28,7 @@
 * **Listening History**: A History tab keeps the tracks you played in order, local files and online streams side by side, so you can jump back into any of them; clearing it never touches your library.
 * **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with album artwork on the Android lockscreen, the notification shade, and Windows Media Transport Controls (SMTC). Hardware media keys work on desktop.
 * **Sleep Timer & Playback Speed**: Sleep triggers for the end of the track, a countdown, or the end of the queue; playback speed from 0.5x to 2.0x; and loudness normalization to even out volume between tracks.
-* **Performance & Diagnostics**: Reduced Effects mode for battery savings, streaming cache management with live usage stats, and a diagnostics console for stream and cache activity.
+* **Performance & Diagnostics**: Reduced Effects mode for battery savings, and streaming cache management with live usage stats.
 * **Automated In-App Updates**: Built-in version checks with one-click updates from GitHub releases; the Android updater resumes interrupted downloads, verifies checksums, and installs the APK that matches your device architecture.
 
 ---
