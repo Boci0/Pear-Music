@@ -409,6 +409,47 @@ class StreamCacheManager {
     }
   }
 
+  /// Video id of each running Android fetch, keyed by its process id, so a
+  /// link the plugin reports can be matched to its video.
+  static final Map<String, String> _androidFetchVideoIds = {};
+  static bool _androidLinkHandlerInstalled = false;
+
+  /// Listens for the Android plugin's `streamResolved` calls: the embedded
+  /// yt-dlp prints the same stream line as the desktop fetch, and the plugin
+  /// forwards it (with the process id) as soon as it appears.
+  static void _installAndroidLinkHandler() {
+    if (_androidLinkHandlerInstalled) return;
+    _androidLinkHandlerInstalled = true;
+    const MethodChannel(
+      'peerm/ytdlp',
+    ).setMethodCallHandler(handleAndroidPluginCall);
+  }
+
+  /// Handles calls from the Android yt-dlp plugin (see
+  /// [_installAndroidLinkHandler]).
+  @visibleForTesting
+  static Future<Object?> handleAndroidPluginCall(MethodCall call) async {
+    if (call.method != 'streamResolved') return null;
+    final args = call.arguments;
+    if (args is! Map) return null;
+    final processId = args['processId'];
+    final line = args['line'];
+    if (processId is! String || line is! String) return null;
+    final videoId = _androidFetchVideoIds[processId];
+    final stream = parseStreamLine(line);
+    if (videoId != null && stream != null) {
+      DebugLog.write('[cache] Android direct stream link ready for $videoId');
+      _publishResolvedStream(videoId, stream);
+    }
+    return null;
+  }
+
+  /// Test seam: registers a running Android fetch, as the embedded download
+  /// path does, so [handleAndroidPluginCall] can match its links.
+  @visibleForTesting
+  static void debugTrackAndroidFetch(String processId, String videoId) =>
+      _androidFetchVideoIds[processId] = videoId;
+
   static String? _activeDownloadingVideoId;
   static bool _isActiveDownloadPreload = false;
   static String? _activeProcessId;
@@ -435,7 +476,8 @@ class StreamCacheManager {
   /// the download starts, so a track can play while it is still being
   /// cached. `--print` normally implies a dry run, hence `--no-simulate`.
   /// Every fetch prints it (preloads just ignore it), which keeps the args
-  /// identical so the pre-booted spare process always matches.
+  /// identical so the pre-booted spare process always matches. The Android
+  /// plugin adds the same line to its downloads (see YtDlpPlugin.kt).
   static List<String> _desktopStreamArgs(String ytdlpCachePath) {
     return [
       '--no-simulate',
@@ -633,10 +675,9 @@ class StreamCacheManager {
   /// Strictly enforces single-concurrency to prevent multiple downloads from splitting bandwidth.
   ///
   /// When [onStreamUrl] is given, it is called with the direct audio link as
-  /// soon as the desktop fetch has resolved it (before the download is done),
-  /// including when this call joins a fetch that is already running. It is
-  /// never called on Android (the embedded engine only downloads) or on a
-  /// cache hit.
+  /// soon as the fetch has resolved it (before the download is done), on the
+  /// desktop engine and on Android's embedded one, including when this call
+  /// joins a fetch that is already running. It is not called on a cache hit.
   static Future<File?> ensureStreamCached(
     String videoId, {
     bool isPreload = false,
@@ -768,6 +809,8 @@ class StreamCacheManager {
         final tempPart = File(p.join(dir.path, '$videoId.m4a'));
         final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
         _activeProcessId = processId;
+        _installAndroidLinkHandler();
+        _androidFetchVideoIds[processId] = videoId;
         try {
           DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
           const channel = MethodChannel('peerm/ytdlp');
@@ -814,6 +857,7 @@ class StreamCacheManager {
             if (await tempPart.exists()) await tempPart.delete();
           } catch (_) {}
         } finally {
+          _androidFetchVideoIds.remove(processId);
           if (_activeProcessId == processId) {
             _activeProcessId = null;
           }

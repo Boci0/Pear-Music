@@ -844,10 +844,30 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--retries", "2")
                     req.addOption("--extractor-retries", "1")
                     req.addOption("--fragment-retries", "2")
+                    // Print the chosen format's direct link (and the headers
+                    // to fetch it with) as soon as it is picked, before the
+                    // download starts, so the app can play while the file is
+                    // still being cached. --print implies a dry run without
+                    // --no-simulate.
+                    req.addOption("--no-simulate")
+                    req.addOption("--print", "video:$STREAM_LINE_PREFIX%(.{url,http_headers,ext})j")
                     return req
                 }
 
-                val response = YoutubeDL.getInstance().execute(makeAudioReq(), processId)
+                var linkSent = false
+                val response = YoutubeDL.getInstance().execute(makeAudioReq(), processId) { _, _, line ->
+                    if (!linkSent && line.startsWith(STREAM_LINE_PREFIX)) {
+                        linkSent = true
+                        mainHandler.post {
+                            messenger?.let {
+                                MethodChannel(it, CHANNEL).invokeMethod(
+                                    "streamResolved",
+                                    mapOf("processId" to processId, "line" to line),
+                                )
+                            }
+                        }
+                    }
+                }
 
                 val outFile = File(outputPath)
                 if (outFile.exists() && outFile.length() > 50000) {
@@ -940,6 +960,8 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
 
     companion object {
         private const val CHANNEL = "peerm/ytdlp"
+        /// Must match StreamCacheManager.streamLinePrefix on the Dart side.
+        private const val STREAM_LINE_PREFIX = "PEARSTREAM "
         private const val EVENTS = "peerm/ytdlp/progress"
         private const val TAG = "peerm_ytdlp"
 

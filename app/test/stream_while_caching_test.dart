@@ -111,6 +111,57 @@ void main() {
     });
   });
 
+  group('Android plugin links', () {
+    test('a streamResolved call from the plugin reaches the waiting caller',
+        () async {
+      final received = <ResolvedStream>[];
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        // What the embedded download path does, then the plugin reporting
+        // the printed line over the method channel.
+        StreamCacheManager.debugTrackAndroidFetch('peerm-fast-1', videoId);
+        await StreamCacheManager.handleAndroidPluginCall(
+          const MethodCall('streamResolved', {
+            'processId': 'peerm-fast-1',
+            'line': 'PEARSTREAM {"url": "https://a.googlevideo.com/p?x=1", '
+                '"http_headers": {"User-Agent": "UA"}, "ext": "m4a"}',
+          }),
+        );
+        return null;
+      };
+
+      await StreamCacheManager.ensureStreamCached(
+        'androidVid1',
+        onStreamUrl: received.add,
+      );
+
+      expect(received, hasLength(1));
+      expect(received.single.url, 'https://a.googlevideo.com/p?x=1');
+      expect(received.single.ext, 'm4a');
+    });
+
+    test('links for an unknown process are ignored', () async {
+      final received = <ResolvedStream>[];
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        await StreamCacheManager.handleAndroidPluginCall(
+          const MethodCall('streamResolved', {
+            'processId': 'someone-else',
+            'line': 'PEARSTREAM {"url": "https://a.googlevideo.com/p"}',
+          }),
+        );
+        return null;
+      };
+
+      await StreamCacheManager.ensureStreamCached(
+        'androidVid2',
+        onStreamUrl: received.add,
+      );
+
+      expect(received, isEmpty);
+    });
+  });
+
   group('play while caching', () {
     test('playback starts from the direct link before the download ends',
         () async {
