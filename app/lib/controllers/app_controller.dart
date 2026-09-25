@@ -753,13 +753,10 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (kIsWeb) return;
       if (Platform.isWindows) {
         await library.flushSaveIndex();
-        final exe = Platform.resolvedExecutable;
-        await Process.start(
-          exe,
-          const [],
-          mode: ProcessStartMode.detached,
-          workingDirectory: File(exe).parent.path,
-        );
+        // The runner launches the new copy: a Dart-spawned process would sit
+        // in the job object that kills every child when this one exits, and
+        // it would also give up on the single-instance lock we still hold.
+        await const MethodChannel('peerm/windows_updater').invokeMethod('relaunch');
         exit(0);
       } else if (Platform.isAndroid) {
         await library.flushSaveIndex();

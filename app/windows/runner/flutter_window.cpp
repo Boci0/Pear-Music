@@ -160,6 +160,37 @@ bool FlutterWindow::OnCreate() {
             result->Error("SPAWN_FAILED",
                           "CreateProcess failed with error code " + std::to_string(err));
           }
+        } else if (call.method_name() == "relaunch") {
+          // Starts a fresh copy of the app for Restart. It must leave the job
+          // object (which kills every child when this process exits) and gets
+          // --relaunch so it waits for this instance to let go of the
+          // single-instance mutex instead of handing off to our window.
+          wchar_t exe_path[MAX_PATH] = {0};
+          ::GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+          std::wstring cmd = L"\"" + std::wstring(exe_path) + L"\" --relaunch";
+          if (::wcsstr(::GetCommandLineW(), L"--beta") != nullptr) {
+            cmd += L" --beta";
+          }
+          std::wstring dir(exe_path);
+          const size_t slash = dir.find_last_of(L"\\/");
+          if (slash != std::wstring::npos) dir.resize(slash);
+
+          STARTUPINFOW si = {sizeof(si)};
+          PROCESS_INFORMATION pi = {0};
+          std::vector<wchar_t> wcmd(cmd.begin(), cmd.end());
+          wcmd.push_back(L'\0');
+          BOOL ok = ::CreateProcessW(exe_path, wcmd.data(), nullptr, nullptr, FALSE,
+                                     CREATE_BREAKAWAY_FROM_JOB, nullptr, dir.c_str(),
+                                     &si, &pi);
+          if (ok) {
+            ::CloseHandle(pi.hProcess);
+            ::CloseHandle(pi.hThread);
+            result->Success(flutter::EncodableValue(true));
+          } else {
+            DWORD err = ::GetLastError();
+            result->Error("SPAWN_FAILED",
+                          "CreateProcess failed with error code " + std::to_string(err));
+          }
         } else {
           result->NotImplemented();
         }

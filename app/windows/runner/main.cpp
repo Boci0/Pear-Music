@@ -20,8 +20,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Prevent multiple concurrent instances on Windows.
   // A second instance running against the same local databases causes
   // port/socket conflicts, mutual signaling disconnections, and high CPU/RAM spikes.
+  // Restart launches us with --relaunch while the old instance is still
+  // shutting down. Wait for it to let go of the mutex (released when that
+  // process exits) instead of handing off to its window, which is about to
+  // close. Past the timeout, fall back to the normal hand-off.
+  const bool is_relaunch =
+      command_line != nullptr && ::wcsstr(command_line, L"--relaunch") != nullptr;
   HANDLE mutex = ::CreateMutexW(nullptr, TRUE, mutex_name);
-  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+  bool another_instance = ::GetLastError() == ERROR_ALREADY_EXISTS;
+  if (is_relaunch && mutex && another_instance) {
+    const DWORD waited = ::WaitForSingleObject(mutex, 15000);
+    another_instance = !(waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED);
+  }
+  if (another_instance) {
     HWND existing_window = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", window_title);
     if (existing_window) {
       if (::IsIconic(existing_window)) {
