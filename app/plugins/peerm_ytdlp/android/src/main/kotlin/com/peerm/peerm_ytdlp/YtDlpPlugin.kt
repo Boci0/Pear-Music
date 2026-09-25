@@ -828,7 +828,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 }
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT)
                 ensureInit(ctx)
-                fun makeAudioReq(): YoutubeDLRequest {
+                // skipPlayerJs: take only formats that need no work from
+                // YouTube's player code. Solving its JavaScript challenges in
+                // QuickJS costs about 8 seconds on a phone, and most videos
+                // offer a ready audio link without it.
+                fun makeAudioReq(skipPlayerJs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-f", format ?: "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba")
                     req.addOption("-o", outputPath)
@@ -838,7 +842,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--no-warnings")
                     req.addOption("--force-ipv4")
                     req.addOption("--no-check-certificates")
-                    req.addOption("--extractor-args", "youtube:skip=webpage,authcheck,translated_subs,hls")
+                    req.addOption(
+                        "--extractor-args",
+                        if (skipPlayerJs) "youtube:skip=webpage,authcheck,translated_subs,hls;player_skip=js"
+                        else "youtube:skip=webpage,authcheck,translated_subs,hls",
+                    )
                     req.addOption("--concurrent-fragments", "2")
                     req.addOption("--http-chunk-size", "5M")
                     req.addOption("--buffer-size", "64k")
@@ -863,18 +871,36 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 }
 
                 var linkSent = false
-                val response = YoutubeDL.getInstance().execute(makeAudioReq(), processId) { _, _, line ->
-                    if (!linkSent && line.startsWith(STREAM_LINE_PREFIX)) {
-                        linkSent = true
-                        mainHandler.post {
-                            messenger?.let {
-                                MethodChannel(it, CHANNEL).invokeMethod(
-                                    "streamResolved",
-                                    mapOf("processId" to processId, "line" to line),
-                                )
+                val started = System.currentTimeMillis()
+                fun run(skipPlayerJs: Boolean) {
+                    YoutubeDL.getInstance().execute(makeAudioReq(skipPlayerJs), processId) { _, _, line ->
+                        if (!linkSent && line.startsWith(STREAM_LINE_PREFIX)) {
+                            linkSent = true
+                            android.util.Log.i(TAG, "audio link after ${System.currentTimeMillis() - started}ms (skipPlayerJs=$skipPlayerJs)")
+                            mainHandler.post {
+                                messenger?.let {
+                                    MethodChannel(it, CHANNEL).invokeMethod(
+                                        "streamResolved",
+                                        mapOf("processId" to processId, "line" to line),
+                                    )
+                                }
                             }
                         }
                     }
+                }
+                try {
+                    run(skipPlayerJs = true)
+                } catch (e: Exception) {
+                    // No ready link for this video: fall back to the full path
+                    // with the player code. Only before a link went out, since
+                    // after that the app is already playing this file.
+                    if (linkSent || currentAudioProcessId != processId) throw e
+                    val msg = e.message ?: ""
+                    if (msg.contains("Video unavailable") || msg.contains("Private video") ||
+                        msg.contains("not made this video available")) throw e
+                    android.util.Log.i(TAG, "no link without player code, retrying with it: ${e.message}")
+                    File(outputPath).delete()
+                    run(skipPlayerJs = false)
                 }
 
                 val outFile = File(outputPath)

@@ -515,7 +515,12 @@ class StreamCacheManager {
   /// Every fetch prints it (preloads just ignore it), which keeps the args
   /// identical so the pre-booted spare process always matches. The Android
   /// plugin adds the same line to its downloads (see YtDlpPlugin.kt).
-  static List<String> _desktopStreamArgs(String ytdlpCachePath) {
+  ///
+  /// With [skipPlayerJs] yt-dlp only takes formats that need nothing from
+  /// YouTube's player code. Most videos offer one, and it skips downloading
+  /// that code and solving its JavaScript challenges (seconds on a desktop,
+  /// about 8 s on a phone). A fetch that finds no such format retries without.
+  static List<String> _desktopStreamArgs(String ytdlpCachePath, {bool skipPlayerJs = true}) {
     return [
       '--no-simulate',
       '--print',
@@ -525,7 +530,9 @@ class StreamCacheManager {
       '--cache-dir',
       ytdlpCachePath,
       '--extractor-args',
-      'youtube:skip=webpage,authcheck,translated_subs,hls',
+      skipPlayerJs
+          ? 'youtube:skip=webpage,authcheck,translated_subs,hls;player_skip=js'
+          : 'youtube:skip=webpage,authcheck,translated_subs,hls',
       '--no-playlist',
       '--no-part',
       '--no-mtime',
@@ -927,12 +934,13 @@ class StreamCacheManager {
         final outputTemplate = p.join(dir.path, '%(id)s.%(ext)s');
         final ytdlpCache = await getYtDlpCacheDirectory();
         const timeoutDuration = Duration(seconds: 120);
-        final baseArgs = _desktopStreamArgs(ytdlpCache.path);
+        var linkPublished = false;
+        var cancelled = false;
 
         /// One desktop fetch: takes the pre-booted spare when available (it
         /// already paid the ~2 s yt-dlp startup) or spawns on demand, feeds it
         /// the URL over stdin and waits for the process to finish.
-        Future<File?> fetchWithYtDlp() async {
+        Future<File?> fetchWithYtDlp(List<String> baseArgs) async {
           final process = await YtDlpPrewarmer.instance.startFetch(
             url: 'https://www.youtube.com/watch?v=$videoId',
             bin: binPath,
@@ -956,6 +964,7 @@ class StreamCacheManager {
                   final stream = parseStreamLine(line);
                   if (stream != null) {
                     DebugLog.write('[cache] Direct stream link ready for $videoId');
+                    linkPublished = true;
                     _publishResolvedStream(videoId, stream);
                   }
                 },
@@ -983,6 +992,9 @@ class StreamCacheManager {
           } finally {
             if (_activeDesktopProcess == process) {
               _activeDesktopProcess = null;
+            } else {
+              // _killActiveDesktopEngine already dropped it: a cancel.
+              cancelled = true;
             }
           }
 
@@ -1001,7 +1013,24 @@ class StreamCacheManager {
           return getCachedFile(videoId);
         }
 
-        final fetched = await fetchWithYtDlp();
+        var fetched = await fetchWithYtDlp(_desktopStreamArgs(ytdlpCache.path));
+        // Retry only a fetch that is still wanted and failed for a reason the
+        // player code can fix: not for a gone video, a dead network or a
+        // missing yt-dlp, and never after a cancel or a newer request.
+        final failureKind = _lastFetchFailures[videoId]?.kind;
+        final stillWanted = !cancelled &&
+            token == _downloadInvocationToken &&
+            !(isPreload && preloadSeq != _slidingWindowSequence) &&
+            _activeDownloadingVideoId == videoId;
+        if (fetched == null &&
+            !linkPublished &&
+            stillWanted &&
+            (failureKind == null ||
+                failureKind == StreamFetchFailureKind.unknown ||
+                failureKind == StreamFetchFailureKind.blocked)) {
+          DebugLog.write('[cache] No link without the player code for $videoId, retrying with it');
+          fetched = await fetchWithYtDlp(_desktopStreamArgs(ytdlpCache.path, skipPlayerJs: false));
+        }
 
         if (fetched != null) {
           final len = await fetched.length();
