@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
+import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
 import 'player/player_console_dialog.dart';
@@ -677,7 +678,7 @@ class _QueueContextListState extends State<_QueueContextList> {
               final isPlayed = i < index;
               return InkWell(
                 borderRadius: BorderRadius.circular(8),
-                hoverColor: Colors.white.withValues(alpha: 0.05),
+                hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
                 onTap: () {
                   TactileFeedback.click();
                   player.playSong(

@@ -8,6 +8,7 @@ import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
+import '../../theme/tokens.dart';
 import '../tactile_button.dart';
 
 /// Controller coordinating expand/collapse state between the expandable queue sheet
@@ -1023,7 +1024,7 @@ class _QueueRow extends StatelessWidget {
             onTap();
           },
           borderRadius: BorderRadius.circular(10),
-          hoverColor: Colors.white.withValues(alpha: 0.05),
+          hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
           child: Container(
             height: 55,
             decoration: BoxDecoration(

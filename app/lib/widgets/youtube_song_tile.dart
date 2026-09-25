@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../services/artwork_service.dart';
 import '../services/youtube_search_service.dart';
+import '../theme/tokens.dart';
 import 'pear_popup.dart';
 import 'tactile_button.dart';
 
@@ -62,7 +63,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
           children: [
             ListTile(
               leading: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                // Thumbnails in rows share the row-thumbnail radius, even at
+                // this menu's 48px size.
+                borderRadius: PearRadius.thumbAll,
                 child: widget.result.thumbnailUrl != null
                     ? Image.network(
                         ArtworkService.optimizeArtworkUrl(
