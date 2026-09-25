@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
@@ -196,7 +197,7 @@ void main() {
       final audio = _RecordingAudioPlayer(failUris: true);
       final player = PlayerService(LibraryService(), player: audio);
       final song = _streamSong('abcdefghijk', 'Short Song');
-      final cached = File('${sandbox.path}/abcdefghijk.webm')
+      final cached = File(p.join(sandbox.path, 'abcdefghijk.webm'))
         ..writeAsBytesSync(List.filled(64, 1));
       StreamCacheManager.debugEnsureStreamCachedOverride =
           (videoId, {required isPreload}) async {
@@ -208,8 +209,15 @@ void main() {
       await player.playSong(song, queue: [song]);
 
       expect(audio.loaded, hasLength(2));
-      expect((audio.loaded.last as UriAudioSource).uri.toFilePath(),
-          cached.path);
+      // Compare as paths, not strings, so the check holds with Windows
+      // separators too.
+      expect(
+        p.equals(
+          (audio.loaded.last as UriAudioSource).uri.toFilePath(),
+          cached.path,
+        ),
+        isTrue,
+      );
       expect(player.playbackError, isNull);
     });
   });
