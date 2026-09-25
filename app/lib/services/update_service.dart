@@ -927,57 +927,62 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 
     return AlertDialog(
       title: Text('Update Available (${widget.info.latestVersion})'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('A new version of Pear Music is available!'),
-          const SizedBox(height: 12),
-          Text(
-            'Current: v${widget.info.currentVersion}  ->  Latest: v${widget.info.latestVersion}',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          if (isReadyToInstall) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withAlpha(80),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle_outline,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Update package already downloaded and verified.',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Theme.of(context).colorScheme.primary,
+      // AlertDialog sizes to its content's intrinsic width, and the release
+      // notes' unwrapped changelog lines would stretch it across the window.
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('A new version of Pear Music is available!'),
+            const SizedBox(height: 12),
+            Text(
+              'Current: v${widget.info.currentVersion}  ->  Latest: v${widget.info.latestVersion}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            if (isReadyToInstall) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withAlpha(80),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Update package already downloaded and verified.',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 140),
+              child: SingleChildScrollView(
+                child: Text(
+                  widget.info.releaseNotes,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 140),
-            child: SingleChildScrollView(
-              child: Text(
-                widget.info.releaseNotes,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
       actions: [
         TextButton(
