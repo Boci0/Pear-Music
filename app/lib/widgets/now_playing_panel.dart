@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
+import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
@@ -66,29 +67,31 @@ class NowPlayingPanel extends StatelessWidget {
       tween: Tween(begin: 0, end: expanded ? 1 : 0),
       duration: expandTransitionDuration,
       curve: Curves.easeOutCubic,
-      builder: (context, wash, child) => Container(
+      builder: (context, wash, child) => PearGlass(
         key: const ValueKey('now_playing_panel'),
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: const Color(0xFF151518),
-          // Expanded mode carries a soft wash of the song's artwork colour
-          // from the top edge, the same gesture the full-screen player makes,
-          // so the pane reads as "the player" rather than a plain sidebar
-          // card.
-          gradient: song != null && wash > 0.001
-              ? LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.center,
-                  colors: [
-                    accent.withValues(alpha: 0.12 * wash),
-                    Colors.transparent,
-                  ],
-                )
-              : null,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        borderRadius: BorderRadius.circular(PearRadius.sheet),
+        child: Container(
+          // Inset by the rim so the content keeps the width it is laid out
+          // for (see [_kPaneBorder]).
+          padding: const EdgeInsets.all(_kPaneBorder),
+          decoration: BoxDecoration(
+            // Expanded mode carries a soft wash of the song's artwork colour
+            // from the top edge, the same gesture the full-screen player
+            // makes, so the pane reads as "the player" rather than a plain
+            // sidebar card.
+            gradient: song != null && wash > 0.001
+                ? LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.center,
+                    colors: [
+                      accent.withValues(alpha: 0.16 * wash),
+                      Colors.transparent,
+                    ],
+                  )
+                : null,
+          ),
+          child: child,
         ),
-        child: child,
       ),
       child: song == null
           ? _buildEmptyState(theme)

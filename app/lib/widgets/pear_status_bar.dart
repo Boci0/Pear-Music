@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
-import '../services/player_theme.dart';
+import '../theme/glass.dart';
 import '../services/update_service.dart';
 
 /// Thin classic status bar along the bottom of wide windows: library counts on
@@ -15,35 +15,28 @@ class PearStatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
 
-    return Container(
+    return PearGlass(
       key: const ValueKey('pear_status_bar'),
-      height: 26,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        // Ambient tint: the chrome follows the current song's colour.
-        color: PlayerTheme.ambientBlend(
-          Theme.of(context).colorScheme,
-          const Color(0xFF111114),
-          alpha: 0.06,
+      shadow: false,
+      edge: PearGlassEdge.top,
+      child: Container(
+        height: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            Text(
+              '${controller.songs.length} songs · ${controller.playlists.length} playlists',
+              style: const TextStyle(fontSize: 11.5, color: Colors.white54),
+            ),
+            const Spacer(),
+            const _PlaybackStatus(),
+            const SizedBox(width: 20),
+            Text(
+              'Pear Music v${UpdateService.displayVersion}',
+              style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+            ),
+          ],
         ),
-        border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-        ),
-      ),
-      child: Row(
-        children: [
-          Text(
-            '${controller.songs.length} songs · ${controller.playlists.length} playlists',
-            style: const TextStyle(fontSize: 11.5, color: Colors.white54),
-          ),
-          const Spacer(),
-          const _PlaybackStatus(),
-          const SizedBox(width: 20),
-          Text(
-            'Pear Music v${UpdateService.displayVersion}',
-            style: const TextStyle(fontSize: 11.5, color: Colors.white38),
-          ),
-        ],
       ),
     );
   }

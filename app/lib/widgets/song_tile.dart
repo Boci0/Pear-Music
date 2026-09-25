@@ -9,6 +9,7 @@ import '../services/artwork_service.dart';
 import 'pear_popup.dart';
 import 'playlist_actions.dart';
 import 'tactile_button.dart';
+import '../theme/glass.dart';
 
 /// One row in the library: artwork, title, meta, play button + a menu with
 /// "Add to playlist" and "Remove song".
@@ -367,8 +368,8 @@ class SongTile extends StatelessWidget {
                       ? theme.colorScheme.primaryContainer.withValues(
                           alpha: 0.22,
                         )
-                      : theme.colorScheme.surfaceContainerHighest.withValues(
-                          alpha: 0.5,
+                      : Colors.white.withValues(
+                          alpha: PearGlassTokens.cardFill,
                         ),
                 ),
                 child: SizedBox(

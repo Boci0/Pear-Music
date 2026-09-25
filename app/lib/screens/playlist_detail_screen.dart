@@ -9,6 +9,7 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
+import '../theme/glass.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
 /// playlist order, remove a song from the playlist, rename or delete it.
@@ -497,8 +498,8 @@ class _SongRow extends StatelessWidget {
                   // idle, the accent gradient when this row is playing.
                   color: isCurrent
                       ? null
-                      : theme.colorScheme.surfaceContainerHighest.withValues(
-                          alpha: 0.5,
+                      : Colors.white.withValues(
+                          alpha: PearGlassTokens.cardFill,
                         ),
                 ),
                 child: SizedBox(

@@ -4,8 +4,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
-/// The room behind every route: the ambient canvas colour plus a faint,
-/// slanted watermark of the pear logo.
+/// The room behind every route: the ambient canvas colour, soft glows of the
+/// current song's colours, and a faint, slanted watermark of the pear logo.
+///
+/// The glows are what the glass panels (see `PearGlass`) frost over, so the
+/// chrome picks up the music's colour as it plays.
 ///
 /// The watermark tile is built once from `assets/pear_logo.png`. The outline
 /// is the logo's own silhouette stamped twice, outer copy minus a slightly
@@ -41,7 +44,7 @@ class _PearBackdropState extends State<PearBackdrop> {
 
   /// How loud the watermark is. Deliberately faint: it reads as texture, not
   /// decoration.
-  static const double _alpha = 0.055;
+  static const double _alpha = 0.035;
 
   ui.Image? _tileImage;
   int _generation = 0;
@@ -130,7 +133,7 @@ class _PearBackdropState extends State<PearBackdrop> {
     return RepaintBoundary(
       child: CustomPaint(
         painter: _BackdropPainter(
-          base: Theme.of(context).colorScheme.surface,
+          scheme: Theme.of(context).colorScheme,
           tile: _tileImage,
         ),
         size: Size.infinite,
@@ -140,15 +143,45 @@ class _PearBackdropState extends State<PearBackdrop> {
 }
 
 class _BackdropPainter extends CustomPainter {
-  const _BackdropPainter({required this.base, required this.tile});
+  const _BackdropPainter({required this.scheme, required this.tile});
 
-  final Color base;
+  final ColorScheme scheme;
   final ui.Image? tile;
+
+  /// Soft colour glows: where they sit (as a fraction of the window), how far
+  /// they reach (as a fraction of the longer side) and how strong they are.
+  static const _glows = [
+    (x: 0.08, y: -0.08, reach: 0.75, alpha: 0.34),
+    (x: 1.00, y: 0.30, reach: 0.60, alpha: 0.20),
+    (x: 0.35, y: 1.10, reach: 0.70, alpha: 0.24),
+  ];
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    canvas.drawRect(rect, Paint()..color = base);
+    canvas.drawRect(rect, Paint()..color = scheme.surface);
+
+    final longest = size.longestSide;
+    final colors = [scheme.primary, scheme.tertiary, scheme.secondary];
+    for (var i = 0; i < _glows.length; i++) {
+      final glow = _glows[i];
+      final color = colors[i];
+      final center = Offset(size.width * glow.x, size.height * glow.y);
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              color.withValues(alpha: glow.alpha),
+              color.withValues(alpha: glow.alpha * 0.35),
+              color.withValues(alpha: 0),
+            ],
+            stops: const [0, 0.45, 1],
+          ).createShader(
+            Rect.fromCircle(center: center, radius: longest * glow.reach),
+          ),
+      );
+    }
 
     final image = tile;
     if (image == null) {
@@ -176,6 +209,10 @@ class _BackdropPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BackdropPainter oldDelegate) {
-    return oldDelegate.base != base || oldDelegate.tile != tile;
+    return oldDelegate.scheme.surface != scheme.surface ||
+        oldDelegate.scheme.primary != scheme.primary ||
+        oldDelegate.scheme.secondary != scheme.secondary ||
+        oldDelegate.scheme.tertiary != scheme.tertiary ||
+        oldDelegate.tile != tile;
   }
 }

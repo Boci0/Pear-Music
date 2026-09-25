@@ -9,6 +9,7 @@ import '../services/artwork_palette.dart';
 import '../services/lyrics_service.dart';
 import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
+import '../theme/glass.dart';
 import '../widgets/now_playing_panel.dart';
 import '../widgets/pear_content_frame.dart';
 import '../widgets/pear_menu_bar.dart';
@@ -181,23 +182,16 @@ class _HomeShellState extends State<HomeShell>
                 },
                 child: Column(
                   children: [
-                    // Chrome strip: distinct tone + hairline so the top bar
-                    // reads as chrome from a distance instead of dead space
-                    // (mirror of the status bar at the bottom).
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      decoration: BoxDecoration(
-                        // Ambient tint: the chrome follows the song's colour.
-                        color: PlayerTheme.ambientBlend(
-                          Theme.of(context).colorScheme,
-                          const Color(0xFF17171A),
-                          alpha: 0.06,
-                        ),
-                        border: const Border(
-                          bottom: BorderSide(color: Color(0x1AFFFFFF)),
-                        ),
+                    // Chrome strip: a frosted glass band + hairline so the top
+                    // bar reads as chrome from a distance instead of dead
+                    // space (mirror of the status bar at the bottom).
+                    const PearGlass(
+                      shadow: false,
+                      edge: PearGlassEdge.bottom,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 4),
+                        child: PearMenuBar(),
                       ),
-                      child: const PearMenuBar(),
                     ),
                     Expanded(
                       child: Row(
@@ -320,10 +314,9 @@ class _MinimalistNavBar extends StatelessWidget {
   /// has to hold them plus the bar's own border.
   static const double barHeight = 64;
 
-  /// Corner rounding of the bar: the same 14 the list cards use, so the bar
-  /// and the mini player card directly above it read as two cards of one
-  /// family instead of a second, rounder shape.
-  static const double barRadius = 14;
+  /// Corner rounding of the bar: the same radius as the mini player card
+  /// directly above it, so the two read as panels of one family.
+  static const double barRadius = PearGlassTokens.floatingRadius;
 
   /// Selected indicator: a capsule behind the icon alone. Sizing it from the
   /// icon instead of the label is what keeps the shape stable at any tab count,
@@ -341,9 +334,6 @@ class _MinimalistNavBar extends StatelessWidget {
   static const double _contentHeight =
       _iconRowHeight + _rowGap + _labelRowHeight;
 
-  /// Outline width of the bar itself, which insets its content by this much.
-  static const double _barBorder = 1;
-
   /// Top of the icon row inside the bar's inner box, derived from the very same
   /// numbers the item lays its content out with, so the two cannot drift apart.
   static double _indicatorTopFor(double barInnerHeight) =>
@@ -359,105 +349,91 @@ class _MinimalistNavBar extends StatelessWidget {
       key: const ValueKey('nav_bar'),
       margin: EdgeInsets.fromLTRB(hMargin, 2, hMargin, 10),
       height: barHeight,
-      decoration: BoxDecoration(
-        // Same card body as the mini player card directly above: one fill, one
-        // radius, one soft edge across the app.
-        color: PlayerTheme.cardFillOpaque(scheme),
+      child: PearGlass(
         borderRadius: BorderRadius.circular(barRadius),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-          width: _barBorder,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.60),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(barRadius),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final itemWidth = constraints.maxWidth / 5;
-            final indicatorWidthForItem = indicatorWidth.clamp(
-              0.0,
-              itemWidth - 16,
-            );
-            return Stack(
-              children: [
-                // Gliding indicator, centred on the selected item's icon.
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOutCubic,
-                  left:
-                      selectedIndex * itemWidth +
-                      (itemWidth - indicatorWidthForItem) / 2,
-                  top: _indicatorTopFor(constraints.maxHeight),
-                  height: indicatorHeight,
-                  width: indicatorWidthForItem,
-                  child: Container(
-                    key: const ValueKey('nav_indicator'),
-                    decoration: BoxDecoration(
-                      color: scheme.primary.withValues(alpha: 0.24),
-                      borderRadius: BorderRadius.circular(indicatorHeight / 2),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(barRadius),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = constraints.maxWidth / 5;
+              final indicatorWidthForItem = indicatorWidth.clamp(
+                0.0,
+                itemWidth - 16,
+              );
+              return Stack(
+                children: [
+                  // Gliding indicator, centred on the selected item's icon.
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOutCubic,
+                    left:
+                        selectedIndex * itemWidth +
+                        (itemWidth - indicatorWidthForItem) / 2,
+                    top: _indicatorTopFor(constraints.maxHeight),
+                    height: indicatorHeight,
+                    width: indicatorWidthForItem,
+                    child: Container(
+                      key: const ValueKey('nav_indicator'),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.24),
+                        borderRadius: BorderRadius.circular(indicatorHeight / 2),
+                      ),
                     ),
                   ),
-                ),
-                // Navigation items. Filling the bar (rather than sitting at its
-                // top with their intrinsic height) is what keeps each item's
-                // icon row exactly where the indicator expects it.
-                Positioned.fill(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _NavBarItem(
-                        index: 0,
-                        selectedIndex: selectedIndex,
-                        label: 'Library',
-                        inactiveIcon: Icons.library_music_outlined,
-                        activeIcon: Icons.library_music_rounded,
-                        onTap: () => onDestinationSelected(0),
-                      ),
-                      _NavBarItem(
-                        index: 1,
-                        selectedIndex: selectedIndex,
-                        label: 'Playlists',
-                        inactiveIcon: Icons.queue_music_outlined,
-                        activeIcon: Icons.queue_music_rounded,
-                        onTap: () => onDestinationSelected(1),
-                      ),
-                      _NavBarItem(
-                        index: 2,
-                        selectedIndex: selectedIndex,
-                        label: 'Explore',
-                        inactiveIcon: Icons.explore_outlined,
-                        activeIcon: Icons.explore_rounded,
-                        onTap: () => onDestinationSelected(2),
-                      ),
-                      _NavBarItem(
-                        index: 3,
-                        selectedIndex: selectedIndex,
-                        label: 'History',
-                        inactiveIcon: Icons.history_outlined,
-                        activeIcon: Icons.history_rounded,
-                        onTap: () => onDestinationSelected(3),
-                      ),
-                      _NavBarItem(
-                        index: 4,
-                        selectedIndex: selectedIndex,
-                        label: 'Settings',
-                        inactiveIcon: Icons.settings_outlined,
-                        activeIcon: Icons.settings_rounded,
-                        onTap: () => onDestinationSelected(4),
-                      ),
-                    ],
+                  // Navigation items. Filling the bar (rather than sitting at its
+                  // top with their intrinsic height) is what keeps each item's
+                  // icon row exactly where the indicator expects it.
+                  Positioned.fill(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _NavBarItem(
+                          index: 0,
+                          selectedIndex: selectedIndex,
+                          label: 'Library',
+                          inactiveIcon: Icons.library_music_outlined,
+                          activeIcon: Icons.library_music_rounded,
+                          onTap: () => onDestinationSelected(0),
+                        ),
+                        _NavBarItem(
+                          index: 1,
+                          selectedIndex: selectedIndex,
+                          label: 'Playlists',
+                          inactiveIcon: Icons.queue_music_outlined,
+                          activeIcon: Icons.queue_music_rounded,
+                          onTap: () => onDestinationSelected(1),
+                        ),
+                        _NavBarItem(
+                          index: 2,
+                          selectedIndex: selectedIndex,
+                          label: 'Explore',
+                          inactiveIcon: Icons.explore_outlined,
+                          activeIcon: Icons.explore_rounded,
+                          onTap: () => onDestinationSelected(2),
+                        ),
+                        _NavBarItem(
+                          index: 3,
+                          selectedIndex: selectedIndex,
+                          label: 'History',
+                          inactiveIcon: Icons.history_outlined,
+                          activeIcon: Icons.history_rounded,
+                          onTap: () => onDestinationSelected(3),
+                        ),
+                        _NavBarItem(
+                          index: 4,
+                          selectedIndex: selectedIndex,
+                          label: 'Settings',
+                          inactiveIcon: Icons.settings_outlined,
+                          activeIcon: Icons.settings_rounded,
+                          onTap: () => onDestinationSelected(4),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+        ),
         ),
       ),
     );

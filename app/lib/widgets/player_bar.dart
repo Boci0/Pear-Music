@@ -8,6 +8,7 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 import '../services/player_theme.dart';
+import '../theme/glass.dart';
 import 'pear_page_route.dart';
 import 'tactile_button.dart';
 
@@ -33,7 +34,7 @@ class PlayerBar extends StatelessWidget {
         Color.lerp(
           PlayerTheme.cardFillOpaque(theme.colorScheme),
           ArtworkPalette.wash(accent, lightness: 0.11),
-          0.33,
+          0.45,
         ) ??
         PlayerTheme.cardFillOpaque(theme.colorScheme);
 
@@ -57,24 +58,11 @@ class PlayerBar extends StatelessWidget {
             _openPlayer(context);
           }
         },
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.60),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
+        child: PearGlass(
+          borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
+          tint: barColor,
           child: Material(
-            color: barColor.withValues(alpha: 1.0),
-            clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-            ),
+            type: MaterialType.transparency,
             child: InkWell(
               onTap: () => _openPlayer(context),
               child: Stack(

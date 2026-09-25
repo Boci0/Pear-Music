@@ -13,6 +13,7 @@ import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import '../widgets/tactile_button.dart';
 import 'playlist_detail_screen.dart';
+import '../theme/glass.dart';
 
 /// Lists the user's playlists with create / play / rename / delete.
 class PlaylistsScreen extends StatelessWidget {
@@ -253,8 +254,8 @@ class _NewPlaylistTile extends StatelessWidget {
           child: Ink(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              color: theme.colorScheme.surfaceContainerHighest.withValues(
-                alpha: 0.30,
+              color: Colors.white.withValues(
+                alpha: PearGlassTokens.cardFill,
               ),
               border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
@@ -349,8 +350,8 @@ class _PlaylistTile extends StatelessWidget {
                     : null,
                 color: isActive
                     ? null
-                    : theme.colorScheme.surfaceContainerHighest.withValues(
-                        alpha: 0.5,
+                    : Colors.white.withValues(
+                        alpha: PearGlassTokens.cardFill,
                       ),
               ),
               child: SizedBox(

@@ -11,6 +11,7 @@ import '../../services/player_service.dart';
 import '../../services/player_theme.dart';
 import '../../theme/tokens.dart';
 import '../tactile_button.dart';
+import '../../theme/glass.dart';
 
 /// Height of one queue row including its vertical padding. The list's
 /// itemExtent and the auto-scroll maths must agree on this number.
@@ -1047,8 +1048,8 @@ class _QueueRow extends StatelessWidget {
               // the track accent while this one is playing.
               color: isCurrent
                   ? readableAccent.withValues(alpha: 0.14)
-                  : theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.5,
+                  : Colors.white.withValues(
+                      alpha: PearGlassTokens.cardFill,
                     ),
             ),
             child: Row(

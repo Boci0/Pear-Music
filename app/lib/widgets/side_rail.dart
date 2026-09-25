@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
-import '../services/player_theme.dart';
+import '../theme/glass.dart';
 import 'pear_app_bar.dart';
 import 'tactile_button.dart';
 
 /// Desktop side rail: the five primary destinations as a vertical bar that
 /// replaces the bottom navigation bar on wide windows (>= 900 logical px).
 ///
-/// Uses the same surface, border and shadow as the bottom bar and the mini
-/// player card so all three read as the same family of shapes.
+/// A frosted glass panel, like the bottom bar and the mini player card, so
+/// all three read as the same family of shapes.
 class SideRail extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -50,41 +50,31 @@ class SideRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
-      child: Container(
+      child: SizedBox(
         key: const ValueKey('side_rail'),
         width: 86,
-        decoration: BoxDecoration(
-          color: PlayerTheme.cardFillOpaque(scheme),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.60),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 16, bottom: 6),
-              child: PearMark(size: 30),
-            ),
-            for (var i = 0; i < _items.length; i++)
-              _SideRailItem(
-                index: i,
-                selectedIndex: selectedIndex,
-                label: _items[i].label,
-                icon: _items[i].icon,
-                activeIcon: _items[i].activeIcon,
-                onTap: () => onDestinationSelected(i),
+        child: PearGlass(
+          borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 16, bottom: 6),
+                child: PearMark(size: 30),
               ),
+              for (var i = 0; i < _items.length; i++)
+                _SideRailItem(
+                  index: i,
+                  selectedIndex: selectedIndex,
+                  label: _items[i].label,
+                  icon: _items[i].icon,
+                  activeIcon: _items[i].activeIcon,
+                  onTap: () => onDestinationSelected(i),
+                ),
             const Spacer(),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -142,7 +132,7 @@ class _SideRailItemState extends State<_SideRailItem> {
                 height: 30,
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? scheme.primary.withValues(alpha: 0.24)
+                      ? scheme.primary.withValues(alpha: 0.22)
                       : (_isHovered
                           ? Colors.white.withValues(alpha: 0.08)
                           : Colors.transparent),

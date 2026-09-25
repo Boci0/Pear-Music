@@ -8,6 +8,7 @@ import '../services/youtube_search_service.dart';
 import '../theme/tokens.dart';
 import 'pear_popup.dart';
 import 'tactile_button.dart';
+import '../theme/glass.dart';
 
 /// A list tile representing a YouTube search result with instant streaming playback
 /// and optional background download to library.
@@ -422,8 +423,8 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                   // idle, the accent gradient when this row is playing.
                   color: widget.isCurrent
                       ? null
-                      : theme.colorScheme.surfaceContainerHighest.withValues(
-                          alpha: 0.5,
+                      : Colors.white.withValues(
+                          alpha: PearGlassTokens.cardFill,
                         ),
                 ),
                 child: SizedBox(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/glass.dart';
+import '../theme/tokens.dart';
 import 'artwork_palette.dart';
 import 'player_service.dart';
 
@@ -123,21 +125,23 @@ class PlayerTheme extends ChangeNotifier {
         titleSpacing: 16,
       ),
       cardTheme: CardThemeData(
-        // Same body as the list cards (playlist tile, song rows): one fill at
-        // one radius, so the backdrop texture stays faintly visible through
-        // the cards instead of being blocked by an opaque panel.
-        color: surfaceHighlight.withValues(alpha: 0.5),
+        // Soft glass: a faint white sheet with a hairline rim, so the
+        // backdrop's colour glows stay visible through every card.
+        color: Colors.white.withValues(alpha: PearGlassTokens.cardFill),
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(PearRadius.card),
+          side: BorderSide(
+            color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+          ),
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: surfaceDark,
+        backgroundColor: surfaceHighlight,
         elevation: 4,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          borderRadius: BorderRadius.circular(PearRadius.sheet),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
         ),
         titleTextStyle: const TextStyle(
           fontSize: 19,
@@ -173,21 +177,25 @@ class PlayerTheme extends ChangeNotifier {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surfaceDark,
+        fillColor: Colors.white.withValues(alpha: 0.06),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 12,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          borderRadius: BorderRadius.circular(PearRadius.field),
+          borderSide: BorderSide(
+            color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+          ),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          borderRadius: BorderRadius.circular(PearRadius.field),
+          borderSide: BorderSide(
+            color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+          ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(PearRadius.field),
           borderSide: BorderSide(
             color: scheme.primary.withValues(alpha: 0.6),
             width: 1.5,
@@ -195,7 +203,7 @@ class PlayerTheme extends ChangeNotifier {
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaceDark,
+        backgroundColor: Colors.white.withValues(alpha: 0.06),
         selectedColor: scheme.primary.withValues(alpha: 0.18),
         secondarySelectedColor: scheme.primary.withValues(alpha: 0.18),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
@@ -269,7 +277,9 @@ class PlayerTheme extends ChangeNotifier {
               color: scheme.primary.withValues(alpha: 0.5),
             );
           }
-          return BorderSide.none;
+          return BorderSide(
+            color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+          );
         }),
         padding: const WidgetStatePropertyAll(
           EdgeInsets.symmetric(horizontal: 12),
