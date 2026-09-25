@@ -3,8 +3,13 @@
 ///
 /// Floating chrome (side rail, nav bar, mini player, Now Playing pane, menu
 /// and status strips) is built from [PearGlass] so every panel shares one
-/// blur, one fill and one edge. With Reduced Effects on, the blur is dropped
-/// and the fill turns opaque, so low-end devices pay nothing for the look.
+/// fill and one edge.
+///
+/// Only panels that content scrolls underneath (the mini player and the
+/// phone nav bar) pay for a real backdrop blur; the rest sit over the static
+/// backdrop, where a blur would look the same but be recomputed every time
+/// the panel's own content animates. With Reduced Effects on, the blur is
+/// dropped everywhere and the fill turns opaque.
 library;
 
 import 'dart:ui' as ui;
@@ -21,7 +26,7 @@ class PearGlassTokens {
 
   /// Backdrop blur strength. High enough that list text scrolling under the
   /// mini player reads as colour, not as legible letters.
-  static const double blur = 28;
+  static const double blur = 20;
 
   /// Tint laid over the blurred backdrop: a dark base so text stays readable,
   /// with a faint white sheen that fades from top to bottom.
@@ -75,6 +80,10 @@ class PearGlass extends StatelessWidget {
   final bool shadow;
   final PearGlassEdge edge;
 
+  /// Blur what lies behind the panel. Only worth it where content scrolls
+  /// underneath; see the library comment.
+  final bool blur;
+
   const PearGlass({
     super.key,
     required this.child,
@@ -82,6 +91,7 @@ class PearGlass extends StatelessWidget {
     this.tint,
     this.shadow = true,
     this.edge = PearGlassEdge.all,
+    this.blur = false,
   });
 
   /// The panel fill: a sheen gradient over the blurred backdrop, or an opaque
@@ -158,7 +168,7 @@ class PearGlass extends StatelessWidget {
       child: panel,
     );
 
-    if (reduced) {
+    if (reduced || !blur) {
       if (borderRadius != BorderRadius.zero) {
         panel = ClipRRect(borderRadius: borderRadius, child: panel);
       }

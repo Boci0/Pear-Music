@@ -61,6 +61,7 @@ class PlayerBar extends StatelessWidget {
         child: PearGlass(
           borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
           tint: barColor,
+          blur: true,
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(

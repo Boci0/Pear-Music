@@ -2,6 +2,8 @@
 
 #include <optional>
 
+#include <shcore.h>
+#include <shlwapi.h>
 #include <systemmediatransportcontrolsinterop.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.h>
@@ -282,15 +284,23 @@ bool FlutterWindow::OnCreate() {
             return;
           }
           try {
-            auto stream =
-                winrt::Windows::Storage::Streams::InMemoryRandomAccessStream();
-            auto writer = winrt::Windows::Storage::Streams::DataWriter(
-                stream.GetOutputStreamAt(0));
-            writer.WriteBytes(*bytes);
-            writer.StoreAsync().get();
-            writer.FlushAsync().get();
-            writer.DetachStream();
-            stream.Seek(0);
+            // Wrap the bytes in a memory stream synchronously. Waiting on
+            // DataWriter's async Store/Flush here would block the UI (STA)
+            // thread, which C++/WinRT rejects with an is_sta_thread assert.
+            winrt::com_ptr<IStream> memory;
+            memory.attach(::SHCreateMemStream(
+                bytes->data(), static_cast<UINT>(bytes->size())));
+            if (!memory) {
+              result->Success(flutter::EncodableValue(false));
+              return;
+            }
+            winrt::Windows::Storage::Streams::IRandomAccessStream stream{
+                nullptr};
+            winrt::check_hresult(::CreateRandomAccessStreamOverStream(
+                memory.get(), BSOS_DEFAULT,
+                winrt::guid_of<
+                    winrt::Windows::Storage::Streams::IRandomAccessStream>(),
+                winrt::put_abi(stream)));
             smtc_.DisplayUpdater().Thumbnail(
                 winrt::Windows::Storage::Streams::
                     RandomAccessStreamReference::CreateFromStream(stream));

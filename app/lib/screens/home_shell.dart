@@ -351,6 +351,7 @@ class _MinimalistNavBar extends StatelessWidget {
       height: barHeight,
       child: PearGlass(
         borderRadius: BorderRadius.circular(barRadius),
+        blur: true,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(barRadius),
           child: LayoutBuilder(
