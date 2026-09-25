@@ -679,6 +679,9 @@ class _QueueContextListState extends State<_QueueContextList> {
               return InkWell(
                 borderRadius: BorderRadius.circular(8),
                 hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
+                // Desktop rows: instant press fill, no touch ripple.
+                splashFactory: NoSplash.splashFactory,
+                highlightColor: Colors.white.withValues(alpha: 0.06),
                 onTap: () {
                   TactileFeedback.click();
                   player.playSong(

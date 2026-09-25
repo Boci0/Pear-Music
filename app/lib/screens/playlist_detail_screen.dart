@@ -475,6 +475,11 @@ class _SongRow extends StatelessWidget {
                 onPlay();
               },
               hoverColor: Colors.white.withValues(alpha: 0.055),
+              // Desktop rows: an instant press fill instead of the touch
+              // ripple, which animates exactly while the song change re-seeds
+              // the theme and read as laggy.
+              splashFactory: NoSplash.splashFactory,
+              highlightColor: Colors.white.withValues(alpha: 0.06),
               child: Ink(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),

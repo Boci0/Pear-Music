@@ -1025,6 +1025,9 @@ class _QueueRow extends StatelessWidget {
           },
           borderRadius: BorderRadius.circular(10),
           hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
+          // Desktop rows: instant press fill, no touch ripple.
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.white.withValues(alpha: 0.06),
           child: Container(
             height: 55,
             decoration: BoxDecoration(
