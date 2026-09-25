@@ -5,16 +5,22 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/controllers/app_controller.dart';
 import 'package:peerm_app/models/song.dart';
+import 'package:peerm_app/screens/explore_screen.dart';
+import 'package:peerm_app/screens/history_screen.dart';
 import 'package:peerm_app/screens/home_screen.dart';
 import 'package:peerm_app/screens/home_shell.dart';
 import 'package:peerm_app/screens/player_screen.dart';
+import 'package:peerm_app/screens/playlists_screen.dart';
+import 'package:peerm_app/screens/settings_screen.dart';
 import 'package:peerm_app/services/history_service.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/player_theme.dart';
 import 'package:peerm_app/services/youtube_service.dart';
+import 'package:peerm_app/widgets/now_playing_panel.dart';
 import 'package:peerm_app/widgets/pear_app_bar.dart';
+import 'package:peerm_app/widgets/player/player_artwork.dart';
 import 'package:peerm_app/widgets/player/player_controls.dart';
 import 'package:peerm_app/widgets/player/queue_bottom_sheet.dart';
 import 'package:peerm_app/widgets/player_bar.dart';
@@ -209,6 +215,69 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
+  });
+
+  testWidgets('the pane keeps one content layout while the card grows', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1600, 1000));
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    final panel = find.byKey(const ValueKey('now_playing_panel'));
+
+    // Settle the expanded state once to learn its final card and artwork
+    // sizes, then collapse again.
+    await tester.tap(find.byKey(const ValueKey('pane_expand')));
+    await tester.pumpAndSettle();
+    final settledCard = tester.getSize(panel);
+    final settledArtwork = tester.getSize(find.byType(PlayerArtwork));
+    expect(settledCard.width, NowPlayingPanel.expandedPaneWidth);
+
+    await tester.tap(find.byKey(const ValueKey('pane_collapse')));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(panel).width, NowPlayingPanel.compactPaneWidth);
+
+    // Re-expand and sample mid-flight: the card is still growing while the
+    // content (artwork included) already sits at its final size. The glow
+    // texture keys off the artwork size, so this is what stops it from being
+    // re-rasterised on every animation frame.
+    await tester.tap(find.byKey(const ValueKey('pane_expand')));
+    await tester.pump();
+    await tester.pump(NowPlayingPanel.expandTransitionDuration ~/ 2);
+    final midCard = tester.getSize(panel);
+    expect(midCard.width, greaterThan(NowPlayingPanel.compactPaneWidth));
+    expect(midCard.width, lessThan(settledCard.width));
+    expect(tester.getSize(find.byType(PlayerArtwork)), settledArtwork);
+
+    await tester.pumpAndSettle();
+    expect(tester.getSize(panel), settledCard);
+  });
+
+  testWidgets('every tab shares one content width on a very wide window', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1920, 1000));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    // All five tabs dock to the same content width, so no tab leaves a dead
+    // strip between its content and the Now Playing pane. Playlists (1300),
+    // Explore (1200) and Settings (960) used to cap at their own narrower
+    // widths while the Library and History frames filled the region.
+    final widths = <double>{
+      for (final finder in <Finder>[
+        find.byType(HomeScreen, skipOffstage: false),
+        find.byType(PlaylistsScreen, skipOffstage: false),
+        find.byType(ExploreScreen, skipOffstage: false),
+        find.byType(HistoryScreen, skipOffstage: false),
+        find.byType(SettingsScreen, skipOffstage: false),
+      ])
+        tester.getSize(finder).width,
+    };
+    expect(widths, hasLength(1));
+    expect(widths.single, greaterThan(900));
   });
 
   testWidgets('landscape phones keep the phone shell despite the width', (

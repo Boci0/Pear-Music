@@ -41,6 +41,15 @@ class NowPlayingPanel extends StatelessWidget {
   /// pane grows and swaps its content as one motion instead of two.
   static const Duration expandTransitionDuration = Duration(milliseconds: 220);
 
+  /// The pane card's docked widths. The shell animates between them, and the
+  /// pane lays its content out at the final width for the whole animation, so
+  /// expanding only moves the card's clip edge (see [_PaneLayoutWidth]).
+  static const double compactPaneWidth = 348;
+  static const double expandedPaneWidth = 508;
+
+  /// The card's border (one per side); the content area is inset by it.
+  static const double _kPaneBorder = 1;
+
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerService>();
@@ -50,23 +59,35 @@ class NowPlayingPanel extends StatelessWidget {
         ? theme.colorScheme.primary
         : ArtworkPalette.dominantSync(song);
 
-    return Container(
-      key: const ValueKey('now_playing_panel'),
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: const Color(0xFF151518),
-        // Expanded mode carries a soft wash of the song's artwork colour from
-        // the top edge, the same gesture the full-screen player makes, so the
-        // pane reads as "the player" rather than a plain sidebar card.
-        gradient: song != null && expanded
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.center,
-                colors: [accent.withValues(alpha: 0.12), Colors.transparent],
-              )
-            : null,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+    // The artwork wash fades in and out with the expand motion instead of
+    // popping on the first frame of the width animation.
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: expanded ? 1 : 0),
+      duration: expandTransitionDuration,
+      curve: Curves.easeOutCubic,
+      builder: (context, wash, child) => Container(
+        key: const ValueKey('now_playing_panel'),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: const Color(0xFF151518),
+          // Expanded mode carries a soft wash of the song's artwork colour
+          // from the top edge, the same gesture the full-screen player makes,
+          // so the pane reads as "the player" rather than a plain sidebar
+          // card.
+          gradient: song != null && wash > 0.001
+              ? LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.center,
+                  colors: [
+                    accent.withValues(alpha: 0.12 * wash),
+                    Colors.transparent,
+                  ],
+                )
+              : null,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        ),
+        child: child,
       ),
       child: song == null
           ? _buildEmptyState(theme)
@@ -85,9 +106,19 @@ class NowPlayingPanel extends StatelessWidget {
                 key: ValueKey(
                   expanded ? 'pane_content_expanded' : 'pane_content_compact',
                 ),
-                child: expanded
-                    ? _buildExpandedState(context, player, song, theme)
-                    : _buildPlayingState(context, player, song, theme),
+                // Lay the content out at the state's final width for the
+                // whole transition; the card's clip edge does the revealing.
+                // Without this the artwork size, its cached glow texture and
+                // the queue rows re-flow on every animation frame, which is
+                // what made the expand feel rough.
+                child: _PaneLayoutWidth(
+                  width: expanded
+                      ? expandedPaneWidth - 2 * _kPaneBorder
+                      : compactPaneWidth - 2 * _kPaneBorder,
+                  child: expanded
+                      ? _buildExpandedState(context, player, song, theme)
+                      : _buildPlayingState(context, player, song, theme),
+                ),
               ),
             ),
     );
@@ -713,6 +744,28 @@ class _QueueContextListState extends State<_QueueContextList> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Pins the pane's content to its final width while the card around it
+/// animates its width, so expanding or collapsing only moves the clip edge.
+/// Anything inside that reacts to constraints (the artwork size, its cached
+/// glow texture, the queue rows) then keeps one layout for the whole
+/// transition instead of re-flowing on every animation frame.
+class _PaneLayoutWidth extends StatelessWidget {
+  final double width;
+  final Widget child;
+
+  const _PaneLayoutWidth({required this.width, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return OverflowBox(
+      minWidth: width,
+      maxWidth: width,
+      alignment: Alignment.center,
+      child: child,
     );
   }
 }

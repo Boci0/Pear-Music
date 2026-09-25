@@ -54,10 +54,19 @@ class _HomeShellState extends State<HomeShell>
     curve: Curves.easeOutQuad,
   );
 
+  /// One shared content width for every tab. Same cap means every tab's
+  /// header and content dock to the same edges and end at the same x, so no
+  /// tab shows a dead strip beside the Now Playing pane on wide windows.
+  static const double _contentMaxWidth = 1460;
+
+  /// Gutter between the pane card and the window edge. Lives next to the pane
+  /// width constants so the animated width and the padding cannot drift.
+  static const double _paneGutter = 12;
+
   List<Widget> get _screens => [
-    const PearContentFrame(maxWidth: 1460, child: HomeScreen()),
+    const PearContentFrame(maxWidth: _contentMaxWidth, child: HomeScreen()),
     PearContentFrame(
-      maxWidth: 1300,
+      maxWidth: _contentMaxWidth,
       child: Navigator(
         key: _playlistsNavKey,
         onGenerateRoute: (settings) =>
@@ -65,11 +74,11 @@ class _HomeShellState extends State<HomeShell>
       ),
     ),
     PearContentFrame(
-      maxWidth: 1200,
+      maxWidth: _contentMaxWidth,
       child: ExploreScreen(isActive: _index == 2),
     ),
-    const PearContentFrame(maxWidth: 1460, child: HistoryScreen()),
-    const PearContentFrame(maxWidth: 960, child: SettingsScreen()),
+    const PearContentFrame(maxWidth: _contentMaxWidth, child: HistoryScreen()),
+    const PearContentFrame(maxWidth: _contentMaxWidth, child: SettingsScreen()),
   ];
 
   @override
@@ -229,9 +238,18 @@ class _HomeShellState extends State<HomeShell>
                               duration:
                                   NowPlayingPanel.expandTransitionDuration,
                               curve: Curves.easeOutCubic,
-                              width: _playerExpanded ? 520 : 360,
+                              width:
+                                  (_playerExpanded
+                                      ? NowPlayingPanel.expandedPaneWidth
+                                      : NowPlayingPanel.compactPaneWidth) +
+                                  _paneGutter,
                               child: Padding(
-                                padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
+                                padding: const EdgeInsets.fromLTRB(
+                                  0,
+                                  8,
+                                  _paneGutter,
+                                  8,
+                                ),
                                 child: SafeArea(
                                   top: false,
                                   child: NowPlayingPanel(
