@@ -223,7 +223,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.system_update_outlined),
                   title: const Text('Check for updates'),
-                  subtitle: Text('Version ${UpdateService.currentVersion}'),
+                  subtitle: Text('Version ${UpdateService.displayVersion}'),
                   trailing: ValueListenableBuilder<bool>(
                     valueListenable: UpdateService.updateAvailable,
                     builder: (context, available, child) => Row(

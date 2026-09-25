@@ -38,7 +38,24 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '3.9.3';
+  /// One version ahead of the latest official release: this is the version
+  /// the unreleased work on top of v3.9.3 reports as, so a local/Beta build
+  /// reads as newer than the published app.
+  static const String currentVersion = '3.9.4';
+
+  /// True when this build runs from the Beta install. The Windows runner
+  /// marks the Beta by its install folder (see windows/runner/main.cpp), so
+  /// mirror that check here: Beta and release share one binary.
+  static bool get isBetaBuild =>
+      !kIsWeb &&
+      Platform.isWindows &&
+      Platform.resolvedExecutable.contains('Pear Music Beta');
+
+  /// Version string for the UI. The Beta appends its channel name so a test
+  /// build can never be mistaken for the official release of the same
+  /// version.
+  static String get displayVersion =>
+      isBetaBuild ? '$currentVersion Beta' : currentVersion;
 
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.

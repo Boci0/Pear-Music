@@ -33,7 +33,7 @@ void showPearMusicAboutDialog(BuildContext context) {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Version ${UpdateService.currentVersion}',
+                        'Version ${UpdateService.displayVersion}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -79,7 +79,7 @@ void showPearMusicAboutDialog(BuildContext context) {
                   onPressed: () => showLicensePage(
                     context: ctx,
                     applicationName: 'Pear Music',
-                    applicationVersion: UpdateService.currentVersion,
+                    applicationVersion: UpdateService.displayVersion,
                   ),
                   child: const Text('View licenses'),
                 ),
