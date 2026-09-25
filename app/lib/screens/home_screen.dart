@@ -12,6 +12,7 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
 import '../widgets/filter_pill.dart';
+import '../widgets/import_export_sheet.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
 import '../widgets/song_tile.dart';
@@ -736,26 +737,12 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.add),
           onPressed: () => controller.addFilesFromPicker(),
         ),
-        PearMenuButton<String>(
-          tooltip: 'Library profile',
-          icon: Icons.import_export,
-          onSelected: (value) async {
-            if (value == 'import') {
-              await _showLibraryProfileImportDialog(context, controller);
-            } else if (value == 'export') {
-              await controller.exportLibraryProfile();
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'import',
-              child: Text('Import library profile'),
-            ),
-            PopupMenuItem(
-              value: 'export',
-              child: Text('Export library profile'),
-            ),
-          ],
+        Builder(
+          builder: (buttonContext) => TactileIconButton(
+            tooltip: 'Import & export',
+            icon: const Icon(Icons.swap_vert_rounded),
+            onPressed: () => _openImportExport(buttonContext, controller),
+          ),
         ),
       ];
     }
@@ -1019,6 +1006,27 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+/// Opens the import & export sheet and runs whatever the user picks.
+Future<void> _openImportExport(
+  BuildContext context,
+  AppController controller,
+) async {
+  final action = await showImportExportSheet(
+    context,
+    controller,
+    anchor: popupAnchorBelowRight(context),
+  );
+  if (action == null || !context.mounted) return;
+  switch (action) {
+    case ImportExportAction.exportLibrary:
+      await controller.exportLibraryProfile();
+    case ImportExportAction.importLibrary:
+      await _showLibraryProfileImportDialog(context, controller);
+    case ImportExportAction.importPlaylists:
+      await showPlaylistImportDialog(context, controller);
+  }
+}
+
 /// Opens the modal progress dialog used by the library profile importer.
 Future<void> _showLibraryProfileImportDialog(
   BuildContext context,
@@ -1043,7 +1051,7 @@ class _LibraryProfileImportDialog extends StatefulWidget {
 
 class _LibraryProfileImportDialogState
     extends State<_LibraryProfileImportDialog> {
-  String _status = 'Choosing a profile file…';
+  String _status = 'Choosing a backup file…';
   String _phase = '';
   int _index = 0;
   int _count = 0;
@@ -1212,7 +1220,7 @@ class _LibraryProfileImportDialogState
       color: theme.colorScheme.onSurfaceVariant,
     );
     return AlertDialog(
-      title: const Text('Importing library profile'),
+      title: const Text('Restoring library backup'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1224,7 +1232,7 @@ class _LibraryProfileImportDialogState
           Row(
             children: [
               Text(
-                _count > 0 ? '$_index of $_count tracks' : 'Reading profile…',
+                _count > 0 ? '$_index of $_count tracks' : 'Reading backup…',
                 style: small,
               ),
               const Spacer(),

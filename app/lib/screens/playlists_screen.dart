@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
+import '../widgets/import_export_sheet.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
 import '../widgets/pear_page_route.dart';
@@ -31,9 +32,9 @@ class PlaylistsScreen extends StatelessWidget {
         label: 'Playlists',
         actions: [
           TactileIconButton(
-            tooltip: 'Import playlist (.m3u8)',
-            icon: const Icon(Icons.file_download_outlined),
-            onPressed: () => controller.importPlaylistFromM3u(),
+            tooltip: 'Import playlists',
+            icon: const Icon(Icons.playlist_add_rounded),
+            onPressed: () => showPlaylistImportDialog(context, controller),
           ),
           TactileIconButton(
             tooltip: 'New playlist',
@@ -48,7 +49,7 @@ class PlaylistsScreen extends StatelessWidget {
       body: playlists.isEmpty
           ? _EmptyPlaylists(
               onCreate: () => _createPlaylist(context, controller),
-              onImport: () => controller.importPlaylistFromM3u(),
+              onImport: () => showPlaylistImportDialog(context, controller),
             )
           : LayoutBuilder(
               builder: (context, constraints) {
@@ -512,7 +513,8 @@ class _PlaylistTile extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.file_upload_outlined),
-                title: const Text('Export playlist (.m3u8)'),
+                title: const Text('Export playlist'),
+                subtitle: const Text('Save as an .m3u8 file'),
                 onTap: () => Navigator.pop(ctx, 'export'),
               ),
               ListTile(
@@ -729,7 +731,7 @@ class _EmptyPlaylists extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Group your favorite songs into collections or import an existing .m3u8 playlist.',
+              'Group your favorite songs into collections, or import .m3u / .m3u8 playlists from any player.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant.withValues(
@@ -796,7 +798,7 @@ class _EmptyPlaylists extends StatelessWidget {
                       color: theme.colorScheme.onSurface,
                     ),
                     label: Text(
-                      'Import playlist (.m3u8)',
+                      'Import playlists',
                       style: TextStyle(
                         color: theme.colorScheme.onSurface,
                         fontWeight: FontWeight.w600,

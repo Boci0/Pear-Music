@@ -18,6 +18,7 @@ import '../services/library_profile.dart';
 import '../services/library_service.dart';
 import '../services/lyrics_service.dart';
 import '../services/player_service.dart';
+import '../services/playlist_file.dart';
 import '../services/recommendation_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/youtube_search_service.dart';
@@ -453,34 +454,44 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> exportPlaylistToM3u(Playlist playlist) async {
-    final buffer = StringBuffer();
-    buffer.writeln('#EXTM3U');
-    buffer.writeln('#PLAYLIST:${playlist.name}');
+    final entries = <PlaylistFileEntry>[];
     for (final songId in playlist.songIds) {
       final song = findSongById(songId);
       if (song == null) continue;
-      buffer.writeln('#EXTINF:-1,${song.title}');
+      final String target;
       if (song.sourceDeviceId == 'stream' || song.id.startsWith('stream_')) {
         final videoId = song.id.replaceFirst('stream_', '');
-        buffer.writeln('https://www.youtube.com/watch?v=$videoId');
+        target = 'https://www.youtube.com/watch?v=$videoId';
       } else {
-        // Portable relative file reference
-        buffer.writeln(song.fileName);
+        // Link-added downloads keep their YouTube link so the playlist
+        // still resolves on another device; disk files use their portable
+        // file name.
+        final videoId = LibraryProfile.videoIdOf(song);
+        target = videoId != null
+            ? 'https://www.youtube.com/watch?v=$videoId'
+            : song.fileName;
       }
+      entries.add((title: song.title, target: target));
+    }
+    if (entries.isEmpty) {
+      _postMessage('"${playlist.name}" has no songs to export.');
+      return;
     }
 
-    final bytes = Uint8List.fromList(utf8.encode(buffer.toString()));
-    final safeName =
-        playlist.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
-    final fileName = safeName.isEmpty ? 'playlist.m3u8' : '$safeName.m3u8';
+    final bytes = Uint8List.fromList(
+      utf8.encode(PlaylistFile.build(playlist.name, entries)),
+    );
     try {
       final uri = await FilePicker.saveFile(
         dialogTitle: 'Export Playlist',
-        fileName: fileName,
+        fileName: PlaylistFile.safeFileName(playlist.name),
         bytes: bytes,
       );
       if (uri != null) {
-        _postMessage('Exported "${playlist.name}" successfully.');
+        final count = entries.length;
+        _postMessage(
+          'Exported "${playlist.name}" ($count song${count == 1 ? '' : 's'}).',
+        );
       }
     } catch (e) {
       debugPrint('[controller] Error exporting playlist: $e');
@@ -488,234 +499,252 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> importPlaylistFromM3u() async {
+  bool _playlistImporting = false;
+
+  /// True while playlist files are being imported.
+  bool get isPlaylistImporting => _playlistImporting;
+
+  /// Most songs searched online per playlist file, so a huge list from
+  /// another app cannot hammer YouTube search. Entries past it are reported
+  /// as not found.
+  static const int maxOnlineLookupsPerPlaylist = 200;
+
+  /// Lets the user pick one or more `.m3u` / `.m3u8` files and turns each
+  /// into a playlist. Entries resolve in order: YouTube links, library files,
+  /// files next to the playlist, then an online search by title.
+  ///
+  /// Returns null when nothing was picked or another import is running.
+  Future<({int playlists, int songs, int missing, bool cancelled})?>
+      importPlaylistsFromM3u({
+    void Function(String status)? onStatus,
+    void Function(int done, int total)? onProgress,
+    DownloadCancellation? cancel,
+  }) async {
+    if (_playlistImporting) {
+      _postMessage('A playlist import is already running.');
+      return null;
+    }
+    _playlistImporting = true;
+    var playlistsMade = 0;
+    var songsAdded = 0;
+    var missing = 0;
+    var cancelled = false;
+    final names = <String>[];
     try {
+      onStatus?.call('Choosing playlist files…');
       final picked = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['m3u', 'm3u8'],
-        dialogTitle: 'Import Playlist',
+        dialogTitle: 'Import Playlists',
       );
-      if (picked.isEmpty) return;
-      final filePath = picked.first.path;
-      if (filePath == null) return;
-      final file = File(filePath);
-      if (!await file.exists()) return;
+      final paths = picked.map((f) => f.path).whereType<String>().toList();
+      if (paths.isEmpty) return null;
 
-      final content = await file.readAsString();
-      if (LibraryProfile.isProfile(content)) {
+      final index = _PlaylistMatchIndex(this);
+      for (final filePath in paths) {
+        if (cancel?.isCancelled ?? false) {
+          cancelled = true;
+          break;
+        }
+        final file = File(filePath);
+        if (!await file.exists()) continue;
+        final content = PlaylistFile.decode(await file.readAsBytes());
+        if (LibraryProfile.isProfile(content)) {
+          _postMessage(
+            '${p.basename(filePath)} is a library backup, not a playlist. '
+            'Import it from Library > Import & export.',
+          );
+          continue;
+        }
+        final parsed = PlaylistFile.parse(content);
+        final baseName = parsed.name ?? p.basenameWithoutExtension(filePath);
+        if (parsed.entries.isEmpty) {
+          _postMessage('No songs found in $baseName.');
+          continue;
+        }
+
+        final result = await _resolvePlaylistEntries(
+          parsed.entries,
+          index: index,
+          m3uDir: p.dirname(filePath),
+          label: baseName,
+          onStatus: onStatus,
+          onProgress: onProgress,
+          cancel: cancel,
+        );
+        missing += result.missing;
+        if (result.cancelled) cancelled = true;
+        if (result.songIds.isNotEmpty) {
+          final name = _uniquePlaylistName(baseName);
+          final created = await library.createPlaylist(name);
+          await library.setPlaylistSongIds(created.id, result.songIds);
+          playlistsMade++;
+          songsAdded += result.songIds.length;
+          names.add(name);
+        }
+        if (cancelled) break;
+      }
+
+      if (playlistsMade == 0) {
         _postMessage(
-          'That file is a library profile, not a playlist. Use Import Library Profile from the library header.',
+          cancelled ? 'Playlist import cancelled.' : 'No matching songs found.',
         );
-        return;
-      }
-      final lines = content.split(RegExp(r'\r?\n'));
-      final songIds = <String>[];
-      final m3uDir = p.dirname(filePath);
-      String playlistName = p.basenameWithoutExtension(file.path);
-
-      // Collect entries: pairs of (extinf, targetLine)
-      final rawEntries = <({String extinf, String target})>[];
-
-      for (var i = 0; i < lines.length; i++) {
-        final line = lines[i].trim();
-        if (line.isEmpty) continue;
-        if (line.startsWith('#PLAYLIST:')) {
-          final name = line.replaceFirst('#PLAYLIST:', '').trim();
-          if (name.isNotEmpty) playlistName = name;
-        } else if (line.startsWith('#EXTINF:')) {
-          var targetLine = '';
-          for (var j = i + 1; j < lines.length; j++) {
-            final next = lines[j].trim();
-            if (next.isNotEmpty && !next.startsWith('#')) {
-              targetLine = next;
-              i = j;
-              break;
-            }
-          }
-          rawEntries.add((extinf: line, target: targetLine));
-        } else if (!line.startsWith('#')) {
-          rawEntries.add((extinf: '', target: line));
-        }
-      }
-
-      if (rawEntries.isEmpty) {
-        _postMessage('No valid entries found in $playlistName');
-        return;
-      }
-
-      // Preserve original track order by allocating indexed slots for all raw entries
-      final resolvedSongs = List<Song?>.filled(rawEntries.length, null);
-      final unmatched = <({int index, String extinf, String target})>[];
-      final newOnlineSongs = <Song>[];
-
-      // Phase 1: Fast local and direct stream URL matching (Zero network queries)
-      for (var i = 0; i < rawEntries.length; i++) {
-        final entry = rawEntries[i];
-        final directSong = await _matchDirectOrLocalSong(
-          entry.extinf,
-          entry.target,
-          m3uDir: m3uDir,
+      } else {
+        final what = playlistsMade == 1
+            ? '"${names.single}"'
+            : '$playlistsMade playlists';
+        final notFound = missing > 0 ? ', $missing not found' : '';
+        _postMessage(
+          'Imported $what: $songsAdded song${songsAdded == 1 ? '' : 's'}'
+          '$notFound${cancelled ? ' (cancelled)' : ''}.',
         );
-        if (directSong != null) {
-          resolvedSongs[i] = directSong;
-          if (directSong.sourceDeviceId == 'stream' ||
-              directSong.id.startsWith('stream_')) {
-            newOnlineSongs.add(directSong);
-          }
-        } else {
-          unmatched.add((index: i, extinf: entry.extinf, target: entry.target));
-        }
       }
-
-      // Phase 2: Bandwidth-safe throttled online resolution for missing tracks
-      // Cap at 25 tracks per import to guarantee bandwidth and rate limits are respected
-      if (unmatched.isNotEmpty) {
-        final resolveBatch = unmatched.take(25).toList();
-        for (var idx = 0; idx < resolveBatch.length; idx++) {
-          final item = resolveBatch[idx];
-          final query = _extractSearchQuery(item.extinf, item.target);
-          if (query.isNotEmpty) {
-            final onlineSong = await _searchAndResolveOnlineTrack(query);
-            if (onlineSong != null) {
-              resolvedSongs[item.index] = onlineSong;
-              newOnlineSongs.add(onlineSong);
-            }
-            // Rate limiting: 250ms delay between lightweight text search queries
-            if (idx < resolveBatch.length - 1) {
-              await Future.delayed(const Duration(milliseconds: 250));
-            }
-          }
-        }
-      }
-
-      if (newOnlineSongs.isNotEmpty) {
-        await identity.registerOnlineSongs(newOnlineSongs);
-      }
-
-      // Assemble final songIds preserving exact file sequence and avoiding duplicates
-      for (final song in resolvedSongs) {
-        if (song != null && !songIds.contains(song.id)) {
-          songIds.add(song.id);
-        }
-      }
-
-      if (songIds.isEmpty) {
-        _postMessage('No matching songs found in $playlistName');
-        return;
-      }
-
-      final created = await library.createPlaylist(playlistName);
-      await library.setPlaylistSongIds(created.id, songIds);
-      final count = songIds.length;
-      _postMessage('Imported "$playlistName" ($count track${count == 1 ? '' : 's'})');
+      return (
+        playlists: playlistsMade,
+        songs: songsAdded,
+        missing: missing,
+        cancelled: cancelled,
+      );
     } catch (e) {
       debugPrint('[controller] Error importing playlist: $e');
       _postMessage('Failed to import playlist.');
+      return null;
+    } finally {
+      _playlistImporting = false;
+    }
+  }
+
+  Future<({List<String> songIds, int missing, bool cancelled})>
+      _resolvePlaylistEntries(
+    List<PlaylistFileEntry> entries, {
+    required _PlaylistMatchIndex index,
+    required String m3uDir,
+    required String label,
+    void Function(String status)? onStatus,
+    void Function(int done, int total)? onProgress,
+    DownloadCancellation? cancel,
+  }) async {
+    final songIds = <String>[];
+    final seen = <String>{};
+    final newOnlineSongs = <Song>[];
+    var missing = 0;
+    var lookups = 0;
+    var cancelled = false;
+    for (var i = 0; i < entries.length; i++) {
+      if (cancel?.isCancelled ?? false) {
+        cancelled = true;
+        break;
+      }
+      final entry = entries[i];
+      onProgress?.call(i, entries.length);
+      final shown = entry.title.isNotEmpty
+          ? entry.title
+          : p.basenameWithoutExtension(entry.target);
+      onStatus?.call('$label: $shown');
+
+      var song = await _matchDirectOrLocalSong(entry, index, m3uDir: m3uDir);
+      if (song == null && lookups < maxOnlineLookupsPerPlaylist) {
+        final query = _extractSearchQuery(entry);
+        if (query.isNotEmpty) {
+          // Light throttle between searches so a long list stays polite.
+          if (lookups > 0) {
+            await Future.delayed(const Duration(milliseconds: 250));
+          }
+          lookups++;
+          song = await _searchAndResolveOnlineTrack(query);
+          if (song != null) index.add(song, title: entry.title);
+        }
+      }
+      if (song == null) {
+        missing++;
+        continue;
+      }
+      if (song.id.startsWith('stream_') && findSongById(song.id) == null) {
+        newOnlineSongs.add(song);
+      }
+      if (seen.add(song.id)) songIds.add(song.id);
+    }
+    if (!cancelled) onProgress?.call(entries.length, entries.length);
+    if (newOnlineSongs.isNotEmpty) {
+      await identity.registerOnlineSongs(newOnlineSongs);
+    }
+    return (songIds: songIds, missing: missing, cancelled: cancelled);
+  }
+
+  /// [name], or "name (2)", "name (3)"... when a playlist already uses it.
+  String _uniquePlaylistName(String name) {
+    final taken = playlists.map((pl) => pl.name.toLowerCase()).toSet();
+    if (!taken.contains(name.toLowerCase())) return name;
+    for (var i = 2;; i++) {
+      final candidate = '$name ($i)';
+      if (!taken.contains(candidate.toLowerCase())) return candidate;
     }
   }
 
   Future<Song?> _matchDirectOrLocalSong(
-    String extinf,
-    String pathOrUrl, {
-    String? m3uDir,
+    PlaylistFileEntry entry,
+    _PlaylistMatchIndex index, {
+    required String m3uDir,
   }) async {
-    // 1. Direct stream URL (Zero network requests)
-    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-      final videoId = RecommendationService.extractVideoId(pathOrUrl);
+    final target = entry.target;
+    // 1. Direct stream URL (no network requests).
+    if (target.startsWith('http://') || target.startsWith('https://')) {
+      final videoId = RecommendationService.extractVideoId(target);
       if (videoId != null) {
-        final streamId = 'stream_$videoId';
-        final existing = findSongById(streamId);
+        final existing = index.byVideoId(videoId);
         if (existing != null) return existing;
-        String title = videoId;
-        if (extinf.startsWith('#EXTINF:')) {
-          final commaIdx = extinf.indexOf(',');
-          if (commaIdx != -1) {
-            final raw = extinf.substring(commaIdx + 1).trim();
-            if (raw.isNotEmpty) title = raw;
-          }
-        }
-        return Song(
-          id: streamId,
+        final title = entry.title.isNotEmpty ? entry.title : videoId;
+        final song = Song(
+          id: 'stream_$videoId',
           title: title,
           fileName: '$title [$videoId].m4a',
           size: 200 * 16000,
-          checksum: streamId,
+          checksum: 'stream_$videoId',
           sourceDeviceId: 'stream',
           addedAt: DateTime.now(),
         );
+        index.add(song);
+        return song;
       }
-    }
+    } else if (target.isNotEmpty) {
+      // 2. A file already in the library (full path or just its name).
+      final known = index.byPath(target);
+      if (known != null) return known;
 
-    if (pathOrUrl.isNotEmpty) {
-      // 2. Exact match in local library
-      final normalizedPath = p.normalize(pathOrUrl).toLowerCase();
-      final base = p.basename(pathOrUrl).toLowerCase();
-      for (final s in library.songs) {
-        final songFilePath =
-            p.normalize(library.songFile(s).path).toLowerCase();
-        if (songFilePath == normalizedPath || p.basename(songFilePath) == base) {
-          return s;
+      // 3. A file next to the playlist, then an absolute path on disk.
+      final candidates = [
+        if (!p.isAbsolute(target)) File(p.join(m3uDir, target)),
+        File(target),
+      ];
+      for (final candidate in candidates) {
+        try {
+          if (!await candidate.exists()) continue;
+        } catch (_) {
+          continue;
         }
-      }
-
-      // 3. Match relative to M3U file directory if provided
-      if (m3uDir != null && !p.isAbsolute(pathOrUrl)) {
-        final candidate = File(p.join(m3uDir, pathOrUrl));
-        if (await candidate.exists()) {
-          final added = await library.addLocalFiles([candidate]);
-          if (added.isNotEmpty) return added.first;
-        }
-      }
-
-      // 4. Match absolute disk path
-      final diskFile = File(pathOrUrl);
-      if (await diskFile.exists()) {
-        final added = await library.addLocalFiles([diskFile]);
-        if (added.isNotEmpty) return added.first;
-      }
-    }
-
-    // 5. Match by title against existing library or known online songs
-    String? titleCandidate;
-    if (extinf.startsWith('#EXTINF:')) {
-      final commaIdx = extinf.indexOf(',');
-      if (commaIdx != -1) {
-        titleCandidate = extinf.substring(commaIdx + 1).trim();
-      }
-    }
-    if (titleCandidate != null && titleCandidate.isNotEmpty) {
-      final raw = titleCandidate.toLowerCase();
-      for (final s in library.songs) {
-        if (s.lowerTitle == raw || s.title.toLowerCase() == raw) {
-          return s;
-        }
-      }
-      for (final s in identity.knownOnlineSongs.values) {
-        if (s.lowerTitle == raw || s.title.toLowerCase() == raw) {
-          return s;
+        final added = await library.addLocalFiles([candidate]);
+        if (added.isNotEmpty) {
+          index.add(added.first);
+          return added.first;
         }
       }
     }
 
+    // 4. Same title as a library song or a known online song.
+    if (entry.title.isNotEmpty) return index.byTitle(entry.title);
     return null;
   }
 
-  String _extractSearchQuery(String extinf, String pathOrUrl) {
-    if (extinf.startsWith('#EXTINF:')) {
-      final commaIdx = extinf.indexOf(',');
-      if (commaIdx != -1) {
-        final raw = extinf.substring(commaIdx + 1).trim();
-        if (raw.isNotEmpty) return raw;
-      }
-    }
-    if (pathOrUrl.isNotEmpty &&
-        !pathOrUrl.startsWith('http://') &&
-        !pathOrUrl.startsWith('https://')) {
-      final base = p
-          .basenameWithoutExtension(pathOrUrl)
+  String _extractSearchQuery(PlaylistFileEntry entry) {
+    if (entry.title.isNotEmpty) return entry.title;
+    final target = entry.target;
+    if (target.isNotEmpty &&
+        !target.startsWith('http://') &&
+        !target.startsWith('https://')) {
+      return p
+          .basenameWithoutExtension(target.replaceAll('\\', '/'))
           .replaceAll(RegExp(r'[_]+'), ' ')
           .trim();
-      if (base.isNotEmpty) return base;
     }
     return '';
   }
@@ -777,6 +806,36 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         text == null ? null : {'text': text},
       );
     } catch (_) {}
+  }
+
+  /// What a library backup would hold right now: link-added songs (and how
+  /// many are hearted), online-only favorites, and songs added from files,
+  /// which stay on this device.
+  ({int songs, int favorites, int onlineFavorites, int localOnly})
+      get libraryBackupSummary {
+    final videoIds = <String>{};
+    var favorites = 0;
+    var localOnly = 0;
+    for (final song in library.songs) {
+      final videoId = LibraryProfile.videoIdOf(song);
+      if (videoId == null) {
+        localOnly++;
+      } else if (videoIds.add(videoId) && isFavorite(song.id)) {
+        favorites++;
+      }
+    }
+    var onlineFavorites = 0;
+    for (final id in identity.favoriteSongIds) {
+      if (!id.startsWith('stream_')) continue;
+      final videoId = RecommendationService.extractVideoId(id);
+      if (videoId != null && !videoIds.contains(videoId)) onlineFavorites++;
+    }
+    return (
+      songs: videoIds.length,
+      favorites: favorites,
+      onlineFavorites: onlineFavorites,
+      localOnly: localOnly,
+    );
   }
 
   /// Writes the portable library profile (link-added songs only) to a file.
@@ -851,7 +910,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       return null;
     }
     try {
-      onStatus?.call('Choosing a profile file…');
+      onStatus?.call('Choosing a backup file…');
       final picked = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['m3u', 'm3u8'],
@@ -863,11 +922,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       final file = File(filePath);
       if (!await file.exists()) return null;
 
-      onStatus?.call('Reading profile…');
+      onStatus?.call('Reading backup…');
       final fileContent = await file.readAsString();
       if (!LibraryProfile.isProfile(fileContent)) {
         _postMessage(
-          'That file is a playlist, not a library profile. Import playlists from the Playlists tab.',
+          'That file is a playlist, not a library backup. Use Import playlists instead.',
         );
         return null;
       }
@@ -1332,4 +1391,52 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     _messages.close();
     super.dispose();
   }
+}
+
+/// Lookup tables for matching playlist entries against the library, built
+/// once per import instead of scanning every song for every entry.
+class _PlaylistMatchIndex {
+  final Map<String, Song> _byPath = {};
+  final Map<String, Song> _byBaseName = {};
+  final Map<String, Song> _byTitle = {};
+  final Map<String, Song> _byVideoId = {};
+
+  _PlaylistMatchIndex(AppController controller) {
+    for (final song in controller.library.songs) {
+      _byPath.putIfAbsent(
+        p.normalize(controller.library.songFile(song).path).toLowerCase(),
+        () => song,
+      );
+      _byBaseName.putIfAbsent(song.fileName.toLowerCase(), () => song);
+      add(song);
+    }
+    for (final song in controller.identity.knownOnlineSongs.values) {
+      add(song);
+    }
+  }
+
+  /// Registers [song] under its title (and [title] when the playlist used a
+  /// different spelling) and its YouTube ID. Library songs added first win.
+  void add(Song song, {String? title}) {
+    _byTitle.putIfAbsent(song.lowerTitle, () => song);
+    if (title != null && title.isNotEmpty) {
+      _byTitle.putIfAbsent(title.toLowerCase(), () => song);
+    }
+    final videoId = song.id.startsWith('stream_')
+        ? song.id.substring('stream_'.length)
+        : LibraryProfile.videoIdOf(song);
+    if (videoId != null) _byVideoId.putIfAbsent(videoId, () => song);
+  }
+
+  Song? byPath(String target) {
+    final normalized = p.normalize(target).toLowerCase();
+    // Playlists written on Windows use backslashes, which are not
+    // separators elsewhere, so take the name after either one.
+    final base = normalized.split(RegExp(r'[\\/]')).last;
+    return _byPath[normalized] ?? _byBaseName[base];
+  }
+
+  Song? byTitle(String title) => _byTitle[title.toLowerCase()];
+
+  Song? byVideoId(String videoId) => _byVideoId[videoId];
 }

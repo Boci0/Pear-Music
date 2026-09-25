@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../services/player_service.dart';
 import 'about_dialog.dart';
+import 'import_export_sheet.dart';
 import 'player/playback_speed_dialog.dart';
 
 /// Classic desktop menu bar for wide windows. Deliberately app-level only:
@@ -75,7 +76,13 @@ class PearMenuBar extends StatelessWidget {
                 style: _itemStyle,
                 leadingIcon: const Icon(Icons.ios_share_rounded, size: 16),
                 onPressed: () => controller.exportLibraryProfile(),
-                child: const Text('Export library profile...'),
+                child: const Text('Export library backup...'),
+              ),
+              MenuItemButton(
+                style: _itemStyle,
+                leadingIcon: const Icon(Icons.playlist_add_rounded, size: 16),
+                onPressed: () => showPlaylistImportDialog(context, controller),
+                child: const Text('Import playlists...'),
               ),
               const Divider(height: 1),
               MenuItemButton(
