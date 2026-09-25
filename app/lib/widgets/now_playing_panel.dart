@@ -310,9 +310,17 @@ class NowPlayingPanel extends StatelessWidget {
                 final artSize = math
                     .min(constraints.maxWidth, constraints.maxHeight - 380)
                     .clamp(120.0, constraints.maxWidth);
+                final hasQueue = player.queue.isNotEmpty;
                 return Column(
                   children: [
-                    const Spacer(flex: 3),
+                    // With a queue, the content sits just under the expand
+                    // button and the queue takes the spare height; a flexible
+                    // gap here left a tall window mostly empty above the art.
+                    // Without one, the content stays centred.
+                    if (hasQueue)
+                      const SizedBox(height: 28)
+                    else
+                      const Spacer(),
                     SizedBox(
                       width: artSize,
                       height: artSize,
@@ -394,9 +402,8 @@ class NowPlayingPanel extends StatelessWidget {
                     const SizedBox(height: 4),
                     PlayerVolumeRow(accent: control),
                     const SizedBox(height: 16),
-                    if (player.queue.isNotEmpty)
-                      Flexible(
-                        flex: 4,
+                    if (hasQueue)
+                      Expanded(
                         child: _QueueContextList(
                           player: player,
                           control: Theme.of(context).colorScheme.primary,
@@ -404,7 +411,7 @@ class NowPlayingPanel extends StatelessWidget {
                         ),
                       )
                     else
-                      const Spacer(flex: 4),
+                      const Spacer(),
                   ],
                 );
               },
