@@ -1,125 +1,192 @@
-# PEAR MUSIC
+<div align="center">
 
-> A local-first music player and streaming discovery engine for Windows and Android. No cloud, no accounts.
+<img src="app/assets/pear_logo.png" alt="Pear Music logo" width="120">
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%20Setup-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-Setup.exe)
-[![Download for Android](https://img.shields.io/badge/Download-Android%20ARM64-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
-[![Built with Flutter](https://img.shields.io/badge/Built%20with-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
+# Pear Music
 
----
+**A music player for your own files, with streaming search built in.**<br>
+Windows and Android. No account, no cloud, no ads.
 
-## Overview
+[![Latest release](https://img.shields.io/github/v/release/Boci0/Pear-Music?style=flat-square&label=release&color=a4d233)](https://github.com/Boci0/Pear-Music/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Boci0/Pear-Music/total?style=flat-square&color=a4d233)](https://github.com/Boci0/Pear-Music/releases)
+[![License](https://img.shields.io/badge/license-MIT-a4d233?style=flat-square)](LICENSE)
+[![Built with Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B?style=flat-square&logo=flutter&logoColor=white)](https://flutter.dev)
 
-**Pear Music** is a fast, local-first music player and streaming discovery application with zero cloud storage and no accounts. Play your local audio files, search and stream music with genre discovery chips, and enjoy continuous listening with Endless Play track recommendations.
+<br>
 
----
+[![Download for Windows](https://img.shields.io/badge/Windows-Download%20installer-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-Setup.exe)
+&nbsp;
+[![Download for Android](https://img.shields.io/badge/Android-Download%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk)
 
-## Key Features
+[Features](#features) &nbsp;·&nbsp; [Download](#download) &nbsp;·&nbsp; [Android tips](#android-tips) &nbsp;·&nbsp; [Build from source](#build-from-source)
 
-* **Explore & Music Discovery**: Discover trending songs and genre categories with draggable chips, search directly, and stream without accounts. An expanded search scope can include covers and community uploads alongside official audio.
-* **Immersive Dynamic Player**: Full-bleed album artwork with ambient gradients extracted from the track art, animated glow accents, and an interactive waveform seek bar with an optional audio visualizer.
-* **Synchronized Lyrics**: Real-time line-by-line highlighting from local `.lrc` companion files, with automatic lookups as a fallback, colour options that stay readable on busy artwork, and a live timing sheet for manual sync.
-* **Pull-Up Queue & Library Management**: Bottom sheet queue with drag-and-drop reordering, track removal, fast favoriting, and multi-playlist organization.
-* **Library Profiles & Playlists**: Export your library and favorites to a portable M3U8 profile and import it on another device; standard M3U8 playlists import and export as well. Android imports keep running in the background and skip songs you already have.
-* **Offline-First Playback**: Fast local audio playback from device storage, with automatic fallback to local tracks when offline.
-* **Endless Play**: Automatically queues related track recommendations when your current queue finishes, with background pre-buffering so the next track starts quickly.
-* **Save to Library & Favorites**: Bookmark streamed tracks and search results into your favorites and playlists with a single tap, with one heart shared across a song's stream, search, and library copies.
-* **Listening History**: A History tab keeps the tracks you played in order, local files and online streams side by side, so you can jump back into any of them; clearing it never touches your library.
-* **Background & Lockscreen Playback**: Full native media controls (Play/Pause, Next, Previous, Seek) with album artwork on the Android lockscreen, the notification shade, and Windows Media Transport Controls (SMTC). Hardware media keys work on desktop.
-* **Sleep Timer & Playback Speed**: Sleep triggers for the end of the track, a countdown, or the end of the queue; playback speed from 0.5x to 2.0x; and loudness normalization to even out volume between tracks.
-* **Performance & Diagnostics**: Reduced Effects mode for battery savings, and streaming cache management with live usage stats.
-* **Automated In-App Updates**: Built-in version checks with one-click updates from GitHub releases; the Android updater resumes interrupted downloads, verifies checksums, and installs the APK that matches your device architecture.
+<br>
 
----
+<img src=".github/screenshots/desktop.png" alt="Pear Music on Windows: library with the Now Playing panel" width="74%">
+&nbsp;
+<img src=".github/screenshots/phone.png" alt="Pear Music on Android: library" width="21%">
+
+</div>
+
+<br>
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Play your music
+
+- Plays the audio files already on your device, even with no internet
+- Full-size artwork with background colours taken from the cover
+- Waveform seek bar and an optional visualizer
+- Sleep timer: end of song, countdown, or end of queue
+- Speed from 0.5x to 2x, plus volume levelling between songs
+
+</td>
+<td width="50%" valign="top">
+
+### Find new songs
+
+- Search and stream songs straight from the app
+- Genre pills on the Explore tab for quick browsing
+- **Endless Play** keeps adding related songs when your queue runs out
+- The next song downloads ahead of time, so skipping is instant
+- Save any streamed song to your library with one tap
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Keep it organised
+
+- Playlists, favourites, and a History tab of everything you played
+- Pull-up queue: drag to reorder or remove songs
+- **Import & export**: back up your whole library and bring it to another device
+- Import several M3U8 playlists at once, with progress and Cancel
+- Clearing your history never touches your library
+
+</td>
+<td width="50%" valign="top">
+
+### Sing along
+
+- Lyrics that follow the song line by line
+- Uses your own `.lrc` files first, then looks them up online
+- Colour options that stay readable on busy artwork
+- Timing sheet to fix lyrics that run early or late
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Works like a real app
+
+- Lock screen and notification controls on Android
+- Windows media overlay and keyboard media keys on desktop
+- Updates itself from the app; Android resumes a broken download and checks the file before installing
+- Reduced Effects mode to save battery
+
+</td>
+<td width="50%" valign="top">
+
+### Stays yours
+
+- No sign-up and nothing stored online
+- Your songs, playlists and history live on your device
+- Free and open source under the MIT licence
+
+</td>
+</tr>
+</table>
 
 ## Download
 
-Every build for the latest release is listed below and attached to the [releases page](https://github.com/Boci0/Pear-Music/releases/latest).
+Grab the latest build below, or browse every file on the [releases page](https://github.com/Boci0/Pear-Music/releases/latest).
 
-| Platform | Architecture | Build | Download |
-| :--- | :--- | :--- | :--- |
-| **Windows 10/11** | x64 | Setup installer (recommended) | [PearMusic-Windows-Setup.exe](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-Setup.exe) |
-| **Windows 10/11** | x64 | Portable ZIP, no installation | [PearMusic-Windows-x64.zip](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip) |
-| **Android** | ARM64, most devices | APK | [PearMusic-Android-arm64.apk](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk) |
-| **Android** | ARMv7, older 32-bit devices | APK | [PearMusic-Android-armv7.apk](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk) |
+| Platform | File | Best for |
+| :--- | :--- | :--- |
+| **Windows 10 / 11** | [**Setup installer**](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-Setup.exe) | Most people. No admin rights needed, adds Start Menu shortcuts and an uninstaller. |
+| **Windows 10 / 11** | [Portable ZIP](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Windows-x64.zip) | Running from a folder without installing. |
+| **Android** | [**ARM64 APK**](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-arm64.apk) | Almost any phone from the last ten years. |
+| **Android** | [ARMv7 APK](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk) | Older 32-bit phones only. |
 
-### Which file do I need?
+You only pick once. After that, in-app updates fetch the right file for your device on their own.
 
-* **Windows**: Use the Setup installer. It installs per user without admin rights, adds Start Menu and optional Desktop shortcuts, and registers an uninstaller. Pick the portable ZIP only if you would rather run the app from an extracted folder.
-* **Android**: Use the ARM64 APK on any phone from the last decade. The ARMv7 APK is for older 32-bit devices only. You choose once at first install; in-app updates detect your device architecture and download the matching APK automatically.
+<details>
+<summary><b>Check that your download is genuine</b></summary>
+<br>
 
-Verify a download against [`SHA256SUMS`](https://github.com/Boci0/Pear-Music/releases/latest/download/SHA256SUMS) with `Get-FileHash <file> -Algorithm SHA256` on Windows or `sha256sum <file>` on Linux and macOS.
+Compare the file against [`SHA256SUMS`](https://github.com/Boci0/Pear-Music/releases/latest/download/SHA256SUMS):
 
----
+```powershell
+# Windows (PowerShell)
+Get-FileHash .\PearMusic-Windows-Setup.exe -Algorithm SHA256
+```
 
-## Quick Start (Build from Source)
+```bash
+# Linux / macOS
+sha256sum PearMusic-Android-arm64.apk
+```
 
-### Prerequisites
+</details>
 
-* **Flutter SDK**: Stable channel, 3.44.9 (the version the release pipeline builds with); the project requires Dart 3.12.2+.
-* **Windows Development**: Visual Studio 2022 with **Desktop development with C++** workload installed.
-* **Android Development**: Android Studio / SDK with compile SDK 37 installed and Java 17+.
+## Android tips
 
-### 1. Clone & Fetch Dependencies
+Some phones stop music in the background to save battery. If playback pauses on its own or the controls vanish, check these:
+
+1. **Allow notifications.** On Android 13 and newer, accept the prompt on first launch so the player controls can show on the lock screen and in the notification shade.
+2. **Turn off battery limits for Pear Music.**
+   - Vivo / iQOO: **Settings > Battery > Background power consumption management > Pear Music > Allow high background power consumption**
+   - Samsung, Pixel, Xiaomi: **App info > Battery > Unrestricted**
+3. **Pin the media player** (optional). To keep it in Quick Settings while paused, turn on **Settings > Sound & vibration > Media > Pin media player** where your phone offers it.
+
+## Build from source
+
+<details>
+<summary><b>Requirements</b></summary>
+<br>
+
+- Flutter stable **3.44.9** (Dart 3.12.2 or newer), the same version the release builds use
+- **Windows:** Visual Studio 2022 with the *Desktop development with C++* workload
+- **Android:** Android SDK with compile SDK 37, and Java 17 or newer
+
+</details>
 
 ```bash
 git clone https://github.com/Boci0/Pear-Music.git
 cd Pear-Music/app
 flutter pub get
-```
 
-### 2. Run in Development Mode
-
-```bash
-# Windows Desktop
-flutter run -d windows
-
-# Android Device / Emulator
-flutter run -d android
-```
-
-### 3. Run Automated Tests
-
-```bash
+flutter run -d windows     # or: flutter run -d android
 flutter test
 ```
 
-### 4. Build Production Release Binaries
+<details>
+<summary><b>Release builds</b></summary>
+<br>
 
 ```bash
-# Android Split APKs (arm64-v8a, armeabi-v7a, x86_64)
+# Android, one APK per CPU type (arm64-v8a, armeabi-v7a, x86_64)
 flutter build apk --split-per-abi --release
 
-# Windows Release Binary (x64)
+# Windows x64
 flutter build windows --release
 ```
 
-Official releases ship the arm64-v8a and armeabi-v7a APKs. The x86_64 APK only matters for emulators and Intel-based devices.
+Official releases include the arm64-v8a and armeabi-v7a APKs. The x86_64 one is only useful for emulators.
 
----
+</details>
 
-## Android Setup & Background Playback
+## Feedback
 
-To ensure uninterrupted background playback and persistent media controls on Android (especially on Android 13+ and OEM skins such as Vivo OriginOS / FuntouchOS, Samsung One UI, or Xiaomi HyperOS):
+Found a bug or want something added? [Open an issue](https://github.com/Boci0/Pear-Music/issues).
 
-1. **Notification Permissions**:
-   * On first launch on Android 13+, accept the notification permission prompt so Pear Music can display media transport controls in the notification drawer and lockscreen.
-2. **Battery Optimization (Prevent Background Freezing)**:
-   * **Vivo / iQOO**: Navigate to **Settings -> Battery -> Background power consumption management -> Pear Music** and select **Allow high background power consumption**.
-   * **Samsung / Pixel / Xiaomi**: Open **App Info -> Battery** and set to **Unrestricted** (or "Don't restrict").
-3. **Quick Settings Media Player**:
-   * To keep the media player pinned in Quick Settings even when paused, enable **Settings -> Sound & Vibration -> Media -> Pin media player** (on supported Android versions).
+<br>
 
----
-
-## Support
-
-Found a bug or have an idea for a feature? [Open an issue](https://github.com/Boci0/Pear-Music/issues).
-
----
-
-## License
-
-Pear Music is released under the [MIT License](LICENSE).
-Copyright (c) 2026 Boci0.
+<div align="center">
+<sub>MIT licence &nbsp;·&nbsp; Copyright (c) 2026 Boci0</sub>
+</div>
