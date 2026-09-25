@@ -73,6 +73,7 @@ class YouTubeSearchService {
     String query, {
     int limit = 20,
     bool? allowVideoResults,
+    void Function(List<YouTubeSearchResult> firstPage)? onFirstPage,
   }) async {
     final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return const [];
@@ -97,18 +98,13 @@ class YouTubeSearchService {
         clean,
         limit: limit,
         allowVideoResults: enableVideos,
+        onFirstPage: onFirstPage == null
+            ? null
+            : (page) => onFirstPage(page.map(_fromItem).toList()),
       );
       if (innertubeResults.isNotEmpty) {
         final list = innertubeResults
-            .map(
-              (item) => YouTubeSearchResult(
-                videoId: item.videoId,
-                title: item.title,
-                author: item.artist,
-                duration: item.duration,
-                thumbnailUrl: item.thumbnailUrl,
-              ),
-            )
+            .map(_fromItem)
             .toList();
 
         if (_cache.length >= _maxCacheEntries) {
@@ -154,6 +150,15 @@ class YouTubeSearchService {
       return const [];
     }
   }
+
+  static YouTubeSearchResult _fromItem(RecommendationItem item) =>
+      YouTubeSearchResult(
+        videoId: item.videoId,
+        title: item.title,
+        author: item.artist,
+        duration: item.duration,
+        thumbnailUrl: item.thumbnailUrl,
+      );
 
   /// Close client resources and clear memory caches.
   static void dispose() {

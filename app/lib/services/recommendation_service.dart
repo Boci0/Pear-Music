@@ -502,119 +502,151 @@ class RecommendationService {
     return const RecommendationBatch(items: []);
   }
 
+  static const int _maxSearchPages = 4;
+
   /// Searches Innertube Music directly for song tracks.
+  ///
+  /// YouTube Music returns search results 20 at a time. Pages past the first
+  /// are fetched with the continuation token until [limit] songs are in, the
+  /// results run out, or [_maxSearchPages] is reached. [onFirstPage] gets the
+  /// first page as soon as it lands, so a caller can show it while the rest
+  /// loads.
   static Future<List<RecommendationItem>> searchInnertubeSongs(
     String query, {
     int limit = 20,
     bool allowVideoResults = false,
+    void Function(List<RecommendationItem> firstPage)? onFirstPage,
   }) async {
-    final clientConfigs = [
-      {
-        'clientName': 'WEB_REMIX',
-        'clientVersion': '1.20260801.01.00',
-        'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    ];
+    const clientName = 'WEB_REMIX';
+    const clientVersion = '1.20260801.01.00';
+    const userAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-    for (final cfg in clientConfigs) {
+    final items = <RecommendationItem>[];
+    final seen = <String>{};
+    String? continuation;
+
+    for (var page = 0; page < _maxSearchPages && items.length < limit; page++) {
+      if (page > 0 && continuation == null) break;
       try {
         final request = await _httpClient.postUrl(
           Uri.parse('https://music.youtube.com/youtubei/v1/search'),
         );
         request.headers.set('Content-Type', 'application/json');
-        request.headers.set('User-Agent', cfg['userAgent']!);
+        request.headers.set('User-Agent', userAgent);
         request.headers.set('Referer', 'https://music.youtube.com/');
 
         final payload = {
           'context': {
             'client': {
-              'clientName': cfg['clientName'],
-              'clientVersion': cfg['clientVersion'],
+              'clientName': clientName,
+              'clientVersion': clientVersion,
               'hl': 'en',
               'gl': 'US',
             }
           },
-          'query': query,
-          if (!allowVideoResults)
-            'params': 'EgWKAQIIAWoKEAUQCRADEAQQBQ==', // Song filter
+          if (continuation != null)
+            'continuation': continuation
+          else ...{
+            'query': query,
+            if (!allowVideoResults)
+              'params': 'EgWKAQIIAWoKEAUQCRADEAQQBQ==', // Song filter
+          },
         };
 
         request.add(utf8.encode(jsonEncode(payload)));
         final response = await request.close().timeout(const Duration(seconds: 6));
-        if (response.statusCode != 200) continue;
+        if (response.statusCode != 200) break;
 
         final respText = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
         final data = jsonDecode(respText) as Map<String, dynamic>;
 
-        final items = <RecommendationItem>[];
-        final sections = data['contents']?['tabbedSearchResultsRenderer']?['tabs']?[0]
-            ?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
-
-        if (sections != null) {
-          for (final sec in sections) {
+        continuation = null;
+        final shelves = <Map<String, dynamic>>[];
+        if (page == 0) {
+          final sections = data['contents']?['tabbedSearchResultsRenderer']?['tabs']?[0]
+              ?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
+          for (final sec in sections ?? const []) {
             final shelf = sec['musicShelfRenderer'];
-            final shelfContents = shelf?['contents'] as List?;
-            if (shelfContents == null) continue;
-
-            for (final row in shelfContents) {
-              if (items.length >= limit) break;
-              final renderer = row['musicResponsiveListItemRenderer'];
-              if (renderer == null) continue;
-
-              final flexCols = renderer['flexColumns'] as List?;
-              if (flexCols == null || flexCols.isEmpty) continue;
-
-              final titleRuns = flexCols[0]?['musicResponsiveListItemFlexColumnRenderer']
-                  ?['text']?['runs'] as List?;
-              final title = titleRuns != null && titleRuns.isNotEmpty
-                  ? titleRuns[0]['text'] as String? ?? 'Unknown'
-                  : 'Unknown';
-
-              String artist = '';
-              String? lengthStr;
-              if (flexCols.length > 1) {
-                final subRuns = flexCols[1]?['musicResponsiveListItemFlexColumnRenderer']
-                    ?['text']?['runs'] as List?;
-                if (subRuns != null && subRuns.isNotEmpty) {
-                  artist = subRuns[0]['text'] as String? ?? '';
-                  if (subRuns.length >= 3) {
-                    lengthStr = subRuns.last['text'] as String?;
-                  }
-                }
-              }
-
-              final playNav = renderer['overlay']?['musicItemThumbnailOverlayRenderer']
-                  ?['content']?['musicPlayButtonRenderer']?['playNavigationEndpoint'];
-              final vId = playNav?['watchEndpoint']?['videoId'] as String? ??
-                  renderer['playlistItemData']?['videoId'] as String?;
-
-              if (vId == null || vId.isEmpty) continue;
-
-              final thumbs = renderer['thumbnail']?['musicThumbnailRenderer']
-                  ?['thumbnail']?['thumbnails'] as List?;
-              final thumbUrl = thumbs != null && thumbs.isNotEmpty
-                  ? thumbs.last['url'] as String?
-                  : null;
-
-              items.add(
-                RecommendationItem(
-                  videoId: vId,
-                  title: title,
-                  artist: artist,
-                  duration: _parseDuration(lengthStr),
-                  thumbnailUrl: thumbUrl,
-                ),
-              );
-            }
+            if (shelf is Map<String, dynamic>) shelves.add(shelf);
           }
+        } else {
+          final shelf = data['continuationContents']?['musicShelfContinuation'];
+          if (shelf is Map<String, dynamic>) shelves.add(shelf);
         }
 
-        if (items.isNotEmpty) return items;
+        final before = items.length;
+        for (final shelf in shelves) {
+          _addSongRows(shelf['contents'] as List?, items, seen, limit);
+          continuation ??= (shelf['continuations'] as List?)?.firstOrNull
+              ?['nextContinuationData']?['continuation'] as String?;
+        }
+        if (page == 0 && items.isNotEmpty) onFirstPage?.call(List.of(items));
+        if (items.length == before) break;
       } catch (e) {
-        debugPrint('[RecommendationService] Innertube search error: $e');
+        debugPrint('[RecommendationService] Innertube search error (page $page): $e');
+        break;
       }
     }
-    return const [];
+    return items;
+  }
+
+  static void _addSongRows(
+    List? rows,
+    List<RecommendationItem> items,
+    Set<String> seen,
+    int limit,
+  ) {
+    for (final row in rows ?? const []) {
+      if (items.length >= limit) return;
+      final renderer = row['musicResponsiveListItemRenderer'];
+      if (renderer == null) continue;
+
+      final flexCols = renderer['flexColumns'] as List?;
+      if (flexCols == null || flexCols.isEmpty) continue;
+
+      final titleRuns = flexCols[0]?['musicResponsiveListItemFlexColumnRenderer']
+          ?['text']?['runs'] as List?;
+      final title = titleRuns != null && titleRuns.isNotEmpty
+          ? titleRuns[0]['text'] as String? ?? 'Unknown'
+          : 'Unknown';
+
+      String artist = '';
+      String? lengthStr;
+      if (flexCols.length > 1) {
+        final subRuns = flexCols[1]?['musicResponsiveListItemFlexColumnRenderer']
+            ?['text']?['runs'] as List?;
+        if (subRuns != null && subRuns.isNotEmpty) {
+          artist = subRuns[0]['text'] as String? ?? '';
+          if (subRuns.length >= 3) {
+            lengthStr = subRuns.last['text'] as String?;
+          }
+        }
+      }
+
+      final playNav = renderer['overlay']?['musicItemThumbnailOverlayRenderer']
+          ?['content']?['musicPlayButtonRenderer']?['playNavigationEndpoint'];
+      final vId = playNav?['watchEndpoint']?['videoId'] as String? ??
+          renderer['playlistItemData']?['videoId'] as String?;
+
+      if (vId == null || vId.isEmpty || !seen.add(vId)) continue;
+
+      final thumbs = renderer['thumbnail']?['musicThumbnailRenderer']
+          ?['thumbnail']?['thumbnails'] as List?;
+      final thumbUrl = thumbs != null && thumbs.isNotEmpty
+          ? thumbs.last['url'] as String?
+          : null;
+
+      items.add(
+        RecommendationItem(
+          videoId: vId,
+          title: title,
+          artist: artist,
+          duration: _parseDuration(lengthStr),
+          thumbnailUrl: thumbUrl,
+        ),
+      );
+    }
   }
 
   static Future<RecommendationBatch> _fetchFallbackRelated(

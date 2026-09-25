@@ -249,7 +249,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
 
     try {
-      final results = await YouTubeSearchService.search(trimmed, limit: 25);
+      // The first 20 show as soon as they land; later pages fill in after.
+      final results = await YouTubeSearchService.search(
+        trimmed,
+        limit: 60,
+        onFirstPage: (page) {
+          if (!mounted || token != _searchToken) return;
+          setState(() {
+            _results = page;
+            _isLoading = false;
+          });
+        },
+      );
       if (mounted && token == _searchToken) {
         setState(() {
           _results = results;
