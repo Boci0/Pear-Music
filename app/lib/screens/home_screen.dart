@@ -11,6 +11,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
+import '../widgets/filter_pill.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
 import '../widgets/song_tile.dart';
@@ -460,14 +461,14 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
               child: Row(
                 children: [
-                  _FilterPill(
+                  FilterPill(
                     key: const ValueKey('pill_all'),
                     label: 'All (${controller.songs.length})',
                     isSelected: !_showOnlyFavorites,
                     onTap: () => setState(() => _showOnlyFavorites = false),
                   ),
                   const SizedBox(width: 6),
-                  _FilterPill(
+                  FilterPill(
                     key: const ValueKey('pill_favorites'),
                     icon: _showOnlyFavorites
                         ? Icons.favorite
@@ -478,7 +479,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 6),
                   Builder(
-                    builder: (sortContext) => _FilterPill(
+                    builder: (sortContext) => FilterPill(
                       key: const ValueKey('pill_sort'),
                       icon: Icons.sort_rounded,
                       label: _sortLabel(controller.sortOption),
@@ -492,7 +493,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 6),
                   if (songs.isNotEmpty) ...[
-                    _FilterPill(
+                    FilterPill(
                       key: const ValueKey('pill_shuffle'),
                       icon: Icons.shuffle_rounded,
                       label: 'Shuffle',
@@ -518,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                   const SizedBox(width: 6),
-                  _FilterPill(
+                  FilterPill(
                     key: const ValueKey('pill_select'),
                     icon: Icons.checklist_rounded,
                     label: _isSelecting ? 'Done' : null,
@@ -835,103 +836,6 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: headerActions,
         ),
         body: body,
-      ),
-    );
-  }
-}
-
-class _FilterPill extends StatefulWidget {
-  final String? label;
-  final IconData? icon;
-  final String? tooltip;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FilterPill({
-    super.key,
-    this.label,
-    this.icon,
-    this.tooltip,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  State<_FilterPill> createState() => _FilterPillState();
-}
-
-class _FilterPillState extends State<_FilterPill> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primary = theme.colorScheme.primary;
-
-    final bgColor = widget.isSelected
-        ? primary.withValues(alpha: _isHovered ? 0.28 : 0.20)
-        : (_isHovered
-              ? Colors.white.withValues(alpha: 0.09)
-              : Colors.white.withValues(alpha: 0.05));
-
-    final textColor = widget.isSelected
-        ? primary
-        : theme.colorScheme.onSurfaceVariant.withValues(
-            alpha: _isHovered ? 1.0 : 0.9,
-          );
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) {
-        if (!_isHovered) setState(() => _isHovered = true);
-      },
-      onExit: (_) {
-        if (_isHovered) setState(() => _isHovered = false);
-      },
-      child: TactileBounce(
-        scaleDown: 0.95,
-        duration: const Duration(milliseconds: 80),
-        onTap: widget.onTap,
-        tooltip: widget.tooltip,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOutQuad,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: widget.isSelected
-                ? [
-                    BoxShadow(
-                      color: primary.withValues(alpha: 0.22),
-                      blurRadius: 14,
-                      offset: const Offset(0, 3),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.icon != null) ...[
-                Icon(widget.icon, size: 15, color: textColor),
-                const SizedBox(width: 6),
-              ],
-              if (widget.label != null)
-                Text(
-                  widget.label!,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontSize: 13,
-                    fontWeight: widget.isSelected
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                    color: textColor,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-            ],
-          ),
-        ),
       ),
     );
   }

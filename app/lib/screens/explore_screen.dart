@@ -11,6 +11,7 @@ import '../services/debug_log.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_search_service.dart';
+import '../widgets/filter_pill.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
 import '../widgets/youtube_song_tile.dart';
@@ -385,35 +386,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             itemBuilder: (context, index) {
                               final genre = _genres[index];
                               final isSelected = _selectedGenre == genre;
-                              return TactileBounce(
-                                scaleDown: 0.92,
-                                child: ChoiceChip(
-                                  label: Text(genre),
-                                  selected: isSelected,
-                                  backgroundColor: Colors.white.withValues(
-                                    alpha: 0.05,
-                                  ),
-                                  selectedColor: scheme.primary.withValues(
-                                    alpha: 0.20,
-                                  ),
-                                  side: BorderSide.none,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  showCheckmark: false,
-                                  labelStyle: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w600
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? scheme.primary
-                                        : scheme.onSurfaceVariant,
-                                    letterSpacing: -0.1,
-                                  ),
-                                  onSelected: (selected) {
+                              // Same pill as the Library filters, centred so it
+                              // keeps its natural height in the taller row.
+                              return Center(
+                                child: FilterPill(
+                                  label: genre,
+                                  isSelected: isSelected,
+                                  onTap: () {
+                                    final selected = !isSelected;
                                     if (_genreDragDistance > 8.0) return;
-                                    TactileFeedback.click();
                                     setState(() {
                                       _selectedGenre = selected ? genre : null;
                                     });
