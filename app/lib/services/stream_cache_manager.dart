@@ -679,8 +679,18 @@ class StreamCacheManager {
           }
           try {
             DebugLog.write('[preload] Buffering upcoming track: $id');
-            final file = await ensureStreamCached(id, isPreload: true);
+            var file = await ensureStreamCached(id, isPreload: true);
             if (seq != _slidingWindowSequence) break;
+            // A 403 or bot check is usually temporary. Retry once with a
+            // clean yt-dlp cache, the same as the manual Retry does, so the
+            // next track does not start cold (or fail) when it comes up.
+            if (file == null && _lastFetchFailures[id]?.kind == StreamFetchFailureKind.blocked) {
+              DebugLog.write('[preload] $id was blocked, retrying once with a clean yt-dlp cache');
+              await refreshYtDlpCache();
+              if (seq != _slidingWindowSequence) break;
+              file = await ensureStreamCached(id, isPreload: true);
+              if (seq != _slidingWindowSequence) break;
+            }
             if (file != null) {
               DebugLog.write('[preload] Buffered upcoming track ready on disk: $id');
               onTrackCached?.call(id);

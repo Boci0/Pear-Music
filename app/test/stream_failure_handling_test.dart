@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -140,6 +141,53 @@ void main() {
       );
 
       expect(described.message.toLowerCase(), contains('skipped'));
+    });
+  });
+
+  group('preload failures', () {
+    test('a blocked preload retries once so the next track does not start cold',
+        () async {
+      final calls = <String>[];
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        calls.add(videoId);
+        if (calls.length == 1) {
+          StreamCacheManager.recordFetchFailure(
+              videoId, 'ERROR: unable to download video data: HTTP Error 403: Forbidden');
+          return null;
+        }
+        final file = File('${sandbox.path}${Platform.pathSeparator}$videoId.m4a');
+        await file.writeAsBytes(List.filled(64, 0));
+        return file;
+      };
+
+      final cached = <String>[];
+      final done = Completer<void>();
+      StreamCacheManager.preloadSlidingWindow(
+        ['preloadBlk1'],
+        onTrackCached: cached.add,
+        onDone: done.complete,
+      );
+      await done.future.timeout(const Duration(seconds: 5));
+
+      expect(calls, ['preloadBlk1', 'preloadBlk1']);
+      expect(cached, ['preloadBlk1']);
+    });
+
+    test('a preload that can never play is not retried', () async {
+      final calls = <String>[];
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        calls.add(videoId);
+        StreamCacheManager.recordFetchFailure(videoId, 'ERROR: Video unavailable');
+        return null;
+      };
+
+      final done = Completer<void>();
+      StreamCacheManager.preloadSlidingWindow(['preloadGone'], onDone: done.complete);
+      await done.future.timeout(const Duration(seconds: 5));
+
+      expect(calls, ['preloadGone']);
     });
   });
 
