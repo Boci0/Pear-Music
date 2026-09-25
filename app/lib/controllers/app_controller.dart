@@ -1306,6 +1306,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   // ---------- settings ----------
 
   Future<void> updateSynthesizerBar(bool val) async {
+    // Closing the player turns the visualizer off every time; skip the
+    // app-wide rebuild when it was already off.
+    if (identity.synthesizerBar == val) return;
     await identity.setSynthesizerBar(val);
     notifyListeners();
   }
