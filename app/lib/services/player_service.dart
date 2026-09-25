@@ -137,7 +137,10 @@ class PlayerService extends ChangeNotifier {
 
   PlayerService(this.library,
       {this.identity, this.audioHandler, AudioPlayer? player, this.history}) {
-    _player = player ?? AudioPlayer();
+    // Request headers (needed when streaming a resolved link before it is
+    // cached) go straight to the engine: media_kit and ExoPlayer both accept
+    // them, so just_audio's local proxy stays out of the audio path.
+    _player = player ?? AudioPlayer(useProxyForRequestHeaders: false);
     if (identity != null) {
       _autoRerollSeed = identity!.autoRerollSeed;
       _autoplay = identity!.autoplay;
@@ -1241,10 +1244,64 @@ class PlayerService extends ChangeNotifier {
           notifyListeners();
 
           DebugLog.write('[player] DISK CACHE MISS for $videoId, downloading via ensureStreamCached...');
-          File? downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
+
+          // Play while it downloads: the desktop fetch reports the direct
+          // audio link as soon as it has picked a format, so playback starts
+          // from that link instead of waiting for the whole file. The same
+          // fetch keeps filling the cache for the next play. If the link
+          // never arrives (Android, early failure) or will not play, this
+          // falls back to waiting for the cached file as before.
+          final linkReady = Completer<ResolvedStream?>();
+          final download = StreamCacheManager.ensureStreamCached(
+            videoId,
+            onStreamUrl: (stream) {
+              if (!linkReady.isCompleted) linkReady.complete(stream);
+            },
+          );
+          unawaited(download.then(
+            (_) {
+              if (!linkReady.isCompleted) linkReady.complete(null);
+            },
+            onError: (_) {
+              if (!linkReady.isCompleted) linkReady.complete(null);
+            },
+          ));
+          final link = await linkReady.future;
+          if (token != _playRequestToken) return;
+          var streaming = false;
+          if (link != null) {
+            try {
+              await _player.setAudioSource(
+                AudioSource.uri(Uri.parse(link.url), headers: link.headers),
+              );
+              if (token != _playRequestToken) return;
+              _isBufferingNext = false;
+              _bufferingVideoId = null;
+              _currentRouteType = StreamRouteType.direct;
+              _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+              _currentLoadedFile = null;
+              _currentLoadedFileSize = null;
+              _currentLoadedFormat = link.ext;
+              _resetStreamFailureCounters();
+              streaming = true;
+              notifyListeners();
+              DebugLog.write(
+                '[player] STREAMING while caching (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]',
+              );
+              // Only the success is used; the fetch keeps caching the file.
+              unawaited(download.catchError((_) => null));
+            } catch (e) {
+              DebugLog.write(
+                '[player] Direct link would not play ($e); waiting for the cached file instead',
+              );
+            }
+          }
+          File? downloadedFile = streaming ? null : await download;
 
           // Retry once after short delay if initial resolution returned null
-          if (downloadedFile == null && token == _playRequestToken) {
+          if (!streaming &&
+              downloadedFile == null &&
+              token == _playRequestToken) {
             DebugLog.write('[player] Initial stream fetch for $videoId returned null, retrying once...');
             await Future.delayed(const Duration(milliseconds: 500));
             if (token != _playRequestToken) return;
@@ -1258,7 +1315,9 @@ class PlayerService extends ChangeNotifier {
             return;
           }
 
-          if (downloadedFile != null && await downloadedFile.exists()) {
+          if (streaming) {
+            // Already playing from the direct link; the file is still caching.
+          } else if (downloadedFile != null && await downloadedFile.exists()) {
             _currentRouteType = StreamRouteType.direct;
             _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
             _currentLoadedFile = downloadedFile;

@@ -50,6 +50,21 @@ class StreamFetchFailure {
 
 /// High-speed ephemeral radio cache manager.
 /// Streams audio directly into local disk files using optimized audio-only extractors.
+/// A direct audio link yt-dlp resolved for a video, printed by the fetch
+/// process just before it starts downloading. Playback streams from it right
+/// away instead of waiting for the whole file to reach the cache.
+class ResolvedStream {
+  final String url;
+
+  /// Request headers yt-dlp would use for this link (user agent and so on).
+  final Map<String, String> headers;
+
+  /// Container extension of the chosen format (webm, m4a).
+  final String? ext;
+
+  const ResolvedStream({required this.url, this.headers = const {}, this.ext});
+}
+
 class StreamCacheManager {
   static const int maxCacheBytes = 500 * 1024 * 1024; // 500 MB cap
   static const int targetEvictionBytes = 400 * 1024 * 1024; // prune to 400 MB
@@ -335,6 +350,65 @@ class StreamCacheManager {
     );
   }
 
+  /// Prefix of the line the desktop fetch prints once the format is chosen
+  /// (see [_desktopStreamArgs]), so it can be told apart from anything else
+  /// yt-dlp writes to stdout.
+  static const String streamLinePrefix = 'PEARSTREAM ';
+
+  /// Parses a stream line printed by yt-dlp into a [ResolvedStream], or null
+  /// when [line] is not one (or is malformed).
+  @visibleForTesting
+  static ResolvedStream? parseStreamLine(String line) {
+    final trimmed = line.trim();
+    if (!trimmed.startsWith(streamLinePrefix)) return null;
+    try {
+      final data = jsonDecode(trimmed.substring(streamLinePrefix.length));
+      if (data is! Map) return null;
+      final url = data['url'];
+      if (url is! String || !url.startsWith('http')) return null;
+      final rawHeaders = data['http_headers'];
+      final headers = <String, String>{};
+      if (rawHeaders is Map) {
+        rawHeaders.forEach((key, value) {
+          if (key is String && value is String) headers[key] = value;
+        });
+      }
+      final ext = data['ext'];
+      return ResolvedStream(
+        url: url,
+        headers: headers,
+        ext: ext is String ? ext : null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Links printed by fetches that are still running, keyed by video id, so a
+  /// caller that joins an in-flight fetch late still gets the link.
+  static final Map<String, ResolvedStream> _resolvedStreams = {};
+
+  /// Callers waiting for a video's link (see [ensureStreamCached]'s
+  /// `onStreamUrl`).
+  static final Map<String, List<void Function(ResolvedStream)>>
+      _streamListeners = {};
+
+  /// Test seam: acts as if the running fetch for [videoId] printed [stream].
+  @visibleForTesting
+  static void debugPublishResolvedStream(
+    String videoId,
+    ResolvedStream stream,
+  ) => _publishResolvedStream(videoId, stream);
+
+  static void _publishResolvedStream(String videoId, ResolvedStream stream) {
+    _resolvedStreams[videoId] = stream;
+    final listeners = _streamListeners[videoId];
+    if (listeners == null) return;
+    for (final listener in List.of(listeners)) {
+      listener(stream);
+    }
+  }
+
   static String? _activeDownloadingVideoId;
   static bool _isActiveDownloadPreload = false;
   static String? _activeProcessId;
@@ -355,8 +429,18 @@ class StreamCacheManager {
 
   /// Options for a desktop stream fetch. The URL and the `-o` template are
   /// added per invocation (see [YtDlpPrewarmer.buildStdinArgs]).
+  ///
+  /// The `--print` line hands playback the chosen format's direct link (plus
+  /// the headers to fetch it with) as soon as the format is picked, before
+  /// the download starts, so a track can play while it is still being
+  /// cached. `--print` normally implies a dry run, hence `--no-simulate`.
+  /// Every fetch prints it (preloads just ignore it), which keeps the args
+  /// identical so the pre-booted spare process always matches.
   static List<String> _desktopStreamArgs(String ytdlpCachePath) {
     return [
+      '--no-simulate',
+      '--print',
+      'video:$streamLinePrefix%(.{url,http_headers,ext})j',
       '-f',
       getAudioFormatArg(),
       '--cache-dir',
@@ -547,7 +631,38 @@ class StreamCacheManager {
   /// Ensures the audio stream for [videoId] is downloaded into the local cache
   /// using yt-dlp exclusively with client emulation to bypass all rate limits and bot challenges.
   /// Strictly enforces single-concurrency to prevent multiple downloads from splitting bandwidth.
-  static Future<File?> ensureStreamCached(String videoId, {bool isPreload = false}) async {
+  ///
+  /// When [onStreamUrl] is given, it is called with the direct audio link as
+  /// soon as the desktop fetch has resolved it (before the download is done),
+  /// including when this call joins a fetch that is already running. It is
+  /// never called on Android (the embedded engine only downloads) or on a
+  /// cache hit.
+  static Future<File?> ensureStreamCached(
+    String videoId, {
+    bool isPreload = false,
+    void Function(ResolvedStream stream)? onStreamUrl,
+  }) async {
+    if (onStreamUrl == null) {
+      return _ensureStreamCached(videoId, isPreload: isPreload);
+    }
+    final listeners = _streamListeners.putIfAbsent(videoId, () => []);
+    listeners.add(onStreamUrl);
+    final alreadyResolved = _resolvedStreams[videoId];
+    if (alreadyResolved != null) onStreamUrl(alreadyResolved);
+    try {
+      return await _ensureStreamCached(videoId, isPreload: isPreload);
+    } finally {
+      listeners.remove(onStreamUrl);
+      if (listeners.isEmpty && identical(_streamListeners[videoId], listeners)) {
+        _streamListeners.remove(videoId);
+      }
+    }
+  }
+
+  static Future<File?> _ensureStreamCached(
+    String videoId, {
+    bool isPreload = false,
+  }) async {
     final token = ++_downloadInvocationToken;
     final preloadSeq = _slidingWindowSequence;
     // A new attempt starts clean: any explanation from an earlier attempt for
@@ -744,7 +859,19 @@ class StreamCacheManager {
           DebugLog.write('[cache] Started desktop yt-dlp for $videoId');
           _activeDesktopProcess = process;
 
-          process.stdout.drain().catchError((_) => null);
+          process.stdout
+              .transform(const Utf8Decoder(allowMalformed: true))
+              .transform(const LineSplitter())
+              .listen(
+                (line) {
+                  final stream = parseStreamLine(line);
+                  if (stream != null) {
+                    DebugLog.write('[cache] Direct stream link ready for $videoId');
+                    _publishResolvedStream(videoId, stream);
+                  }
+                },
+                onError: (_) {},
+              );
           final stderrBuffer = StringBuffer();
           process.stderr.transform(utf8.decoder).listen(
             (data) {
@@ -817,6 +944,7 @@ class StreamCacheManager {
         recordFailure('$e');
       }
     } finally {
+      _resolvedStreams.remove(videoId);
       if (_activeDownloadingVideoId == videoId) {
         _activeDownloadingVideoId = null;
         _isActiveDownloadPreload = false;
