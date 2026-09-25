@@ -280,34 +280,70 @@ class LibraryService extends ChangeNotifier {
   ) async {
     final (path, songs) = args;
     final jsonStr = jsonEncode(songs.map((s) => s.toJson()).toList());
-    await File(path).writeAsString(jsonStr, flush: true);
+    await writeFileAtomically(path, jsonStr);
+  }
+
+  /// Writes [contents] to a temporary file next to [path] and renames it
+  /// into place, so a crash or a kill mid-write leaves the previous file
+  /// intact instead of a truncated one that fails to load.
+  static Future<void> writeFileAtomically(String path, String contents) async {
+    final tmp = File('$path.tmp');
+    await tmp.writeAsString(contents, flush: true);
+    try {
+      await tmp.rename(path);
+    } catch (_) {
+      // Rename can fail on Windows while another process (an antivirus
+      // scan, a backup tool) holds the target; fall back to a direct write.
+      await File(path).writeAsString(contents, flush: true);
+      try {
+        await tmp.delete();
+      } catch (_) {}
+    }
   }
 
   bool _isSavingIndex = false;
+  bool _indexDirty = false;
   Completer<void>? _saveIndexCompleter;
 
-  Future<void> _saveIndex() async {
+  /// Saves the song index. A call made while a save is already running
+  /// waits for it and then saves once more, so changes made during the
+  /// first write are never dropped.
+  Future<void> _saveIndex() {
     _saveIndexDebounce?.cancel();
     _saveIndexDebounce = null;
-    if (_indexFile == null) return;
-    if (_isSavingIndex) {
-      return _saveIndexCompleter?.future;
+    final indexFile = _indexFile;
+    if (indexFile == null) return Future.value();
+    final running = _saveIndexCompleter;
+    if (_isSavingIndex && running != null) {
+      _indexDirty = true;
+      return running.future;
     }
     _isSavingIndex = true;
     final completer = Completer<void>();
     _saveIndexCompleter = completer;
-    try {
-      if (!await _indexFile!.parent.exists()) {
-        await _indexFile!.parent.create(recursive: true);
+    () async {
+      try {
+        do {
+          _indexDirty = false;
+          try {
+            if (!await indexFile.parent.exists()) {
+              await indexFile.parent.create(recursive: true);
+            }
+            await compute(
+              _encodeAndWriteSongsJson,
+              (indexFile.path, List<Song>.of(_songs)),
+            );
+          } catch (e) {
+            debugPrint('[library] error saving index: $e');
+          }
+        } while (_indexDirty);
+      } finally {
+        _isSavingIndex = false;
+        _saveIndexCompleter = null;
+        if (!completer.isCompleted) completer.complete();
       }
-      await compute(_encodeAndWriteSongsJson, (_indexFile!.path, _songs));
-    } catch (e) {
-      debugPrint('[library] error saving index: $e');
-    } finally {
-      _isSavingIndex = false;
-      _saveIndexCompleter = null;
-      if (!completer.isCompleted) completer.complete();
-    }
+    }();
+    return completer.future;
   }
 
   void _scheduleSaveIndex() {
@@ -353,13 +389,41 @@ class LibraryService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _savePlaylists() async {
-    if (_playlistsFile == null) return;
-    try {
-      if (!await _playlistsFile!.parent.exists()) {
-        await _playlistsFile!.parent.create(recursive: true);
+  Future<void>? _playlistSave;
+  bool _playlistsDirty = false;
+
+  /// Saves the playlists file. Writes never overlap: a call made during a
+  /// save waits for it and triggers one more write with the latest state.
+  Future<void> _savePlaylists() {
+    if (_playlistsFile == null) return Future.value();
+    final running = _playlistSave;
+    if (running != null) {
+      _playlistsDirty = true;
+      return running;
+    }
+    final save = () async {
+      try {
+        do {
+          _playlistsDirty = false;
+          await _writePlaylists();
+        } while (_playlistsDirty);
+      } finally {
+        _playlistSave = null;
       }
-      await _playlistsFile!.writeAsString(
+    }();
+    _playlistSave = save;
+    return save;
+  }
+
+  Future<void> _writePlaylists() async {
+    final file = _playlistsFile;
+    if (file == null) return;
+    try {
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
+      }
+      await writeFileAtomically(
+        file.path,
         jsonEncode({
           'playlists': _playlists.map((pl) => pl.toJson()).toList(),
           'deleted': {
@@ -367,7 +431,6 @@ class LibraryService extends ChangeNotifier {
               e.key: e.value.toIso8601String(),
           },
         }),
-        flush: true,
       );
     } catch (e) {
       debugPrint('[library] error saving playlists: $e');
@@ -769,8 +832,9 @@ class LibraryService extends ChangeNotifier {
     final idSet = ids.toSet();
     final toRemove = _songs.where((s) => idSet.contains(s.id)).toList();
     if (toRemove.isEmpty) return;
+    // One pass instead of a linear List.remove per song.
+    _songs.removeWhere((s) => idSet.contains(s.id));
     for (final song in toRemove) {
-      _songs.remove(song);
       _unindexSong(song);
       _filesOnDisk.remove(song.id);
       try {
@@ -894,16 +958,15 @@ class LibraryService extends ChangeNotifier {
     await _savePlaylists();
   }
 
+  /// Drops [songId] from every playlist in memory. Callers save the
+  /// playlists afterwards, once per batch, instead of once per song.
   void _stripSongFromPlaylists(String songId) {
-    var changed = false;
     for (var i = 0; i < _playlists.length; i++) {
       if (_playlists[i].songIds.contains(songId)) {
         final ids = _playlists[i].songIds.where((id) => id != songId).toList();
         _playlists[i] = _playlists[i].copyWith(songIds: ids);
-        changed = true;
       }
     }
-    if (changed) _savePlaylists();
   }
 
   String _titleFromName(String base) {

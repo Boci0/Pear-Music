@@ -177,4 +177,39 @@ void main() {
     final identity2 = IdentityService(prefs);
     expect(identity2.findOnlineSong(streamSong.id)?.title, 'Stream Track');
   });
+
+  test('overlapping playlist edits all reach disk', () async {
+    final pl = await lib.createPlaylist('Burst');
+    // Fire several edits without awaiting, as a batch delete does: the last
+    // state must be what a fresh load sees.
+    final writes = [
+      lib.createPlaylist('Second'),
+      lib.renamePlaylist(pl.id, 'Renamed'),
+      lib.createPlaylist('Third'),
+    ];
+    await Future.wait(writes);
+
+    final reloaded = LibraryService()..debugBaseDirectory = tempDir;
+    await reloaded.init();
+    expect(
+      reloaded.playlists.map((p) => p.name).toSet(),
+      {'Renamed', 'Second', 'Third'},
+    );
+  });
+
+  test('removing several songs strips them from playlists on disk', () async {
+    final songA = await addSong('a.mp3', seed: 1);
+    final songB = await addSong('b.mp3', seed: 2);
+    final songC = await addSong('c.mp3', seed: 3);
+    final pl = await lib.createPlaylist('Mixed');
+    await lib.setPlaylistSongIds(pl.id, [songA.id, songB.id, songC.id]);
+
+    await lib.removeSongs([songA.id, songC.id]);
+    expect(lib.findPlaylist(pl.id)!.songIds, [songB.id]);
+
+    final reloaded = LibraryService()..debugBaseDirectory = tempDir;
+    await reloaded.init();
+    expect(reloaded.findPlaylist(pl.id)!.songIds, [songB.id]);
+    expect(reloaded.songs.map((s) => s.id), [songB.id]);
+  });
 }
