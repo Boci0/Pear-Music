@@ -632,10 +632,16 @@ class PlayerService extends ChangeNotifier {
   /// Live playback position, throttled to ~250 ms so the seek bar updates
   /// smoothly without rebuilding the whole player screen. Consume with a
   /// `StreamBuilder`, never with `notifyListeners()`.
-  Stream<Duration> get positionStream => _player.createPositionStream(
-        minPeriod: const Duration(milliseconds: 250),
-        maxPeriod: const Duration(milliseconds: 250),
-      );
+  ///
+  /// Created once and shared (it is a broadcast stream). Every
+  /// `createPositionStream` call starts its own periodic timer and player
+  /// event subscription that only stop when the player is disposed, not
+  /// when listeners cancel, so building a fresh stream per read (widgets read
+  /// this inside build) leaked a 4 Hz timer on every rebuild.
+  late final Stream<Duration> positionStream = _player.createPositionStream(
+    minPeriod: const Duration(milliseconds: 250),
+    maxPeriod: const Duration(milliseconds: 250),
+  );
 
   /// Live duration stream from underlying audio player.
   Stream<Duration?> get durationStream => _player.durationStream;

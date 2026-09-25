@@ -284,6 +284,9 @@ class ArtworkPalette {
     return url;
   }
 
+  /// Downloads artwork bytes from [url] (null on failure or timeout).
+  static Future<Uint8List?> networkBytes(String url) => _downloadBytes(url);
+
   static Future<Uint8List?> _downloadBytes(String url) async {
     try {
       final req = await _httpClient

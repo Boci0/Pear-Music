@@ -28,6 +28,33 @@ import 'settings_screen.dart';
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
+  /// Whether a window of [size] gets the wide shell (menu bar, side rail).
+  /// Desktop operating systems always do at 900+ px. Other platforms (phones
+  /// in landscape, tablets) only switch once the short side is at least
+  /// 600 logical px, so a rotated phone never turns into a desktop window
+  /// with a menu bar and side rail.
+  static bool usesWideShell(Size size) {
+    final isDesktopOs =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    return size.width >= 900 && (isDesktopOs || size.shortestSide >= 600);
+  }
+
+  /// Whether a window of [size] shows the permanent Now Playing pane, which
+  /// doubles as the expanded player.
+  static bool usesNowPlayingPane(Size size) =>
+      usesWideShell(size) && size.width >= 1250;
+
+  static final ValueNotifier<int> _expandPaneRequests = ValueNotifier<int>(0);
+
+  /// Asks the shell to open the Now Playing pane in its expanded (player)
+  /// state. The full-screen player calls this when the window grows wide
+  /// enough for the pane, then closes itself, so a wide window always uses
+  /// the pane instead of the separate phone-style player page.
+  static void requestExpandedPane() => _expandPaneRequests.value++;
+
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
@@ -124,10 +151,18 @@ class _HomeShellState extends State<HomeShell>
       },
     );
     _requestPermissions();
+    HomeShell._expandPaneRequests.addListener(_onExpandPaneRequest);
+  }
+
+  void _onExpandPaneRequest() {
+    if (mounted && !_playerExpanded) {
+      setState(() => _playerExpanded = true);
+    }
   }
 
   @override
   void dispose() {
+    HomeShell._expandPaneRequests.removeListener(_onExpandPaneRequest);
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
     _tabFade.dispose();
@@ -147,21 +182,10 @@ class _HomeShellState extends State<HomeShell>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final windowWidth = size.width;
-    // Desktop operating systems always get the wide shell. Other platforms
-    // (phones in landscape, tablets) only switch once the short side is at
-    // least 600 logical px, so a rotated phone never turns into a desktop
-    // window with a menu bar and side rail.
-    final isDesktopOs =
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.windows ||
-            defaultTargetPlatform == TargetPlatform.linux ||
-            defaultTargetPlatform == TargetPlatform.macOS);
-    final isWide =
-        windowWidth >= 900 && (isDesktopOs || size.shortestSide >= 600);
+    final isWide = HomeShell.usesWideShell(size);
     // Old-school desktop layout: at 1250+ a permanent Now Playing pane sits
     // on the right and replaces the floating mini player.
-    final useNowPlayingPane = isWide && windowWidth >= 1250;
+    final useNowPlayingPane = HomeShell.usesNowPlayingPane(size);
 
     return PopScope(
       canPop:

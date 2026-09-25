@@ -7,9 +7,9 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
+import '../theme/glass.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
-import '../theme/glass.dart';
 
 /// Shows the songs in one playlist: play all, play a specific song in the
 /// playlist order, remove a song from the playlist, rename or delete it.

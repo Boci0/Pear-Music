@@ -463,6 +463,32 @@ void main() {
     );
   });
 
+  testWidgets(
+    'widening the window hands the full-screen player to the expanded pane',
+    (tester) async {
+      setViewport(tester, const Size(500, 900));
+      final queue = [for (var i = 0; i < 3; i++) _song('w$i', 'Wide Song $i')];
+      await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+      await tester.pumpAndSettle();
+
+      // Phone width: the mini player opens the full-screen player page.
+      await tester.tap(find.byType(PlayerBar));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerScreen), findsOneWidget);
+
+      // Widen past the pane breakpoint (short side >= 600 so the test
+      // platform gets the wide shell too).
+      tester.view.physicalSize = const Size(1400, 900);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PlayerScreen), findsNothing);
+      expect(
+        find.byKey(const ValueKey('pane_content_expanded')),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('switching tabs fades the body in', (tester) async {
     setViewport(tester, const Size(400, 800));
     await tester.pumpWidget(await buildShell());

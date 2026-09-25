@@ -5,10 +5,10 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../services/artwork_service.dart';
 import '../services/youtube_search_service.dart';
+import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'pear_popup.dart';
 import 'tactile_button.dart';
-import '../theme/glass.dart';
 
 /// A list tile representing a YouTube search result with instant streaming playback
 /// and optional background download to library.

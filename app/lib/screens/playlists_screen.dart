@@ -7,13 +7,13 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
+import '../theme/glass.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
 import '../widgets/pear_page_route.dart';
 import '../widgets/player_bar.dart';
 import '../widgets/tactile_button.dart';
 import 'playlist_detail_screen.dart';
-import '../theme/glass.dart';
 
 /// Lists the user's playlists with create / play / rename / delete.
 class PlaylistsScreen extends StatelessWidget {

@@ -45,8 +45,8 @@ void showPearMusicAboutDialog(BuildContext context) {
             ),
             const SizedBox(height: 14),
             Text(
-              'A fast, local-first music player and YouTube discovery app for '
-              'Windows and Android, with no accounts and no cloud.',
+              'A fast, local-first music player and streaming discovery app '
+              'for Windows and Android, with no accounts and no cloud.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),

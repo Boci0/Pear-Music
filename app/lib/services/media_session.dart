@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../models/song.dart';
 import 'artwork_palette.dart';
 import 'playback_actions.dart';
 import 'player_service.dart';
@@ -57,6 +58,27 @@ class MediaSession {
       });
     }
 
+    // Loads the cover off the UI thread (large local covers decode in an
+    // isolate; streamed songs download theirs) and sends it once ready. An
+    // empty list clears the thumbnail, so a song without a cover never shows
+    // the previous song's art.
+    Future<void> pushArtwork(Song song) async {
+      final art = song.artwork;
+      Uint8List? bytes;
+      if (art != null && art.startsWith('http')) {
+        bytes = await ArtworkPalette.networkBytes(art);
+      } else {
+        bytes = await ArtworkPalette.bytesAsync(song);
+      }
+      // The user may have skipped on while the cover loaded.
+      if (song.id != lastSongId) return;
+      if (bytes == null || bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
+        await _invoke('setArtwork', Uint8List(0));
+      } else {
+        await _invoke('setArtwork', bytes);
+      }
+    }
+
     Future<void> pushState() async {
       final song = player.currentSong;
 
@@ -76,12 +98,7 @@ class MediaSession {
               ? 'Shared Library'
               : 'Local Library',
         });
-        final bytes = ArtworkPalette.bytes(song);
-        if (bytes != null &&
-            bytes.isNotEmpty &&
-            bytes.length <= 2 * 1024 * 1024) {
-          await _invoke('setArtwork', bytes);
-        }
+        unawaited(pushArtwork(song));
       }
 
       final status = song == null

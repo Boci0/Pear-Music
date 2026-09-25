@@ -279,8 +279,19 @@ bool FlutterWindow::OnCreate() {
         } else if (method == "setArtwork") {
           const auto* bytes =
               std::get_if<std::vector<uint8_t>>(call.arguments());
-          if (!bytes || bytes->empty()) {
+          if (!bytes) {
             result->Success(flutter::EncodableValue(false));
+            return;
+          }
+          if (bytes->empty()) {
+            // No cover for this song: clear the previous song's thumbnail.
+            try {
+              smtc_.DisplayUpdater().Thumbnail(nullptr);
+              smtc_.DisplayUpdater().Update();
+              result->Success(flutter::EncodableValue(true));
+            } catch (const winrt::hresult_error&) {
+              result->Success(flutter::EncodableValue(false));
+            }
             return;
           }
           try {

@@ -138,14 +138,17 @@ Future<T?> _showAnchoredPopup<T>({
     barrierDismissible: true,
     barrierLabel: 'Dismiss menu',
     barrierColor: Colors.black.withValues(alpha: 0.10),
-    transitionDuration: const Duration(milliseconds: 200),
+    transitionDuration: const Duration(milliseconds: 180),
     // The menu fades in and pops open from its anchor, with a slight
-    // overshoot so it feels springy rather than just appearing.
+    // overshoot so it feels springy rather than just appearing. Closing is
+    // deliberately quicker: the card is gone within the first 40% of the
+    // reverse, so picking an item never feels like waiting on the menu.
     transitionBuilder: (ctx, animation, secondaryAnimation, child) =>
         FadeTransition(
       opacity: CurvedAnimation(
         parent: animation,
         curve: const Interval(0, 0.6, curve: Curves.easeOut),
+        reverseCurve: const Interval(0.6, 1, curve: Curves.easeIn),
       ),
       child: child,
     ),
@@ -164,11 +167,11 @@ Future<T?> _showAnchoredPopup<T>({
       final maxHeight =
           (openAbove ? spaceAbove : spaceBelow).clamp(120.0, screen.height * 0.9);
 
-      final scale = Tween<double>(begin: 0.92, end: 1).animate(
+      final scale = Tween<double>(begin: 0.94, end: 1).animate(
         CurvedAnimation(
           parent: animation,
           curve: Curves.easeOutBack,
-          reverseCurve: Curves.easeIn,
+          reverseCurve: const Interval(0.6, 1, curve: Curves.easeIn),
         ),
       );
       final card = PearGlass(

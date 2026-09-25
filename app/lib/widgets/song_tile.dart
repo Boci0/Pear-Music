@@ -6,10 +6,10 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
+import '../theme/glass.dart';
 import 'pear_popup.dart';
 import 'playlist_actions.dart';
 import 'tactile_button.dart';
-import '../theme/glass.dart';
 
 /// One row in the library: artwork, title, meta, play button + a menu with
 /// "Add to playlist" and "Remove song".

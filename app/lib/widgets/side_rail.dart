@@ -63,16 +63,50 @@ class SideRail extends StatelessWidget {
                 padding: EdgeInsets.only(top: 16, bottom: 6),
                 child: PearMark(size: 30),
               ),
-              for (var i = 0; i < _items.length; i++)
-                _SideRailItem(
-                  index: i,
-                  selectedIndex: selectedIndex,
-                  label: _items[i].label,
-                  icon: _items[i].icon,
-                  activeIcon: _items[i].activeIcon,
-                  onTap: () => onDestinationSelected(i),
-                ),
-            const Spacer(),
+              Stack(
+                children: [
+                  // Gliding selection capsule, shared by all items so it
+                  // slides between them (with a slight overshoot) like the
+                  // phone nav bar's indicator instead of fading in place.
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 340),
+                    curve: Curves.easeOutBack,
+                    top: selectedIndex * _SideRailItem.height +
+                        _SideRailItem.iconTop,
+                    left: 0,
+                    right: 0,
+                    height: _SideRailItem.pillHeight,
+                    child: Center(
+                      child: Container(
+                        key: const ValueKey('side_rail_indicator'),
+                        width: _SideRailItem.pillWidth,
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.24),
+                          borderRadius: BorderRadius.circular(
+                            _SideRailItem.pillHeight / 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Column(
+                    children: [
+                      for (var i = 0; i < _items.length; i++)
+                        _SideRailItem(
+                          index: i,
+                          selectedIndex: selectedIndex,
+                          label: _items[i].label,
+                          icon: _items[i].icon,
+                          activeIcon: _items[i].activeIcon,
+                          onTap: () => onDestinationSelected(i),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              const Spacer(),
             ],
           ),
         ),
@@ -82,6 +116,16 @@ class SideRail extends StatelessWidget {
 }
 
 class _SideRailItem extends StatefulWidget {
+  /// Row geometry, fixed so the rail's shared indicator can be positioned
+  /// exactly over an item's icon without measuring anything.
+  static const double height = 64;
+  static const double pillWidth = 48;
+  static const double pillHeight = 30;
+  static const double _labelHeight = 14;
+  static const double _gap = 3;
+  static const double iconTop =
+      (height - pillHeight - _gap - _labelHeight) / 2;
+
   final int index;
   final int selectedIndex;
   final String label;
@@ -121,22 +165,24 @@ class _SideRailItemState extends State<_SideRailItem> {
         scaleDown: 0.94,
         onTap: widget.onTap,
         child: SizedBox(
-          height: 64,
+          height: _SideRailItem.height,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // The selected fill is the rail's gliding indicator; the item
+              // only draws its own capsule for hover.
               AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
                 curve: Curves.easeOutCubic,
-                width: 48,
-                height: 30,
+                width: _SideRailItem.pillWidth,
+                height: _SideRailItem.pillHeight,
                 decoration: BoxDecoration(
-                  color: isSelected
-                      ? scheme.primary.withValues(alpha: 0.22)
-                      : (_isHovered
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.transparent),
-                  borderRadius: BorderRadius.circular(15),
+                  color: !isSelected && _isHovered
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(
+                    _SideRailItem.pillHeight / 2,
+                  ),
                 ),
                 child: Icon(
                   isSelected ? widget.activeIcon : widget.icon,
@@ -145,17 +191,25 @@ class _SideRailItemState extends State<_SideRailItem> {
                       isSelected ? scheme.onSurface : scheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 3),
-              Text(
-                widget.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  letterSpacing: -0.4,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color:
-                      isSelected ? scheme.onSurface : scheme.onSurfaceVariant,
+              const SizedBox(height: _SideRailItem._gap),
+              SizedBox(
+                height: _SideRailItem._labelHeight,
+                child: Center(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      height: 1.0,
+                      letterSpacing: -0.4,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.w500,
+                      color: isSelected
+                          ? scheme.onSurface
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ),
             ],

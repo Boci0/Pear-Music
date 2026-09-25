@@ -111,6 +111,16 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     super.notifyListeners();
   }
 
+  /// Player changes (play/pause, buffering, song switches) fire often but
+  /// never change the favourite, history or sorted song lists, which only
+  /// depend on the library, identity and history. Forwarding them without
+  /// dropping those caches keeps the library from re-sorting every song on
+  /// each playback event.
+  void _onPlayerChanged() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   /// YouTube identity of a song, spanning representations: library downloads
   /// carry it in the file name, online entries in the id. Null for plain local
   /// files, which cannot collide with an online copy.
@@ -284,12 +294,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
     _removeNotifierListeners.addAll([
       () => library.removeListener(notifyListeners),
-      () => player.removeListener(notifyListeners),
+      () => player.removeListener(_onPlayerChanged),
       () => identity.removeListener(notifyListeners),
       if (history != null) () => history!.removeListener(notifyListeners),
     ]);
     library.addListener(notifyListeners);
-    player.addListener(notifyListeners);
+    player.addListener(_onPlayerChanged);
     identity.addListener(notifyListeners);
     history?.addListener(notifyListeners);
 

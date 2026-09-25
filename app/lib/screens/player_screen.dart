@@ -8,6 +8,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
+import 'home_shell.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_desktop_body.dart';
@@ -45,6 +46,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Color? _accentColor;
   String? _resolvedSongId;
   late final AppController _appController;
+  bool _handingOffToPane = false;
+
+  /// When the window grows wide enough for the Now Playing pane (for example
+  /// the player was opened at phone width and the window was then widened),
+  /// close this page and open the pane's expanded player instead, so wide
+  /// windows never show two different players.
+  void _handOffToPaneIfWide(Size size) {
+    if (_handingOffToPane || !HomeShell.usesNowPlayingPane(size)) return;
+    _handingOffToPane = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final navigator = Navigator.of(context);
+      if (!navigator.canPop()) {
+        _handingOffToPane = false;
+        return;
+      }
+      HomeShell.requestExpandedPane();
+      navigator.pop();
+    });
+  }
 
   @override
   void initState() {
@@ -92,6 +113,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final song = context.select<PlayerService, Song?>((p) => p.currentSong);
     final duration = context.select<PlayerService, Duration>((p) => p.duration ?? Duration.zero);
     final themePrimary = Theme.of(context).colorScheme.primary;
+    _handOffToPaneIfWide(MediaQuery.sizeOf(context));
 
     if (song != null) {
       _resolveAccent(song, themePrimary);

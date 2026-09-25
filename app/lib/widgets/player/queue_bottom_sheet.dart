@@ -9,9 +9,9 @@ import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import '../../services/player_theme.dart';
+import '../../theme/glass.dart';
 import '../../theme/tokens.dart';
 import '../tactile_button.dart';
-import '../../theme/glass.dart';
 
 /// Height of one queue row including its vertical padding. The list's
 /// itemExtent and the auto-scroll maths must agree on this number.
@@ -391,15 +391,32 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
           height: currentHeight,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            // Same card tone as the rest of the app, ambient tint included.
+            // Solid glass: the card tone with a soft top sheen. No blur, since
+            // the player animates right behind the sheet.
             color: PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color.alphaBlend(
+                  Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
+                  PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+                ),
+                PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+              ],
+              stops: const [0, 0.35],
+            ),
             borderRadius: BorderRadius.vertical(
               top: Radius.circular(lerpDouble(22, 28, _curvedAnimation.value)!),
             ),
             border: Border(
               top: BorderSide(
                 color: Colors.white.withValues(
-                  alpha: lerpDouble(0.12, 0.05, _curvedAnimation.value)!,
+                  alpha: lerpDouble(
+                    PearGlassTokens.edgeTop,
+                    PearGlassTokens.edge,
+                    _curvedAnimation.value,
+                  )!,
                 ),
                 width: 1,
               ),
@@ -772,8 +789,22 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: PlayerTheme.cardFillOpaque(theme.colorScheme),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.alphaBlend(
+              Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
+              PlayerTheme.cardFillOpaque(theme.colorScheme),
+            ),
+            PlayerTheme.cardFillOpaque(theme.colorScheme),
+          ],
+          stops: const [0, 0.35],
+        ),
+        borderRadius: BorderRadius.circular(PearRadius.card),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+        ),
       ),
       child: Column(
         children: [
@@ -1044,10 +1075,20 @@ class _QueueRow extends StatelessWidget {
             height: 64,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              // Same card body as the library rows: a visible fill when idle,
-              // the track accent while this one is playing.
+              // Same card body as the library rows: a faint glass fill when
+              // idle, the accent gradient while this one is playing.
+              gradient: isCurrent
+                  ? LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        readableAccent.withValues(alpha: 0.20),
+                        readableAccent.withValues(alpha: 0.03),
+                      ],
+                    )
+                  : null,
               color: isCurrent
-                  ? readableAccent.withValues(alpha: 0.14)
+                  ? null
                   : Colors.white.withValues(
                       alpha: PearGlassTokens.cardFill,
                     ),
@@ -1137,7 +1178,7 @@ class _QueueRow extends StatelessWidget {
                     icon: Icon(
                       Icons.close_rounded,
                       color: Colors.white.withValues(
-                        alpha: isPlayed ? 0.30 : 0.60,
+                        alpha: isPlayed ? 0.22 : 0.42,
                       ),
                     ),
                     onPressed: onRemove,
@@ -1212,11 +1253,11 @@ class _QueueArtworkThumbnailState extends State<_QueueArtworkThumbnail> {
 
     if (_bytes != null && _bytes!.isNotEmpty) {
       return ClipRRect(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: PearRadius.thumbAll,
         child: Image.memory(
           _bytes!,
-          width: 38,
-          height: 38,
+          width: 44,
+          height: 44,
           cacheWidth: 96,
           
           fit: BoxFit.cover,
@@ -1228,11 +1269,11 @@ class _QueueArtworkThumbnailState extends State<_QueueArtworkThumbnail> {
 
     if (isNetwork) {
       return ClipRRect(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: PearRadius.thumbAll,
         child: Image.network(
           ArtworkService.optimizeArtworkUrl(art),
-          width: 38,
-          height: 38,
+          width: 44,
+          height: 44,
           cacheWidth: 96,
           
           fit: BoxFit.cover,
@@ -1247,11 +1288,11 @@ class _QueueArtworkThumbnailState extends State<_QueueArtworkThumbnail> {
 
   Widget _placeholder() {
     return Container(
-      width: 38,
-      height: 38,
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: PearRadius.thumbAll,
       ),
       child: Icon(
         widget.isCurrent ? Icons.music_note : Icons.audiotrack,

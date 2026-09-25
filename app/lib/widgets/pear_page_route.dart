@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 
+import 'pear_backdrop.dart';
+
 /// Lively, low-cost route transition for drill-down navigation.
 ///
-/// The new page fades in while rising a few pixels and settling from a hair
-/// smaller than full size (easeOutCubic, 280ms), so it lands instead of just
-/// appearing. The reverse is a quick 170ms fade on easeInQuad, which avoids
-/// the stall where a reverse cubic lingers near full opacity. Fade, slide and
-/// scale are all compositor transforms, so the motion costs no relayout.
+/// Screens are see-through (the app backdrop is painted once, behind every
+/// route), so a plain fade would show the old page's content through the new
+/// one. The route therefore brings its own backdrop copy, which fades in over
+/// the first third of the motion and hides the old page quickly. The page
+/// content then fades in while rising a few pixels and settling from a hair
+/// smaller than full size (easeOutCubic, 280ms). On the way back the content
+/// leaves first and the backdrop last, on quick easeInQuad curves (170ms), so
+/// the two pages never overlap.
+///
+/// Fade, slide and scale are compositor transforms, so the motion costs no
+/// relayout.
 class PearPageRoute<T> extends PageRoute<T> {
   final WidgetBuilder builder;
 
@@ -48,23 +56,42 @@ class PearPageRoute<T> extends PageRoute<T> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final curved = CurvedAnimation(
+    final cover = CurvedAnimation(
       parent: animation,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeInQuad,
+      curve: const Interval(0, 0.35, curve: Curves.easeOut),
+      reverseCurve: const Interval(0, 0.45, curve: Curves.easeIn),
     );
-    return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.025),
-          end: Offset.zero,
-        ).animate(curved),
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.97, end: 1).animate(curved),
-          child: child,
+    final content = CurvedAnimation(
+      parent: animation,
+      curve: const Interval(0.1, 1, curve: Curves.easeOutCubic),
+      reverseCurve: const Interval(0.3, 1, curve: Curves.easeInQuad),
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Only needed while the old page could show through; once the route
+        // has settled the app-wide backdrop underneath is identical.
+        AnimatedBuilder(
+          animation: animation,
+          builder: (context, backdrop) => animation.isCompleted
+              ? const SizedBox.shrink()
+              : FadeTransition(opacity: cover, child: backdrop),
+          child: const IgnorePointer(child: PearBackdrop()),
         ),
-      ),
+        FadeTransition(
+          opacity: content,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.025),
+              end: Offset.zero,
+            ).animate(content),
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.97, end: 1).animate(content),
+              child: child,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -46,27 +46,34 @@ class _PearBackdropState extends State<PearBackdrop> {
   /// decoration.
   static const double _alpha = 0.035;
 
+  /// The tile is shared by every backdrop (the app-wide one plus the copy
+  /// each page transition brings), rendered once per device pixel ratio.
+  /// Shared images are never disposed; one small tile does not matter.
+  static ui.Image? _sharedTile;
+  static double? _sharedTileDpr;
+
   ui.Image? _tileImage;
   int _generation = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_tileImage == null) {
-      _renderTile();
+    final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+    if (_sharedTile != null && _sharedTileDpr == dpr) {
+      _tileImage = _sharedTile;
+    } else if (_tileImage == null) {
+      _renderTile(dpr);
     }
   }
 
   @override
   void dispose() {
     _generation++;
-    _tileImage?.dispose();
     super.dispose();
   }
 
-  Future<void> _renderTile() async {
+  Future<void> _renderTile(double dpr) async {
     final generation = ++_generation;
-    final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
 
     final data = await rootBundle.load('assets/pear_logo.png');
     final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
@@ -117,12 +124,12 @@ class _PearBackdropState extends State<PearBackdrop> {
     picture.dispose();
     logo.dispose();
 
-    if (!mounted || generation != _generation) {
-      image.dispose();
-      return;
-    }
-    // The previous tile is dropped, not disposed: an in-flight frame may
-    // still be rasterising it, and one 140px image does not matter.
+    // Keep the result even if this backdrop has gone away meanwhile: the
+    // next one reuses it. A replaced shared tile is dropped, not disposed,
+    // since another backdrop or an in-flight frame may still be drawing it.
+    _sharedTile = image;
+    _sharedTileDpr = dpr;
+    if (!mounted || generation != _generation) return;
     setState(() {
       _tileImage = image;
     });
