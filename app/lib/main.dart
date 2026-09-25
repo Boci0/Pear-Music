@@ -26,6 +26,7 @@ import 'services/stream_cache_manager.dart';
 import 'services/window_focus.dart';
 import 'services/window_title.dart';
 import 'services/youtube_service.dart';
+import 'widgets/pear_backdrop.dart';
 import 'widgets/playback_shortcuts.dart';
 
 Future<void> main([List<String> args = const []]) async {
@@ -220,9 +221,18 @@ class PearMusicApp extends StatelessWidget {
 
               Widget appChild = child ?? const SizedBox.shrink();
 
+              // The room behind every route: the ambient canvas plus a faint
+              // pear watermark, painted once by PearBackdrop. Screens keep
+              // transparent Scaffold backgrounds so it shows through, and
+              // AnimatedTheme still fades the colour when the song changes.
               return MediaQuery(
                 data: mediaQuery.copyWith(textScaler: clampedTextScaler),
-                child: PlaybackShortcuts(child: appChild),
+                child: PlaybackShortcuts(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [const PearBackdrop(), appChild],
+                  ),
+                ),
               );
             },
             home: const _MessagesListener(child: HomeShell()),

@@ -23,7 +23,7 @@ class PearStatusBar extends StatelessWidget {
         // Ambient tint: the chrome follows the current song's colour.
         color: PlayerTheme.ambientBlend(
           Theme.of(context).colorScheme,
-          const Color(0xFF131316),
+          const Color(0xFF111114),
           alpha: 0.06,
         ),
         border: Border(

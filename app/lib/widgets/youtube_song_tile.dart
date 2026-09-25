@@ -382,14 +382,14 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: Material(
           color: Colors.transparent,
           child: GestureDetector(
             onSecondaryTapDown: (details) =>
                 _showContextMenu(context, details.globalPosition),
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               onTap: () {
                 TactileFeedback.click();
                 _streamAndPlay(context, controller);
@@ -407,7 +407,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               highlightColor: Colors.white.withValues(alpha: 0.06),
               child: Ink(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   gradient: widget.isCurrent
                       ? LinearGradient(
                           begin: Alignment.centerLeft,
@@ -418,9 +418,16 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                           ],
                         )
                       : null,
+                  // Same card body as the playlist tile: a visible fill when
+                  // idle, the accent gradient when this row is playing.
+                  color: widget.isCurrent
+                      ? null
+                      : theme.colorScheme.surfaceContainerHighest.withValues(
+                          alpha: 0.5,
+                        ),
                 ),
                 child: SizedBox(
-                  height: 58,
+                  height: 64,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [

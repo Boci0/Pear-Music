@@ -7,6 +7,7 @@ import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
+import '../services/player_theme.dart';
 import 'pear_page_route.dart';
 import 'tactile_button.dart';
 
@@ -30,11 +31,11 @@ class PlayerBar extends StatelessWidget {
     final control = ArtworkPalette.controlAccent(accent);
     final barColor =
         Color.lerp(
-          theme.colorScheme.surfaceContainerHigh,
-          ArtworkPalette.wash(accent, lightness: 0.14),
-          0.45,
+          PlayerTheme.cardFillOpaque(theme.colorScheme),
+          ArtworkPalette.wash(accent, lightness: 0.11),
+          0.33,
         ) ??
-        theme.colorScheme.surfaceContainerHigh;
+        PlayerTheme.cardFillOpaque(theme.colorScheme);
 
     final screenWidth = MediaQuery.sizeOf(context).width;
     final hMargin = screenWidth < 380 ? 10.0 : 16.0;
@@ -58,7 +59,7 @@ class PlayerBar extends StatelessWidget {
         },
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.60),
@@ -71,8 +72,8 @@ class PlayerBar extends StatelessWidget {
             color: barColor.withValues(alpha: 1.0),
             clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: InkWell(
               onTap: () => _openPlayer(context),

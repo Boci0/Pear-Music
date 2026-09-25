@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/player_theme.dart';
 import 'pear_app_bar.dart';
 import 'tactile_button.dart';
 
@@ -56,9 +57,9 @@ class SideRail extends StatelessWidget {
         key: const ValueKey('side_rail'),
         width: 86,
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          color: PlayerTheme.cardFillOpaque(scheme),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.60),

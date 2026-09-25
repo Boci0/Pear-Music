@@ -244,7 +244,10 @@ class NowPlayingPanel extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: _QueueContextList(
                 player: player,
-                control: control,
+                // One accent with the rest of the app: the same green the
+                // library's playing row uses, so the playing row tints
+                // identically in every list.
+                control: Theme.of(context).colorScheme.primary,
                 theme: theme,
               ),
             ),
@@ -400,7 +403,7 @@ class NowPlayingPanel extends StatelessWidget {
                         flex: 4,
                         child: _QueueContextList(
                           player: player,
-                          control: control,
+                          control: Theme.of(context).colorScheme.primary,
                           theme: theme,
                         ),
                       )
@@ -588,7 +591,7 @@ class _QueueContextList extends StatefulWidget {
 }
 
 class _QueueContextListState extends State<_QueueContextList> {
-  static const double _rowExtent = 27;
+  static const double _rowExtent = 44;
 
   final ScrollController _scrollController = ScrollController();
   int? _lastIndex;
@@ -647,20 +650,28 @@ class _QueueContextListState extends State<_QueueContextList> {
             Icon(Icons.queue_music_rounded, size: 15, color: control),
             const SizedBox(width: 6),
             Text(
-              'Queue',
+              'QUEUE',
               style: theme.textTheme.labelSmall?.copyWith(
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.6,
-                color: Colors.white.withValues(alpha: 0.75),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+                color: control.withValues(alpha: 0.9),
               ),
             ),
             const Spacer(),
-            Text(
-              '${index + 1} of ${queue.length}',
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontSize: 11,
-                color: Colors.white.withValues(alpha: 0.4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: control.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '${index + 1} / ${queue.length}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.bold,
+                  color: control,
+                ),
               ),
             ),
           ],
@@ -677,7 +688,7 @@ class _QueueContextListState extends State<_QueueContextList> {
               final isCurrent = i == index;
               final isPlayed = i < index;
               return InkWell(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
                 // Desktop rows: instant press fill, no touch ripple.
                 splashFactory: NoSplash.splashFactory,
@@ -691,12 +702,21 @@ class _QueueContextListState extends State<_QueueContextList> {
                     initialIndex: i,
                   );
                 },
-                child: Padding(
+                child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    // Same card language as the lists and the queue sheet:
+                    // artwork thumbnail per row, and the playing row carries
+                    // the track accent.
+                    color: isCurrent
+                        ? control.withValues(alpha: 0.14)
+                        : null,
+                  ),
                   child: Row(
                     children: [
                       SizedBox(
-                        width: 22,
+                        width: 20,
                         child: isCurrent
                             ? Icon(
                                 Icons.graphic_eq_rounded,
@@ -711,6 +731,8 @@ class _QueueContextListState extends State<_QueueContextList> {
                                 ),
                               ),
                       ),
+                      _QueueThumb(song: song),
+                      const SizedBox(width: 9),
                       Expanded(
                         child: Text(
                           song.title,
@@ -749,6 +771,70 @@ class _QueueContextListState extends State<_QueueContextList> {
         ),
       ],
     );
+  }
+}
+
+/// Small rounded artwork square for a pane queue row. Cached bytes paint
+/// immediately; the decode is awaited only for songs whose artwork has not
+/// been read yet, and a plain tile covers songs without artwork.
+class _QueueThumb extends StatelessWidget {
+  final Song song;
+  const _QueueThumb({required this.song});
+
+  static const double _size = 26;
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = Container(
+      width: _size,
+      height: _size,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(
+        Icons.music_note_rounded,
+        size: 13,
+        color: Colors.white.withValues(alpha: 0.35),
+      ),
+    );
+
+    final art = song.artwork;
+    Widget image;
+    if (art == null || art.isEmpty) {
+      image = placeholder;
+    } else if (art.startsWith('http')) {
+      image = Image.network(
+        ArtworkService.optimizeArtworkUrl(art),
+        width: _size,
+        height: _size,
+        cacheWidth: 96,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => placeholder,
+      );
+    } else {
+      final cached = ArtworkPalette.cachedBytes(song);
+      image = FutureBuilder<Uint8List?>(
+        initialData: cached,
+        future: ArtworkPalette.bytesAsync(song),
+        builder: (context, snapshot) {
+          final bytes = snapshot.data ?? cached;
+          if (bytes == null || bytes.isEmpty) return placeholder;
+          return Image.memory(
+            bytes,
+            width: _size,
+            height: _size,
+            cacheWidth: 96,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => placeholder,
+          );
+        },
+      );
+    }
+
+    return ClipRRect(borderRadius: BorderRadius.circular(8), child: image);
   }
 }
 

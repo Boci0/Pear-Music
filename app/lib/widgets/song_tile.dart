@@ -295,11 +295,11 @@ class SongTile extends StatelessWidget {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
           clipBehavior: Clip.antiAlias,
           child: GestureDetector(
@@ -348,7 +348,7 @@ class SongTile extends StatelessWidget {
               highlightColor: Colors.white.withValues(alpha: 0.06),
               child: Ink(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   gradient: isCurrent
                       ? LinearGradient(
                           begin: Alignment.centerLeft,
@@ -359,14 +359,20 @@ class SongTile extends StatelessWidget {
                           ],
                         )
                       : null,
-                  color: isSelected
+                  // Same card body as the playlist tile: a visible fill when
+                  // idle, the accent gradient when this row is playing.
+                  color: isCurrent
+                      ? null
+                      : isSelected
                       ? theme.colorScheme.primaryContainer.withValues(
                           alpha: 0.22,
                         )
-                      : null,
+                      : theme.colorScheme.surfaceContainerHighest.withValues(
+                          alpha: 0.5,
+                        ),
                 ),
                 child: SizedBox(
-                  height: 58,
+                  height: 64,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [

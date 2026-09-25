@@ -47,10 +47,20 @@ class PlayerTheme extends ChangeNotifier {
     return Color.alphaBlend(scheme.primary.withValues(alpha: alpha), base);
   }
 
+  /// Opaque equivalent of the translucent card fill, for chrome that floats
+  /// over scrolling content (nav bar, mini player, side rail): the cards' own
+  /// tone, but nothing shows through.
+  static Color cardFillOpaque(ColorScheme scheme) => Color.alphaBlend(
+    scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+    scheme.surface,
+  );
+
   static ThemeData buildFromScheme(ColorScheme scheme) {
-    const baseBg = Color(0xFF0C0C0E);
-    const baseSurface = Color(0xFF151518);
-    const baseHighlight = Color(0xFF1F1F23);
+    // Night ramp: canvas, card and chrome sit a whisker apart so a deep, quiet
+    // room still reads in layers. The accent tint below is what moves.
+    const baseBg = Color(0xFF0A0A0C);
+    const baseSurface = Color(0xFF121215);
+    const baseHighlight = Color(0xFF18181B);
 
     // The music colours the room: the canvas and every neutral surface pick up
     // a whisper of the song's accent, so the whole window follows the artwork
@@ -70,12 +80,14 @@ class PlayerTheme extends ChangeNotifier {
       highlightColor: Colors.transparent,
       colorScheme: scheme.copyWith(
         surface: bgDark,
-        surfaceContainerLow: const Color(0xFF101012),
+        surfaceContainerLow: const Color(0xFF0E0E10),
         surfaceContainer: surfaceDark,
         surfaceContainerHigh: surfaceHighlight,
-        surfaceContainerHighest: const Color(0xFF26262B),
+        surfaceContainerHighest: const Color(0xFF202024),
       ),
-      scaffoldBackgroundColor: bgDark,
+      // Screens stay transparent so PearBackdrop can paint the canvas (and its
+      // watermark) once, behind every route.
+      scaffoldBackgroundColor: Colors.transparent,
       iconButtonTheme: IconButtonThemeData(
         style: ButtonStyle(
           overlayColor: WidgetStateProperty.resolveWith((states) {
@@ -102,18 +114,22 @@ class PlayerTheme extends ChangeNotifier {
         },
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: bgDark,
+        // Transparent so the backdrop runs to the top edge instead of
+        // stopping at a band behind the bar.
+        backgroundColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
         centerTitle: false,
         titleSpacing: 16,
       ),
       cardTheme: CardThemeData(
-        color: surfaceDark,
+        // Same body as the list cards (playlist tile, song rows): one fill at
+        // one radius, so the backdrop texture stays faintly visible through
+        // the cards instead of being blocked by an opaque panel.
+        color: surfaceHighlight.withValues(alpha: 0.5),
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+          borderRadius: BorderRadius.circular(14),
         ),
       ),
       dialogTheme: DialogThemeData(

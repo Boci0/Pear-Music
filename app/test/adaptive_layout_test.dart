@@ -160,8 +160,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
-    expect(find.text('Queue'), findsOneWidget);
-    expect(find.text('1 of 3'), findsOneWidget);
+    expect(find.text('QUEUE'), findsOneWidget);
+    expect(find.text('1 / 3'), findsOneWidget);
     // The playing track stays in the list instead of being consumed, and the
     // upcoming tracks keep their queue positions. The playing title also
     // appears above the list, so it is matched loosely.
@@ -203,7 +203,7 @@ void main() {
     expect(find.byType(PlayerScreen), findsNothing);
     expect(find.byKey(const ValueKey('pane_collapse')), findsOneWidget);
     expect(find.byType(PlayerVolumeRow), findsOneWidget);
-    expect(find.text('Queue'), findsOneWidget);
+    expect(find.text('QUEUE'), findsOneWidget);
 
     // The collapse button docks it back to the compact pane.
     await tester.tap(find.byKey(const ValueKey('pane_collapse')));

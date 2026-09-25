@@ -8,8 +8,13 @@ import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
+import '../../services/player_theme.dart';
 import '../../theme/tokens.dart';
 import '../tactile_button.dart';
+
+/// Height of one queue row including its vertical padding. The list's
+/// itemExtent and the auto-scroll maths must agree on this number.
+const double _queueRowExtent = 72.0;
 
 /// Controller coordinating expand/collapse state between the expandable queue sheet
 /// and external listeners such as the background dimming scrim.
@@ -289,10 +294,10 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
       if (_scrollController.position.hasViewportDimension) {
         final viewportHeight = _scrollController.position.viewportDimension;
         targetOffset =
-            (index * 58.0 - (viewportHeight * 0.25)).clamp(0.0, maxScroll);
+            (index * _queueRowExtent - (viewportHeight * 0.25)).clamp(0.0, maxScroll);
       } else {
         targetOffset =
-            (index > 0 ? (index - 1) * 58.0 : 0.0).clamp(0.0, maxScroll);
+            (index > 0 ? (index - 1) * _queueRowExtent : 0.0).clamp(0.0, maxScroll);
       }
 
       if ((_scrollController.offset - targetOffset).abs() > 2.0) {
@@ -385,7 +390,8 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
           height: currentHeight,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: const Color(0xFF151518),
+            // Same card tone as the rest of the app, ambient tint included.
+            color: PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
             borderRadius: BorderRadius.vertical(
               top: Radius.circular(lerpDouble(22, 28, _curvedAnimation.value)!),
             ),
@@ -481,13 +487,16 @@ class _QueueHeaderWidget extends StatefulWidget {
 class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
   bool _isHandleHovered = false;
 
-  Color get _readableAccent => ArtworkPalette.readableAccent(widget.accent);
+  /// One accent with the rest of the app: the same green the library's
+  /// playing row uses, so a song never shows two different greens. Set at the
+  /// top of build, before the header rows read it.
+  late Color _readableAccent;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    _readableAccent = Theme.of(context).colorScheme.primary;
+    return SizedBox(
       height: 60.0,
-      color: const Color(0xFF151518),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onVerticalDragStart: widget.onDragStart,
@@ -755,15 +764,15 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final readableAccent = ArtworkPalette.readableAccent(widget.accent);
+    final readableAccent = theme.colorScheme.primary;
 
     return Container(
       key: const ValueKey('queue_panel'),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: const Color(0xFF151518),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        color: PlayerTheme.cardFillOpaque(theme.colorScheme),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         children: [
@@ -960,7 +969,7 @@ class _QueueListView extends StatelessWidget {
 
         return ListView.builder(
           controller: scrollController,
-          itemExtent: 58.0,
+          itemExtent: _queueRowExtent,
           padding: const EdgeInsets.only(bottom: 16),
           itemCount: queue.length,
           itemBuilder: (context, i) {
@@ -1005,36 +1014,42 @@ class _QueueRow extends StatelessWidget {
     required this.onRemove,
   });
 
-  Color get _readableAccent => ArtworkPalette.readableAccent(accent);
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final readableAccent = _readableAccent;
+    // One accent with the rest of the app: the same green the library's
+    // playing row uses, so a song never shows two different greens.
+    final readableAccent = theme.colorScheme.primary;
 
-    return RepaintBoundary(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1.5),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(14),
+        // Clip the card so a row can never paint outside its bounds: a stale
+        // raster slice used to show up in the gaps while the queue scrolled.
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () {
             TactileFeedback.click();
             onTap();
           },
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(14),
           hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
           // Desktop rows: instant press fill, no touch ripple.
           splashFactory: NoSplash.splashFactory,
           highlightColor: Colors.white.withValues(alpha: 0.06),
           child: Container(
-            height: 55,
+            height: 64,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(14),
+              // Same card body as the library rows: a visible fill when idle,
+              // the track accent while this one is playing.
               color: isCurrent
                   ? readableAccent.withValues(alpha: 0.14)
-                  : Colors.transparent,
+                  : theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.5,
+                    ),
             ),
             child: Row(
               children: [
@@ -1131,7 +1146,7 @@ class _QueueRow extends StatelessWidget {
           ),
         ),
       ),
-    ));
+    );
   }
 }
 

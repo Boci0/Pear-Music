@@ -190,7 +190,7 @@ class _HomeShellState extends State<HomeShell>
                         // Ambient tint: the chrome follows the song's colour.
                         color: PlayerTheme.ambientBlend(
                           Theme.of(context).colorScheme,
-                          const Color(0xFF1C1C20),
+                          const Color(0xFF17171A),
                           alpha: 0.06,
                         ),
                         border: const Border(
@@ -320,11 +320,10 @@ class _MinimalistNavBar extends StatelessWidget {
   /// has to hold them plus the bar's own border.
   static const double barHeight = 64;
 
-  /// Corner rounding of the bar. Matches the mini player card above it (and the
-  /// app's other cards) instead of using a full pill: two stacked shapes with
-  /// radius 20 and "half the height" read as a mismatch, and the rounder ends
-  /// also crowded the first and last labels.
-  static const double barRadius = 20;
+  /// Corner rounding of the bar: the same 14 the list cards use, so the bar
+  /// and the mini player card directly above it read as two cards of one
+  /// family instead of a second, rounder shape.
+  static const double barRadius = 14;
 
   /// Selected indicator: a capsule behind the icon alone. Sizing it from the
   /// icon instead of the label is what keeps the shape stable at any tab count,
@@ -361,13 +360,12 @@ class _MinimalistNavBar extends StatelessWidget {
       margin: EdgeInsets.fromLTRB(hMargin, 2, hMargin, 10),
       height: barHeight,
       decoration: BoxDecoration(
-        // Same surface, border and shadow as the mini player card directly
-        // above: the two are stacked, so a darker or duller bar reads as a
-        // mismatch rather than as a deliberate hierarchy.
-        color: scheme.surfaceContainerHigh,
+        // Same card body as the mini player card directly above: one fill, one
+        // radius, one soft edge across the app.
+        color: PlayerTheme.cardFillOpaque(scheme),
         borderRadius: BorderRadius.circular(barRadius),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.14),
+          color: Colors.white.withValues(alpha: 0.08),
           width: _barBorder,
         ),
         boxShadow: [

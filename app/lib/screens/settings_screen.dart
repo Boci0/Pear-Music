@@ -79,15 +79,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: const PearAppBar(label: 'Settings'),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      body: _SettingsBody(
         children: [
           _sectionTitle(context, 'Audio & Playback'),
           Card(
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
             child: Column(
               children: [
                 Padding(
@@ -147,9 +143,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionTitle(context, 'Performance'),
           Card(
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
             child: SwitchListTile(
               secondary: const Icon(Icons.battery_saver_rounded),
               title: const Text('Reduced Effects'),
@@ -166,9 +159,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionTitle(context, 'Discovery & Search'),
           Card(
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
             child: Column(
               children: [
                 SwitchListTile(
@@ -188,9 +178,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionTitle(context, 'Storage & Cache'),
           Card(
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
             child: Column(
               children: [
                 ValueListenableBuilder<int>(
@@ -215,9 +202,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionTitle(context, 'About & Updates'),
           Card(
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
             child: Column(
               children: [
                 ListTile(
@@ -280,4 +264,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     ),
   );
+}
+
+/// Keeps the settings cards to a readable column: on wide windows the rows
+/// stop stretching across the whole content width, and the leftover space
+/// falls evenly on both sides instead of reading as a dead strip.
+class _SettingsBody extends StatelessWidget {
+  final List<Widget> children;
+
+  const _SettingsBody({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 860),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          children: children,
+        ),
+      ),
+    );
+  }
 }
