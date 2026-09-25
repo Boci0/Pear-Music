@@ -143,11 +143,12 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 val outputPath = call.argument<String>("outputPath")
                 val processId = call.argument<String>("processId")
                 val format = call.argument<String>("format")
+                val cacheDir = call.argument<String>("cacheDir")
                 if (url == null || outputPath == null || processId == null) {
                     result.error("bad_args", "url/outputPath/processId required", null)
                     return
                 }
-                startAudioFastDownload(ctx, url, outputPath, processId, format, result)
+                startAudioFastDownload(ctx, url, outputPath, processId, format, cacheDir, result)
             }
             "getStreamUrl" -> {
                 val url = call.argument<String>("url")
@@ -809,6 +810,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         outputPath: String,
         processId: String,
         format: String?,
+        cacheDir: String?,
         result: MethodChannel.Result,
     ) {
         // Supersede and cancel any previous in-flight audio download to free native Python memory
@@ -844,6 +846,12 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     req.addOption("--retries", "2")
                     req.addOption("--extractor-retries", "1")
                     req.addOption("--fragment-retries", "2")
+                    // Keep YouTube's player code and solved challenges between
+                    // fetches (youtubedl-android passes --no-cache-dir when no
+                    // cache dir is given), so each song skips that work.
+                    if (cacheDir != null) {
+                        req.addOption("--cache-dir", cacheDir)
+                    }
                     // Print the chosen format (link, headers, extension and
                     // size) as soon as it is picked, before the download
                     // starts. The app then plays the file while it is still

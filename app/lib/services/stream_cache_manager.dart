@@ -851,12 +851,18 @@ class StreamCacheManager {
         _androidFetchPaths[processId] = tempPart.path;
         try {
           DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
+          // Same persistent yt-dlp cache as desktop: without it every fetch
+          // re-downloads YouTube's player code and re-solves its JavaScript
+          // challenges before a single byte of audio arrives, which is slow
+          // on a phone. refreshYtDlpCache clears it for a retry after a 403.
+          final ytdlpCache = await getYtDlpCacheDirectory();
           const channel = MethodChannel('peerm/ytdlp');
           await channel.invokeMethod('downloadAudioFast', {
             'url': 'https://www.youtube.com/watch?v=$videoId',
             'outputPath': tempPart.path,
             'processId': processId,
             'format': getAudioFormatArg(),
+            'cacheDir': ytdlpCache.path,
           }).timeout(const Duration(seconds: 120));
 
           final cached = await getCachedFile(videoId);
