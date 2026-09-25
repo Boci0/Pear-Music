@@ -104,7 +104,10 @@ Future<T?> showPearPopup<T>({
     context: context,
     useRootNavigator: useRootNavigator,
     isScrollControlled: isScrollControlled,
-    showDragHandle: showDragHandle,
+    // Flutter's own handle is painted on the sheet's (transparent) surface,
+    // above the glass panel, so it would float over the page. The handle is
+    // drawn inside the glass instead.
+    showDragHandle: false,
     useSafeArea: useSafeArea,
     barrierColor: barrierColor,
     backgroundColor: Colors.transparent,
@@ -116,10 +119,38 @@ Future<T?> showPearPopup<T>({
       opacity: PearGlassTokens.popupAlpha,
       child: Material(
         type: MaterialType.transparency,
-        child: sheetBuilder(ctx),
+        child: showDragHandle
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const _SheetHandle(key: ValueKey('pear_sheet_handle')),
+                  Flexible(child: sheetBuilder(ctx)),
+                ],
+              )
+            : sheetBuilder(ctx),
       ),
     ),
   );
+}
+
+/// The grab bar at the top of a phone sheet, drawn inside the glass panel.
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 6),
+      child: Container(
+        width: 36,
+        height: 4,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
 }
 
 /// Opens a desktop popup card next to [anchor]: below it when there is room,
