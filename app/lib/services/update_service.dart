@@ -39,9 +39,9 @@ class UpdateInfo {
 
 class UpdateService {
   /// One version ahead of the latest official release: this is the version
-  /// the unreleased work on top of v3.9.5 reports as, so a local/Beta build
+  /// the unreleased work on top of v3.9.6 reports as, so a local/Beta build
   /// reads as newer than the published app.
-  static const String currentVersion = '3.9.6';
+  static const String currentVersion = '3.9.7';
 
   /// True when this build runs from the Beta install. The Windows runner
   /// marks the Beta by its install folder (see windows/runner/main.cpp), so
