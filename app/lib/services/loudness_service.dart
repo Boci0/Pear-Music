@@ -23,6 +23,9 @@ import 'recommendation_service.dart';
 /// there is one so a stream and its library copy share a measurement.
 /// Playback then scales the song's volume towards [targetLufs].
 ///
+/// The same pass also finds where the music starts and stops
+/// ([LoudnessAnalysis]), which playback uses to skip silent intros and outros.
+///
 /// Measuring needs the whole file decoded to PCM: Windows uses the bundled
 /// libmpv (its `pcm` audio output writes a WAV as fast as it can decode),
 /// Android uses the platform decoder through the peerm_ytdlp plugin. Both run
@@ -39,6 +42,7 @@ class LoudnessService {
   static const double maxCutDb = 15.0;
 
   static final Map<String, double> _lufs = {};
+  static final Map<String, LoudnessAnalysis> _spans = {};
   static final Map<String, Future<double?>> _inFlight = {};
   static Future<void>? _loading;
   static File? _storeFile;
@@ -48,6 +52,7 @@ class LoudnessService {
   @visibleForTesting
   static void resetForTesting() {
     _lufs.clear();
+    _spans.clear();
     _inFlight.clear();
     _loading = null;
     _storeFile = null;
@@ -56,6 +61,12 @@ class LoudnessService {
 
   @visibleForTesting
   static void setForTesting(String key, double lufs) => _lufs[key] = lufs;
+
+  @visibleForTesting
+  static void setSpanForTesting(String key, LoudnessAnalysis analysis) {
+    _lufs[key] = analysis.lufs;
+    _spans[key] = analysis;
+  }
 
   /// Platforms that can decode a song for measuring.
   static bool get isSupported =>
@@ -77,9 +88,24 @@ class LoudnessService {
       final data = jsonDecode(await file.readAsString());
       if (data is Map) {
         for (final entry in data.entries) {
+          final key = entry.key;
           final v = entry.value;
-          if (entry.key is String && v is num) {
-            _lufs[entry.key as String] = v.toDouble();
+          if (key is! String) continue;
+          // Older builds stored only the loudness, as a bare number.
+          if (v is num) {
+            _lufs[key] = v.toDouble();
+          } else if (v is Map && v['lufs'] is num) {
+            final lufs = (v['lufs'] as num).toDouble();
+            _lufs[key] = lufs;
+            final start = v['start'], end = v['end'], len = v['len'];
+            if (start is num && end is num && len is num) {
+              _spans[key] = LoudnessAnalysis(
+                lufs: lufs,
+                musicStart: start.toDouble(),
+                musicEnd: end.toDouble(),
+                length: len.toDouble(),
+              );
+            }
           }
         }
       }
@@ -95,7 +121,18 @@ class LoudnessService {
       if (file == null) return;
       try {
         final tmp = File('${file.path}.tmp');
-        await tmp.writeAsString(jsonEncode(_lufs));
+        await tmp.writeAsString(jsonEncode({
+          for (final e in _lufs.entries)
+            e.key: switch (_spans[e.key]) {
+              final span? => {
+                  'lufs': e.value,
+                  'start': span.musicStart,
+                  'end': span.musicEnd,
+                  'len': span.length,
+                },
+              null => e.value,
+            },
+        }));
         await tmp.rename(file.path);
       } catch (e) {
         DebugLog.write('[loudness] could not save loudness.json: $e');
@@ -105,6 +142,12 @@ class LoudnessService {
 
   /// The stored loudness of [song], or null if it has not been measured.
   static double? lufsFor(Song song) => _lufs[keyFor(song)];
+
+  /// Where the music in [song] starts and stops, or null if not known yet.
+  static LoudnessAnalysis? spanFor(Song song) => _spans[keyFor(song)];
+
+  /// True once [song] has its loudness and its music span.
+  static bool isMeasured(Song song) => _spans.containsKey(keyFor(song));
 
   /// Volume multiplier that brings [lufs] to [targetLufs]. Values above 1.0
   /// are a lift, which playback can only apply while the user volume leaves
@@ -118,21 +161,22 @@ class LoudnessService {
   static double gainFor(Song song) => gainForLufs(lufsFor(song));
 
   /// Measures [song] from the finished audio file at [path] unless it is
-  /// already known. Safe to call repeatedly: one measurement per song, one
+  /// already known (songs measured by older builds are measured again once,
+  /// to find their music span). Safe to call repeatedly: one measurement per song, one
   /// song at a time.
   static Future<double?> measure(Song song, String path) async {
     if (!isSupported) return null;
     await load();
     final key = keyFor(song);
     final known = _lufs[key];
-    if (known != null) return known;
+    if (known != null && _spans.containsKey(key)) return known;
     final running = _inFlight[key];
     if (running != null) return running;
 
     final completer = Completer<double?>();
     _inFlight[key] = completer.future;
     _queue = _queue.then((_) async {
-      double? result;
+      LoudnessAnalysis? result;
       final sw = Stopwatch()..start();
       try {
         result = await _measureFile(path);
@@ -140,15 +184,18 @@ class LoudnessService {
         DebugLog.write('[loudness] measuring "${song.title}" failed: $e');
       }
       if (result != null) {
-        _lufs[key] = result;
+        _lufs[key] = result.lufs;
+        _spans[key] = result;
         _scheduleSave();
         DebugLog.write(
-          '[loudness] "${song.title}" = ${result.toStringAsFixed(1)} LUFS '
-          '(${sw.elapsedMilliseconds}ms)',
+          '[loudness] "${song.title}" = ${result.lufs.toStringAsFixed(1)} LUFS, '
+          'music ${result.musicStart.toStringAsFixed(1)}s to '
+          '${result.musicEnd.toStringAsFixed(1)}s of '
+          '${result.length.toStringAsFixed(1)}s (${sw.elapsedMilliseconds}ms)',
         );
       }
       _inFlight.remove(key);
-      completer.complete(result);
+      completer.complete(result?.lufs ?? known);
     });
     return completer.future;
   }
@@ -157,7 +204,7 @@ class LoudnessService {
   static bool decodeWithMpvForTesting(String dll, String input, String output) =>
       _decodeWithMpv(dll, input, output);
 
-  static Future<double?> _measureFile(String path) async {
+  static Future<LoudnessAnalysis?> _measureFile(String path) async {
     if (!await File(path).exists()) return null;
     final tmpDir = await getTemporaryDirectory();
     final wav = p.join(
@@ -170,7 +217,7 @@ class LoudnessService {
         if (!await File(dll).exists()) return null;
         return await Isolate.run(() {
           if (!_decodeWithMpv(dll, path, wav)) return null;
-          return LoudnessMeter.measureWav(wav);
+          return LoudnessMeter.analyzeWav(wav);
         });
       }
       final ok = await ytDlpChannel.invokeMethod<bool>('decodeToWav', {
@@ -178,7 +225,7 @@ class LoudnessService {
         'output': wav,
       });
       if (ok != true) return null;
-      return await Isolate.run(() => LoudnessMeter.measureWav(wav));
+      return await Isolate.run(() => LoudnessMeter.analyzeWav(wav));
     } finally {
       try {
         final f = File(wav);

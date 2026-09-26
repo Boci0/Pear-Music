@@ -6,6 +6,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/loudness_meter.dart';
+import 'package:peerm_app/services/loudness_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 
@@ -240,6 +242,63 @@ void main() {
       player.debugCrossfadeTick(main.position_);
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(tail.loaded, isEmpty);
+      expect(player.currentSong?.id, 'stream_aaaaaaaaaaa');
+    });
+  });
+
+  group('silence skipping', () {
+    // Music from 2 s to 55 s of a one-minute file.
+    const span = LoudnessAnalysis(
+      lufs: -14,
+      musicStart: 2,
+      musicEnd: 55,
+      length: 60,
+    );
+    setUp(() {
+      LoudnessService.resetForTesting();
+      LoudnessService.setSpanForTesting('aaaaaaaaaaa', span);
+    });
+    tearDown(LoudnessService.resetForTesting);
+
+    test('a silent intro is skipped, keeping a moment of lead-in', () async {
+      final (main, _, _) = await playFirst(crossfadeSeconds: 0);
+      expect(main.position_, const Duration(milliseconds: 1700));
+    });
+
+    test('a silent outro moves on to the next song', () async {
+      final (main, tail, player) = await playFirst(crossfadeSeconds: 0);
+      main.position_ = const Duration(seconds: 55, milliseconds: 100);
+      player.debugCrossfadeTick(main.position_);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(player.currentSong?.id, 'stream_aaaaaaaaaaa',
+          reason: 'the music (plus a short pad) is not over yet');
+
+      main.position_ = const Duration(seconds: 55, milliseconds: 400);
+      player.debugCrossfadeTick(main.position_);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
+      expect(tail.loaded, isEmpty);
+    });
+
+    test('a crossfade ends where the music does, not at the end of the file',
+        () async {
+      final (main, tail, player) = await playFirst(crossfadeSeconds: 1);
+      main.position_ = const Duration(seconds: 54, milliseconds: 600);
+      player.debugCrossfadeTick(main.position_);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(tail.loaded, ['aaaaaaaaaaa.m4a']);
+      expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
+    });
+
+    test('a span from a different file length is ignored', () async {
+      LoudnessService.setSpanForTesting(
+        'aaaaaaaaaaa',
+        const LoudnessAnalysis(lufs: -14, musicStart: 0, musicEnd: 55, length: 1200),
+      );
+      final (main, _, player) = await playFirst(crossfadeSeconds: 0);
+      main.position_ = const Duration(seconds: 56);
+      player.debugCrossfadeTick(main.position_);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(player.currentSong?.id, 'stream_aaaaaaaaaaa');
     });
   });

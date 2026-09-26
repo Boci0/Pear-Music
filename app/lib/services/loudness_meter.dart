@@ -15,7 +15,12 @@ class LoudnessMeter {
 
   /// Returns null when the file is not a WAV this can read, or when the
   /// audio is silent (no block passes the absolute gate).
-  static Future<double?> measureWav(String path) async {
+  static Future<double?> measureWav(String path) async =>
+      (await analyzeWav(path))?.lufs;
+
+  /// Loudness plus where the music starts and ends, in one pass over [path].
+  /// Null when the file is not a WAV this can read or is silent throughout.
+  static Future<LoudnessAnalysis?> analyzeWav(String path) async {
     final raf = await File(path).open();
     try {
       final format = await _readHeader(raf);
@@ -42,7 +47,7 @@ class LoudnessMeter {
           }
         }
       }
-      return meter.integrated();
+      return meter.analysis();
     } finally {
       await raf.close();
     }
@@ -59,6 +64,19 @@ class LoudnessMeter {
       meter.add(s);
     }
     return meter.integrated();
+  }
+
+  /// [analyzeWav] for interleaved samples in -1..1. Used by tests.
+  static LoudnessAnalysis? analyzeSamples(
+    List<double> interleaved, {
+    required int channels,
+    required int sampleRate,
+  }) {
+    final meter = _Accumulator(channels, sampleRate);
+    for (final s in interleaved) {
+      meter.add(s);
+    }
+    return meter.analysis();
   }
 
   static Future<_WavFormat?> _readHeader(RandomAccessFile raf) async {
@@ -106,6 +124,28 @@ class LoudnessMeter {
   }
 }
 
+/// What one pass over a song finds: its integrated loudness and the span
+/// that holds music, so silent intros and outros can be skipped.
+class LoudnessAnalysis {
+  final double lufs;
+
+  /// Seconds of silence before the music starts.
+  final double musicStart;
+
+  /// Seconds from the start of the file to where the music stops.
+  final double musicEnd;
+
+  /// Length of the audio that was analysed, in seconds.
+  final double length;
+
+  const LoudnessAnalysis({
+    required this.lufs,
+    required this.musicStart,
+    required this.musicEnd,
+    required this.length,
+  });
+}
+
 class _WavFormat {
   final int channels;
   final int sampleRate;
@@ -137,8 +177,11 @@ class _Accumulator {
   int _frameInSub = 0;
   int _channel = 0;
 
+  final int _sampleRate;
+
   _Accumulator(this.channels, int sampleRate)
-    : _subBlockFrames = (sampleRate / 10).round() {
+    : _subBlockFrames = (sampleRate / 10).round(),
+      _sampleRate = sampleRate {
     _z = Float64List(channels * 4);
 
     var f0 = 1681.974450955533;
@@ -187,6 +230,36 @@ class _Accumulator {
   }
 
   static double _lufs(double energy) => -0.691 + 10 * math.log(energy) / math.ln10;
+
+  /// [integrated] plus the music span. A 100 ms bin counts as silence when
+  /// it is far below the song's own level (and below -50 LUFS in any case),
+  /// so quiet passages and fade-outs stay, while digital silence and hiss
+  /// between tracks do not.
+  LoudnessAnalysis? analysis() {
+    final lufs = integrated();
+    if (lufs == null) return null;
+    final threshold = math.min(-50.0, lufs - 36);
+    var first = -1;
+    var last = -1;
+    for (var i = 0; i < _subBlocks.length; i++) {
+      final e = _subBlocks[i];
+      if (e > 0 && _lufs(e) > threshold) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    }
+    final length =
+        _subBlocks.length / 10 + _frameInSub / _sampleRate;
+    if (first < 0) {
+      return LoudnessAnalysis(lufs: lufs, musicStart: 0, musicEnd: length, length: length);
+    }
+    return LoudnessAnalysis(
+      lufs: lufs,
+      musicStart: first / 10,
+      musicEnd: math.min(length, (last + 1) / 10),
+      length: length,
+    );
+  }
 
   double? integrated() {
     if (_subBlocks.length < 4) return null;

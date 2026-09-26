@@ -48,6 +48,27 @@ void main() {
     expect(lufs, closeTo(-20.0, 0.2));
   });
 
+  test('finds where the music starts and stops, keeping a quiet fade', () {
+    const rate = 24000;
+    List<double> silence(double seconds) =>
+        List<double>.filled((rate * seconds).round() * 2, 0);
+    final a = LoudnessMeter.analyzeSamples(
+      [
+        ...silence(2),
+        ..._sine(dbfs: -12, sampleRate: rate, seconds: 5),
+        // A fade-out tail far quieter than the song, but still music.
+        ..._sine(dbfs: -40, sampleRate: rate, seconds: 1),
+        ...silence(3),
+      ],
+      channels: 2,
+      sampleRate: rate,
+    )!;
+    expect(a.lufs, closeTo(-12, 0.3));
+    expect(a.musicStart, closeTo(2.0, 0.11));
+    expect(a.musicEnd, closeTo(8.0, 0.21));
+    expect(a.length, closeTo(11.0, 0.01));
+  });
+
   test('silence has no loudness', () {
     expect(
       LoudnessMeter.measureSamples(

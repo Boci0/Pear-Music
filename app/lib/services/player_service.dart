@@ -543,8 +543,9 @@ class PlayerService extends ChangeNotifier {
   /// volume to its level if it is still playing. Songs already measured are
   /// levelled straight away in [playSong].
   void _levelSong(Song song, int token, Future<File?>? pendingDownload) {
-    if (!_loudnessNormalization || !LoudnessService.isSupported) return;
-    if (LoudnessService.lufsFor(song) != null) return;
+    // Measured even with normalisation off: the same pass finds the silence
+    // that playback skips.
+    if (!LoudnessService.isSupported || LoudnessService.isMeasured(song)) return;
     final loaded = _currentLoadedFile;
     unawaited(() async {
       final file = loaded ??
@@ -556,7 +557,13 @@ class PlayerService extends ChangeNotifier {
           currentSong?.id != song.id) {
         return;
       }
-      _songGain = LoudnessService.gainForLufs(lufs);
+      final gain = LoudnessService.gainForLufs(lufs);
+      // A song measured again for its silence keeps the level it had.
+      if ((gain - _songGain).abs() < 0.001) {
+        _levelNextSong();
+        return;
+      }
+      _songGain = gain;
       if (_player.playing) {
         unawaited(_fadeVolume(_effectiveVolume, duration: const Duration(seconds: 2)));
       }
@@ -603,7 +610,12 @@ class PlayerService extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void debugCrossfadeTick(Duration position) => _onPositionForCrossfade(position);
+  void debugCrossfadeTick(Duration position) => _onPosition(position);
+
+  void _onPosition(Duration position) {
+    _onPositionForCrossfade(position);
+    _skipSilentOutro(position);
+  }
 
   void _onPositionForCrossfade(Duration position) {
     if (_crossfadeSeconds <= 0 || _crossfadeStarting) return;
@@ -615,7 +627,7 @@ class PlayerService extends ChangeNotifier {
     final fade = Duration(seconds: _crossfadeSeconds);
     // Very short clips just play out.
     if (duration == null || duration < fade * 3) return;
-    final remaining = duration - position;
+    final remaining = (_silentOutroStart() ?? duration) - position;
     if (remaining > fade || remaining < const Duration(milliseconds: 500)) {
       return;
     }
@@ -659,6 +671,57 @@ class PlayerService extends ChangeNotifier {
     ];
     if (ready.isEmpty) return null;
     return ready[_random.nextInt(ready.length)];
+  }
+
+  // ---------------------------------------------------------------------
+  // Silence skipping
+  //
+  // The loudness pass also records where each song's music starts and
+  // stops. A silent intro is skipped when the song starts, and a silent
+  // outro ends the song early (crossfades end where the music does). Short
+  // gaps stay: only a second or more of silence is skipped, and a little of
+  // it is kept so songs do not start or end abruptly.
+  // ---------------------------------------------------------------------
+
+  static const double _minSilenceSkip = 1.0;
+  static const double _silencePad = 0.3;
+  int _outroSkippedToken = -1;
+
+  /// Where to start [song] so its silent intro is skipped.
+  Duration _musicStartFor(Song song) {
+    final span = LoudnessService.spanFor(song);
+    if (span == null || span.musicStart < _minSilenceSkip) return Duration.zero;
+    return Duration(milliseconds: ((span.musicStart - _silencePad) * 1000).round());
+  }
+
+  /// Where the current song's silent outro begins, or null when it has none
+  /// worth skipping.
+  Duration? _silentOutroStart() {
+    final song = currentSong;
+    final duration = _player.duration;
+    if (song == null || duration == null) return null;
+    final span = LoudnessService.spanFor(song);
+    if (span == null) return null;
+    // The span must describe this file: the decoder stops after 20 minutes.
+    if ((span.length - duration.inMilliseconds / 1000).abs() > 1.5) return null;
+    if (span.length - span.musicEnd < _minSilenceSkip) return null;
+    return Duration(milliseconds: ((span.musicEnd + _silencePad) * 1000).round());
+  }
+
+  void _skipSilentOutro(Duration position) {
+    if (_outroSkippedToken == _playRequestToken || _crossfadeStarting) return;
+    if (_crossfadedToken == _playRequestToken) return;
+    if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
+      return;
+    }
+    final outro = _silentOutroStart();
+    if (outro == null || position < outro) return;
+    _outroSkippedToken = _playRequestToken;
+    DebugLog.write(
+      '[player] "${currentSong?.title}" skips its silent outro at '
+      '${outro.inMilliseconds}ms',
+    );
+    _onNaturalEnd();
   }
 
   bool _isReadyToStart(Song song) {
@@ -770,11 +833,11 @@ class PlayerService extends ChangeNotifier {
   /// Measures the next song ahead of time when its file is already on disk,
   /// so it starts at the right level.
   void _levelNextSong() {
-    if (!_loudnessNormalization || !LoudnessService.isSupported) return;
+    if (!LoudnessService.isSupported) return;
     final i = _queueIndex + 1;
     if (i <= 0 || i >= _queue.length) return;
     final next = _queue[i];
-    if (LoudnessService.lufsFor(next) != null) return;
+    if (LoudnessService.isMeasured(next)) return;
     unawaited(() async {
       File? file;
       if (next.sourceDeviceId == 'stream') {
@@ -831,7 +894,7 @@ class PlayerService extends ChangeNotifier {
     _subs.add(_player.playbackEventStream.listen((event) {
       _publishNotificationState();
     }));
-    _subs.add(positionStream.listen(_onPositionForCrossfade));
+    _subs.add(positionStream.listen(_onPosition));
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _queue.isNotEmpty) {
@@ -841,19 +904,25 @@ class PlayerService extends ChangeNotifier {
           return;
         }
         DebugLog.write('[player] Track completed naturally; advancing next');
-        if (_sleepTimerEndOfSong) {
-          cancelSleepTimer();
-          unawaited(pause(smooth: true));
-        } else if (_sleepTimerEndOfQueue &&
-            (_queueIndex >= _queue.length - 1 || _queueIndex < 0)) {
-          cancelSleepTimer();
-          unawaited(pause(smooth: true));
-        } else {
-          unawaited(next());
-        }
+        _onNaturalEnd();
       }
     }));
     _publishNotificationState();
+  }
+
+  /// What happens when a song finishes on its own (or reaches the silence
+  /// after its music): sleep timers first, otherwise on to the next song.
+  void _onNaturalEnd() {
+    if (_sleepTimerEndOfSong) {
+      cancelSleepTimer();
+      unawaited(pause(smooth: true));
+    } else if (_sleepTimerEndOfQueue &&
+        (_queueIndex >= _queue.length - 1 || _queueIndex < 0)) {
+      cancelSleepTimer();
+      unawaited(pause(smooth: true));
+    } else {
+      unawaited(next());
+    }
   }
 
   void _initAudioHandler() {
@@ -1730,9 +1799,17 @@ class PlayerService extends ChangeNotifier {
       _songGain = LoudnessService.gainFor(song);
       final targetVol = _effectiveVolume;
       await _player.setVolume(0.0);
+      final musicStart = _musicStartFor(song);
+      if (musicStart > Duration.zero) {
+        try {
+          await _player.seek(musicStart);
+        } catch (e) {
+          DebugLog.write('[player] could not skip the silent intro: $e');
+        }
+      }
       unawaited(_player.play());
       _levelSong(song, token, pendingDownload);
-      if (LoudnessService.lufsFor(song) != null) _levelNextSong();
+      if (LoudnessService.isMeasured(song)) _levelNextSong();
       _maybeCompactMemory();
       if (targetVol > 0.01) {
         unawaited(crossfadeIn != null
@@ -2353,8 +2430,10 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> _replayCurrent() async {
+    _outroSkippedToken = -1;
     try {
-      await _player.seek(Duration.zero);
+      final song = currentSong;
+      await _player.seek(song == null ? Duration.zero : _musicStartFor(song));
       final targetVol = _effectiveVolume;
       await _player.setVolume(targetVol);
       await _player.play();
