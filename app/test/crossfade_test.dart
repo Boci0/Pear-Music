@@ -140,7 +140,13 @@ void main() {
         reason: 'the main player moves on without waiting for the end');
     expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
 
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // The fades run on real timers; wait for them rather than a fixed time
+    // so a busy machine does not fail the test.
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (DateTime.now().isBefore(deadline) &&
+        (tail.stops == 0 || (main.volume - player.volume).abs() > 0.001)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
     expect(tail.volumes.last, closeTo(0, 0.001));
     expect(tail.stops, greaterThan(0), reason: 'the tail stops once faded out');
     expect(main.volume, closeTo(player.volume, 0.001),
