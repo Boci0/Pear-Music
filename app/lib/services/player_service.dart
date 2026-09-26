@@ -584,6 +584,9 @@ class PlayerService extends ChangeNotifier {
   int _tailToken = 0;
   Duration? _pendingFadeIn;
 
+  /// The shuffle pick a crossfade committed to, used by the next advance.
+  int? _crossfadeShuffleIndex;
+
   static AudioPlayer _defaultTailPlayer() => AudioPlayer(
         // The tail only finishes a song the main player already owns: it must
         // not take audio focus, react to interruptions or claim the session.
@@ -623,13 +626,39 @@ class PlayerService extends ChangeNotifier {
       // song finish on its own.
       return;
     }
-    if (!_shuffle && !atEnd && !_isReadyToStart(_queue[_queueIndex + 1])) {
+    int? shufflePick;
+    if (_shuffle) {
+      // Shuffle picks the next song now, among the ones that can start
+      // straight away, so the fade never waits on a download.
+      shufflePick = _readyShufflePick();
+      if (shufflePick == null) return;
+    } else if (!atEnd && !_isReadyToStart(_queue[_queueIndex + 1])) {
       // The next song would still have to download, which would leave a gap
       // in the middle of the fade. Play this one out instead.
       return;
     }
     _crossfadedToken = _playRequestToken;
+    _crossfadeShuffleIndex = shufflePick;
     unawaited(_startCrossfade(remaining));
+  }
+
+  /// The index shuffle would move to next, limited to songs that are ready
+  /// to start. Null when none is (the song then plays out on its own).
+  int? _readyShufflePick() {
+    final immediateNext = _queueIndex + 1;
+    if (immediateNext < _queue.length &&
+        _lockedSongIds.contains(_queue[immediateNext].id)) {
+      return _isReadyToStart(_queue[immediateNext]) ? immediateNext : null;
+    }
+    final ready = [
+      for (var i = 0; i < _queue.length; i++)
+        if (i != _queueIndex &&
+            !_shufflePlayedSongIds.contains(_queue[i].id) &&
+            _isReadyToStart(_queue[i]))
+          i,
+    ];
+    if (ready.isEmpty) return null;
+    return ready[_random.nextInt(ready.length)];
   }
 
   bool _isReadyToStart(Song song) {
@@ -687,6 +716,7 @@ class PlayerService extends ChangeNotifier {
       }
     } finally {
       _crossfadeStarting = false;
+      _crossfadeShuffleIndex = null;
     }
   }
 
@@ -2277,6 +2307,12 @@ class PlayerService extends ChangeNotifier {
     if (_queue.isEmpty) return null;
     _syncQueueIndexWithCurrentSong();
     if (_shuffle) {
+      final committed = _crossfadeShuffleIndex;
+      _crossfadeShuffleIndex = null;
+      if (committed != null && committed < _queue.length && committed != _queueIndex) {
+        _shufflePlayedSongIds.add(_queue[committed].id);
+        return committed;
+      }
       if (_queue.length <= 1) return _queue.isEmpty ? null : 0;
       final immediateNext = _queueIndex + 1;
       if (immediateNext < _queue.length &&

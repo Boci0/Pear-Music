@@ -198,4 +198,49 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(tail.loaded, isEmpty);
   });
+
+  group('with shuffle on', () {
+    Future<(_FakePlayer, _FakePlayer, PlayerService)> playShuffled(
+      List<String> ids,
+    ) async {
+      final main = _FakePlayer();
+      final tail = _FakePlayer();
+      final player = PlayerService(
+        LibraryService(),
+        player: main,
+        tailPlayerFactory: () => tail,
+      );
+      await player.setLoudnessNormalization(false);
+      await player.setCrossfadeSeconds(1);
+      final songs = [for (final id in ids) _streamSong(id)];
+      player.toggleShuffle();
+      await player.playSong(songs.first, queue: songs);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      return (main, tail, player);
+    }
+
+    test('the fade moves to a song that is ready, never one still to download',
+        () async {
+      for (var run = 0; run < 5; run++) {
+        final (main, tail, player) = await playShuffled(
+          ['aaaaaaaaaaa', 'ccccccccccc', 'bbbbbbbbbbb', 'ddddddddddd'],
+        );
+        main.position_ = const Duration(seconds: 59, milliseconds: 200);
+        player.debugCrossfadeTick(main.position_);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(tail.loaded, ['aaaaaaaaaaa.m4a']);
+        expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
+      }
+    });
+
+    test('when nothing is ready the song plays out without a fade', () async {
+      final (main, tail, player) =
+          await playShuffled(['aaaaaaaaaaa', 'ccccccccccc']);
+      main.position_ = const Duration(seconds: 59, milliseconds: 200);
+      player.debugCrossfadeTick(main.position_);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(tail.loaded, isEmpty);
+      expect(player.currentSong?.id, 'stream_aaaaaaaaaaa');
+    });
+  });
 }
