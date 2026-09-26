@@ -32,6 +32,7 @@ class IdentityService extends ChangeNotifier {
   static const _reducedEffectsKey = 'peerm_reduced_effects';
   static const _autoRerollSeedKey = 'peerm_auto_reroll_seed';
   static const _autoplayKey = 'peerm_autoplay';
+  static const _crossfadeKey = 'peerm_crossfade_seconds';
   static const _popLyricsKey = 'peerm_pop_lyrics';
   static const _playbackVolumeKey = 'peerm_playback_volume';
   static const _playbackSpeedKey = 'peerm_playback_speed';
@@ -50,6 +51,7 @@ class IdentityService extends ChangeNotifier {
   late bool _reducedEffects;
   late bool _autoRerollSeed;
   late bool _autoplay;
+  late int _crossfadeSeconds;
   late bool _popLyrics;
   late double _playbackVolume;
   late double _playbackSpeed;
@@ -100,6 +102,7 @@ class IdentityService extends ChangeNotifier {
     _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
     _autoplay = _prefs.getBool(_autoplayKey) ?? false;
+    _crossfadeSeconds = (_prefs.getInt(_crossfadeKey) ?? 0).clamp(0, maxCrossfadeSeconds);
     _popLyrics = _prefs.getBool(_popLyricsKey) ?? false;
     _playbackVolume = _prefs.getDouble(_playbackVolumeKey) ?? 0.75;
     _playbackSpeed = _prefs.getDouble(_playbackSpeedKey) ?? 1.0;
@@ -321,6 +324,19 @@ class IdentityService extends ChangeNotifier {
     if (_autoplay == value) return;
     _autoplay = value;
     await _prefs.setBool(_autoplayKey, value);
+    notifyListeners();
+  }
+
+  /// Seconds two songs overlap when one runs into the next; 0 is off.
+  static const int maxCrossfadeSeconds = 12;
+
+  int get crossfadeSeconds => _crossfadeSeconds;
+
+  Future<void> setCrossfadeSeconds(int value) async {
+    final clamped = value.clamp(0, maxCrossfadeSeconds);
+    if (_crossfadeSeconds == clamped) return;
+    _crossfadeSeconds = clamped;
+    await _prefs.setInt(_crossfadeKey, clamped);
     notifyListeners();
   }
 

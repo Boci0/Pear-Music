@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../services/identity_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
@@ -112,6 +115,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     TactileFeedback.selection();
                     await identity.setLoudnessNormalization(val);
                     await controller.player.setLoudnessNormalization(val);
+                  },
+                ),
+                const Divider(height: 1),
+                ListenableBuilder(
+                  listenable: identity,
+                  builder: (context, _) {
+                    final seconds = identity.crossfadeSeconds;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.swap_horiz_rounded),
+                          title: const Text('Crossfade'),
+                          subtitle: Text(
+                            seconds == 0
+                                ? 'Off: each song plays to its end'
+                                : 'Songs blend into each other over $seconds s',
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
+                          child: Slider(
+                            value: seconds.toDouble(),
+                            max: IdentityService.maxCrossfadeSeconds.toDouble(),
+                            divisions: IdentityService.maxCrossfadeSeconds,
+                            label: seconds == 0 ? 'Off' : '$seconds s',
+                            onChanged: (val) {
+                              if (val.round() == seconds) return;
+                              TactileFeedback.selection();
+                              unawaited(identity.setCrossfadeSeconds(val.round()));
+                              unawaited(controller.player.setCrossfadeSeconds(val.round()));
+                            },
+                          ),
+                        ),
+                      ],
+                    );
                   },
                 ),
                 const Divider(height: 1),

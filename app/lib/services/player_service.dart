@@ -141,7 +141,12 @@ class PlayerService extends ChangeNotifier {
   GrowingFileAudioSource? _growingSource;
 
   PlayerService(this.library,
-      {this.identity, this.audioHandler, AudioPlayer? player, this.history}) {
+      {this.identity,
+      this.audioHandler,
+      AudioPlayer? player,
+      this.history,
+      AudioPlayer Function()? tailPlayerFactory})
+      : _tailPlayerFactory = tailPlayerFactory ?? _defaultTailPlayer {
     // Request headers (needed when streaming a resolved link before it is
     // cached) go straight to the engine: media_kit and ExoPlayer both accept
     // them, so just_audio's local proxy stays out of the audio path.
@@ -149,6 +154,7 @@ class PlayerService extends ChangeNotifier {
     if (identity != null) {
       _autoRerollSeed = identity!.autoRerollSeed;
       _autoplay = identity!.autoplay;
+      _crossfadeSeconds = identity!.crossfadeSeconds;
       _speed = identity!.playbackSpeed;
     }
     if ((_speed - 1.0).abs() > 0.01) {
@@ -541,6 +547,158 @@ class PlayerService extends ChangeNotifier {
     }());
   }
 
+  // ---------------------------------------------------------------------
+  // Crossfade
+  //
+  // The main player stays the single source of truth (queue, position,
+  // notification, visualizer). A few seconds before a song ends, a second
+  // "tail" player picks up the same file at the same position and fades it
+  // out, while the main player moves on to the next song and fades it in.
+  // Only natural song ends crossfade; skips, pauses and seeks stay instant
+  // and silence any tail still fading.
+  // ---------------------------------------------------------------------
+
+  int _crossfadeSeconds = 0;
+  int get crossfadeSeconds => _crossfadeSeconds;
+  final AudioPlayer Function() _tailPlayerFactory;
+  AudioPlayer? _tailPlayer;
+  bool _crossfadeStarting = false;
+  int _crossfadedToken = -1;
+  int _tailToken = 0;
+  Duration? _pendingFadeIn;
+
+  static AudioPlayer _defaultTailPlayer() => AudioPlayer(
+        // The tail only finishes a song the main player already owns: it must
+        // not take audio focus, react to interruptions or claim the session.
+        handleInterruptions: false,
+        handleAudioSessionActivation: false,
+        androidApplyAudioAttributes: false,
+        useProxyForRequestHeaders: false,
+      );
+
+  Future<void> setCrossfadeSeconds(int seconds) async {
+    _crossfadeSeconds = seconds.clamp(0, IdentityService.maxCrossfadeSeconds);
+    await identity?.setCrossfadeSeconds(_crossfadeSeconds);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void debugCrossfadeTick(Duration position) => _onPositionForCrossfade(position);
+
+  void _onPositionForCrossfade(Duration position) {
+    if (_crossfadeSeconds <= 0 || _crossfadeStarting) return;
+    if (_crossfadedToken == _playRequestToken) return;
+    if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
+      return;
+    }
+    final duration = _player.duration;
+    final fade = Duration(seconds: _crossfadeSeconds);
+    // Very short clips just play out.
+    if (duration == null || duration < fade * 3) return;
+    final remaining = duration - position;
+    if (remaining > fade || remaining < const Duration(milliseconds: 500)) {
+      return;
+    }
+    if (_loopMode == LoopSetting.one || _sleepTimerEndOfSong) return;
+    final atEnd = _queueIndex >= _queue.length - 1;
+    if (atEnd && (_sleepTimerEndOfQueue || _loopMode != LoopSetting.all)) {
+      // The queue ends here (or autoplay has to fetch more first): let the
+      // song finish on its own.
+      return;
+    }
+    if (!_shuffle && !atEnd && !_isReadyToStart(_queue[_queueIndex + 1])) {
+      // The next song would still have to download, which would leave a gap
+      // in the middle of the fade. Play this one out instead.
+      return;
+    }
+    _crossfadedToken = _playRequestToken;
+    unawaited(_startCrossfade(remaining));
+  }
+
+  bool _isReadyToStart(Song song) {
+    if (song.sourceDeviceId == 'stream') {
+      final videoId = RecommendationService.extractVideoId(song.id) ??
+          song.id.replaceFirst('stream_', '');
+      return StreamCacheManager.isStreamCachedSync(videoId);
+    }
+    return library.hasSongFile(song);
+  }
+
+  Future<void> _startCrossfade(Duration remaining) async {
+    _crossfadeStarting = true;
+    final token = _playRequestToken;
+    final song = currentSong;
+    try {
+      if (song == null) return;
+      var file = _currentLoadedFile;
+      if (file == null && song.sourceDeviceId == 'stream') {
+        final videoId = RecommendationService.extractVideoId(song.id) ??
+            song.id.replaceFirst('stream_', '');
+        file = await StreamCacheManager.getCachedFile(videoId);
+      }
+      if (file == null || token != _playRequestToken || !_player.playing) {
+        return;
+      }
+      final tail = _tailPlayer ??= _tailPlayerFactory();
+      final tailToken = ++_tailToken;
+      await tail.setVolume(_player.volume);
+      await tail.setSpeed(_speed);
+      await tail.setAudioSource(
+        AudioSource.file(file.path),
+        initialPosition: _player.position,
+      );
+      if (token != _playRequestToken || tailToken != _tailToken || !_player.playing) {
+        unawaited(tail.stop());
+        return;
+      }
+      // Line the tail up with where the main player is now (loading took a
+      // moment), start it, and only then silence the main player.
+      await tail.seek(_player.position);
+      unawaited(tail.play());
+      await _player.setVolume(0.0);
+      DebugLog.write(
+        '[crossfade] "${song.title}" hands over with ${remaining.inMilliseconds}ms left',
+      );
+      unawaited(_fadeOutTail(tail, tailToken, remaining));
+      _pendingFadeIn = Duration(seconds: _crossfadeSeconds);
+      await next(crossfade: true);
+    } catch (e) {
+      DebugLog.write('[crossfade] failed, finishing the song normally: $e');
+      _silenceTail();
+      if (token == _playRequestToken && currentSong?.id == song?.id) {
+        await _player.setVolume(_effectiveVolume);
+      }
+    } finally {
+      _crossfadeStarting = false;
+    }
+  }
+
+  /// Fades the tail out along an equal-power curve (so the overlap does not
+  /// dip in the middle), then stops it.
+  Future<void> _fadeOutTail(AudioPlayer tail, int tailToken, Duration over) async {
+    final start = tail.volume;
+    final steps = (over.inMilliseconds / 50).round().clamp(1, 400);
+    final step = Duration(milliseconds: math.max(1, over.inMilliseconds ~/ steps));
+    try {
+      for (var i = 1; i <= steps; i++) {
+        await Future<void>.delayed(step);
+        if (tailToken != _tailToken) return;
+        final t = i / steps;
+        await tail.setVolume(start * math.cos(t * math.pi / 2));
+      }
+    } finally {
+      if (tailToken == _tailToken) unawaited(tail.stop());
+    }
+  }
+
+  /// Stops a tail that is still fading (the user paused, skipped or seeked).
+  void _silenceTail() {
+    _tailToken++;
+    _pendingFadeIn = null;
+    final tail = _tailPlayer;
+    if (tail != null) unawaited(tail.stop());
+  }
+
   /// Measures the next song ahead of time when its file is already on disk,
   /// so it starts at the right level.
   void _levelNextSong() {
@@ -605,6 +763,7 @@ class PlayerService extends ChangeNotifier {
     _subs.add(_player.playbackEventStream.listen((event) {
       _publishNotificationState();
     }));
+    _subs.add(positionStream.listen(_onPositionForCrossfade));
     // Auto-advance (loop / shuffle aware) when a track finishes.
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _queue.isNotEmpty) {
@@ -1147,6 +1306,9 @@ class PlayerService extends ChangeNotifier {
     int? initialIndex,
   }) async {
     _lastInteraction = DateTime.now();
+    final fadeIn = _pendingFadeIn ?? const Duration(milliseconds: 80);
+    if (_pendingFadeIn == null) _silenceTail();
+    _pendingFadeIn = null;
     RecommendationService.markPlayed(song.id);
     if (identity != null && identity!.isFavorite(song.id)) {
       unawaited(identity!.cacheFavoriteSongMetadata(song));
@@ -1504,7 +1666,7 @@ class PlayerService extends ChangeNotifier {
       if (LoudnessService.lufsFor(song) != null) _levelNextSong();
       _maybeCompactMemory();
       if (targetVol > 0.01) {
-        unawaited(_fadeVolume(targetVol, duration: const Duration(milliseconds: 80)));
+        unawaited(_fadeVolume(targetVol, duration: fadeIn));
       }
       _isManuallyPaused = false;
       _isLoadingTrack = false;
@@ -1789,6 +1951,7 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> pause({bool smooth = false}) async {
     _lastInteraction = DateTime.now();
+    _silenceTail();
     _isManuallyPaused = true;
     _playRequestToken++;
     _preloadDebounceTimer?.cancel();
@@ -1920,13 +2083,20 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  Future<void> next({bool userAction = false}) async {
+  Future<void> next({bool userAction = false, bool crossfade = false}) async {
     if (userAction) {
       _lastInteraction = DateTime.now();
     }
-    if (_queue.isEmpty || _isAdvancing) return;
+    if (_queue.isEmpty || _isAdvancing) {
+      if (crossfade) {
+        // Nothing to hand over to: keep the song going on the main player.
+        _silenceTail();
+        unawaited(_player.setVolume(_effectiveVolume));
+      }
+      return;
+    }
     _isAdvancing = true;
-    if (_player.playing && _userVolume > 0.05) {
+    if (!crossfade && _player.playing && _userVolume > 0.05) {
       await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
     }
     try {
@@ -1991,6 +2161,8 @@ class PlayerService extends ChangeNotifier {
       DebugLog.write('[player] next error: $e');
     } finally {
       _isAdvancing = false;
+      // Only a hand-off that reached playSong uses the long fade-in.
+      _pendingFadeIn = null;
     }
   }
 
@@ -2136,6 +2308,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> seek(Duration position) async {
+    _silenceTail();
     final dur = _player.duration;
     if (dur != null && dur > Duration.zero && position >= dur - const Duration(milliseconds: 150)) {
       await _player.seek(dur);
@@ -2341,6 +2514,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _silenceTail();
     _playRequestToken++;
     _preloadDebounceTimer?.cancel();
     _autoRerollDebounceTimer?.cancel();
@@ -2373,6 +2547,9 @@ class PlayerService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _tailToken++;
+    unawaited(_tailPlayer?.dispose());
+    _tailPlayer = null;
     _playRequestToken++;
     unawaited(_growingSource?.close());
     _growingSource = null;
