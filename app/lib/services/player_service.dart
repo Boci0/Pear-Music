@@ -2497,6 +2497,9 @@ class PlayerService extends ChangeNotifier {
       }
       return;
     }
+    // A seek takes over from any fade in progress (such as a silent outro
+    // fading out), so the song is heard at its level straight away.
+    _volumeFadeToken++;
     await _player.seek(position);
     if (_player.volume < _effectiveVolume && _player.playing) {
       unawaited(_player.setVolume(_effectiveVolume));

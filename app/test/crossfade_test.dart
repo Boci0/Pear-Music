@@ -293,8 +293,12 @@ void main() {
       main.position_ = const Duration(seconds: 55, milliseconds: 100);
       player.debugCrossfadeTick(main.position_);
       await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(main.volume, lessThan(player.volume), reason: 'fading out');
+      await player.seek(const Duration(seconds: 30));
       main.position_ = const Duration(seconds: 30);
-      await Future<void>.delayed(const Duration(milliseconds: 1400));
+      expect(main.volume, closeTo(player.volume, 0.001),
+          reason: 'the seek brings the volume straight back');
+      await Future<void>.delayed(const Duration(milliseconds: 1600));
       expect(player.currentSong?.id, 'stream_aaaaaaaaaaa');
       expect(main.volume, closeTo(player.volume, 0.001));
     });
