@@ -275,7 +275,10 @@ void main() {
 
       main.position_ = const Duration(seconds: 55, milliseconds: 400);
       player.debugCrossfadeTick(main.position_);
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      // Moving on includes a short fade and loading the next song.
+      for (var i = 0; i < 40 && player.currentSong?.id != 'stream_bbbbbbbbbbb'; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
       expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
       expect(tail.loaded, isEmpty);
     });
