@@ -71,8 +71,14 @@ void main() {
         .setMockMethodCallHandler(channel, (_) async => sandbox.path);
   });
   tearDownAll(() => sandbox.deleteSync(recursive: true));
-  setUp(LoudnessService.resetForTesting);
-  tearDown(() => StreamCacheManager.debugEnsureStreamCachedOverride = null);
+  setUp(() {
+    LoudnessService.resetForTesting();
+    PlayerService.debugCubicVolumeOverride = false;
+  });
+  tearDown(() {
+    StreamCacheManager.debugEnsureStreamCachedOverride = null;
+    PlayerService.debugCubicVolumeOverride = null;
+  });
 
   group('gain', () {
     test('an unmeasured song plays unchanged', () {
@@ -140,6 +146,17 @@ void main() {
       await player.setVolume(0.5);
       expect(player.volume, 0.5);
       expect(audio.volume, closeTo(0.5 * LoudnessService.gainForLufs(-8), 0.001));
+    });
+
+    test('on a cubic engine the level is applied as the cube root', () async {
+      // mpv (Windows) scales the sound by volume^3: a -6 dB song must ask
+      // for cbrt(0.5) of the user volume, or it ends up 18 dB down.
+      PlayerService.debugCubicVolumeOverride = true;
+      final (audio, _) = await playMeasured(normalize: true);
+      final gain = LoudnessService.gainForLufs(-8);
+      expect(audio.volume, closeTo(0.8 * math.pow(gain, 1 / 3), 0.001));
+      final heard = math.pow(audio.volume, 3) / math.pow(0.8, 3);
+      expect(_db(heard.toDouble()), closeTo(-6, 0.01));
     });
   });
 }

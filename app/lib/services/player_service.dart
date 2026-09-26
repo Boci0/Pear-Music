@@ -223,7 +223,24 @@ class PlayerService extends ChangeNotifier {
   /// What the player's volume should be: the user's volume with the current
   /// song levelled. A lift for a quiet song only goes as far as full volume.
   double get _effectiveVolume =>
-      (_userVolume * (_loudnessNormalization ? _songGain : 1.0)).clamp(0.0, 1.0);
+      (_userVolume * _mixerGain(_loudnessNormalization ? _songGain : 1.0))
+          .clamp(0.0, 1.0);
+
+  /// True when the engine applies volume on mpv's cubic scale (media_kit on
+  /// Windows and Linux): the sound there is scaled by volume^3, not volume.
+  @visibleForTesting
+  static bool? debugCubicVolumeOverride;
+  static bool get _cubicVolume =>
+      debugCubicVolumeOverride ??
+      (!kIsWeb && (Platform.isWindows || Platform.isLinux));
+
+  /// The volume factor that scales the sound itself by [amplitude]. Song
+  /// levels and crossfade curves are amplitudes; the user's own volume is
+  /// not converted, so the slider keeps the feel it has on each platform.
+  static double _mixerGain(double amplitude) {
+    if (amplitude <= 0) return 0.0;
+    return _cubicVolume ? math.pow(amplitude, 1 / 3).toDouble() : amplitude;
+  }
   final ValueNotifier<Duration?> scrubbingPositionNotifier =
       ValueNotifier<Duration?>(null);
   Duration? get scrubbingPosition => scrubbingPositionNotifier.value;
@@ -684,10 +701,31 @@ class PlayerService extends ChangeNotifier {
         await Future<void>.delayed(step);
         if (tailToken != _tailToken) return;
         final t = i / steps;
-        await tail.setVolume(start * math.cos(t * math.pi / 2));
+        await tail.setVolume(start * _mixerGain(math.cos(t * math.pi / 2)));
       }
     } finally {
       if (tailToken == _tailToken) unawaited(tail.stop());
+    }
+  }
+
+  /// Fades the next song in along the matching sine curve while the tail
+  /// fades out. Shares [_fadeVolume]'s token, so a pause or a volume change
+  /// takes over from it.
+  Future<void> _fadeInOverTail(double target, Duration over) async {
+    final fadeToken = ++_volumeFadeToken;
+    final steps = (over.inMilliseconds / 50).round().clamp(1, 400);
+    final step = Duration(milliseconds: math.max(1, over.inMilliseconds ~/ steps));
+    try {
+      for (var i = 1; i <= steps; i++) {
+        await Future<void>.delayed(step);
+        if (fadeToken != _volumeFadeToken) return;
+        final t = i / steps;
+        await _player.setVolume(target * _mixerGain(math.sin(t * math.pi / 2)));
+      }
+    } finally {
+      if (fadeToken == _volumeFadeToken && _player.playing) {
+        await _player.setVolume(target);
+      }
     }
   }
 
@@ -1306,7 +1344,8 @@ class PlayerService extends ChangeNotifier {
     int? initialIndex,
   }) async {
     _lastInteraction = DateTime.now();
-    final fadeIn = _pendingFadeIn ?? const Duration(milliseconds: 80);
+    final crossfadeIn = _pendingFadeIn;
+    final fadeIn = crossfadeIn ?? const Duration(milliseconds: 80);
     if (_pendingFadeIn == null) _silenceTail();
     _pendingFadeIn = null;
     RecommendationService.markPlayed(song.id);
@@ -1666,7 +1705,9 @@ class PlayerService extends ChangeNotifier {
       if (LoudnessService.lufsFor(song) != null) _levelNextSong();
       _maybeCompactMemory();
       if (targetVol > 0.01) {
-        unawaited(_fadeVolume(targetVol, duration: fadeIn));
+        unawaited(crossfadeIn != null
+            ? _fadeInOverTail(targetVol, crossfadeIn)
+            : _fadeVolume(targetVol, duration: fadeIn));
       }
       _isManuallyPaused = false;
       _isLoadingTrack = false;
