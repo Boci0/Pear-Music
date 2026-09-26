@@ -34,6 +34,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     private var eventSink: EventChannel.EventSink? = null
     private val executors = mutableMapOf<String, ExecutorService>()
     private val audioDownloadExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val decodeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     @Volatile
     private var currentAudioProcessId: String? = null
     @Volatile
@@ -177,6 +178,23 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     result.success(true)
                 } else {
                     result.success(true)
+                }
+            }
+            "decodeToWav" -> {
+                val input = call.argument<String>("input")
+                val output = call.argument<String>("output")
+                if (input == null || output == null) {
+                    result.error("bad_args", "input/output required", null)
+                    return
+                }
+                decodeExecutor.execute {
+                    val ok = try {
+                        decodeToWav(input, output)
+                    } catch (e: Exception) {
+                        android.util.Log.w("PeermYtDlp", "decodeToWav failed: ${e.message}")
+                        false
+                    }
+                    mainHandler.post { result.success(ok) }
                 }
             }
             "getSupportedAbis" -> {
@@ -647,6 +665,107 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     android.util.Log.e(TAG, "Foreground installApk error: ${err.message}")
                 }
             }
+        }
+    }
+
+    /**
+     * Decodes (up to the first 20 minutes of) the audio in [input] to a PCM
+     * WAV at [output] with the platform decoder, for loudness measuring. The
+     * WAV keeps the source rate and channel count; 16-bit or float, whichever
+     * the decoder produces.
+     */
+    private fun decodeToWav(input: String, output: String): Boolean {
+        val extractor = android.media.MediaExtractor()
+        var codec: android.media.MediaCodec? = null
+        val out = java.io.RandomAccessFile(output, "rw")
+        try {
+            extractor.setDataSource(input)
+            var track = -1
+            var format: android.media.MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                if (f.getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                    track = i
+                    format = f
+                    break
+                }
+            }
+            if (track < 0 || format == null) return false
+            extractor.selectTrack(track)
+            val mime = format.getString(android.media.MediaFormat.KEY_MIME)!!
+            codec = android.media.MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
+
+            out.setLength(0)
+            out.write(ByteArray(44))
+            var channels = format.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+            var rate = format.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+            var isFloat = false
+            var dataBytes = 0L
+            val info = android.media.MediaCodec.BufferInfo()
+            val maxUs = 20L * 60L * 1_000_000L
+            var inputDone = false
+            var outputDone = false
+            var chunk = ByteArray(0)
+            val deadline = System.currentTimeMillis() + 120_000L
+            while (!outputDone && System.currentTimeMillis() < deadline) {
+                if (!inputDone) {
+                    val inIndex = codec.dequeueInputBuffer(10_000)
+                    if (inIndex >= 0) {
+                        val buf = codec.getInputBuffer(inIndex)!!
+                        val size = extractor.readSampleData(buf, 0)
+                        if (size < 0 || extractor.sampleTime > maxUs) {
+                            codec.queueInputBuffer(inIndex, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            codec.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val outIndex = codec.dequeueOutputBuffer(info, 10_000)
+                if (outIndex == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val f = codec.outputFormat
+                    channels = f.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+                    rate = f.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                    if (android.os.Build.VERSION.SDK_INT >= 24 && f.containsKey(android.media.MediaFormat.KEY_PCM_ENCODING)) {
+                        isFloat = f.getInteger(android.media.MediaFormat.KEY_PCM_ENCODING) == android.media.AudioFormat.ENCODING_PCM_FLOAT
+                    }
+                } else if (outIndex >= 0) {
+                    if (info.size > 0) {
+                        val buf = codec.getOutputBuffer(outIndex)!!
+                        buf.position(info.offset)
+                        buf.limit(info.offset + info.size)
+                        if (chunk.size < info.size) chunk = ByteArray(info.size)
+                        buf.get(chunk, 0, info.size)
+                        out.write(chunk, 0, info.size)
+                        dataBytes += info.size
+                    }
+                    codec.releaseOutputBuffer(outIndex, false)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        outputDone = true
+                    }
+                }
+            }
+            if (!outputDone || dataBytes == 0L) return false
+
+            val bits = if (isFloat) 32 else 16
+            val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            header.put("RIFF".toByteArray()).putInt((36 + dataBytes).toInt())
+            header.put("WAVE".toByteArray()).put("fmt ".toByteArray()).putInt(16)
+            header.putShort((if (isFloat) 3 else 1).toShort()).putShort(channels.toShort())
+            header.putInt(rate).putInt(rate * channels * bits / 8)
+            header.putShort((channels * bits / 8).toShort()).putShort(bits.toShort())
+            header.put("data".toByteArray()).putInt(dataBytes.toInt())
+            out.seek(0)
+            out.write(header.array())
+            return true
+        } finally {
+            try { codec?.stop() } catch (_: Exception) {}
+            try { codec?.release() } catch (_: Exception) {}
+            extractor.release()
+            out.close()
         }
     }
 

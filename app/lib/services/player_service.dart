@@ -17,6 +17,7 @@ import 'growing_file_audio_source.dart';
 import 'history_service.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
+import 'loudness_service.dart';
 import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
 import 'recommendation_service.dart';
@@ -74,7 +75,6 @@ class PlayerService extends ChangeNotifier {
   /// Optional play log. Every track that starts playing is recorded here.
   final HistoryService? history;
   late final AudioPlayer _player;
-  AndroidLoudnessEnhancer? _loudnessEnhancer;
   bool _loudnessNormalization = true;
   final math.Random _random = math.Random();
 
@@ -209,6 +209,15 @@ class PlayerService extends ChangeNotifier {
       !_isManuallyPaused && _player.playing && _player.processingState != ProcessingState.completed;
   double _userVolume = 0.75;
   double get volume => _userVolume;
+
+  /// Loudness normalisation multiplier for the current song (1.0 until it
+  /// has been measured, see [LoudnessService]).
+  double _songGain = 1.0;
+
+  /// What the player's volume should be: the user's volume with the current
+  /// song levelled. A lift for a quiet song only goes as far as full volume.
+  double get _effectiveVolume =>
+      (_userVolume * (_loudnessNormalization ? _songGain : 1.0)).clamp(0.0, 1.0);
   final ValueNotifier<Duration?> scrubbingPositionNotifier =
       ValueNotifier<Duration?>(null);
   Duration? get scrubbingPosition => scrubbingPositionNotifier.value;
@@ -498,29 +507,64 @@ class PlayerService extends ChangeNotifier {
     if (identity != null) {
       await identity!.setLoudnessNormalization(enabled);
     }
-    if (Platform.isAndroid && _loudnessEnhancer != null) {
-      try {
-        await _loudnessEnhancer!.setEnabled(enabled);
-        if (enabled) {
-          await _loudnessEnhancer!.setTargetGain(2.0);
-        }
-      } catch (e) {
-        debugPrint('[player] loudness enhancer error: $e');
-      }
+    final song = currentSong;
+    if (enabled && song != null) _levelSong(song, _playRequestToken, null);
+    if (_player.playing) {
+      unawaited(_fadeVolume(_effectiveVolume, duration: const Duration(milliseconds: 600)));
     }
     notifyListeners();
   }
 
+  /// Measures [song] once its audio file is complete (the loaded file, or
+  /// [pendingDownload] for a song still streaming in) and then eases the
+  /// volume to its level if it is still playing. Songs already measured are
+  /// levelled straight away in [playSong].
+  void _levelSong(Song song, int token, Future<File?>? pendingDownload) {
+    if (!_loudnessNormalization || !LoudnessService.isSupported) return;
+    if (LoudnessService.lufsFor(song) != null) return;
+    final loaded = _currentLoadedFile;
+    unawaited(() async {
+      final file = loaded ??
+          await pendingDownload?.catchError((Object _) => null);
+      if (file == null) return;
+      final lufs = await LoudnessService.measure(song, file.path);
+      if (lufs == null ||
+          token != _playRequestToken ||
+          currentSong?.id != song.id) {
+        return;
+      }
+      _songGain = LoudnessService.gainForLufs(lufs);
+      if (_player.playing) {
+        unawaited(_fadeVolume(_effectiveVolume, duration: const Duration(seconds: 2)));
+      }
+      _levelNextSong();
+    }());
+  }
+
+  /// Measures the next song ahead of time when its file is already on disk,
+  /// so it starts at the right level.
+  void _levelNextSong() {
+    if (!_loudnessNormalization || !LoudnessService.isSupported) return;
+    final i = _queueIndex + 1;
+    if (i <= 0 || i >= _queue.length) return;
+    final next = _queue[i];
+    if (LoudnessService.lufsFor(next) != null) return;
+    unawaited(() async {
+      File? file;
+      if (next.sourceDeviceId == 'stream') {
+        final videoId = RecommendationService.extractVideoId(next.id) ??
+            next.id.replaceFirst('stream_', '');
+        file = await StreamCacheManager.getCachedFile(videoId);
+      } else if (library.hasSongFile(next)) {
+        file = library.songFile(next);
+      }
+      if (file != null) await LoudnessService.measure(next, file.path);
+    }());
+  }
+
   Future<void> init() async {
     _loudnessNormalization = identity?.loudnessNormalization ?? true;
-    if (Platform.isAndroid && _loudnessEnhancer != null) {
-      try {
-        await _loudnessEnhancer!.setEnabled(_loudnessNormalization);
-        if (_loudnessNormalization) {
-          await _loudnessEnhancer!.setTargetGain(2.0);
-        }
-      } catch (_) {}
-    }
+    unawaited(LoudnessService.load());
 
     // Pre-render the default album art (if it isn't cached yet) so the first
     // play starts instantly and the notification already has artwork.
@@ -532,7 +576,7 @@ class PlayerService extends ChangeNotifier {
     // implemented in Dart (single-source loads). This is also what fixes the
     // "loops on 1 song" issue on backends that don't advance playlists.
     _userVolume = identity?.playbackVolume ?? 0.75;
-    unawaited(_player.setVolume(_userVolume));
+    unawaited(_player.setVolume(_effectiveVolume));
     unawaited(_player.setLoopMode(LoopMode.off));
 
     // NOTE: `positionStream` is deliberately NOT forwarded through
@@ -1189,6 +1233,7 @@ class PlayerService extends ChangeNotifier {
     );
 
     final stopwatch = Stopwatch()..start();
+    Future<File?>? pendingDownload;
     final previousGrowing = _growingSource;
     _growingSource = null;
     if (previousGrowing != null) unawaited(previousGrowing.close());
@@ -1266,6 +1311,7 @@ class PlayerService extends ChangeNotifier {
               if (!linkReady.isCompleted) linkReady.complete(stream);
             },
           );
+          pendingDownload = download;
           unawaited(download.then(
             (_) {
               if (!linkReady.isCompleted) linkReady.complete(null);
@@ -1450,9 +1496,12 @@ class PlayerService extends ChangeNotifier {
           await _player.setSpeed(_speed);
         } catch (_) {}
       }
-      final targetVol = _userVolume.clamp(0.0, 1.0);
+      _songGain = LoudnessService.gainFor(song);
+      final targetVol = _effectiveVolume;
       await _player.setVolume(0.0);
       unawaited(_player.play());
+      _levelSong(song, token, pendingDownload);
+      if (LoudnessService.lufsFor(song) != null) _levelNextSong();
       _maybeCompactMemory();
       if (targetVol > 0.01) {
         unawaited(_fadeVolume(targetVol, duration: const Duration(milliseconds: 80)));
@@ -1677,6 +1726,7 @@ class PlayerService extends ChangeNotifier {
         nextTrackWindow,
         onTrackCached: (cachedId) {
           DebugLog.write('[preload] onTrackCached: $cachedId');
+          _levelNextSong();
           if (cachedId == nextTrackId) {
             _isPreloadingUpcoming = false;
             notifyListeners();
@@ -1756,7 +1806,7 @@ class PlayerService extends ChangeNotifier {
     }
     _publishNotificationState();
     notifyListeners();
-    final targetVol = _userVolume.clamp(0.0, 1.0);
+    final targetVol = _effectiveVolume;
     if (_player.playing) {
       if (smooth && targetVol > 0.05) {
         await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
@@ -1798,7 +1848,7 @@ class PlayerService extends ChangeNotifier {
       }
       await _player.seek(Duration.zero);
     }
-    final targetVol = _userVolume.clamp(0.0, 1.0);
+    final targetVol = _effectiveVolume;
     await _player.setVolume(targetVol);
     try {
       await _player.play();
@@ -1980,8 +2030,8 @@ class PlayerService extends ChangeNotifier {
       DebugLog.write('[player] previous error: $e');
     } finally {
       _isAdvancing = false;
-      if (_player.playing && _player.volume < _userVolume) {
-        await _player.setVolume(_userVolume);
+      if (_player.playing && _player.volume < _effectiveVolume) {
+        await _player.setVolume(_effectiveVolume);
       }
     }
   }
@@ -2056,7 +2106,7 @@ class PlayerService extends ChangeNotifier {
   Future<void> _replayCurrent() async {
     try {
       await _player.seek(Duration.zero);
-      final targetVol = _userVolume.clamp(0.0, 1.0);
+      final targetVol = _effectiveVolume;
       await _player.setVolume(targetVol);
       await _player.play();
       await _player.setVolume(targetVol);
@@ -2102,8 +2152,8 @@ class PlayerService extends ChangeNotifier {
       return;
     }
     await _player.seek(position);
-    if (_player.volume < _userVolume && _player.playing) {
-      unawaited(_player.setVolume(_userVolume));
+    if (_player.volume < _effectiveVolume && _player.playing) {
+      unawaited(_player.setVolume(_effectiveVolume));
     }
   }
 
@@ -2112,7 +2162,7 @@ class PlayerService extends ChangeNotifier {
     if ((_userVolume - clamped).abs() < 0.001) return;
     _volumeFadeToken++;
     _userVolume = clamped;
-    await _player.setVolume(_userVolume);
+    await _player.setVolume(_effectiveVolume);
     _saveVolumeDebounceTimer?.cancel();
     _saveVolumeDebounceTimer = Timer(const Duration(milliseconds: 400), () {
       identity?.setPlaybackVolume(_userVolume);
