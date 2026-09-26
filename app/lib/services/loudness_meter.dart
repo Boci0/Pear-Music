@@ -231,14 +231,13 @@ class _Accumulator {
 
   static double _lufs(double energy) => -0.691 + 10 * math.log(energy) / math.ln10;
 
-  /// [integrated] plus the music span. A 100 ms bin counts as silence when
-  /// it is far below the song's own level (and below -50 LUFS in any case),
-  /// so quiet passages and fade-outs stay, while digital silence and hiss
-  /// between tracks do not.
+  /// [integrated] plus the music span. A 100 ms bin counts as silence only
+  /// when it is near-silent (below -60 LUFS, and 45 LU under the song's own
+  /// level), so fade-ins, reverb tails and quiet passages stay music.
   LoudnessAnalysis? analysis() {
     final lufs = integrated();
     if (lufs == null) return null;
-    final threshold = math.min(-50.0, lufs - 36);
+    final threshold = math.min(-60.0, lufs - 45);
     var first = -1;
     var last = -1;
     for (var i = 0; i < _subBlocks.length; i++) {

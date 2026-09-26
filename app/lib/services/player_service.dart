@@ -677,21 +677,23 @@ class PlayerService extends ChangeNotifier {
   // Silence skipping
   //
   // The loudness pass also records where each song's music starts and
-  // stops. A silent intro is skipped when the song starts, and a silent
-  // outro ends the song early (crossfades end where the music does). Short
-  // gaps stay: only a second or more of silence is skipped, and a little of
-  // it is kept so songs do not start or end abruptly.
+  // stops. A silent intro is skipped when the song starts (keeping a short
+  // lead-in and fading in), and a silent outro fades out and ends the song
+  // early (crossfades end where the music does). Only two seconds or more
+  // of silence is skipped; shorter gaps are part of the song.
   // ---------------------------------------------------------------------
 
-  static const double _minSilenceSkip = 1.0;
-  static const double _silencePad = 0.3;
+  static const double _minSilenceSkip = 2.0;
+  static const double _introLeadIn = 0.5;
+  static const Duration _introFadeIn = Duration(milliseconds: 400);
+  static const Duration _outroFadeOut = Duration(milliseconds: 1200);
   int _outroSkippedToken = -1;
 
   /// Where to start [song] so its silent intro is skipped.
   Duration _musicStartFor(Song song) {
     final span = LoudnessService.spanFor(song);
     if (span == null || span.musicStart < _minSilenceSkip) return Duration.zero;
-    return Duration(milliseconds: ((span.musicStart - _silencePad) * 1000).round());
+    return Duration(milliseconds: ((span.musicStart - _introLeadIn) * 1000).round());
   }
 
   /// Where the current song's silent outro begins, or null when it has none
@@ -705,7 +707,7 @@ class PlayerService extends ChangeNotifier {
     // The span must describe this file: the decoder stops after 20 minutes.
     if ((span.length - duration.inMilliseconds / 1000).abs() > 1.5) return null;
     if (span.length - span.musicEnd < _minSilenceSkip) return null;
-    return Duration(milliseconds: ((span.musicEnd + _silencePad) * 1000).round());
+    return Duration(milliseconds: (span.musicEnd * 1000).round());
   }
 
   void _skipSilentOutro(Duration position) {
@@ -716,12 +718,24 @@ class PlayerService extends ChangeNotifier {
     }
     final outro = _silentOutroStart();
     if (outro == null || position < outro) return;
-    _outroSkippedToken = _playRequestToken;
+    final token = _playRequestToken;
+    _outroSkippedToken = token;
     DebugLog.write(
       '[player] "${currentSong?.title}" skips its silent outro at '
       '${outro.inMilliseconds}ms',
     );
-    _onNaturalEnd();
+    unawaited(() async {
+      // Ease out over what is left of the tail rather than cutting it.
+      await _fadeVolume(0.0, duration: _outroFadeOut);
+      if (token != _playRequestToken) return;
+      if (_isManuallyPaused || !_player.playing || _player.position < outro) {
+        // Paused or seeked back during the fade: stay on this song.
+        _outroSkippedToken = -1;
+        if (_player.playing) unawaited(_fadeVolume(_effectiveVolume));
+        return;
+      }
+      _onNaturalEnd();
+    }());
   }
 
   bool _isReadyToStart(Song song) {
@@ -1814,7 +1828,10 @@ class PlayerService extends ChangeNotifier {
       if (targetVol > 0.01) {
         unawaited(crossfadeIn != null
             ? _fadeInOverTail(targetVol, crossfadeIn)
-            : _fadeVolume(targetVol, duration: fadeIn));
+            : _fadeVolume(
+                targetVol,
+                duration: musicStart > Duration.zero ? _introFadeIn : fadeIn,
+              ));
       }
       _isManuallyPaused = false;
       _isLoadingTrack = false;

@@ -43,6 +43,9 @@ class LoudnessService {
 
   static final Map<String, double> _lufs = {};
   static final Map<String, LoudnessAnalysis> _spans = {};
+
+  /// Bumped when the silence rule changes, so older spans are found again.
+  static const int _spanVersion = 2;
   static final Map<String, Future<double?>> _inFlight = {};
   static Future<void>? _loading;
   static File? _storeFile;
@@ -98,7 +101,8 @@ class LoudnessService {
             final lufs = (v['lufs'] as num).toDouble();
             _lufs[key] = lufs;
             final start = v['start'], end = v['end'], len = v['len'];
-            if (start is num && end is num && len is num) {
+            if (start is num && end is num && len is num &&
+                v['v'] == _spanVersion) {
               _spans[key] = LoudnessAnalysis(
                 lufs: lufs,
                 musicStart: start.toDouble(),
@@ -129,6 +133,7 @@ class LoudnessService {
                   'start': span.musicStart,
                   'end': span.musicEnd,
                   'len': span.length,
+                  'v': _spanVersion,
                 },
               null => e.value,
             },

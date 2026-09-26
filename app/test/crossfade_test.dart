@@ -262,31 +262,47 @@ void main() {
 
     test('a silent intro is skipped, keeping a moment of lead-in', () async {
       final (main, _, _) = await playFirst(crossfadeSeconds: 0);
-      expect(main.position_, const Duration(milliseconds: 1700));
+      expect(main.position_, const Duration(milliseconds: 1500));
     });
 
     test('a silent outro moves on to the next song', () async {
       final (main, tail, player) = await playFirst(crossfadeSeconds: 0);
-      main.position_ = const Duration(seconds: 55, milliseconds: 100);
+      main.position_ = const Duration(seconds: 54, milliseconds: 900);
       player.debugCrossfadeTick(main.position_);
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(player.currentSong?.id, 'stream_aaaaaaaaaaa',
-          reason: 'the music (plus a short pad) is not over yet');
+          reason: 'the music is not over yet');
 
-      main.position_ = const Duration(seconds: 55, milliseconds: 400);
+      main.position_ = const Duration(seconds: 55, milliseconds: 100);
       player.debugCrossfadeTick(main.position_);
-      // Moving on includes a short fade and loading the next song.
-      for (var i = 0; i < 40 && player.currentSong?.id != 'stream_bbbbbbbbbbb'; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(player.currentSong?.id, 'stream_aaaaaaaaaaa',
+          reason: 'the tail fades out before the next song starts');
+      expect(main.volume, lessThan(0.6));
+
+      // Moving on follows the fade and loading the next song.
+      for (var i = 0; i < 60 && player.currentSong?.id != 'stream_bbbbbbbbbbb'; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
       expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
       expect(tail.loaded, isEmpty);
     });
 
+    test('seeking back during the outro fade stays on the song', () async {
+      final (main, _, player) = await playFirst(crossfadeSeconds: 0);
+      main.position_ = const Duration(seconds: 55, milliseconds: 100);
+      player.debugCrossfadeTick(main.position_);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      main.position_ = const Duration(seconds: 30);
+      await Future<void>.delayed(const Duration(milliseconds: 1400));
+      expect(player.currentSong?.id, 'stream_aaaaaaaaaaa');
+      expect(main.volume, closeTo(player.volume, 0.001));
+    });
+
     test('a crossfade ends where the music does, not at the end of the file',
         () async {
       final (main, tail, player) = await playFirst(crossfadeSeconds: 1);
-      main.position_ = const Duration(seconds: 54, milliseconds: 600);
+      main.position_ = const Duration(seconds: 54, milliseconds: 400);
       player.debugCrossfadeTick(main.position_);
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(tail.loaded, ['aaaaaaaaaaa.m4a']);
