@@ -438,7 +438,10 @@ class NowPlayingPanel extends StatelessWidget {
   }
 }
 
-class _ProgressLine extends StatelessWidget {
+/// The compact pane's progress line. Click or drag anywhere along it to seek,
+/// the same way as the full player's seek bar: the time label follows the
+/// drag and the seek happens on release.
+class _ProgressLine extends StatefulWidget {
   final PlayerService player;
   final Color color;
   final ThemeData theme;
@@ -449,7 +452,17 @@ class _ProgressLine extends StatelessWidget {
     required this.theme,
   });
 
-  String _formatTime(Duration d) {
+  @override
+  State<_ProgressLine> createState() => _ProgressLineState();
+}
+
+class _ProgressLineState extends State<_ProgressLine> {
+  bool _hovered = false;
+
+  /// Where a drag currently points, in milliseconds; null when not dragging.
+  double? _dragMs;
+
+  static String _formatTime(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes % 60;
     final s = d.inSeconds % 60;
@@ -458,9 +471,30 @@ class _ProgressLine extends StatelessWidget {
     return '$m:$ss';
   }
 
+  double _msAt(double dx, double width, double totalMs) =>
+      (dx / width).clamp(0.0, 1.0) * totalMs;
+
+  void _scrub(double ms) {
+    setState(() => _dragMs = ms);
+    widget.player.setScrubbingPosition(Duration(milliseconds: ms.round()));
+  }
+
+  void _commit(double ms) {
+    widget.player.seek(Duration(milliseconds: ms.round()));
+    widget.player.setScrubbingPosition(null);
+    setState(() => _dragMs = null);
+  }
+
+  void _cancel() {
+    widget.player.setScrubbingPosition(null);
+    setState(() => _dragMs = null);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final timeStyle = theme.textTheme.labelSmall?.copyWith(
+    final player = widget.player;
+    final color = widget.color;
+    final timeStyle = widget.theme.textTheme.labelSmall?.copyWith(
       fontSize: 10.5,
       color: Colors.white.withValues(alpha: 0.5),
       fontFeatures: const [FontFeature.tabularFigures()],
@@ -476,33 +510,98 @@ class _ProgressLine extends StatelessWidget {
           stream: player.positionStream,
           initialData: player.position ?? Duration.zero,
           builder: (context, posSnapshot) {
-            final pos = posSnapshot.data ?? player.position ?? Duration.zero;
+            final playing = posSnapshot.data ?? player.position ?? Duration.zero;
+            final pos = _dragMs != null
+                ? Duration(milliseconds: _dragMs!.round())
+                : playing;
             final fraction = totalMs <= 0
                 ? 0.0
                 : (pos.inMilliseconds / totalMs).clamp(0.0, 1.0);
+            final active = _hovered || _dragMs != null;
             return Row(
               children: [
                 Text(_formatTime(pos), style: timeStyle),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: SizedBox(
-                      height: 4,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ColoredBox(
-                            color: Colors.white.withValues(alpha: 0.08),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = constraints.maxWidth;
+                      final canSeek = totalMs > 0 && width > 0;
+                      return MouseRegion(
+                        cursor: canSeek
+                            ? SystemMouseCursors.click
+                            : MouseCursor.defer,
+                        onEnter: (_) => setState(() => _hovered = true),
+                        onExit: (_) => setState(() => _hovered = false),
+                        child: GestureDetector(
+                          key: const ValueKey('pane_progress'),
+                          behavior: HitTestBehavior.opaque,
+                          onTapUp: canSeek
+                              ? (d) => _commit(
+                                    _msAt(d.localPosition.dx, width, totalMs),
+                                  )
+                              : null,
+                          onHorizontalDragStart: canSeek
+                              ? (d) => _scrub(
+                                    _msAt(d.localPosition.dx, width, totalMs),
+                                  )
+                              : null,
+                          onHorizontalDragUpdate: canSeek
+                              ? (d) => _scrub(
+                                    _msAt(d.localPosition.dx, width, totalMs),
+                                  )
+                              : null,
+                          onHorizontalDragEnd: canSeek
+                              ? (_) => _commit(
+                                    _dragMs ?? playing.inMilliseconds.toDouble(),
+                                  )
+                              : null,
+                          onHorizontalDragCancel: canSeek ? _cancel : null,
+                          // A taller hit area than the 4 px line, so it is
+                          // easy to grab.
+                          child: SizedBox(
+                            height: 18,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.centerLeft,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(2),
+                                  child: SizedBox(
+                                    height: active ? 5 : 4,
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        ColoredBox(
+                                          color: Colors.white.withValues(alpha: 0.08),
+                                        ),
+                                        FractionallySizedBox(
+                                          alignment: Alignment.centerLeft,
+                                          widthFactor: fraction,
+                                          child: ColoredBox(color: color),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                if (active && canSeek)
+                                  Positioned(
+                                    left: fraction * width - 5,
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                          FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: fraction,
-                            child: ColoredBox(color: color),
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),

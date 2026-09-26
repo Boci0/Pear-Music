@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:peerm_app/controllers/app_controller.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/screens/explore_screen.dart';
@@ -36,6 +37,25 @@ Song _song(String id, String title) => Song(
   addedAt: DateTime(2026, 1, 1),
 );
 
+/// A one-minute song that records where it is asked to seek.
+class _SeekPlayer extends AudioPlayer {
+  _SeekPlayer() : super(handleAudioSessionActivation: false);
+
+  final List<Duration> seeks = [];
+
+  @override
+  Duration? get duration => const Duration(minutes: 1);
+
+  @override
+  Stream<Duration?> get durationStream =>
+      Stream.value(const Duration(minutes: 1));
+
+  @override
+  Future<void> seek(Duration? position, {int? index}) async {
+    if (position != null) seeks.add(position);
+  }
+}
+
 /// Guards the adaptive shell: below 900 logical px the phone shell with the
 /// bottom navigation bar is used; at 900 px and above the desktop shell with
 /// the side rail takes over.
@@ -54,6 +74,7 @@ void main() {
     List<Song>? songs,
     List<Song>? queue,
     int? playIndex,
+    AudioPlayer? audio,
   }) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -61,7 +82,12 @@ void main() {
     final library = LibraryService();
     if (songs != null) library.setSongsForTesting(songs);
     final history = HistoryService(prefs);
-    final player = PlayerService(library, identity: identity, history: history);
+    final player = PlayerService(
+      library,
+      identity: identity,
+      history: history,
+      player: audio,
+    );
     if (queue != null) {
       player.updateQueue(queue);
       if (playIndex != null) player.currentSong = queue[playIndex];
@@ -168,6 +194,41 @@ void main() {
     expect(find.text('Up Song 0'), findsWidgets);
     expect(find.text('Up Song 1'), findsOneWidget);
     expect(find.text('Up Song 2'), findsOneWidget);
+  });
+
+  testWidgets('the compact pane progress line seeks on click and drag', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1600, 900));
+    final audio = _SeekPlayer();
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(
+      await buildShell(queue: queue, playIndex: 0, audio: audio),
+    );
+    await tester.pumpAndSettle();
+
+    final line = find.byKey(const ValueKey('pane_progress'));
+    expect(line, findsOneWidget);
+    final box = tester.getRect(line);
+
+    // A click halfway along jumps to the middle of the song.
+    await tester.tapAt(box.center);
+    await tester.pump();
+    expect(audio.seeks.single.inSeconds, closeTo(30, 1));
+
+    // A drag scrubs without seeking, then seeks once where it is released.
+    final gesture = await tester.startGesture(
+      Offset(box.left + box.width * 0.1, box.center.dy),
+    );
+    await gesture.moveBy(Offset(box.width * 0.3, 0));
+    await tester.pump();
+    await gesture.moveBy(Offset(box.width * 0.35, 0));
+    await tester.pump();
+    expect(audio.seeks, hasLength(1));
+    await gesture.up();
+    await tester.pump();
+    expect(audio.seeks, hasLength(2));
+    expect(audio.seeks.last.inSeconds, closeTo(45, 1));
   });
 
   testWidgets('the pane expands into the full player in place', (tester) async {
