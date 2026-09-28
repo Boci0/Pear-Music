@@ -76,6 +76,7 @@ void main() {
     PlayerService.debugCubicVolumeOverride = false;
   });
   tearDown(() {
+    LoudnessService.debugSupportedOverride = null;
     StreamCacheManager.debugEnsureStreamCachedOverride = null;
     PlayerService.debugCubicVolumeOverride = null;
   });
@@ -137,6 +138,7 @@ void main() {
 
     test('an unmeasured song starts at the typical level, not unlevelled',
         () async {
+      LoudnessService.debugSupportedOverride = true;
       final file = File('${sandbox.path}/fresh.m4a')..writeAsBytesSync([0]);
       StreamCacheManager.debugEnsureStreamCachedOverride =
           (videoId, {required isPreload}) async => file;
@@ -154,6 +156,16 @@ void main() {
       final expected = LoudnessService.gainForLufs(LoudnessService.typicalLufs);
       expect(LoudnessService.typicalLufs, closeTo(-12, 0.51));
       expect(audio.volume, closeTo(0.8 * expected, 0.001));
+    });
+
+    test('where songs can never be measured they play as they are', () {
+      LoudnessService.debugSupportedOverride = false;
+      expect(LoudnessService.startGainFor(_streamSong('ccccccccccc')), 1.0);
+      LoudnessService.debugSupportedOverride = true;
+      expect(
+        LoudnessService.startGainFor(_streamSong('ccccccccccc')),
+        LoudnessService.gainForLufs(LoudnessService.defaultTypicalLufs),
+      );
     });
 
     test('with too little measured, the typical level is a modern master', () {

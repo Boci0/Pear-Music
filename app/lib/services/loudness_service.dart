@@ -73,7 +73,12 @@ class LoudnessService {
 
   /// Platforms that can decode a song for measuring.
   static bool get isSupported =>
-      !kIsWeb && (Platform.isWindows || Platform.isAndroid);
+      debugSupportedOverride ??
+      (!kIsWeb && (Platform.isWindows || Platform.isAndroid));
+
+  /// Lets tests pick whether this platform can measure, wherever they run.
+  @visibleForTesting
+  static bool? debugSupportedOverride;
 
   static String keyFor(Song song) =>
       RecommendationService.extractVideoId(song.id) ??
