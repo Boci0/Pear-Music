@@ -163,7 +163,29 @@ class LoudnessService {
     return math.pow(10, db / 20).toDouble();
   }
 
-  static double gainFor(Song song) => gainForLufs(lufsFor(song));
+  /// The measured gain for [song], or null until it has been measured.
+  static double? gainFor(Song song) {
+    final lufs = lufsFor(song);
+    return lufs == null ? null : gainForLufs(lufs);
+  }
+
+  /// Where most songs land when nothing is known about them yet: the median
+  /// of everything measured so far (so it follows the listener's own music),
+  /// or a typical modern master before there is enough to go on.
+  static double get typicalLufs {
+    if (_lufs.length < 5) return defaultTypicalLufs;
+    final sorted = _lufs.values.toList()..sort();
+    return sorted[sorted.length ~/ 2].clamp(-18.0, -6.0);
+  }
+
+  static const double defaultTypicalLufs = -9.0;
+
+  /// The gain to start [song] at: its own when measured, otherwise the
+  /// typical one, so the level only needs a small correction once the song
+  /// has been measured instead of a clearly audible drop a few seconds in.
+  /// Platforms that can never measure keep songs as they are.
+  static double startGainFor(Song song) =>
+      gainFor(song) ?? (isSupported ? gainForLufs(typicalLufs) : 1.0);
 
   /// Measures [song] from the finished audio file at [path] unless it is
   /// already known (songs measured by older builds are measured again once,

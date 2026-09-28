@@ -570,7 +570,9 @@ class PlayerService extends ChangeNotifier {
       }
       _songGain = gain;
       if (_player.playing) {
-        unawaited(_fadeVolume(_effectiveVolume, duration: const Duration(seconds: 2)));
+        // Slow enough that the (usually small) correction from the typical
+        // starting level is not heard as the song turning down.
+        unawaited(_fadeVolume(_effectiveVolume, duration: const Duration(seconds: 6)));
       }
       _levelNextSong();
     }());
@@ -1820,7 +1822,7 @@ class PlayerService extends ChangeNotifier {
           await _player.setSpeed(_speed);
         } catch (_) {}
       }
-      _songGain = LoudnessService.gainFor(song);
+      _songGain = LoudnessService.startGainFor(song);
       final targetVol = _effectiveVolume;
       await _player.setVolume(0.0);
       final musicStart = _musicStartFor(song);

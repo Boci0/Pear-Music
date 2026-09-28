@@ -135,6 +135,31 @@ void main() {
       expect(audio.volume, closeTo(0.8 * LoudnessService.gainForLufs(-8), 0.001));
     });
 
+    test('an unmeasured song starts at the typical level, not unlevelled',
+        () async {
+      final file = File('${sandbox.path}/fresh.m4a')..writeAsBytesSync([0]);
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async => file;
+      final audio = _VolumePlayer();
+      final player = PlayerService(LibraryService(), player: audio);
+      await player.setLoudnessNormalization(true);
+      await player.setVolume(0.8);
+      // The listener's music so far sits around -12 LUFS.
+      for (var i = 0; i < 6; i++) {
+        LoudnessService.setForTesting('known$i', -12.0 + (i.isEven ? 0.5 : -0.5));
+      }
+      final song = _streamSong('bbbbbbbbbbb');
+      await player.playSong(song, queue: [song]);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final expected = LoudnessService.gainForLufs(LoudnessService.typicalLufs);
+      expect(LoudnessService.typicalLufs, closeTo(-12, 0.51));
+      expect(audio.volume, closeTo(0.8 * expected, 0.001));
+    });
+
+    test('with too little measured, the typical level is a modern master', () {
+      expect(LoudnessService.typicalLufs, LoudnessService.defaultTypicalLufs);
+    });
+
     test('with normalisation off the song plays at the user volume', () async {
       final (audio, _) = await playMeasured(normalize: false);
       expect(audio.volume, closeTo(0.8, 0.001));
