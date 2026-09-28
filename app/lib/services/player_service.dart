@@ -1563,6 +1563,7 @@ class PlayerService extends ChangeNotifier {
         DebugLog.write('[player] Resolved videoId=$videoId, checking disk cache...');
 
         File? cachedFile = await StreamCacheManager.getCachedFile(videoId);
+        if (cachedFile != null) unawaited(StreamCacheManager.markPlayed(cachedFile));
         if (cachedFile == null) {
           for (final s in library.songs) {
             if ((RecommendationService.extractVideoId(s.fileName) == videoId ||

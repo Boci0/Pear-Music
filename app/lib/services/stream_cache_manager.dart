@@ -317,6 +317,17 @@ class StreamCacheManager {
     return _inFlightDownloads[videoId]?.future;
   }
 
+  /// Marks a cached track as just played. Eviction removes the tracks that
+  /// were played longest ago, so songs played often stay cached instead of
+  /// going first because they were downloaded early.
+  static Future<void> markPlayed(File file) async {
+    try {
+      await file.setLastModified(DateTime.now());
+    } catch (e) {
+      DebugLog.write('[cache] could not mark ${p.basename(file.path)} as played: $e');
+    }
+  }
+
   /// Quick cache check: returns the cached file if it exists.
   static Future<File?> getCachedFile(String videoId) async {
     final dir = await getCacheDirectory();
@@ -1125,7 +1136,7 @@ class StreamCacheManager {
         return;
       }
 
-      // Sort by last accessed / modified (oldest first)
+      // Played longest ago first (see [markPlayed]).
       final validFiles = fileStats.keys.toList()
         ..sort((a, b) {
           final statA = fileStats[a]!;
