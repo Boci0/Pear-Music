@@ -100,6 +100,11 @@ class PlayerService extends ChangeNotifier {
   String? _continuationToken;
   bool _isLoadingRecommendations = false;
   DateTime _lastInteraction = DateTime.now();
+
+  @visibleForTesting
+  DateTime get debugLastInteraction => _lastInteraction;
+  @visibleForTesting
+  set debugLastInteraction(DateTime value) => _lastInteraction = value;
   bool _isManuallyPaused = false;
   bool _isAdvancing = false;
   bool _isLoadingTrack = false;
@@ -1455,8 +1460,12 @@ class PlayerService extends ChangeNotifier {
     String? sourceTitle,
     int? requestToken,
     int? initialIndex,
+    bool userInitiated = true,
   }) async {
-    _lastInteraction = DateTime.now();
+    // Songs that start on their own (autoplay, the end of a song) do not
+    // count as the listener being around, or the inactivity guard in [next]
+    // could never pause an all-night autoplay.
+    if (userInitiated) _lastInteraction = DateTime.now();
     final crossfadeIn = _pendingFadeIn;
     final fadeIn = crossfadeIn ?? const Duration(milliseconds: 80);
     if (_pendingFadeIn == null) _silenceTail();
@@ -2304,7 +2313,7 @@ class PlayerService extends ChangeNotifier {
               _shufflePlayedSongIds.add(target.id);
             }
             notifyListeners();
-            await playSong(target, queue: _queue);
+            await playSong(target, queue: _queue, userInitiated: userAction);
             return;
           }
         }
@@ -2322,7 +2331,12 @@ class PlayerService extends ChangeNotifier {
       DebugLog.write('[player] Advancing to track ${_queueIndex + 1}/${_queue.length}: ${nextTrack.title}');
       notifyListeners();
 
-      await playSong(nextTrack, queue: _queue, initialIndex: nextIndex);
+      await playSong(
+        nextTrack,
+        queue: _queue,
+        initialIndex: nextIndex,
+        userInitiated: userAction,
+      );
     } catch (e) {
       DebugLog.write('[player] next error: $e');
     } finally {

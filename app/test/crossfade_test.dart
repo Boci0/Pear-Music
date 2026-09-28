@@ -325,4 +325,21 @@ void main() {
       expect(player.currentSong?.id, 'stream_aaaaaaaaaaa');
     });
   });
+
+  group('inactivity guard', () {
+    test('songs that start on their own do not count as the listener being there',
+        () async {
+      final (_, _, player) = await playFirst(crossfadeSeconds: 0);
+      final away = DateTime.now().subtract(const Duration(hours: 3));
+      player.debugLastInteraction = away;
+
+      await player.next();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
+      expect(player.debugLastInteraction, away);
+
+      await player.next(userAction: true);
+      expect(player.debugLastInteraction.isAfter(away), isTrue);
+    });
+  });
 }
