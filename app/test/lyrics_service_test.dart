@@ -11,9 +11,15 @@ void main() {
 ''';
       final lines = LyricsService.parseLrc(lrc);
       expect(lines.length, 3);
-      expect(lines[0].timestamp, const Duration(minutes: 0, seconds: 12, milliseconds: 340));
+      expect(
+        lines[0].timestamp,
+        const Duration(minutes: 0, seconds: 12, milliseconds: 340),
+      );
       expect(lines[0].text, 'First line');
-      expect(lines[1].timestamp, const Duration(minutes: 1, seconds: 2, milliseconds: 500));
+      expect(
+        lines[1].timestamp,
+        const Duration(minutes: 1, seconds: 2, milliseconds: 500),
+      );
       expect(lines[1].text, 'Second line');
       expect(lines[2].timestamp, const Duration(minutes: 2, seconds: 15));
       expect(lines[2].text, 'Third line');
@@ -88,22 +94,73 @@ Third stanza line
     ];
 
     test('returns -1 for empty lyrics', () {
-      expect(LyricsService.findActiveIndex([], const Duration(seconds: 10)), -1);
+      expect(
+        LyricsService.findActiveIndex([], const Duration(seconds: 10)),
+        -1,
+      );
     });
 
     test('returns 0 when playback position is before the first line', () {
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 2)), 0);
+      expect(
+        LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 2)),
+        0,
+      );
     });
 
     test('returns correct index during line playback intervals', () {
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 5)), 0);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 10)), 0);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 15)), 1);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 25)), 1);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 30)), 2);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 44)), 2);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 45)), 3);
-      expect(LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 100)), 3);
+      expect(
+        LyricsService.findActiveIndex(sampleLyrics, const Duration(seconds: 5)),
+        0,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 10),
+        ),
+        0,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 15),
+        ),
+        1,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 25),
+        ),
+        1,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 30),
+        ),
+        2,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 44),
+        ),
+        2,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 45),
+        ),
+        3,
+      );
+      expect(
+        LyricsService.findActiveIndex(
+          sampleLyrics,
+          const Duration(seconds: 100),
+        ),
+        3,
+      );
     });
   });
 
@@ -130,8 +187,14 @@ Third stanza line
 
   group('LyricsService offset management', () {
     test('extracts offset correctly from LRC string', () {
-      expect(LyricsService.extractOffsetMs('[offset: 500]\n[00:01.00] Test'), 500);
-      expect(LyricsService.extractOffsetMs('[offset: -350]\n[00:01.00] Test'), -350);
+      expect(
+        LyricsService.extractOffsetMs('[offset: 500]\n[00:01.00] Test'),
+        500,
+      );
+      expect(
+        LyricsService.extractOffsetMs('[offset: -350]\n[00:01.00] Test'),
+        -350,
+      );
       expect(LyricsService.extractOffsetMs('[00:01.00] No offset here'), 0);
     });
 
@@ -186,6 +249,127 @@ Third stanza line
   group('LyricsService.compactMemory', () {
     test('clears memory cache cleanly', () {
       expect(() => LyricsService.compactMemory(), returnsNormally);
+    });
+  });
+
+  group('lighting up the words', () {
+    test('word timing tags become timed words and leave the text clean', () {
+      final lines = LyricsService.parseLrc(
+        '[00:05.00] <00:05.00>Hold <00:05.40>on <00:06.10>tight',
+      );
+      expect(lines.single.text, 'Hold on tight');
+      expect(
+        [for (final w in lines.single.words) w.start.inMilliseconds],
+        [5000, 5400, 6100],
+      );
+      final spans = LyricsService.spansFor(lines, 0);
+      expect(spans[1].start, const Duration(milliseconds: 5400));
+      expect(spans[1].end, const Duration(milliseconds: 6100));
+    });
+
+    test('without word timing Japanese lights up one character at a time', () {
+      final lines = LyricsService.parseLrc('[00:10.00] 夜に駆ける\n[00:14.00] next');
+      final spans = LyricsService.spansFor(lines, 0);
+      expect([for (final s in spans) s.text], ['夜', 'に', '駆', 'け', 'る']);
+      expect(spans.first.start, const Duration(seconds: 10));
+      for (var i = 1; i < spans.length; i++) {
+        expect(spans[i].start, spans[i - 1].end);
+      }
+    });
+
+    test('a fast line is squeezed in before the next one starts', () {
+      final lines = LyricsService.parseLrc(
+        '[00:10.00] so many words sung really quickly here\n[00:11.00] next',
+      );
+      final spans = LyricsService.spansFor(lines, 0);
+      expect([for (final s in spans) s.text].join(), lines[0].text);
+      expect(spans.last.end, lessThan(const Duration(seconds: 11)));
+    });
+
+    test('plain lyrics are not treated as timed', () {
+      final lines = LyricsService.parseLrc('first line\nsecond line');
+      expect(lines.every((l) => !l.timed), isTrue);
+    });
+  });
+
+  group('picking lyrics on its own', () {
+    LrcCandidate candidate(
+      String track,
+      String artist,
+      double seconds, {
+      bool synced = true,
+    }) => LrcCandidate(
+      id: track.hashCode,
+      trackName: track,
+      artistName: artist,
+      albumName: '',
+      duration: seconds,
+      hasSyncedLyrics: synced,
+      syncedLyrics: synced ? '[00:01.00] line' : null,
+      plainLyrics: 'line',
+    );
+
+    const title = 'Curi Curi Pandang - Maman Fvndy';
+    const length = Duration(seconds: 198);
+
+    test(
+      'the right song outranks another song that merely has synced lyrics',
+      () {
+        final right = candidate(
+          'Curi Curi Pandang',
+          'Maman Fvndy',
+          197,
+          synced: false,
+        );
+        final other = candidate('Pandang', 'Someone Else', 240);
+        expect(
+          LyricsService.matchScore(right, title, duration: length),
+          greaterThan(LyricsService.matchScore(other, title, duration: length)),
+        );
+      },
+    );
+
+    test('synced lyrics win between two versions of the same song', () {
+      final plain = candidate(
+        'Curi Curi Pandang',
+        'Maman Fvndy',
+        198,
+        synced: false,
+      );
+      final synced = candidate('Curi Curi Pandang', 'Maman Fvndy', 199);
+      expect(
+        LyricsService.matchScore(synced, title, duration: length),
+        greaterThan(LyricsService.matchScore(plain, title, duration: length)),
+      );
+    });
+
+    test('only a real match is applied without asking', () {
+      expect(
+        LyricsService.isConfidentMatch(
+          candidate('Curi Curi Pandang', 'Maman Fvndy', 197),
+          title,
+          duration: length,
+        ),
+        isTrue,
+      );
+      // A different song.
+      expect(
+        LyricsService.isConfidentMatch(
+          candidate('Pandang Aku', 'Someone Else', 198),
+          title,
+          duration: length,
+        ),
+        isFalse,
+      );
+      // The same name but a much longer recording (an extended mix).
+      expect(
+        LyricsService.isConfidentMatch(
+          candidate('Curi Curi Pandang', 'Maman Fvndy', 320),
+          title,
+          duration: length,
+        ),
+        isFalse,
+      );
     });
   });
 }

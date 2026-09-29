@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
@@ -9,17 +10,19 @@ import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 import 'lyric_sync_sheet.dart';
 
-/// Interactive synchronized lyric display.
-///
-/// Highlights the currently playing lyric line with a glowing sentence effect,
-/// automatically keeps the active line centered in the middle of the card,
-/// and allows tapping any line to seek playback directly.
+/// Synchronized lyric display: the current line, centred in the card, lights
+/// up word by word as it is sung (by the lyrics' own word timing when they
+/// have it, otherwise an estimate spread across the line).
 class LyricsView extends StatefulWidget {
   final Song song;
   final PlayerService player;
   final Color? accent;
   final double size;
   final bool isVisible;
+
+  /// Space kept free at the bottom of the card (the visualizer's bars); the
+  /// line is centred in what is left above it.
+  final double bottomInset;
 
   const LyricsView({
     super.key,
@@ -28,23 +31,35 @@ class LyricsView extends StatefulWidget {
     this.accent,
     required this.size,
     this.isVisible = true,
+    this.bottomInset = 0,
   });
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
 }
 
-class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
+class _LyricsViewState extends State<LyricsView>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   List<LyricLine> _lyrics = const [];
   bool _isLoading = true;
   int _activeIndex = -1;
   StreamSubscription<Duration>? _positionSub;
+
+  /// The song position, advanced every frame between the player's position
+  /// updates (4 a second) so the glow moves smoothly through the line.
+  final ValueNotifier<Duration> _sweepPosition = ValueNotifier(Duration.zero);
+  late final Ticker _sweepTicker;
+  Duration _anchorPosition = Duration.zero;
+  final Stopwatch _sinceAnchor = Stopwatch();
+  int _spansIndex = -1;
+  List<LyricSpan> _spans = const [];
   bool _isForeground = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _sweepTicker = createTicker(_onSweepTick);
     widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
     LyricsDisplay.mode.addListener(_onPaletteUpdated);
@@ -71,7 +86,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   void didUpdateWidget(LyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.player != widget.player) {
-      oldWidget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
+      oldWidget.player.scrubbingPositionNotifier.removeListener(
+        _onScrubbingChanged,
+      );
       widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
     }
     if (oldWidget.song.id != widget.song.id) {
@@ -92,11 +109,57 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       if (sub.isPaused) {
         sub.resume();
       }
+      if (!_sweepTicker.isActive) _sweepTicker.start();
     } else {
       if (!sub.isPaused) {
         sub.pause();
       }
+      if (_sweepTicker.isActive) _sweepTicker.stop();
     }
+  }
+
+  /// Takes a fresh position from the player as the point the sweep runs on
+  /// from.
+  void _anchorAt(Duration position) {
+    _anchorPosition = position;
+    _sinceAnchor
+      ..reset()
+      ..start();
+    _sweepPosition.value = position;
+  }
+
+  void _onSweepTick(Duration _) {
+    final scrub = widget.player.scrubbingPosition;
+    if (scrub != null) {
+      _sweepPosition.value = scrub;
+      return;
+    }
+    if (!widget.player.playing) return;
+    // Never run more than a moment past the last real position, so a stall
+    // (buffering) does not let the glow race ahead of the singer.
+    final elapsed = _sinceAnchor.elapsed * widget.player.speed;
+    _sweepPosition.value =
+        _anchorPosition +
+        (elapsed > const Duration(milliseconds: 600)
+            ? const Duration(milliseconds: 600)
+            : elapsed);
+  }
+
+  /// Opacity of words still to be sung: far enough back that the sung part
+  /// of the line stands out on any cover.
+  static const double _waitingAlpha = 0.30;
+
+  /// The colour sung words take in dark-text mode: a very dark shade of the
+  /// song accent when it has real colour, otherwise plain [ink]. A pale or
+  /// grey accent darkened only a little ends up the same grey as the words
+  /// still waiting, and the sweep disappears.
+  static Color _deepInk(Color accent, Color ink) {
+    final hsl = HSLColor.fromColor(accent);
+    if (hsl.saturation < 0.3) return ink;
+    return hsl
+        .withLightness(0.18)
+        .withSaturation(hsl.saturation.clamp(0.0, 0.7))
+        .toColor();
   }
 
   @override
@@ -106,6 +169,8 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     LyricsDisplay.mode.removeListener(_onPaletteUpdated);
     _positionSub?.cancel();
+    _sweepTicker.dispose();
+    _sweepPosition.dispose();
     super.dispose();
   }
 
@@ -114,6 +179,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
       _isLoading = true;
       _lyrics = const [];
       _activeIndex = -1;
+      _spansIndex = -1;
     });
     _positionSub?.cancel();
 
@@ -150,6 +216,7 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   void _snapToCurrentPosition() {
     if (_lyrics.isEmpty) return;
     final currentPos = widget.player.position ?? Duration.zero;
+    _anchorAt(currentPos);
     final index = LyricsService.findActiveIndex(_lyrics, currentPos);
     if (index >= 0 && mounted) {
       setState(() {
@@ -169,11 +236,14 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
   }
 
   void _onPositionUpdate(Duration position, {bool isScrubbing = false}) {
-    if (_lyrics.isEmpty || !mounted || !widget.isVisible || !_isForeground) return;
+    if (_lyrics.isEmpty || !mounted || !widget.isVisible || !_isForeground) {
+      return;
+    }
 
     // Suppress background audio playback ticks while user is actively dragging the slider
     if (!isScrubbing && widget.player.scrubbingPosition != null) return;
 
+    _anchorAt(position);
     final newIndex = LyricsService.findActiveIndex(_lyrics, position);
     if (newIndex != _activeIndex) {
       setState(() {
@@ -273,7 +343,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Retry'),
                     style: TextButton.styleFrom(
-                      foregroundColor: isLight ? const Color(0xFF141416) : glowColor,
+                      foregroundColor: isLight
+                          ? const Color(0xFF141416)
+                          : glowColor,
                       visualDensity: VisualDensity.compact,
                     ),
                   ),
@@ -290,7 +362,9 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
                     icon: const Icon(Icons.search_rounded, size: 16),
                     label: const Text('Search Lyrics'),
                     style: TextButton.styleFrom(
-                      foregroundColor: isLight ? const Color(0xFF141416) : glowColor,
+                      foregroundColor: isLight
+                          ? const Color(0xFF141416)
+                          : glowColor,
                       visualDensity: VisualDensity.compact,
                     ),
                   ),
@@ -326,57 +400,133 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     final fontSize = (baseFontSize * scale).roundToDouble();
 
     final isScrubbing = widget.player.scrubbingPosition != null;
+    final textColor = isLight ? const Color(0xFF141416) : Colors.white;
+    final baseStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
+      fontSize: fontSize,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+      wordSpacing: 1.0,
+      height: 1.40,
+      color: textColor,
+    );
+    // White text glows in the song accent. A coloured glow is lost behind
+    // dark letters, so dark text instead lights up in a deep shade of the
+    // accent with a soft white halo, which reads on bright covers.
+    final sungColor = isLight ? _deepInk(glowColor, textColor) : textColor;
+    List<Shadow> glow(double strength) => isLight
+        ? [
+            Shadow(
+              color: Colors.white.withValues(alpha: 0.85 * strength),
+              blurRadius: 10.0,
+            ),
+            Shadow(
+              color: Colors.white.withValues(alpha: 0.55 * strength),
+              blurRadius: 4.0,
+            ),
+          ]
+        : [
+            Shadow(
+              color: glowColor.withValues(alpha: 0.85 * strength),
+              blurRadius: 8.0,
+            ),
+            Shadow(
+              color: glowColor.withValues(alpha: 0.45 * strength),
+              blurRadius: 4.0,
+            ),
+          ];
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        child: AnimatedSwitcher(
-          duration: isScrubbing ? Duration.zero : const Duration(milliseconds: 140),
-          switchInCurve: const Interval(0.35, 1.0, curve: Curves.easeOutQuad),
-          switchOutCurve: const Interval(0.65, 1.0, curve: Curves.easeInQuad),
-          layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
-            return Stack(
+    final lineIndex = _activeIndex >= 0 && _activeIndex < _lyrics.length
+        ? _activeIndex
+        : 0;
+    final canSweep = active != null && active.timed && active.text.isNotEmpty;
+    if (canSweep && _spansIndex != lineIndex) {
+      _spansIndex = lineIndex;
+      _spans = LyricsService.spansFor(_lyrics, lineIndex);
+    }
+    final spans = _spans;
+
+    Widget lineText() {
+      if (!canSweep) {
+        return Text(
+          text,
+          textAlign: TextAlign.center,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+          style: baseStyle?.copyWith(shadows: glow(1)),
+        );
+      }
+      // Sung pieces glow at full strength, the one being sung brightens as it
+      // goes, the rest wait dimmed.
+      return ValueListenableBuilder<Duration>(
+        valueListenable: _sweepPosition,
+        builder: (context, position, _) => Text.rich(
+          TextSpan(
+            children: [
+              for (final span in spans)
+                () {
+                  final p = span.progressAt(position);
+                  return TextSpan(
+                    text: span.text,
+                    style: TextStyle(
+                      color: Color.lerp(
+                        textColor.withValues(alpha: _waitingAlpha),
+                        sungColor,
+                        p,
+                      ),
+                      shadows: p > 0 ? glow(p) : null,
+                    ),
+                  );
+                }(),
+            ],
+          ),
+          textAlign: TextAlign.center,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+          style: baseStyle,
+        ),
+      );
+    }
+
+    return Padding(
+      // The line stays at the card's centre whether or not the visualizer is
+      // on: the room kept free for its bars at the bottom is mirrored at the
+      // top (which also clears the button row).
+      padding: EdgeInsets.symmetric(
+        vertical: widget.bottomInset > 48 ? widget.bottomInset : 48,
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: AnimatedSwitcher(
+            duration: isScrubbing
+                ? Duration.zero
+                : const Duration(milliseconds: 140),
+            switchInCurve: const Interval(0.35, 1.0, curve: Curves.easeOutQuad),
+            switchOutCurve: const Interval(0.65, 1.0, curve: Curves.easeInQuad),
+            layoutBuilder:
+                (Widget? currentChild, List<Widget> previousChildren) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[...previousChildren, ?currentChild],
+                  );
+                },
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              if (isScrubbing) return child;
+              return FadeTransition(opacity: animation, child: child);
+            },
+            child: Container(
+              key: ValueKey('pop_lyric_${widget.song.id}_$_activeIndex'),
               alignment: Alignment.center,
-              children: <Widget>[
-                ...previousChildren,
-                ?currentChild,
-              ],
-            );
-          },
-          transitionBuilder: (Widget child, Animation<double> animation) {
-            if (isScrubbing) return child;
-            return FadeTransition(
-              opacity: animation,
-              child: child,
-            );
-          },
-          child: Container(
-            key: ValueKey('pop_lyric_${widget.song.id}_$_activeIndex'),
-            alignment: Alignment.center,
-            child: Text(
-              text,
-              textAlign: TextAlign.center,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontSize: fontSize,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.2,
-                wordSpacing: 1.0,
-                height: 1.40,
-                color: isLight ? const Color(0xFF141416) : Colors.white,
-                // The glow always follows the song accent so the lyric text
-                // matches the artwork palette in either text colour.
-                shadows: [
-                  Shadow(
-                    color: glowColor.withValues(alpha: isLight ? 0.55 : 0.85),
-                    blurRadius: 8.0,
+              // A line too tall for the room shrinks a little rather than
+              // running into the bars; it keeps wrapping at the full width.
+              child: LayoutBuilder(
+                builder: (context, constraints) => FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: lineText(),
                   ),
-                  Shadow(
-                    color: glowColor.withValues(alpha: isLight ? 0.30 : 0.45),
-                    blurRadius: 4.0,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -385,4 +535,3 @@ class _LyricsViewState extends State<LyricsView> with WidgetsBindingObserver {
     );
   }
 }
-

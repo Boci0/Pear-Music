@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -9,14 +10,48 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
 
+/// A word (or syllable) with the moment it is sung, from enhanced LRC
+/// `<mm:ss.xx>` tags.
+class LyricWord {
+  final Duration start;
+  final String text;
+
+  const LyricWord({required this.start, required this.text});
+}
+
+/// A piece of a line (a word, or one character in Japanese or Chinese) and
+/// when it is sung, used to light the line up as it is sung.
+class LyricSpan {
+  final String text;
+  final Duration start;
+  final Duration end;
+
+  const LyricSpan(this.text, this.start, this.end);
+
+  /// How far through this piece [position] is, from 0 to 1.
+  double progressAt(Duration position) {
+    if (position <= start) return 0;
+    if (position >= end) return 1;
+    return (position - start).inMicroseconds / (end - start).inMicroseconds;
+  }
+}
+
 /// A single timestamped line of lyrics.
 class LyricLine {
   final Duration timestamp;
   final String text;
 
+  /// Per-word timing when the lyrics carry it, otherwise empty.
+  final List<LyricWord> words;
+
+  /// False for plain lyrics, whose timestamps are only placeholders.
+  final bool timed;
+
   const LyricLine({
     required this.timestamp,
     required this.text,
+    this.words = const [],
+    this.timed = true,
   });
 
   @override
@@ -59,8 +94,8 @@ class LrcCandidate {
 
   String get lyricsContent =>
       (syncedLyrics != null && syncedLyrics!.trim().isNotEmpty)
-          ? syncedLyrics!
-          : (plainLyrics ?? '');
+      ? syncedLyrics!
+      : (plainLyrics ?? '');
 
   /// Extracts the first non-empty lyric line as a preview snippet.
   String get snippet {
@@ -68,7 +103,9 @@ class LrcCandidate {
     if (content.isEmpty) return '';
     final lines = content.split(LyricsService._lineSplitRegex);
     for (final line in lines) {
-      final text = line.replaceAll(LyricsService._bracketContentRegex, '').trim();
+      final text = line
+          .replaceAll(LyricsService._bracketContentRegex, '')
+          .trim();
       if (text.isNotEmpty) {
         return text;
       }
@@ -82,13 +119,68 @@ class LrcCandidate {
 class LyricsService {
   static final RegExp _lineSplitRegex = RegExp(r'\r?\n');
   static final RegExp _bracketContentRegex = RegExp(r'\[.*?\]');
-  static final RegExp _tagRegex = RegExp(r'\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]');
-  static final RegExp _offsetRegex = RegExp(r'\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
+  static final RegExp _tagRegex = RegExp(
+    r'\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]',
+  );
+  static final RegExp _wordTagRegex = RegExp(
+    r'<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>',
+  );
+
+  static int _tagMillis(RegExpMatch match) {
+    final minutes = int.parse(match.group(1)!);
+    final seconds = int.parse(match.group(2)!);
+    final fraction = match.group(3);
+    var millis = 0;
+    if (fraction != null) {
+      millis = switch (fraction.length) {
+        1 => int.parse(fraction) * 100,
+        2 => int.parse(fraction) * 10,
+        _ => int.parse(fraction.substring(0, 3)),
+      };
+    }
+    return minutes * 60000 + seconds * 1000 + millis;
+  }
+
+  /// Splits enhanced LRC text (`<00:12.00>Word <00:12.40>word`) into timed
+  /// words. Returns the plain text and the words (empty when untagged).
+  static (String, List<LyricWord>) _parseWords(String raw, int offsetMs) {
+    final tags = _wordTagRegex.allMatches(raw).toList();
+    if (tags.isEmpty) return (raw, const []);
+    final words = <LyricWord>[];
+    // Anything before the first tag is sung with the first tagged word.
+    final lead = raw.substring(0, tags.first.start);
+    for (var i = 0; i < tags.length; i++) {
+      final end = i + 1 < tags.length ? tags[i + 1].start : raw.length;
+      var text = raw.substring(tags[i].end, end);
+      if (i == 0) text = lead + text;
+      if (text.trim().isEmpty) continue;
+      final ms = math.max(0, _tagMillis(tags[i]) + offsetMs);
+      words.add(
+        LyricWord(
+          start: Duration(milliseconds: ms),
+          text: text,
+        ),
+      );
+    }
+    final plain = raw
+        .replaceAll(_wordTagRegex, '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return (plain, words);
+  }
+
+  static final RegExp _offsetRegex = RegExp(
+    r'\[offset:\s*([+-]?\d+)\s*\]',
+    caseSensitive: false,
+  );
   static final RegExp _titleNoiseRegex = RegExp(
     r'\s*[\(\[](?:official\s+)?(?:music\s+)?(?:video|audio|lyric\s+video|visualizer|hd|4k|remaster(?:ed)?(?:\s+\d+)?|live)[\)\]]',
     caseSensitive: false,
   );
-  static final RegExp _topicRegex = RegExp(r'\s+-\s+Topic$', caseSensitive: false);
+  static final RegExp _topicRegex = RegExp(
+    r'\s+-\s+Topic$',
+    caseSensitive: false,
+  );
 
   static const int _maxMemoryEntries = 50;
   static final LinkedHashMap<String, List<LyricLine>> _memoryCache =
@@ -130,8 +222,9 @@ class LyricsService {
   static Directory? _cacheDir;
   static HttpClient? _httpClient;
 
-  static HttpClient get _client => _httpClient ??= HttpClient()
-    ..connectionTimeout = const Duration(seconds: 8);
+  static HttpClient get _client =>
+      _httpClient ??= HttpClient()
+        ..connectionTimeout = const Duration(seconds: 8);
 
   /// Parse raw LRC or plain-text lyric content into a list of [LyricLine].
   static List<LyricLine> parseLrc(String rawContent) {
@@ -158,8 +251,11 @@ class LyricsService {
       final matches = _tagRegex.allMatches(trimmed).toList();
       if (matches.isNotEmpty) {
         hasTimestamp = true;
-        // Text is everything after the last tag
-        final text = trimmed.substring(matches.last.end).trim();
+        // Text is everything after the last tag, minus any per-word timing.
+        final (text, words) = _parseWords(
+          trimmed.substring(matches.last.end).trim(),
+          offsetMs,
+        );
 
         for (final match in matches) {
           final minutes = int.parse(match.group(1)!);
@@ -176,13 +272,17 @@ class LyricsService {
             }
           }
 
-          var totalMs = (minutes * 60 * 1000) + (seconds * 1000) + millis + offsetMs;
+          var totalMs =
+              (minutes * 60 * 1000) + (seconds * 1000) + millis + offsetMs;
           if (totalMs < 0) totalMs = 0;
 
-          result.add(LyricLine(
-            timestamp: Duration(milliseconds: totalMs),
-            text: text,
-          ));
+          result.add(
+            LyricLine(
+              timestamp: Duration(milliseconds: totalMs),
+              text: text,
+              words: words,
+            ),
+          );
         }
       }
     }
@@ -198,14 +298,86 @@ class LyricsService {
       final text = lines[i].trim();
       if (text.isNotEmpty) {
         // Space them across default intervals
-        plainLines.add(LyricLine(
-          timestamp: Duration(seconds: i * 5),
-          text: text,
-        ));
+        plainLines.add(
+          LyricLine(
+            timestamp: Duration(seconds: i * 5),
+            text: text,
+            timed: false,
+          ),
+        );
       }
     }
     return plainLines;
   }
+
+  static const String _cjk =
+      r'\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}';
+
+  /// One CJK character, a word with its trailing space, or a run of space.
+  static final RegExp _unitRegex = RegExp(
+    '[$_cjk]|[^\\s$_cjk]+\\s*|\\s+',
+    unicode: true,
+  );
+  static final RegExp _letterRegex = RegExp(r'[\p{L}\p{N}]', unicode: true);
+  static final RegExp _cjkRegex = RegExp('[$_cjk]', unicode: true);
+
+  /// When each piece of line [i] is sung.
+  ///
+  /// Uses the per-word times when the lyrics carry them. Otherwise it is an
+  /// estimate: pieces take a typical singing time each (a CJK character about
+  /// 0.22 s, a word 0.3 s plus a little per letter), squeezed to fit before
+  /// the next line when the line is sung faster than that.
+  static List<LyricSpan> spansFor(List<LyricLine> lyrics, int i) {
+    final line = lyrics[i];
+    final nextStart = i + 1 < lyrics.length ? lyrics[i + 1].timestamp : null;
+
+    if (line.words.isNotEmpty) {
+      final words = line.words;
+      return [
+        for (var w = 0; w < words.length; w++)
+          LyricSpan(
+            words[w].text,
+            words[w].start,
+            w + 1 < words.length
+                ? words[w + 1].start
+                : _capEnd(
+                    words[w].start + const Duration(milliseconds: 700),
+                    nextStart,
+                  ),
+          ),
+      ];
+    }
+
+    final units = [
+      for (final m in _unitRegex.allMatches(line.text)) m.group(0)!,
+    ];
+    final weights = [
+      for (final u in units)
+        !_letterRegex.hasMatch(u)
+            ? 0.0
+            : _cjkRegex.hasMatch(u)
+            ? 0.22
+            : 0.30 + 0.04 * u.trim().length,
+    ];
+    final natural = weights.fold<double>(0, (a, b) => a + b);
+    var scale = 1.0;
+    if (nextStart != null && natural > 0) {
+      final room = (nextStart - line.timestamp).inMilliseconds / 1000 * 0.92;
+      if (room > 0 && natural > room) scale = room / natural;
+    }
+    final spans = <LyricSpan>[];
+    var at = line.timestamp;
+    for (var u = 0; u < units.length; u++) {
+      final end =
+          at + Duration(microseconds: (weights[u] * scale * 1e6).round());
+      spans.add(LyricSpan(units[u], at, end));
+      at = end;
+    }
+    return spans;
+  }
+
+  static Duration _capEnd(Duration end, Duration? nextStart) =>
+      nextStart != null && nextStart < end ? nextStart : end;
 
   /// Binary search to find the active lyric index given [currentPosition].
   static int findActiveIndex(List<LyricLine> lyrics, Duration currentPosition) {
@@ -271,7 +443,9 @@ class LyricsService {
     // 2. Check disk cache
     try {
       final cacheDir = await _getCacheDir();
-      final cacheFile = File(p.join(cacheDir.path, '${_safeFileName(song.id)}.lrc'));
+      final cacheFile = File(
+        p.join(cacheDir.path, '${_safeFileName(song.id)}.lrc'),
+      );
       if (await cacheFile.exists()) {
         final content = await cacheFile.readAsString();
         final parsed = parseLrc(content);
@@ -327,7 +501,10 @@ class LyricsService {
     }
 
     // Attempt direct /api/get if artist and track are identified
-    if (artist != null && track != null && artist.isNotEmpty && track.isNotEmpty) {
+    if (artist != null &&
+        track != null &&
+        artist.isNotEmpty &&
+        track.isNotEmpty) {
       final direct = await _requestLrclib(
         'https://lrclib.net/api/get',
         queryParameters: {
@@ -350,13 +527,78 @@ class LyricsService {
       if (directInverted != null) return directInverted;
     }
 
-    // Fallback: search by full cleaned query with duration prioritization
+    // Fallback: search by the full cleaned title. Only take the top result if
+    // it really is this song: no lyrics beats another song's lyrics.
     final candidates = await searchCandidates(song, duration: duration);
-    if (candidates.isNotEmpty) {
+    if (candidates.isNotEmpty &&
+        isConfidentMatch(candidates.first, cleaned, duration: duration)) {
       return candidates.first.lyricsContent;
     }
 
     return null;
+  }
+
+  static final RegExp _wordRegex = RegExp(r'[\p{L}\p{N}]+', unicode: true);
+  static const Set<String> _fillerWords = {
+    'feat',
+    'ft',
+    'featuring',
+    'official',
+    'lyrics',
+    'lyric',
+    'audio',
+    'video',
+    'music',
+    'remastered',
+    'remaster',
+    'version',
+    'the',
+    'a',
+  };
+
+  static Set<String> _words(String text) => {
+    for (final m in _wordRegex.allMatches(text.toLowerCase()))
+      if (!_fillerWords.contains(m.group(0))) m.group(0)!,
+  };
+
+  /// Share of [part]'s words that appear in [whole].
+  static double _coverage(Set<String> part, Set<String> whole) {
+    if (part.isEmpty) return 0;
+    return part.where(whole.contains).length / part.length;
+  }
+
+  /// How well [c] fits a song titled [title] (0 to about 1). The title words
+  /// weigh most, then the artist, then how close the lengths are; synced
+  /// lyrics only break near ties.
+  @visibleForTesting
+  static double matchScore(LrcCandidate c, String title, {Duration? duration}) {
+    final wanted = _words(title);
+    var score =
+        _coverage(_words(c.trackName), wanted) * 0.6 +
+        _coverage(_words(c.artistName), wanted) * 0.25;
+    if (duration != null && duration.inSeconds > 0 && c.duration > 0) {
+      final diff = (c.duration - duration.inSeconds).abs();
+      score += 0.15 * (1 - (diff / 20).clamp(0.0, 1.0));
+      // A much longer or shorter recording is a different version at best.
+      if (diff > 30) score -= 0.3;
+    }
+    if (c.hasSyncedLyrics) score += 0.05;
+    return score;
+  }
+
+  /// Whether [c] is safe to apply without asking: its track name is in the
+  /// song's title and, when both lengths are known, they roughly agree.
+  @visibleForTesting
+  static bool isConfidentMatch(
+    LrcCandidate c,
+    String title, {
+    Duration? duration,
+  }) {
+    if (_coverage(_words(c.trackName), _words(title)) < 0.75) return false;
+    if (duration != null && duration.inSeconds > 0 && c.duration > 0) {
+      return (c.duration - duration.inSeconds).abs() <= 20;
+    }
+    return true;
   }
 
   /// Searches LRCLIB for candidate lyrics matching [song] or a custom [query].
@@ -387,34 +629,27 @@ class LyricsService {
 
         if ((synced != null && synced.trim().isNotEmpty) ||
             (plain != null && plain.trim().isNotEmpty)) {
-          candidates.add(LrcCandidate(
-            id: id,
-            trackName: trackName,
-            artistName: artistName,
-            albumName: albumName,
-            duration: dur,
-            hasSyncedLyrics: synced != null && synced.trim().isNotEmpty,
-            syncedLyrics: synced,
-            plainLyrics: plain,
-          ));
+          candidates.add(
+            LrcCandidate(
+              id: id,
+              trackName: trackName,
+              artistName: artistName,
+              albumName: albumName,
+              duration: dur,
+              hasSyncedLyrics: synced != null && synced.trim().isNotEmpty,
+              syncedLyrics: synced,
+              plainLyrics: plain,
+            ),
+          );
         }
       }
     }
 
-    if (duration != null && duration.inSeconds > 0) {
-      final targetSec = duration.inSeconds.toDouble();
-      candidates.sort((a, b) {
-        // 1. Synced lyrics first
-        if (a.hasSyncedLyrics != b.hasSyncedLyrics) {
-          return a.hasSyncedLyrics ? -1 : 1;
-        }
-        // 2. Proximity to target duration
-        final diffA = (a.duration - targetSec).abs();
-        final diffB = (b.duration - targetSec).abs();
-        return diffA.compareTo(diffB);
-      });
-    }
-
+    // Best fit first, judged against what was searched for.
+    final scores = {
+      for (final c in candidates) c: matchScore(c, cleaned, duration: duration),
+    };
+    candidates.sort((a, b) => scores[b]!.compareTo(scores[a]!));
     return candidates;
   }
 
@@ -437,10 +672,7 @@ class LyricsService {
   }
 
   /// Retrieves the current raw LRC content for [song], if available.
-  static Future<String?> getRawLrc(
-    Song song, {
-    String? localAudioPath,
-  }) async {
+  static Future<String?> getRawLrc(Song song, {String? localAudioPath}) async {
     final cacheKey = song.id;
     if (_rawLrcCache.containsKey(cacheKey)) {
       return _rawLrcCache[cacheKey];
@@ -459,7 +691,9 @@ class LyricsService {
     // Check disk cache
     try {
       final cacheDir = await _getCacheDir();
-      final cacheFile = File(p.join(cacheDir.path, '${_safeFileName(song.id)}.lrc'));
+      final cacheFile = File(
+        p.join(cacheDir.path, '${_safeFileName(song.id)}.lrc'),
+      );
       if (await cacheFile.exists()) {
         final content = await cacheFile.readAsString();
         _setRawLrcCache(cacheKey, content);
@@ -470,10 +704,7 @@ class LyricsService {
   }
 
   /// Gets the current timing offset (in milliseconds) applied to [song].
-  static Future<int> getOffset(
-    Song song, {
-    String? localAudioPath,
-  }) async {
+  static Future<int> getOffset(Song song, {String? localAudioPath}) async {
     final raw = await getRawLrc(song, localAudioPath: localAudioPath);
     if (raw == null) return 0;
     return extractOffsetMs(raw);
@@ -550,10 +781,16 @@ class LyricsService {
     try {
       final uri = Uri.parse(baseUrl).replace(queryParameters: queryParameters);
       final req = await _client.getUrl(uri);
-      req.headers.set('User-Agent', 'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)');
+      req.headers.set(
+        'User-Agent',
+        'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)',
+      );
       final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
+        final body = await res
+            .transform(utf8.decoder)
+            .join()
+            .timeout(const Duration(seconds: 8));
         final data = jsonDecode(body);
         if (data is Map<String, dynamic>) {
           final synced = data['syncedLyrics'] as String?;
@@ -573,10 +810,16 @@ class LyricsService {
   static Future<List<dynamic>?> _requestLrclibJsonArray(Uri uri) async {
     try {
       final req = await _client.getUrl(uri);
-      req.headers.set('User-Agent', 'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)');
+      req.headers.set(
+        'User-Agent',
+        'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)',
+      );
       final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
+        final body = await res
+            .transform(utf8.decoder)
+            .join()
+            .timeout(const Duration(seconds: 8));
         final data = jsonDecode(body);
         if (data is List) {
           return data;
@@ -600,13 +843,19 @@ class LyricsService {
   static Future<void> _saveToDiskCache(String songId, String lrcContent) async {
     try {
       final cacheDir = await _getCacheDir();
-      final cacheFile = File(p.join(cacheDir.path, '${_safeFileName(songId)}.lrc'));
+      final cacheFile = File(
+        p.join(cacheDir.path, '${_safeFileName(songId)}.lrc'),
+      );
       await cacheFile.writeAsString(lrcContent, flush: true);
     } catch (_) {}
   }
 
   static String _safeFileName(String input) =>
       input.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+
+  @visibleForTesting
+  static void setLyricsForTesting(String songId, String lrc) =>
+      _setMemoryCache(songId, parseLrc(lrc), rawContent: lrc);
 
   @visibleForTesting
   static void clearMemoryCache() {
