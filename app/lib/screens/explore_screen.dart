@@ -15,6 +15,7 @@ import '../widgets/filter_pill.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
 import '../widgets/youtube_song_tile.dart';
+import '../widgets/glow_room.dart';
 
 /// Middle section: Explore music with YouTube search, stream playback,
 /// mood/genre pills, and dynamic recommended music feeds.
@@ -386,8 +387,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               PointerDeviceKind.stylus,
                             },
                           ),
-                          child: ListView.separated(
+                          // The selected pill's glow is taller than the row.
+                          child: GlowRoom(
+                            child: ListView.separated(
                             controller: _genreScrollController,
+                            clipBehavior: Clip.none,
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             scrollDirection: Axis.horizontal,
                             physics: const BouncingScrollPhysics(),
@@ -425,6 +429,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 ),
                               );
                             },
+                          ),
                           ),
                         ),
                       ),

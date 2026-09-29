@@ -17,6 +17,7 @@ import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/tactile_button.dart';
+import '../widgets/glow_room.dart';
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
@@ -457,9 +458,13 @@ class _HomeScreenState extends State<HomeScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverToBoxAdapter(
-            child: SingleChildScrollView(
+            // The selected pill's glow reaches past the row: let it spill
+            // above and below (the list's own top edge needs the 12 px).
+            child: GlowRoom(
+              child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              clipBehavior: Clip.none,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
               child: Row(
                 children: [
                   FilterPill(
@@ -535,6 +540,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
+            ),
             ),
           ),
           if (songs.isEmpty)
