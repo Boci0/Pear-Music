@@ -188,6 +188,9 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     return
                 }
                 decodeExecutor.execute {
+                    // Loudness scans are background work: keep them behind
+                    // playback so they cannot starve the audio thread.
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
                     val ok = try {
                         decodeToWav(input, output)
                     } catch (e: Exception) {
@@ -708,8 +711,14 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
             var inputDone = false
             var outputDone = false
             var chunk = ByteArray(0)
-            val deadline = System.currentTimeMillis() + 120_000L
+            val startedMs = System.currentTimeMillis()
+            val deadline = startedMs + 120_000L
             while (!outputDone && System.currentTimeMillis() < deadline) {
+                // Pace the scan to about 20x real time. Flat out it floods the
+                // codec service that playback decodes through and the music
+                // stutters; paced, a 4 minute song still takes about 12 s.
+                val aheadMs = extractor.sampleTime / 1000L / DECODE_SPEED - (System.currentTimeMillis() - startedMs)
+                if (aheadMs > 5) Thread.sleep(aheadMs)
                 if (!inputDone) {
                     val inIndex = codec.dequeueInputBuffer(10_000)
                     if (inIndex >= 0) {
@@ -1117,6 +1126,9 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
         private const val STREAM_LINE_PREFIX = "PEARSTREAM "
         private const val EVENTS = "peerm/ytdlp/progress"
         private const val TAG = "peerm_ytdlp"
+
+        /// Loudness scans decode at most this many times faster than real time.
+        private const val DECODE_SPEED = 20L
 
         // APK updater: resume, retry and wake lock tuning.
         private const val MAX_DOWNLOAD_ATTEMPTS = 4

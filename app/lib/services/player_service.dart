@@ -771,25 +771,57 @@ class PlayerService extends ChangeNotifier {
       }
       final tail = _tailPlayer ??= _tailPlayerFactory();
       final tailToken = ++_tailToken;
-      await tail.setVolume(_player.volume);
+      final handoverVolume = _player.volume;
+      final handover = Stopwatch()..start();
+      bool stale() =>
+          token != _playRequestToken || tailToken != _tailToken || !_player.playing;
+      // The tail starts muted and only takes over once it is audibly playing
+      // in step with the main player. Muting the main player as soon as the
+      // tail was told to play left a gap while its output started up, then
+      // replayed that slice of the song: the stutter heard at song changes.
+      await tail.setVolume(0.0);
       await tail.setSpeed(_speed);
       await tail.setAudioSource(
         AudioSource.file(file.path),
         initialPosition: _player.position,
       );
-      if (token != _playRequestToken || tailToken != _tailToken || !_player.playing) {
+      if (stale()) {
         unawaited(tail.stop());
         return;
       }
-      // Line the tail up with where the main player is now (loading took a
-      // moment), start it, and only then silence the main player.
-      await tail.seek(_player.position);
+      final startedAt = handover.elapsed;
       unawaited(tail.play());
-      await _player.setVolume(0.0);
+      var audible = await _waitUntilAudible(tail, stale);
+      final startLatency = handover.elapsed - startedAt;
+      var drift = tail.position - _player.position;
+      if (audible && drift < -_handoverTolerance) {
+        // Still behind by its start-up time: jump ahead by the same amount,
+        // which a seek takes again to become audible.
+        await tail.seek(_player.position + startLatency);
+        audible = await _waitUntilAudible(tail, stale);
+        drift = tail.position - _player.position;
+      }
+      if (stale()) {
+        unawaited(tail.stop());
+        return;
+      }
+      await Future.wait([
+        tail.setVolume(handoverVolume),
+        _player.setVolume(0.0),
+      ]);
       DebugLog.write(
-        '[crossfade] "${song.title}" hands over with ${remaining.inMilliseconds}ms left',
+        '[crossfade] "${song.title}" hands over with ${remaining.inMilliseconds}ms left '
+        '(tail ${audible ? 'in step' : 'not confirmed'} after '
+        '${handover.elapsedMilliseconds}ms, drift ${drift.inMilliseconds}ms)',
       );
-      unawaited(_fadeOutTail(tail, tailToken, remaining));
+      final fadeLeft = remaining - handover.elapsed;
+      unawaited(_fadeOutTail(
+        tail,
+        tailToken,
+        fadeLeft < const Duration(milliseconds: 300)
+            ? const Duration(milliseconds: 300)
+            : fadeLeft,
+      ));
       _pendingFadeIn = Duration(seconds: _crossfadeSeconds);
       await next(crossfade: true);
     } catch (e) {
@@ -802,6 +834,25 @@ class PlayerService extends ChangeNotifier {
       _crossfadeStarting = false;
       _crossfadeShuffleIndex = null;
     }
+  }
+
+  /// How far the tail may be off the main player when it takes over.
+  static const Duration _handoverTolerance = Duration(milliseconds: 30);
+
+  /// Waits until [tail] is producing sound: its position moves on once its
+  /// output is running. Gives up after a moment so a slow device still hands
+  /// over, just less cleanly.
+  Future<bool> _waitUntilAudible(AudioPlayer tail, bool Function() stale) async {
+    final from = tail.position;
+    final wait = Stopwatch()..start();
+    while (wait.elapsed < const Duration(milliseconds: 600)) {
+      if (stale()) return false;
+      if (tail.playing && tail.position - from >= const Duration(milliseconds: 20)) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    return false;
   }
 
   /// Fades the tail out along an equal-power curve (so the overlap does not

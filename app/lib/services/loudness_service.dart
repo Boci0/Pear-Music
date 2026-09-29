@@ -236,6 +236,9 @@ class LoudnessService {
   static bool decodeWithMpvForTesting(String dll, String input, String output) =>
       _decodeWithMpv(dll, input, output);
 
+  /// Longer than the longest crossfade (12 s) plus the song's load.
+  static const Duration _androidSettle = Duration(seconds: 14);
+
   static Future<LoudnessAnalysis?> _measureFile(String path) async {
     if (!await File(path).exists()) return null;
     final tmpDir = await getTemporaryDirectory();
@@ -252,6 +255,12 @@ class LoudnessService {
           return LoudnessMeter.analyzeWav(wav);
         });
       }
+      // On phones the decode shares the platform codec service with
+      // playback. Starting it mid song change (while the next song loads and
+      // a crossfade tail is still playing) made the handover stutter, so let
+      // the transition settle first. The song meanwhile plays at the typical
+      // level.
+      await Future<void>.delayed(_androidSettle);
       final ok = await ytDlpChannel.invokeMethod<bool>('decodeToWav', {
         'input': path,
         'output': wav,

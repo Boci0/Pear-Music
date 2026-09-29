@@ -22,13 +22,21 @@ Song _streamSong(String videoId) => Song(
     );
 
 /// Records what playback asks of an engine. The main player reports a
-/// one-minute song and whatever [position] a test sets.
+/// one-minute song and whatever [position] a test sets. With [advances] the
+/// position also moves on in real time while playing, like a real engine
+/// (the crossfade tail relies on that to know it is audible).
 class _FakePlayer extends AudioPlayer {
-  _FakePlayer() : super(handleAudioSessionActivation: false);
+  _FakePlayer({this.advances = false, this.startUp = Duration.zero})
+      : super(handleAudioSessionActivation: false);
 
+  final bool advances;
+
+  /// How long after play or a seek its output takes to start moving.
+  final Duration startUp;
   final List<String> loaded = [];
   final List<double> volumes = [];
   Duration position_ = Duration.zero;
+  final Stopwatch _clock = Stopwatch();
   double _volume = 1.0;
   bool _playing = false;
   int stops = 0;
@@ -40,7 +48,17 @@ class _FakePlayer extends AudioPlayer {
   bool get playing => _playing;
 
   @override
-  Duration get position => position_;
+  Duration get position {
+    if (!advances || !_playing || _clock.elapsed <= startUp) return position_;
+    return position_ + _clock.elapsed - startUp;
+  }
+
+  void _settleClock() {
+    position_ = position;
+    _clock
+      ..stop()
+      ..reset();
+  }
 
   @override
   Duration? get duration => const Duration(minutes: 1);
@@ -59,22 +77,33 @@ class _FakePlayer extends AudioPlayer {
     Duration? initialPosition,
   }) async {
     loaded.add(p.basename((source as UriAudioSource).uri.toFilePath()));
+    _settleClock();
+    if (initialPosition != null) position_ = initialPosition;
     return const Duration(minutes: 1);
   }
 
   @override
   Future<void> seek(Duration? position, {int? index}) async {
+    _settleClock();
     if (position != null) position_ = position;
+    if (_playing) _clock.start();
   }
 
   @override
-  Future<void> play() async => _playing = true;
+  Future<void> play() async {
+    _playing = true;
+    _clock.start();
+  }
 
   @override
-  Future<void> pause() async => _playing = false;
+  Future<void> pause() async {
+    _settleClock();
+    _playing = false;
+  }
 
   @override
   Future<void> stop() async {
+    _settleClock();
     _playing = false;
     stops++;
   }
@@ -111,7 +140,7 @@ void main() {
     required int crossfadeSeconds,
   }) async {
     final main = _FakePlayer();
-    final tail = _FakePlayer();
+    final tail = _FakePlayer(advances: true);
     final player = PlayerService(
       LibraryService(),
       player: main,
@@ -155,6 +184,57 @@ void main() {
         reason: 'the next song has faded all the way in');
   });
 
+  test('the ending song stays audible until the tail is actually playing',
+      () async {
+    // Both engines keep time here, so the tail's start-up delay shows up as
+    // a real lag behind the main player.
+    final main = _FakePlayer(advances: true);
+    final tail = _FakePlayer(
+      advances: true,
+      startUp: const Duration(milliseconds: 150),
+    );
+    final player = PlayerService(
+      LibraryService(),
+      player: main,
+      tailPlayerFactory: () => tail,
+    );
+    await player.setLoudnessNormalization(false);
+    await player.setCrossfadeSeconds(1);
+    final first = _streamSong('aaaaaaaaaaa');
+    final second = _streamSong('bbbbbbbbbbb');
+    await player.playSong(first, queue: [first, second]);
+    final settle = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(settle) &&
+        (main.volume - player.volume).abs() > 0.001) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final playingVolume = main.volume;
+    expect(playingVolume, greaterThan(0));
+
+    await main.seek(const Duration(seconds: 59, milliseconds: 200));
+    player.debugCrossfadeTick(main.position);
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+
+    // The tail is still starting up: it is muted and the main player still
+    // carries the song, so there is no gap.
+    expect(tail.playing, isTrue);
+    expect(tail.volume, 0);
+    expect(main.volume, playingVolume);
+
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(deadline) &&
+        player.currentSong?.id != 'stream_bbbbbbbbbbb') {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
+    expect(tail.volumes, contains(playingVolume),
+        reason: 'the tail took over at the level the song was playing at');
+    // It jumped ahead by its start-up time, so the slice the main player
+    // already played is not heard twice.
+    expect(tail.position_,
+        greaterThan(const Duration(seconds: 59, milliseconds: 300)));
+  });
+
   test('crossfade off lets the song play to its end', () async {
     final (main, tail, player) = await playFirst(crossfadeSeconds: 0);
     main.position_ = const Duration(seconds: 59, milliseconds: 200);
@@ -186,7 +266,7 @@ void main() {
 
   test('the last song in the queue is not crossfaded', () async {
     final main = _FakePlayer();
-    final tail = _FakePlayer();
+    final tail = _FakePlayer(advances: true);
     final player = PlayerService(
       LibraryService(),
       player: main,
@@ -206,7 +286,7 @@ void main() {
       List<String> ids,
     ) async {
       final main = _FakePlayer();
-      final tail = _FakePlayer();
+      final tail = _FakePlayer(advances: true);
       final player = PlayerService(
         LibraryService(),
         player: main,
