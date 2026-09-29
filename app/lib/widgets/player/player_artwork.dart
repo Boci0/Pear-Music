@@ -7,7 +7,9 @@ import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
+import '../../services/lyrics_display.dart';
 import '../../services/player_service.dart';
+import '../../services/screen_awake.dart';
 import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
 import 'rhythm_pulse.dart';
@@ -82,6 +84,21 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
     PlayerArtwork.showLyricsNotifier.addListener(_onLyricsVisibilityChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
+    LyricsDisplay.keepScreenOn.addListener(_updateScreenAwake);
+  }
+
+  bool _useSynthesizer = false;
+
+  /// Keeps the screen on while this card shows lyrics or the visualizer
+  /// (when the Lyrics Options toggle allows it).
+  void _updateScreenAwake() {
+    ScreenAwake.hold(
+      this,
+      mounted &&
+          widget.song != null &&
+          LyricsDisplay.keepScreenOn.value &&
+          (_useSynthesizer || PlayerArtwork.showLyricsNotifier.value),
+    );
   }
 
   void _onPaletteUpdated() {
@@ -90,6 +107,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
   void _onLyricsVisibilityChanged() {
     if (!mounted) return;
+    _updateScreenAwake();
     if (PlayerArtwork.showLyricsNotifier.value) {
       _lyricsAnimController.forward();
     } else {
@@ -101,6 +119,8 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   void dispose() {
     PlayerArtwork.showLyricsNotifier.removeListener(_onLyricsVisibilityChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
+    LyricsDisplay.keepScreenOn.removeListener(_updateScreenAwake);
+    ScreenAwake.hold(this, false);
     _lyricsAnimController.dispose();
     super.dispose();
   }
@@ -122,6 +142,8 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final reducedEffects = context.select<AppController?, bool>(
       (c) => c?.identity.reducedEffects ?? false,
     );
+    _useSynthesizer = useSynthesizer;
+    _updateScreenAwake();
 
     final songArt = song?.artwork;
     final isNetwork = networkUrl != null || (songArt != null && songArt.startsWith('http'));
@@ -373,6 +395,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                               accent: widget.accent,
                               size: size,
                               isVisible: isLyricsFullyOpen,
+                              // Keep the lines above the visualizer's bars.
+                              bottomInset: useSynthesizer
+                                  ? ArtworkVisualizer.bandHeight(size)
+                                  : 0,
                             ),
                           ),
                         ),

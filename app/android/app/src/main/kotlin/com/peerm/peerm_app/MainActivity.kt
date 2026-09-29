@@ -74,6 +74,15 @@ class MainActivity : AudioServiceActivity() {
             } else if (call.method == "stopImportWake") {
                 stopService(Intent(this, ImportKeepAliveService::class.java))
                 result.success(true)
+            } else if (call.method == "setKeepScreenOn") {
+                // Window flag only: it applies while this activity is on
+                // screen and lapses by itself once it is not.
+                if (call.argument<Boolean>("on") == true) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+                result.success(true)
             } else {
                 result.notImplemented()
             }

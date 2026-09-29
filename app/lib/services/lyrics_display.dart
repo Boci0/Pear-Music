@@ -20,18 +20,31 @@ class LyricsDisplay {
   LyricsDisplay._();
 
   static const String _key = 'peerm_lyrics_text_color';
+  static const String _keepScreenOnKey = 'peerm_lyrics_keep_screen_on';
 
   /// Current mode. Widgets listen to this and rebuild when it changes.
   static final ValueNotifier<LyricsColorMode> mode =
       ValueNotifier<LyricsColorMode>(LyricsColorMode.auto);
 
-  /// Loads the persisted mode. Called once during bootstrap.
+  /// Keep the screen awake while the player shows lyrics or the visualizer.
+  static final ValueNotifier<bool> keepScreenOn = ValueNotifier<bool>(true);
+
+  /// Loads the persisted preferences. Called once during bootstrap.
   static Future<void> init(SharedPreferences prefs) async {
     final raw = prefs.getString(_key);
     mode.value = LyricsColorMode.values.firstWhere(
       (m) => m.name == raw,
       orElse: () => LyricsColorMode.auto,
     );
+    keepScreenOn.value = prefs.getBool(_keepScreenOnKey) ?? true;
+  }
+
+  /// Updates and persists [keepScreenOn].
+  static Future<void> setKeepScreenOn(bool value) async {
+    if (keepScreenOn.value == value) return;
+    keepScreenOn.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keepScreenOnKey, value);
   }
 
   /// Updates and persists the mode.

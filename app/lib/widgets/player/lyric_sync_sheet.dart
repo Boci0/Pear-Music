@@ -72,7 +72,10 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
 
   static String _normalizeLrc(String content) {
     return content
-        .replaceAll(RegExp(r'\[offset:\s*[+-]?\d+\s*\]', caseSensitive: false), '')
+        .replaceAll(
+          RegExp(r'\[offset:\s*[+-]?\d+\s*\]', caseSensitive: false),
+          '',
+        )
         .replaceAll('\r\n', '\n')
         .trim();
   }
@@ -182,7 +185,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
     if (mounted) {
       setState(() {
         _currentRawLrc = candidate.lyricsContent;
-        _currentOffsetMs = LyricsService.extractOffsetMs(candidate.lyricsContent);
+        _currentOffsetMs = LyricsService.extractOffsetMs(
+          candidate.lyricsContent,
+        );
         _selectedCandidateId = candidate.id;
       });
     }
@@ -220,6 +225,10 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
           padding: EdgeInsets.only(
             left: 20,
             right: 20,
+            // Desktop shows this as a dialog with rounded corners and no drag
+            // handle above it: without room at the top the header sits in the
+            // corners' curve.
+            top: isDesktopPopupPlatform ? 14 : 0,
             bottom: viewInsets.bottom + 12,
           ),
           child: SingleChildScrollView(
@@ -235,35 +244,49 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                       child: Text(
                         'Lyrics Options',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     IconButton(
+                      key: const ValueKey('lyrics_options_close'),
+                      tooltip: 'Close',
                       visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 36,
+                        height: 36,
+                      ),
                       padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
                       icon: const Icon(Icons.close_rounded, size: 20),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 12,
+                const SizedBox(height: 2),
+                Padding(
+                  // Line up under the title, past the icon.
+                  padding: const EdgeInsets.only(left: 30, right: 8),
+                  child: Text(
+                    widget.song.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 // Offset Control Card
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                    color: scheme.surfaceContainerHighest.withValues(
+                      alpha: 0.35,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
@@ -282,8 +305,8 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         _isLoadingOffset
                             ? '···'
                             : (_currentOffsetMs == 0
-                                ? '0.0s (In Sync)'
-                                : '${_currentOffsetMs > 0 ? '+' : ''}${(_currentOffsetMs / 1000.0).toStringAsFixed(1)}s (${_currentOffsetMs > 0 ? '+' : ''}${_currentOffsetMs}ms)'),
+                                  ? '0.0s (In Sync)'
+                                  : '${_currentOffsetMs > 0 ? '+' : ''}${(_currentOffsetMs / 1000.0).toStringAsFixed(1)}s (${_currentOffsetMs > 0 ? '+' : ''}${_currentOffsetMs}ms)'),
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -304,33 +327,48 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                               children: [
                                 Text(
                                   'Earlier',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: scheme.onSurfaceVariant,
-                                  ),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
                                 ),
                                 const SizedBox(height: 4),
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    _buildOffsetButton('-0.5s', () => _adjustOffset(-500)),
+                                    _buildOffsetButton(
+                                      '-0.5s',
+                                      () => _adjustOffset(-500),
+                                    ),
                                     const SizedBox(width: 5),
-                                    _buildOffsetButton('-0.1s', () => _adjustOffset(-100)),
+                                    _buildOffsetButton(
+                                      '-0.1s',
+                                      () => _adjustOffset(-100),
+                                    ),
                                   ],
                                 ),
                               ],
                             ),
                             const SizedBox(width: 6),
                             OutlinedButton(
-                              onPressed: _currentOffsetMs == 0 ? null : _resetOffset,
+                              onPressed: _currentOffsetMs == 0
+                                  ? null
+                                  : _resetOffset,
                               style: OutlinedButton.styleFrom(
                                 visualDensity: VisualDensity.compact,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 minimumSize: const Size(0, 32),
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
                               ),
-                              child: Text('Reset', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
+                              child: Text(
+                                'Reset',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(fontSize: 11.5),
+                              ),
                             ),
                             const SizedBox(width: 6),
                             Column(
@@ -338,19 +376,26 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                               children: [
                                 Text(
                                   'Later',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: scheme.onSurfaceVariant,
-                                  ),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
                                 ),
                                 const SizedBox(height: 4),
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    _buildOffsetButton('+0.1s', () => _adjustOffset(100)),
+                                    _buildOffsetButton(
+                                      '+0.1s',
+                                      () => _adjustOffset(100),
+                                    ),
                                     const SizedBox(width: 5),
-                                    _buildOffsetButton('+0.5s', () => _adjustOffset(500)),
+                                    _buildOffsetButton(
+                                      '+0.5s',
+                                      () => _adjustOffset(500),
+                                    ),
                                   ],
                                 ),
                               ],
@@ -372,10 +417,14 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                 const SizedBox(height: 12),
                 // Lyrics text colour
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                    color: scheme.surfaceContainerHighest.withValues(
+                      alpha: 0.35,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
@@ -424,6 +473,26 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      // Its own transparent surface: on the card's colour the
+                      // tile's tap ripple would otherwise be hidden.
+                      Material(
+                        type: MaterialType.transparency,
+                        child: SwitchListTile(
+                          key: const ValueKey('lyrics_keep_screen_on'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('Keep screen on'),
+                          subtitle: const Text(
+                            'While lyrics or the visualizer are showing.',
+                          ),
+                          value: LyricsDisplay.keepScreenOn.value,
+                          onChanged: (value) {
+                            LyricsDisplay.setKeepScreenOn(value);
+                            setState(() {});
+                          },
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -431,7 +500,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                 // Search Alternate Section
                 Container(
                   decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.25),
+                    color: scheme.surfaceContainerHighest.withValues(
+                      alpha: 0.25,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
@@ -448,7 +519,10 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         },
                         borderRadius: BorderRadius.circular(16),
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
                           child: Row(
                             children: [
                               Icon(
@@ -460,7 +534,8 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                               Expanded(
                                 child: Text(
                                   'Search Alternate Lyrics',
-                                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  style: Theme.of(context).textTheme.labelLarge
+                                      ?.copyWith(
                                         fontSize: 12.5,
                                         fontWeight: FontWeight.w600,
                                         color: scheme.onSurface,
@@ -491,20 +566,29 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   Expanded(
                                     child: TextField(
                                       controller: _searchController,
-                                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12.5),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(fontSize: 12.5),
                                       decoration: InputDecoration(
                                         hintText: 'Song or artist name...',
-                                        hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        hintStyle: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
                                               fontSize: 12.5,
                                               color: scheme.onSurfaceVariant,
                                             ),
                                         isDense: true,
-                                        contentPadding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8,
-                                        ),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                         ),
                                       ),
                                       onSubmitted: (_) => _performSearch(),
@@ -512,18 +596,33 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   ),
                                   const SizedBox(width: 8),
                                   FilledButton.tonalIcon(
-                                    onPressed: _isSearching ? null : _performSearch,
+                                    onPressed: _isSearching
+                                        ? null
+                                        : _performSearch,
                                     icon: _isSearching
                                         ? const SizedBox(
                                             width: 14,
                                             height: 14,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
                                           )
-                                        : const Icon(Icons.search_rounded, size: 15),
-                                    label: Text('Search', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 12)),
+                                        : const Icon(
+                                            Icons.search_rounded,
+                                            size: 15,
+                                          ),
+                                    label: Text(
+                                      'Search',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(fontSize: 12),
+                                    ),
                                     style: FilledButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
-                                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -532,11 +631,16 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                 const SizedBox(height: 10),
                                 if (_candidates.isEmpty && !_isSearching)
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
                                     child: Center(
                                       child: Text(
                                         'No alternate lyrics found on LRCLIB.',
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
                                               color: scheme.onSurfaceVariant,
                                               fontSize: 12,
                                             ),
@@ -545,195 +649,321 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                   )
                                 else
                                   ConstrainedBox(
-                                    constraints:
-                                        const BoxConstraints(maxHeight: 220),
+                                    constraints: const BoxConstraints(
+                                      maxHeight: 220,
+                                    ),
                                     child: ListView.separated(
                                       shrinkWrap: true,
                                       padding: EdgeInsets.zero,
                                       itemCount: _candidates.length,
-                                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(height: 6),
                                       itemBuilder: (context, index) {
-                                      final c = _candidates[index];
-                                      final trackDur = widget.player.duration?.inSeconds ?? 0;
-                                      final durSec = c.duration.round();
-                                      final diff = durSec - trackDur;
-                                      final isCloseDuration = trackDur > 0 && diff.abs() <= 3;
+                                        final c = _candidates[index];
+                                        final trackDur =
+                                            widget.player.duration?.inSeconds ??
+                                            0;
+                                        final durSec = c.duration.round();
+                                        final diff = durSec - trackDur;
+                                        final isCloseDuration =
+                                            trackDur > 0 && diff.abs() <= 3;
 
-                                      final normalizedCurrent = _normalizeLrc(_currentRawLrc ?? '');
-                                      final int activeCandidateIndex = _selectedCandidateId != null
-                                          ? _candidates.indexWhere((cand) => cand.id == _selectedCandidateId)
-                                          : (normalizedCurrent.isNotEmpty
-                                              ? _candidates.indexWhere((cand) =>
-                                                  _normalizeLrc(cand.lyricsContent) == normalizedCurrent)
-                                              : -1);
+                                        final normalizedCurrent = _normalizeLrc(
+                                          _currentRawLrc ?? '',
+                                        );
+                                        final int activeCandidateIndex =
+                                            _selectedCandidateId != null
+                                            ? _candidates.indexWhere(
+                                                (cand) =>
+                                                    cand.id ==
+                                                    _selectedCandidateId,
+                                              )
+                                            : (normalizedCurrent.isNotEmpty
+                                                  ? _candidates.indexWhere(
+                                                      (cand) =>
+                                                          _normalizeLrc(
+                                                            cand.lyricsContent,
+                                                          ) ==
+                                                          normalizedCurrent,
+                                                    )
+                                                  : -1);
 
-                                      final bool isCurrent = index == activeCandidateIndex;
+                                        final bool isCurrent =
+                                            index == activeCandidateIndex;
 
-                                      final String durBadgeText;
-                                      if (trackDur > 0) {
-                                        if (diff == 0) {
-                                          durBadgeText = '${_formatDuration(c.duration)} • Match';
-                                        } else if (diff > 0) {
-                                          durBadgeText = '${_formatDuration(c.duration)} (+${diff}s)';
+                                        final String durBadgeText;
+                                        if (trackDur > 0) {
+                                          if (diff == 0) {
+                                            durBadgeText =
+                                                '${_formatDuration(c.duration)} • Match';
+                                          } else if (diff > 0) {
+                                            durBadgeText =
+                                                '${_formatDuration(c.duration)} (+${diff}s)';
+                                          } else {
+                                            durBadgeText =
+                                                '${_formatDuration(c.duration)} (${diff}s)';
+                                          }
                                         } else {
-                                          durBadgeText = '${_formatDuration(c.duration)} (${diff}s)';
+                                          durBadgeText = _formatDuration(
+                                            c.duration,
+                                          );
                                         }
-                                      } else {
-                                        durBadgeText = _formatDuration(c.duration);
-                                      }
 
-                                      return Container(
-                                        decoration: BoxDecoration(
-                                          color: isCurrent
-                                              ? scheme.primary.withValues(alpha: 0.14)
-                                              : (isCloseDuration
-                                                  ? scheme.primary.withValues(alpha: 0.07)
-                                                  : scheme.surfaceContainerHighest.withValues(alpha: 0.25)),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: ListTile(
-                                          dense: true,
-                                          contentPadding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 2,
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            color: isCurrent
+                                                ? scheme.primary.withValues(
+                                                    alpha: 0.14,
+                                                  )
+                                                : (isCloseDuration
+                                                      ? scheme.primary
+                                                            .withValues(
+                                                              alpha: 0.07,
+                                                            )
+                                                      : scheme
+                                                            .surfaceContainerHighest
+                                                            .withValues(
+                                                              alpha: 0.25,
+                                                            )),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                           ),
-                                          title: Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  c.trackName.isNotEmpty
-                                                      ? c.trackName
-                                                      : widget.song.title,
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                        fontWeight: FontWeight.w600,
-                                                        fontSize: 12.5,
-                                                        color: isCurrent ? scheme.primary : Colors.white,
-                                                      ),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              // Duration Badge
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 6,
+                                          child: ListTile(
+                                            dense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 10,
                                                   vertical: 2,
                                                 ),
-                                                decoration: BoxDecoration(
-                                                  color: isCloseDuration
-                                                      ? scheme.primary.withValues(alpha: 0.20)
-                                                      : Colors.white.withValues(alpha: 0.08),
-                                                  borderRadius: BorderRadius.circular(6),
+                                            title: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    c.trackName.isNotEmpty
+                                                        ? c.trackName
+                                                        : widget.song.title,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodyMedium
+                                                        ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          fontSize: 12.5,
+                                                          color: isCurrent
+                                                              ? scheme.primary
+                                                              : Colors.white,
+                                                        ),
+                                                  ),
                                                 ),
-                                                child: Text(
-                                                  durBadgeText,
-                                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                        fontSize: 10,
-                                                        fontWeight: FontWeight.w600,
-                                                        color: isCloseDuration
-                                                            ? scheme.primary
-                                                            : Colors.white.withValues(alpha: 0.60),
+                                                const SizedBox(width: 8),
+                                                // Duration Badge
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
                                                       ),
+                                                  decoration: BoxDecoration(
+                                                    color: isCloseDuration
+                                                        ? scheme.primary
+                                                              .withValues(
+                                                                alpha: 0.20,
+                                                              )
+                                                        : Colors.white
+                                                              .withValues(
+                                                                alpha: 0.08,
+                                                              ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    durBadgeText,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .labelSmall
+                                                        ?.copyWith(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          color: isCloseDuration
+                                                              ? scheme.primary
+                                                              : Colors.white
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.60,
+                                                                    ),
+                                                        ),
+                                                  ),
                                                 ),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              // Synced Badge
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 6,
-                                                  vertical: 2,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: c.hasSyncedLyrics
-                                                      ? scheme.secondary.withValues(alpha: 0.18)
-                                                      : Colors.white.withValues(alpha: 0.08),
-                                                  borderRadius: BorderRadius.circular(6),
-                                                ),
-                                                child: Text(
-                                                  c.hasSyncedLyrics ? 'Synced' : 'Plain',
-                                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                        fontSize: 10,
-                                                        fontWeight: FontWeight.w600,
-                                                        color: c.hasSyncedLyrics
-                                                            ? scheme.secondary
-                                                            : Colors.white.withValues(alpha: 0.60),
+                                                const SizedBox(width: 4),
+                                                // Synced Badge
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
                                                       ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          subtitle: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '${c.artistName}${c.albumName.isNotEmpty ? ' • ${c.albumName}' : ''}',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                      fontSize: 11,
-                                                      color: Colors.white.withValues(alpha: 0.65),
-                                                    ),
-                                              ),
-                                              if (c.snippet.isNotEmpty) ...[
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  '"${c.snippet}"',
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                        fontSize: 10.5,
-                                                        fontStyle: FontStyle.italic,
-                                                        color: Colors.white.withValues(alpha: 0.40),
-                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: c.hasSyncedLyrics
+                                                        ? scheme.secondary
+                                                              .withValues(
+                                                                alpha: 0.18,
+                                                              )
+                                                        : Colors.white
+                                                              .withValues(
+                                                                alpha: 0.08,
+                                                              ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    c.hasSyncedLyrics
+                                                        ? 'Synced'
+                                                        : 'Plain',
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .labelSmall
+                                                        ?.copyWith(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          color:
+                                                              c.hasSyncedLyrics
+                                                              ? scheme.secondary
+                                                              : Colors.white
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.60,
+                                                                    ),
+                                                        ),
+                                                  ),
                                                 ),
                                               ],
-                                            ],
-                                          ),
-                                          trailing: isCurrent
-                                              ? Container(
-                                                  padding: const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 4,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: scheme.primary.withValues(alpha: 0.20),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      Icon(
-                                                        Icons.check_rounded,
-                                                        size: 14,
-                                                        color: scheme.primary,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Text(
-                                                        'Active',
-                                                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                              fontSize: 11,
-                                                              fontWeight: FontWeight.w600,
-                                                              color: scheme.primary,
+                                            ),
+                                            subtitle: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  '${c.artistName}${c.albumName.isNotEmpty ? ' • ${c.albumName}' : ''}',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        fontSize: 11,
+                                                        color: Colors.white
+                                                            .withValues(
+                                                              alpha: 0.65,
                                                             ),
                                                       ),
-                                                    ],
-                                                  ),
-                                                )
-                                              : FilledButton.tonal(
-                                                  onPressed: () => _applyCandidate(c),
-                                                  style: FilledButton.styleFrom(
-                                                    visualDensity: VisualDensity.compact,
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                                                  ),
-                                                  child: Text('Apply', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
                                                 ),
-                                        ),
-                                      );
-                                    },
+                                                if (c.snippet.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    '"${c.snippet}"',
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          fontSize: 10.5,
+                                                          fontStyle:
+                                                              FontStyle.italic,
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                alpha: 0.40,
+                                                              ),
+                                                        ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            trailing: isCurrent
+                                                ? Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: scheme.primary
+                                                          .withValues(
+                                                            alpha: 0.20,
+                                                          ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.check_rounded,
+                                                          size: 14,
+                                                          color: scheme.primary,
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 4,
+                                                        ),
+                                                        Text(
+                                                          'Active',
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .labelSmall
+                                                              ?.copyWith(
+                                                                fontSize: 11,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w600,
+                                                                color: scheme
+                                                                    .primary,
+                                                              ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  )
+                                                : FilledButton.tonal(
+                                                    onPressed: () =>
+                                                        _applyCandidate(c),
+                                                    style: FilledButton.styleFrom(
+                                                      visualDensity:
+                                                          VisualDensity.compact,
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 10,
+                                                          ),
+                                                    ),
+                                                    child: Text(
+                                                      'Apply',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .labelSmall
+                                                          ?.copyWith(
+                                                            fontSize: 11.5,
+                                                          ),
+                                                    ),
+                                                  ),
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ),
-                                ),
                               ],
                             ],
                           ),
@@ -741,7 +971,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     ],
                   ),
                 ),
-            ],
+              ],
             ),
           ),
         ),
@@ -758,7 +988,10 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
         minimumSize: const Size(0, 32),
         padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
-      child: Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5)),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5),
+      ),
     );
   }
 }

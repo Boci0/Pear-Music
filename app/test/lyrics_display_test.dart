@@ -54,4 +54,14 @@ void main() {
     await LyricsDisplay.init(prefs);
     expect(LyricsDisplay.mode.value, LyricsColorMode.dark);
   });
+
+  test('keep screen on defaults to on and remembers being turned off', () async {
+    SharedPreferences.setMockInitialValues({});
+    await LyricsDisplay.init(await SharedPreferences.getInstance());
+    expect(LyricsDisplay.keepScreenOn.value, isTrue);
+
+    await LyricsDisplay.setKeepScreenOn(false);
+    await LyricsDisplay.init(await SharedPreferences.getInstance());
+    expect(LyricsDisplay.keepScreenOn.value, isFalse);
+  });
 }
