@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
+import 'netease_lyrics.dart';
 
 /// A word (or syllable) with the moment it is sung, from enhanced LRC
 /// `<mm:ss.xx>` tags.
@@ -16,7 +17,21 @@ class LyricWord {
   final Duration start;
   final String text;
 
-  const LyricWord({required this.start, required this.text});
+  /// When the word stops, when the lyrics say so; otherwise it runs until the
+  /// next word starts.
+  final Duration? end;
+
+  const LyricWord({required this.start, required this.text, this.end});
+
+  LyricWord endingAt(Duration at) =>
+      LyricWord(start: start, text: text, end: at);
+
+  /// The same word moved by [by] (for a line sung again later).
+  LyricWord shifted(Duration by) => LyricWord(
+    start: start + by,
+    text: text,
+    end: end == null ? null : end! + by,
+  );
 }
 
 /// A piece of a line (a word, or one character in Japanese or Chinese) and
@@ -153,14 +168,16 @@ class LyricsService {
       final end = i + 1 < tags.length ? tags[i + 1].start : raw.length;
       var text = raw.substring(tags[i].end, end);
       if (i == 0) text = lead + text;
-      if (text.trim().isEmpty) continue;
-      final ms = math.max(0, _tagMillis(tags[i]) + offsetMs);
-      words.add(
-        LyricWord(
-          start: Duration(milliseconds: ms),
-          text: text,
-        ),
+      final at = Duration(
+        milliseconds: math.max(0, _tagMillis(tags[i]) + offsetMs),
       );
+      if (text.trim().isEmpty) {
+        // A tag with no word after it marks where the previous word stops
+        // (the end of a held note, or a pause before the next word).
+        if (words.isNotEmpty) words.last = words.last.endingAt(at);
+        continue;
+      }
+      words.add(LyricWord(start: at, text: text));
     }
     final plain = raw
         .replaceAll(_wordTagRegex, '')
@@ -257,30 +274,28 @@ class LyricsService {
           offsetMs,
         );
 
-        for (final match in matches) {
-          final minutes = int.parse(match.group(1)!);
-          final seconds = int.parse(match.group(2)!);
-          final fractionStr = match.group(3);
-          int millis = 0;
-          if (fractionStr != null) {
-            if (fractionStr.length == 1) {
-              millis = int.parse(fractionStr) * 100;
-            } else if (fractionStr.length == 2) {
-              millis = int.parse(fractionStr) * 10;
-            } else {
-              millis = int.parse(fractionStr.substring(0, 3));
-            }
+        final starts = [
+          for (final match in matches)
+            Duration(milliseconds: math.max(0, _tagMillis(match) + offsetMs)),
+        ];
+        // A line listed at several times (a repeated chorus) carries word
+        // times for just one of them: the latest start at or before its first
+        // word. Every other repeat gets those word times moved along with it.
+        var wordsFor = starts.first;
+        if (words.isNotEmpty) {
+          for (final s in starts) {
+            if (s <= words.first.start && s > wordsFor) wordsFor = s;
           }
-
-          var totalMs =
-              (minutes * 60 * 1000) + (seconds * 1000) + millis + offsetMs;
-          if (totalMs < 0) totalMs = 0;
-
+        }
+        for (final start in starts) {
+          final shift = start - wordsFor;
           result.add(
             LyricLine(
-              timestamp: Duration(milliseconds: totalMs),
+              timestamp: start,
               text: text,
-              words: words,
+              words: shift == Duration.zero
+                  ? words
+                  : [for (final w in words) w.shifted(shift)],
             ),
           );
         }
@@ -296,7 +311,7 @@ class LyricsService {
     final plainLines = <LyricLine>[];
     for (int i = 0; i < lines.length; i++) {
       final text = lines[i].trim();
-      if (text.isNotEmpty) {
+      if (text.isNotEmpty && !_markLine.hasMatch(text)) {
         // Space them across default intervals
         plainLines.add(
           LyricLine(
@@ -319,6 +334,7 @@ class LyricsService {
     unicode: true,
   );
   static final RegExp _letterRegex = RegExp(r'[\p{L}\p{N}]', unicode: true);
+  static final RegExp _stretchRegex = RegExp(r'^[ー〜～~]+\s*$');
   static final RegExp _cjkRegex = RegExp('[$_cjk]', unicode: true);
 
   /// When each piece of line [i] is sung.
@@ -338,12 +354,13 @@ class LyricsService {
           LyricSpan(
             words[w].text,
             words[w].start,
-            w + 1 < words.length
-                ? words[w + 1].start
-                : _capEnd(
-                    words[w].start + const Duration(milliseconds: 700),
-                    nextStart,
-                  ),
+            words[w].end ??
+                (w + 1 < words.length
+                    ? words[w + 1].start
+                    : _capEnd(
+                        words[w].start + const Duration(milliseconds: 700),
+                        nextStart,
+                      )),
           ),
       ];
     }
@@ -353,17 +370,28 @@ class LyricsService {
     ];
     final weights = [
       for (final u in units)
-        !_letterRegex.hasMatch(u)
+        _stretchRegex.hasMatch(u)
+            // A written stretch (ー, 〜) is a held note of its own.
+            ? 0.44
+            : !_letterRegex.hasMatch(u)
             ? 0.0
             : _cjkRegex.hasMatch(u)
             ? 0.22
             : 0.30 + 0.04 * u.trim().length,
     ];
+    // The last sung syllable of a line is usually held, so it gets the time a
+    // few syllables would.
+    final last = weights.lastIndexWhere((w) => w > 0);
+    if (last >= 0 && !_stretchRegex.hasMatch(units[last])) weights[last] *= 2.5;
     final natural = weights.fold<double>(0, (a, b) => a + b);
+    // Lines are usually sung across most of the time until the next one, so
+    // spread the sweep over about 85% of it: squeezed when that is shorter
+    // than a typical pace, stretched when longer, but at most to 1.8x the
+    // typical pace so a line before a long instrumental break does not crawl.
     var scale = 1.0;
     if (nextStart != null && natural > 0) {
-      final room = (nextStart - line.timestamp).inMilliseconds / 1000 * 0.92;
-      if (room > 0 && natural > room) scale = room / natural;
+      final room = (nextStart - line.timestamp).inMilliseconds / 1000 * 0.85;
+      if (room > 0) scale = (room / natural).clamp(0.0, 1.8);
     }
     final spans = <LyricSpan>[];
     var at = line.timestamp;
@@ -458,15 +486,24 @@ class LyricsService {
       debugPrint('[LyricsService] Disk cache read error: $e');
     }
 
-    // 3. Fetch from LRCLIB
+    // 3. Fetch from LRCLIB, then NetEase for word timing (or for lyrics at
+    // all when LRCLIB has none).
     try {
-      final fetchedLrc = await _fetchFromLrclib(song, duration: duration);
+      var fetchedLrc = await _fetchFromLrclib(song, duration: duration);
+      if (fetchedLrc == null || !hasWordTiming(fetchedLrc)) {
+        final netease = await NeteaseLyrics.fetch(
+          song,
+          duration: duration,
+          wordTimingOnly: fetchedLrc != null,
+        );
+        if (netease != null) fetchedLrc = netease.lrc;
+      }
       if (fetchedLrc != null && fetchedLrc.isNotEmpty) {
         final parsed = parseLrc(fetchedLrc);
         if (parsed.isNotEmpty) {
-          _setMemoryCache(cacheKey, parsed, rawContent: fetchedLrc);
-          // Save to disk cache
-          _saveToDiskCache(song.id, fetchedLrc);
+          final saved = '$fetchedLrc\n$wordTimingCheckedMark';
+          _setMemoryCache(cacheKey, parsed, rawContent: saved);
+          _saveToDiskCache(song.id, saved);
           return parsed;
         }
       }
@@ -475,6 +512,51 @@ class LyricsService {
     }
 
     return const [];
+  }
+
+  /// Written into saved lyrics once NetEase has been asked for word timing,
+  /// so it is asked only once per song. (Also set on lyrics picked by hand,
+  /// which are never replaced.)
+  static const String wordTimingCheckedMark = '[pear:word-timing-checked]';
+  static final RegExp _markLine = RegExp(r'^\[pear:[^\]]*\]\s*$');
+
+  /// Whether [lrc] carries per-word timing.
+  static bool hasWordTiming(String lrc) => _wordTagRegex.hasMatch(lrc);
+
+  /// For lyrics saved before NetEase was added: asks it once for word timing
+  /// and, when it has timing that fits, replaces the saved lyrics and returns
+  /// them. Returns null when nothing changed. Lyrics files next to the music
+  /// and lyrics picked by hand are left alone.
+  static Future<List<LyricLine>?> upgradeWordTiming(
+    Song song, {
+    String? localAudioPath,
+    Duration? duration,
+  }) async {
+    // Without the song's length the timing cannot be checked; try next time.
+    if (duration == null || duration.inSeconds <= 0) return null;
+    if (localAudioPath != null &&
+        localAudioPath.isNotEmpty &&
+        await File(p.setExtension(localAudioPath, '.lrc')).exists()) {
+      return null;
+    }
+    final raw = await getRawLrc(song, localAudioPath: localAudioPath);
+    if (raw == null ||
+        raw.contains(wordTimingCheckedMark) ||
+        hasWordTiming(raw)) {
+      return null;
+    }
+    final netease = await NeteaseLyrics.fetch(
+      song,
+      duration: duration,
+      wordTimingOnly: true,
+    );
+    final updated = netease == null
+        ? '$raw\n$wordTimingCheckedMark'
+        : '${netease.lrc}\n$wordTimingCheckedMark';
+    final parsed = parseLrc(updated);
+    _setMemoryCache(song.id, parsed, rawContent: updated);
+    await _saveToDiskCache(song.id, updated);
+    return netease == null ? null : parsed;
   }
 
   static Future<String?> _fetchFromLrclib(
@@ -567,20 +649,30 @@ class LyricsService {
     return part.where(whole.contains).length / part.length;
   }
 
-  /// How well [c] fits a song titled [title] (0 to about 1). The title words
-  /// weigh most, then the artist, then how close the lengths are; synced
-  /// lyrics only break near ties.
-  @visibleForTesting
+  /// How well [c] fits a song titled [title]. The title words weigh most,
+  /// then how close the lengths are, then the artist; synced lyrics only
+  /// break near ties.
+  ///
+  /// Length matters a lot because timing does: several uploads of one song
+  /// (album cut, radio edit, music video) carry different timings, and the
+  /// one whose length matches the file is the one that lines up. The artist
+  /// counts for less, since it is often written in another script ("kessoku
+  /// band" in the file, "結束バンド" in the lyrics database).
   static double matchScore(LrcCandidate c, String title, {Duration? duration}) {
     final wanted = _words(title);
     var score =
         _coverage(_words(c.trackName), wanted) * 0.6 +
-        _coverage(_words(c.artistName), wanted) * 0.25;
+        _coverage(_words(c.artistName), wanted) * 0.15;
     if (duration != null && duration.inSeconds > 0 && c.duration > 0) {
       final diff = (c.duration - duration.inSeconds).abs();
-      score += 0.15 * (1 - (diff / 20).clamp(0.0, 1.0));
-      // A much longer or shorter recording is a different version at best.
-      if (diff > 30) score -= 0.3;
+      if (diff <= 2) {
+        score += 0.35;
+      } else if (diff <= 10) {
+        score += 0.35 * (10 - diff) / 8;
+      } else {
+        // A longer or shorter recording: its timing will not line up.
+        score -= diff > 30 ? 0.5 : 0.2;
+      }
     }
     if (c.hasSyncedLyrics) score += 0.05;
     return score;
@@ -588,7 +680,6 @@ class LyricsService {
 
   /// Whether [c] is safe to apply without asking: its track name is in the
   /// song's title and, when both lengths are known, they roughly agree.
-  @visibleForTesting
   static bool isConfidentMatch(
     LrcCandidate c,
     String title, {
@@ -758,7 +849,9 @@ class LyricsService {
     LrcCandidate candidate, {
     String? localAudioPath,
   }) async {
-    final content = candidate.lyricsContent;
+    // A hand-picked choice is final: marked so word timing from NetEase
+    // never replaces it later.
+    final content = '${candidate.lyricsContent}\n$wordTimingCheckedMark';
     final parsed = parseLrc(content);
     final cacheKey = song.id;
     _setMemoryCache(cacheKey, parsed, rawContent: content);
@@ -766,7 +859,8 @@ class LyricsService {
     if (localAudioPath != null && localAudioPath.isNotEmpty) {
       try {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
-        await lrcFile.writeAsString(content, flush: true);
+        // The file next to the music stays plain LRC, without the app's mark.
+        await lrcFile.writeAsString(candidate.lyricsContent, flush: true);
       } catch (_) {}
     }
 

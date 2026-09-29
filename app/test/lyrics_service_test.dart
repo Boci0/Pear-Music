@@ -267,6 +267,28 @@ Third stanza line
       expect(spans[1].end, const Duration(milliseconds: 6100));
     });
 
+    test('a closing tag marks when a held last word ends', () {
+      final lines = LyricsService.parseLrc(
+        '[00:05.00] <00:05.00>Hold <00:05.40>on <00:06.10>tight <00:09.20>\n'
+        '[00:12.00] next',
+      );
+      expect(lines.first.text, 'Hold on tight');
+      final spans = LyricsService.spansFor(lines, 0);
+      expect(spans.last.text.trim(), 'tight');
+      expect(spans.last.end, const Duration(milliseconds: 9200));
+    });
+
+    test('a repeated chorus gets its word times moved to each repeat', () {
+      final lines = LyricsService.parseLrc(
+        '[00:10.00][01:10.00] <00:10.00>la <00:10.50>la',
+      );
+      expect(lines, hasLength(2));
+      expect([for (final w in lines[1].words) w.start.inMilliseconds],
+          [70000, 70500]);
+      expect([for (final w in lines[0].words) w.start.inMilliseconds],
+          [10000, 10500]);
+    });
+
     test('without word timing Japanese lights up one character at a time', () {
       final lines = LyricsService.parseLrc('[00:10.00] 夜に駆ける\n[00:14.00] next');
       final spans = LyricsService.spansFor(lines, 0);
@@ -284,6 +306,32 @@ Third stanza line
       final spans = LyricsService.spansFor(lines, 0);
       expect([for (final s in spans) s.text].join(), lines[0].text);
       expect(spans.last.end, lessThan(const Duration(seconds: 11)));
+    });
+
+    test('a slow line is spread over its time, up to a limit', () {
+      // Five characters (about 1.1 s at a typical pace) with 3 s before the
+      // next line: stretched to fill most of it.
+      final slow = LyricsService.parseLrc('[00:10.00] 夜に駆ける\n[00:13.00] next');
+      final slowEnd = LyricsService.spansFor(slow, 0).last.end;
+      expect(slowEnd, greaterThan(const Duration(seconds: 11, milliseconds: 800)));
+      expect(slowEnd, lessThanOrEqualTo(const Duration(seconds: 12, milliseconds: 600)));
+
+      // Before a 20 s instrumental break it only stretches to 1.8x.
+      final gap = LyricsService.parseLrc('[00:10.00] 夜に駆ける\n[00:30.00] next');
+      expect(LyricsService.spansFor(gap, 0).last.end,
+          lessThan(const Duration(seconds: 12, milliseconds: 700)));
+    });
+
+    test('held notes get more time: the last syllable and written stretches',
+        () {
+      final lines = LyricsService.parseLrc('[00:10.00] 空ーを見て\n[00:14.00] next');
+      final spans = LyricsService.spansFor(lines, 0);
+      Duration length(String text) {
+        final s = spans.firstWhere((s) => s.text == text);
+        return s.end - s.start;
+      }
+      expect(length('ー'), greaterThan(length('空')));
+      expect(length('て'), greaterThan(length('見') * 2));
     });
 
     test('plain lyrics are not treated as timed', () {
@@ -328,6 +376,18 @@ Third stanza line
         );
       },
     );
+
+    test('the version whose length matches wins, even with the artist '
+        'written differently', () {
+      const title = '忘れてやらない - Never forget - kessoku band';
+      const length = Duration(seconds: 222);
+      final sameLength = candidate('忘れてやらない', '結束バンド', 223);
+      final musicVideo = candidate('忘れてやらない', 'Kessoku Band', 236);
+      expect(
+        LyricsService.matchScore(sameLength, title, duration: length),
+        greaterThan(LyricsService.matchScore(musicVideo, title, duration: length)),
+      );
+    });
 
     test('synced lyrics win between two versions of the same song', () {
       final plain = candidate(

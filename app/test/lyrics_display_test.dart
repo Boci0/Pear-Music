@@ -55,6 +55,18 @@ void main() {
     expect(LyricsDisplay.mode.value, LyricsColorMode.dark);
   });
 
+  test('word glow defaults to exact only and remembers the choice', () async {
+    SharedPreferences.setMockInitialValues({});
+    await LyricsDisplay.init(await SharedPreferences.getInstance());
+    expect(LyricsDisplay.wordGlow.value, WordGlowMode.exact);
+
+    await LyricsDisplay.setWordGlow(WordGlowMode.estimated);
+    LyricsDisplay.wordGlow.value = WordGlowMode.off;
+    await LyricsDisplay.init(await SharedPreferences.getInstance());
+    expect(LyricsDisplay.wordGlow.value, WordGlowMode.estimated);
+    await LyricsDisplay.setWordGlow(WordGlowMode.exact);
+  });
+
   test('keep screen on defaults to on and remembers being turned off', () async {
     SharedPreferences.setMockInitialValues({});
     await LyricsDisplay.init(await SharedPreferences.getInstance());

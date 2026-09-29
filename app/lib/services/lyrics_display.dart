@@ -14,6 +14,19 @@ enum LyricsColorMode {
   dark,
 }
 
+/// How the current line lights up as it is sung.
+enum WordGlowMode {
+  /// Word by word only when the lyrics carry real word timing; otherwise the
+  /// whole line lights up at once.
+  exact,
+
+  /// Word by word always, estimating the timing when the lyrics have none.
+  estimated,
+
+  /// The whole line lights up at once.
+  off,
+}
+
 /// Persisted lyrics display preference shared by the lyrics view and the
 /// Lyrics Options sheet.
 class LyricsDisplay {
@@ -21,6 +34,19 @@ class LyricsDisplay {
 
   static const String _key = 'peerm_lyrics_text_color';
   static const String _keepScreenOnKey = 'peerm_lyrics_keep_screen_on';
+  static const String _wordGlowKey = 'peerm_lyrics_word_glow';
+
+  /// How the current line lights up; see [WordGlowMode].
+  static final ValueNotifier<WordGlowMode> wordGlow =
+      ValueNotifier<WordGlowMode>(WordGlowMode.exact);
+
+  /// Updates and persists [wordGlow].
+  static Future<void> setWordGlow(WordGlowMode value) async {
+    if (wordGlow.value == value) return;
+    wordGlow.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_wordGlowKey, value.name);
+  }
 
   /// Current mode. Widgets listen to this and rebuild when it changes.
   static final ValueNotifier<LyricsColorMode> mode =
@@ -37,6 +63,11 @@ class LyricsDisplay {
       orElse: () => LyricsColorMode.auto,
     );
     keepScreenOn.value = prefs.getBool(_keepScreenOnKey) ?? true;
+    final glow = prefs.getString(_wordGlowKey);
+    wordGlow.value = WordGlowMode.values.firstWhere(
+      (m) => m.name == glow,
+      orElse: () => WordGlowMode.exact,
+    );
   }
 
   /// Updates and persists [keepScreenOn].

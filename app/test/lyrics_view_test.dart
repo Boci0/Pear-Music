@@ -91,6 +91,44 @@ void main() {
     expect(find.textContaining('<00:'), findsNothing);
   });
 
+  testWidgets('"Exact only" lights a line without word timing all at once', (
+    tester,
+  ) async {
+    await pumpLyrics(tester, at: const Duration(seconds: 11));
+    final text = tester.widget<Text>(find.text('Line three'));
+    expect(text.textSpan, isNull, reason: 'plain text, no per-word pieces');
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.binding.hasScheduledFrame, isFalse,
+        reason: 'nothing is animating, so no frames are drawn');
+  });
+
+  testWidgets('a sweeping line keeps drawing frames', (tester) async {
+    await pumpLyrics(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.binding.hasScheduledFrame, isTrue);
+  });
+
+  testWidgets('"Estimated" lights a line without word timing word by word', (
+    tester,
+  ) async {
+    LyricsDisplay.wordGlow.value = WordGlowMode.estimated;
+    addTearDown(() => LyricsDisplay.wordGlow.value = WordGlowMode.exact);
+    await pumpLyrics(tester, at: const Duration(seconds: 11));
+    final rich =
+        tester.widget<Text>(find.text('Line three')).textSpan! as TextSpan;
+    expect(rich.children, isNotEmpty);
+  });
+
+  testWidgets('"Off" lights even a word-timed line all at once', (
+    tester,
+  ) async {
+    LyricsDisplay.wordGlow.value = WordGlowMode.off;
+    addTearDown(() => LyricsDisplay.wordGlow.value = WordGlowMode.exact);
+    await pumpLyrics(tester);
+    expect(tester.widget<Text>(find.text('Line two has words')).textSpan,
+        isNull);
+  });
+
   testWidgets('with black text the sung words light up in colour', (
     tester,
   ) async {

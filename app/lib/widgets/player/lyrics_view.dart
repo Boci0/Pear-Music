@@ -63,6 +63,7 @@ class _LyricsViewState extends State<LyricsView>
     widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
     LyricsDisplay.mode.addListener(_onPaletteUpdated);
+    LyricsDisplay.wordGlow.addListener(_onPaletteUpdated);
     _loadLyrics();
   }
 
@@ -109,12 +110,29 @@ class _LyricsViewState extends State<LyricsView>
       if (sub.isPaused) {
         sub.resume();
       }
-      if (!_sweepTicker.isActive) _sweepTicker.start();
     } else {
       if (!sub.isPaused) {
         sub.pause();
       }
-      if (_sweepTicker.isActive) _sweepTicker.stop();
+    }
+    _syncSweepTicker();
+  }
+
+  /// Whether the line on screen is lighting up word by word (set in build).
+  bool _sweeping = false;
+
+  /// Runs the per-frame clock only while a line is sweeping on screen: a
+  /// running ticker makes the device draw every frame, which is wasted when
+  /// the whole line is simply lit.
+  void _syncSweepTicker() {
+    final run = _sweeping &&
+        _positionSub != null &&
+        _isForeground &&
+        widget.isVisible;
+    if (run && !_sweepTicker.isActive) {
+      _sweepTicker.start();
+    } else if (!run && _sweepTicker.isActive) {
+      _sweepTicker.stop();
     }
   }
 
@@ -134,7 +152,13 @@ class _LyricsViewState extends State<LyricsView>
       _sweepPosition.value = scrub;
       return;
     }
-    if (!widget.player.playing) return;
+    if (!widget.player.playing) {
+      // Hold still while paused, and restart the clock from here so resuming
+      // does not first leap ahead by the time spent paused.
+      _anchorPosition = _sweepPosition.value;
+      _sinceAnchor.reset();
+      return;
+    }
     // Never run more than a moment past the last real position, so a stall
     // (buffering) does not let the glow race ahead of the singer.
     final elapsed = _sinceAnchor.elapsed * widget.player.speed;
@@ -168,6 +192,7 @@ class _LyricsViewState extends State<LyricsView>
     widget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     LyricsDisplay.mode.removeListener(_onPaletteUpdated);
+    LyricsDisplay.wordGlow.removeListener(_onPaletteUpdated);
     _positionSub?.cancel();
     _sweepTicker.dispose();
     _sweepPosition.dispose();
@@ -180,8 +205,11 @@ class _LyricsViewState extends State<LyricsView>
       _lyrics = const [];
       _activeIndex = -1;
       _spansIndex = -1;
+      _sweeping = false;
     });
     _positionSub?.cancel();
+    _positionSub = null;
+    _syncSweepTicker();
 
     // Check if song has local file path
     String? localAudioPath;
@@ -210,7 +238,27 @@ class _LyricsViewState extends State<LyricsView>
       if (_isForeground && widget.isVisible) {
         _snapToCurrentPosition();
       }
+      // Lyrics saved before word timing was looked up get one background
+      // look, and switch over in place if real timing turns up.
+      if (!lyrics.any((l) => l.words.isNotEmpty) &&
+          LyricsDisplay.wordGlow.value != WordGlowMode.off) {
+        unawaited(_upgradeWordTiming(songId, localAudioPath));
+      }
     }
+  }
+
+  Future<void> _upgradeWordTiming(String songId, String? localAudioPath) async {
+    final upgraded = await LyricsService.upgradeWordTiming(
+      widget.song,
+      localAudioPath: localAudioPath,
+      duration: widget.player.duration,
+    );
+    if (upgraded == null || !mounted || widget.song.id != songId) return;
+    setState(() {
+      _lyrics = upgraded;
+      _spansIndex = -1;
+    });
+    _snapToCurrentPosition();
   }
 
   void _snapToCurrentPosition() {
@@ -438,12 +486,24 @@ class _LyricsViewState extends State<LyricsView>
     final lineIndex = _activeIndex >= 0 && _activeIndex < _lyrics.length
         ? _activeIndex
         : 0;
-    final canSweep = active != null && active.timed && active.text.isNotEmpty;
+    // Word by word per the Word glow setting: "Exact only" needs the line's
+    // own word timing; without it the whole line lights up at once.
+    final glowMode = LyricsDisplay.wordGlow.value;
+    final canSweep =
+        active != null &&
+        active.timed &&
+        active.text.isNotEmpty &&
+        (glowMode == WordGlowMode.estimated ||
+            (glowMode == WordGlowMode.exact && active.words.isNotEmpty));
     if (canSweep && _spansIndex != lineIndex) {
       _spansIndex = lineIndex;
       _spans = LyricsService.spansFor(_lyrics, lineIndex);
     }
     final spans = _spans;
+    if (_sweeping != canSweep) {
+      _sweeping = canSweep;
+      _syncSweepTicker();
+    }
 
     Widget lineText() {
       if (!canSweep) {

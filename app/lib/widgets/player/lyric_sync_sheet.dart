@@ -473,6 +473,53 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Word Glow',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<WordGlowMode>(
+                        key: const ValueKey('lyrics_word_glow'),
+                        segments: const [
+                          ButtonSegment(
+                            value: WordGlowMode.exact,
+                            label: Text('Exact only'),
+                          ),
+                          ButtonSegment(
+                            value: WordGlowMode.estimated,
+                            label: Text('Estimated'),
+                          ),
+                          ButtonSegment(
+                            value: WordGlowMode.off,
+                            label: Text('Off'),
+                          ),
+                        ],
+                        selected: {LyricsDisplay.wordGlow.value},
+                        onSelectionChanged: (selection) {
+                          LyricsDisplay.setWordGlow(selection.first);
+                          setState(() {});
+                        },
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Exact only lights up word by word when the lyrics have real '
+                        'word timing, and the whole line otherwise. Estimated guesses '
+                        'the timing for every line.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 10.5,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       // Its own transparent surface: on the card's colour the
                       // tile's tap ripple would otherwise be hidden.
