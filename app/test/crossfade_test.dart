@@ -82,8 +82,11 @@ class _FakePlayer extends AudioPlayer {
     return const Duration(minutes: 1);
   }
 
+  int seeks = 0;
+
   @override
   Future<void> seek(Duration? position, {int? index}) async {
+    seeks++;
     _settleClock();
     if (position != null) position_ = position;
     if (_playing) _clock.start();
@@ -155,17 +158,30 @@ void main() {
     return (main, tail, player);
   }
 
+  /// The handover waits for the tail to be playing for a moment, so wait for
+  /// the song to change (plus a beat for it to load) rather than a fixed time.
+  Future<void> untilSong(PlayerService player, String id) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(deadline) && player.currentSong?.id != id) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
   test('near the end the song hands over to the next one while it fades out',
       () async {
     final (main, tail, player) = await playFirst(crossfadeSeconds: 1);
     main.position_ = const Duration(seconds: 59, milliseconds: 200);
 
     player.debugCrossfadeTick(main.position_);
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await untilSong(player, 'stream_bbbbbbbbbbb');
 
     expect(tail.loaded, ['aaaaaaaaaaa.m4a'],
         reason: 'the tail finishes the ending song from its own file');
-    expect(tail.position_, const Duration(seconds: 59, milliseconds: 200));
+    expect(tail.position_,
+        greaterThanOrEqualTo(const Duration(seconds: 59, milliseconds: 200)),
+        reason: 'it picks up where the main player is (a little ahead, so '
+            'it lines up once its output is running)');
     expect(tail.playing, isTrue);
     expect(main.loaded, ['aaaaaaaaaaa.m4a', 'bbbbbbbbbbb.m4a'],
         reason: 'the main player moves on without waiting for the end');
@@ -229,10 +245,14 @@ void main() {
     expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
     expect(tail.volumes, contains(playingVolume),
         reason: 'the tail took over at the level the song was playing at');
-    // It jumped ahead by its start-up time, so the slice the main player
-    // already played is not heard twice.
+    // It started ahead by its start-up time, so the slice the main player
+    // already played is not heard twice, and it was never seeked into line:
+    // on Android a seek restarts the output, which is itself a gap.
     expect(tail.position_,
         greaterThan(const Duration(seconds: 59, milliseconds: 300)));
+    expect(tail.seeks, 0);
+    // The sound moved across in a few steps, not one hard switch.
+    expect(tail.volumes.where((v) => v > 0 && v < playingVolume), isNotEmpty);
   });
 
   test('crossfade off lets the song play to its end', () async {
@@ -309,7 +329,7 @@ void main() {
         );
         main.position_ = const Duration(seconds: 59, milliseconds: 200);
         player.debugCrossfadeTick(main.position_);
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await untilSong(player, 'stream_bbbbbbbbbbb');
         expect(tail.loaded, ['aaaaaaaaaaa.m4a']);
         expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
       }
@@ -388,7 +408,7 @@ void main() {
       final (main, tail, player) = await playFirst(crossfadeSeconds: 1);
       main.position_ = const Duration(seconds: 54, milliseconds: 400);
       player.debugCrossfadeTick(main.position_);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await untilSong(player, 'stream_bbbbbbbbbbb');
       expect(tail.loaded, ['aaaaaaaaaaa.m4a']);
       expect(player.currentSong?.id, 'stream_bbbbbbbbbbb');
     });
