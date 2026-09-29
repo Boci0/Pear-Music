@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
 import 'netease_lyrics.dart';
+import 'update_service.dart';
 
 /// A word (or syllable) with the moment it is sung, from enhanced LRC
 /// `<mm:ss.xx>` tags.
@@ -238,6 +239,11 @@ class LyricsService {
 
   static Directory? _cacheDir;
   static HttpClient? _httpClient;
+
+  /// LRCLIB asks clients to identify themselves.
+  static const String _userAgent =
+      'PearMusic/${UpdateService.currentVersion} '
+      '(https://github.com/Boci0/Pear-Music)';
 
   static HttpClient get _client =>
       _httpClient ??= HttpClient()
@@ -892,10 +898,7 @@ class LyricsService {
     try {
       final uri = Uri.parse(baseUrl).replace(queryParameters: queryParameters);
       final req = await _client.getUrl(uri);
-      req.headers.set(
-        'User-Agent',
-        'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)',
-      );
+      req.headers.set('User-Agent', _userAgent);
       final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final body = await res
@@ -921,10 +924,7 @@ class LyricsService {
   static Future<List<dynamic>?> _requestLrclibJsonArray(Uri uri) async {
     try {
       final req = await _client.getUrl(uri);
-      req.headers.set(
-        'User-Agent',
-        'PearMusic/3.1.6 (https://github.com/Boci0/Pear-Music)',
-      );
+      req.headers.set('User-Agent', _userAgent);
       final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final body = await res
