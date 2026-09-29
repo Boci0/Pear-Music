@@ -25,6 +25,17 @@ class ArtworkVisualizer extends StatefulWidget {
     required this.accentColor,
   });
 
+  /// The tallest bar, as a share of the card's height.
+  static const double maxBarFraction = 0.30;
+
+  /// Gap between the bars and the card's bottom edge.
+  static const double bottomPadding = 12.0;
+
+  /// Height of the band at the bottom of a [cardHeight] card the bars can
+  /// reach. The lyrics keep above it while the visualizer is on.
+  static double bandHeight(double cardHeight) =>
+      cardHeight * maxBarFraction + bottomPadding;
+
   @override
   State<ArtworkVisualizer> createState() => _ArtworkVisualizerState();
 }
@@ -571,8 +582,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         children: [
           // Static backdrop layer: rendered once and cached, so the per-frame
           // spectrum repaint never rebuilds the vignette gradient.
-          const RepaintBoundary(
-            child: CustomPaint(painter: _VignettePainter()),
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: _VignettePainter(widget.accentColor),
+            ),
           ),
           // No AnimatedBuilder here: repaints are driven by [_paintTick] (the
           // ~30 fps gate) through the painter's repaint listenable, so the
@@ -594,33 +607,39 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   }
 }
 
-/// Static backdrop for the visualizer: the bottom vignette gradient, kept in
-/// a const painter behind its own RepaintBoundary layer so it is drawn once
-/// instead of on every animation frame.
+/// Static backdrop for the visualizer, kept behind its own RepaintBoundary
+/// layer so it is drawn once instead of on every animation frame.
+///
+/// A deep shade of the song's accent rather than black: it seats the bars in
+/// the artwork's own colour instead of laying a flat dark filter over it.
 class _VignettePainter extends CustomPainter {
-  const _VignettePainter();
+  const _VignettePainter(this.accentColor);
+
+  final Color accentColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
-    final vignetteRect = Rect.fromLTWH(0, size.height * 0.45, size.width, size.height * 0.55);
+    final shade = Color.lerp(accentColor, Colors.black, 0.72)!;
+    final vignetteRect = Rect.fromLTWH(0, size.height * 0.55, size.width, size.height * 0.45);
     final vignettePaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.bottomCenter,
         end: Alignment.topCenter,
         colors: [
-          Colors.black.withValues(alpha: 0.50),
-          Colors.black.withValues(alpha: 0.18),
-          Colors.transparent,
+          shade.withValues(alpha: 0.38),
+          shade.withValues(alpha: 0.12),
+          shade.withValues(alpha: 0),
         ],
-        stops: const [0.0, 0.65, 1.0],
+        stops: const [0.0, 0.55, 1.0],
       ).createShader(vignetteRect);
     canvas.drawRect(vignetteRect, vignettePaint);
   }
 
   @override
-  bool shouldRepaint(covariant _VignettePainter oldDelegate) => false;
+  bool shouldRepaint(covariant _VignettePainter oldDelegate) =>
+      oldDelegate.accentColor != accentColor;
 }
 
 class _ArtworkVisualizerPainter extends CustomPainter {
@@ -653,13 +672,15 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final totalSpan = (totalBars * barWidth) + (spacing * (totalBars - 1));
     final startX = (size.width - totalSpan) / 2.0;
 
-    const double bottomPadding = 12.0;
-    final maxBarHeight = size.height * 0.40;
+    const double bottomPadding = ArtworkVisualizer.bottomPadding;
+    final maxBarHeight = size.height * ArtworkVisualizer.maxBarFraction;
     const double minBarHeight = 4.0;
 
     final radius = Radius.circular(barWidth / 2.0);
-    final barBottomColor = accentColor.withValues(alpha: 0.78 + (0.18 * act));
-    final barTopColor = Color.lerp(accentColor, Colors.white, 0.50)!.withValues(alpha: 0.95);
+    // Translucent at the base so the artwork shows through, brighter at the
+    // tip: the bars read as light on the art, not solid blocks over it.
+    final barBottomColor = accentColor.withValues(alpha: 0.35 + (0.20 * act));
+    final barTopColor = Color.lerp(accentColor, Colors.white, 0.55)!.withValues(alpha: 0.85);
 
     // One shader per frame for the whole bar band instead of one per bar:
     // every bar is anchored at the band's bottom, so a shared vertical
