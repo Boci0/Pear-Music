@@ -60,8 +60,14 @@ class DebugLog {
     }());
   }
 
+  /// Whether lines are also printed to the system log (Android's logcat).
+  static bool echoToSystemLog = Platform.isAndroid;
+
   /// Append one line. Safe to call from anywhere; failures are swallowed.
-  static void write(String line) {
+  ///
+  /// [echo] also prints the line to the Android system log; the debugPrint
+  /// hook in main() passes false because it prints the line itself.
+  static void write(String line, {bool echo = true}) {
     final now = DateTime.now();
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}.${(now.millisecond ~/ 100)}';
@@ -71,6 +77,14 @@ class DebugLog {
       _recentLogs.removeAt(0);
     }
     _recentLogs.add(formattedLine);
+    // Android release builds keep the log file in private storage; mirroring
+    // to logcat lets a connected computer read it over adb. Plain print, not
+    // debugPrint: main() routes debugPrint into this method, so calling it
+    // here would loop forever (and froze the app on launch).
+    if (echo && echoToSystemLog) {
+      // ignore: avoid_print
+      print('[peerm] $line');
+    }
     if (_liveController.hasListener) {
       _liveController.add(formattedLine);
     }

@@ -51,7 +51,7 @@ Future<void> main([List<String> args = const []]) async {
     // post-transfer lag, resend loops and reconnect churn all leave traces.
     final originalDebugPrint = debugPrint;
     debugPrint = (String? message, {int? wrapWidth}) {
-      if (message != null) DebugLog.write(message);
+      if (message != null) DebugLog.write(message, echo: false);
       originalDebugPrint(message, wrapWidth: wrapWidth);
     };
 
