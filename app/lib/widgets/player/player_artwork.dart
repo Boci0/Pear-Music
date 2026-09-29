@@ -49,6 +49,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   late final Animation<double> _syncAnimation;
 
   int _lyricsVersion = 0;
+  final GlobalKey _visualizerKey = GlobalKey();
 
   @override
   void initState() {
@@ -333,6 +334,13 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                 builder: (context, cachedBackdrop) {
                   final isLyricsActive = _lyricsAnimController.value > 0.0;
                   final isLyricsFullyOpen = PlayerArtwork.showLyricsNotifier.value;
+                  final visualizer = playerService == null
+                      ? const SizedBox.shrink()
+                      : ArtworkVisualizer(
+                          key: _visualizerKey,
+                          player: playerService,
+                          accentColor: baseShadowColor,
+                        );
 
                   return Stack(
                     fit: StackFit.expand,
@@ -371,15 +379,39 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             ),
                           ),
                         ),
-                      // Equalizer spectrum visualizer stacked behind lyrics and border
+                      // Equalizer spectrum visualizer stacked behind lyrics and border.
+                      // The key keeps the same visualizer (and its bars) when
+                      // the lyrics mask is added or removed around it.
                       if (song != null && playerService != null && useSynthesizer)
                         Positioned.fill(
                           child: IgnorePointer(
                             ignoring: isLyricsFullyOpen,
-                            child: ArtworkVisualizer(
-                              player: playerService,
-                              accentColor: baseShadowColor,
-                            ),
+                            // With lyrics showing, the bars keep their full
+                            // height but fade towards their tips, where a long
+                            // line can overlap them, so the text stays
+                            // readable on top.
+                            // (The mask is only added while lyrics show, so
+                            // the visualizer alone costs no extra layer.)
+                            child: isLyricsActive
+                                ? ShaderMask(
+                                    blendMode: BlendMode.dstIn,
+                                    shaderCallback: (rect) {
+                                      final top = 1 -
+                                          0.65 * _lyricsAnimController.value;
+                                      return LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.white.withValues(alpha: top),
+                                          Colors.white.withValues(alpha: top),
+                                          Colors.white,
+                                        ],
+                                        stops: const [0.0, 0.66, 0.9],
+                                      ).createShader(rect);
+                                    },
+                                    child: visualizer,
+                                  )
+                                : visualizer,
                           ),
                         ),
                       if (song != null && playerService != null)
@@ -395,10 +427,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                               accent: widget.accent,
                               size: size,
                               isVisible: isLyricsFullyOpen,
-                              // Keep the lines above the visualizer's bars.
-                              bottomInset: useSynthesizer
-                                  ? ArtworkVisualizer.bandHeight(size)
-                                  : 0,
                             ),
                           ),
                         ),

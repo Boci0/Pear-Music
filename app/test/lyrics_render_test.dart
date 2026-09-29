@@ -18,6 +18,7 @@ import 'package:peerm_app/services/lyrics_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/widgets/player/lyric_sync_sheet.dart';
 import 'package:peerm_app/widgets/player/lyrics_view.dart';
+import 'package:peerm_app/widgets/player/visual_synthesizer_bar.dart';
 
 /// Renders the lyrics card to PNGs in build/lyrics_renders so the look can be
 /// checked without opening the app. Needs the Windows system fonts; skipped
@@ -65,7 +66,8 @@ void main() {
   const lrc = '''
 [00:10.00] Mother of this sacred dream that burns in us
 [00:20.00] 夜に駆ける 君の手を引いて
-[00:30.00] next
+[00:30.00] 「めんどくさい」とか「やりたくない」にエネルギー使ってらんない
+[00:40.00] next
 ''';
 
   setUpAll(() async {
@@ -91,7 +93,7 @@ void main() {
     required Color accent,
     required LyricsColorMode mode,
     required Duration at,
-    double bottomInset = 0,
+    bool bars = false,
   }) async {
     LyricsService.setLyricsForTesting(song.id, lrc);
     LyricsDisplay.mode.value = mode;
@@ -123,13 +125,24 @@ void main() {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (bottomInset > 0)
+                    // Stand-in for the visualizer: full-height bars, faded
+                    // towards their tips as the app does under lyrics.
+                    if (bars)
                       Align(
                         alignment: Alignment.bottomCenter,
                         child: Container(
-                          height: bottomInset - 12,
+                          height: ArtworkVisualizer.bandHeight(320) - 12,
                           margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          color: accent.withValues(alpha: 0.35),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                accent.withValues(alpha: 0.85 * 0.35),
+                                accent.withValues(alpha: 0.85),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     LyricsView(
@@ -137,7 +150,6 @@ void main() {
                       player: player,
                       accent: accent,
                       size: 320,
-                      bottomInset: bottomInset,
                     ),
                   ],
                 ),
@@ -251,7 +263,7 @@ void main() {
       accent: greyTeal,
       mode: LyricsColorMode.dark,
       at: halfLine,
-      bottomInset: 108,
+      bars: true,
     );
     await render(
       tester,
@@ -268,7 +280,7 @@ void main() {
       accent: coral,
       mode: LyricsColorMode.light,
       at: halfLine,
-      bottomInset: 108,
+      bars: true,
     );
     await render(
       tester,
@@ -277,6 +289,16 @@ void main() {
       accent: coral,
       mode: LyricsColorMode.dark,
       at: const Duration(seconds: 21, milliseconds: 200),
+    );
+    // A long line with the visualizer on, as on a phone-sized card.
+    await render(
+      tester,
+      'long_line_visualizer',
+      cover: const [Color(0xFF8A5AB0), Color(0xFF5E3A7A), Color(0xFFB07A30)],
+      accent: const Color(0xFFB58AD6),
+      mode: LyricsColorMode.light,
+      at: const Duration(seconds: 33),
+      bars: true,
     );
   }, skip: !haveFonts);
 }
