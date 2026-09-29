@@ -357,8 +357,7 @@ class PlayerService extends ChangeNotifier {
     if (!hasNextTrack) return true;
     final nextSong = _queue[_queueIndex + 1];
     if (nextSong.sourceDeviceId != 'stream') return true;
-    final videoId = nextSong.id.replaceFirst('stream_', '');
-    return StreamCacheManager.isStreamCachedSync(videoId);
+    return _isReadyToStart(nextSong);
   }
 
   /// The Android audio session ID associated with playback, or null on other platforms.
@@ -745,11 +744,13 @@ class PlayerService extends ChangeNotifier {
     }());
   }
 
+  static String _videoIdOf(Song song) =>
+      RecommendationService.extractVideoId(song.id) ??
+      song.id.replaceFirst('stream_', '');
+
   bool _isReadyToStart(Song song) {
     if (song.sourceDeviceId == 'stream') {
-      final videoId = RecommendationService.extractVideoId(song.id) ??
-          song.id.replaceFirst('stream_', '');
-      return StreamCacheManager.isStreamCachedSync(videoId);
+      return StreamCacheManager.isStreamCachedSync(_videoIdOf(song));
     }
     return library.hasSongFile(song);
   }
@@ -1220,10 +1221,12 @@ class PlayerService extends ChangeNotifier {
       }
 
       // Offline / Empty fallback: pull from local library
+      // Library songs are matched by their own ids, which the video-id
+      // normalisation above may have rewritten.
       final offlineSongs = RecommendationService.getOfflineRecommendations(
         seed,
         library.songs,
-        excludeSongIds: excludeIds,
+        excludeSongIds: {...excludeIds, ..._queue.map((s) => s.id)},
       );
       final boundedOffline = offlineSongs.take(maxRecommendationsPerAppend).toList();
       if (boundedOffline.isNotEmpty) {
@@ -2504,7 +2507,11 @@ class PlayerService extends ChangeNotifier {
         _shufflePlayedSongIds.add(_queue[committed].id);
         return committed;
       }
-      if (_queue.length <= 1) return _queue.isEmpty ? null : 0;
+      if (_queue.length <= 1) {
+        // Nothing else to shuffle to: behave like the end of the queue.
+        if (_sleepTimerEndOfQueue) return null;
+        return _loopMode == LoopSetting.all ? 0 : null;
+      }
       final immediateNext = _queueIndex + 1;
       if (immediateNext < _queue.length &&
           _lockedSongIds.contains(_queue[immediateNext].id)) {
@@ -2767,15 +2774,27 @@ class PlayerService extends ChangeNotifier {
       _lockedSongIds.remove(id);
     }
     final currentAffected = currentSong != null && songIds.contains(currentSong!.id);
+    _syncQueueIndexWithCurrentSong();
+    // The first surviving song after the current one (removed songs before
+    // it shift the indexes, so the old index cannot be reused as is).
+    Song? following;
+    for (var i = _queueIndex + 1; i < _queue.length; i++) {
+      if (!songIds.contains(_queue[i].id)) {
+        following = _queue[i];
+        break;
+      }
+    }
     _queue = remaining;
     if (currentAffected) {
-      final nextIdx = (_queueIndex >= 0 && _queueIndex < _queue.length) ? _queueIndex : 0;
-      _queueIndex = nextIdx;
+      final nextIdx = following == null
+          ? 0
+          : _queue.indexWhere((s) => identical(s, following));
+      _queueIndex = nextIdx < 0 ? 0 : nextIdx;
       final nextSong = _queue[_queueIndex];
       currentSong = nextSong;
       _updateActiveQueueCacheProtection();
       notifyListeners();
-      unawaited(playSong(nextSong, queue: _queue));
+      unawaited(playSong(nextSong, queue: _queue, initialIndex: _queueIndex));
     } else {
       if (currentSong != null) {
         _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
@@ -2791,7 +2810,21 @@ class PlayerService extends ChangeNotifier {
     _playRequestToken++;
     _preloadDebounceTimer?.cancel();
     _autoRerollDebounceTimer?.cancel();
+    _autoRerollDebounceTimer = null;
     StreamCacheManager.cancelPreload();
+    // A load cut short by the new token never reaches its own cleanup, so
+    // its flags are reset here or play would stay blocked afterwards.
+    if (_isLoadingTrack || _isBufferingNext) {
+      StreamCacheManager.cancelActiveDownload();
+    }
+    _isLoadingTrack = false;
+    _isBufferingNext = false;
+    _bufferingVideoId = null;
+    _isAdvancing = false;
+    _pendingNaturalAdvance = false;
+    final growing = _growingSource;
+    _growingSource = null;
+    if (growing != null) unawaited(growing.close());
     await _player.stop();
     currentSong = null;
     _playbackError = null;
