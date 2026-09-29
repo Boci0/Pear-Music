@@ -135,7 +135,7 @@ class LyricsService {
   static final RegExp _lineSplitRegex = RegExp(r'\r?\n');
   static final RegExp _bracketContentRegex = RegExp(r'\[.*?\]');
   static final RegExp _tagRegex = RegExp(
-    r'\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]',
+    r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]',
   );
   static final RegExp _wordTagRegex = RegExp(
     r'<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>',
@@ -311,7 +311,9 @@ class LyricsService {
     final plainLines = <LyricLine>[];
     for (int i = 0; i < lines.length; i++) {
       final text = lines[i].trim();
-      if (text.isNotEmpty && !_markLine.hasMatch(text)) {
+      if (text.isNotEmpty &&
+          !_markLine.hasMatch(text) &&
+          !_metadataLine.hasMatch(text)) {
         // Space them across default intervals
         plainLines.add(
           LyricLine(
@@ -438,10 +440,15 @@ class LyricsService {
   /// 2. Checks local companion `.lrc` file if available.
   /// 3. Checks persistent disk cache.
   /// 4. Queries LRCLIB online API (duration-aware).
+  ///
+  /// [durationLookup] is asked for the song's length only when the lyrics
+  /// have to be looked up online (where the length picks the right version),
+  /// so cached lyrics show without waiting for the song to load.
   static Future<List<LyricLine>> getLyrics(
     Song song, {
     String? localAudioPath,
     Duration? duration,
+    Future<Duration?> Function()? durationLookup,
   }) async {
     final cacheKey = song.id;
     if (_memoryCache.containsKey(cacheKey)) {
@@ -489,6 +496,9 @@ class LyricsService {
     // 3. Fetch from LRCLIB, then NetEase for word timing (or for lyrics at
     // all when LRCLIB has none).
     try {
+      if (duration == null && durationLookup != null) {
+        duration = await durationLookup();
+      }
       var fetchedLrc = await _fetchFromLrclib(song, duration: duration);
       if (fetchedLrc == null || !hasWordTiming(fetchedLrc)) {
         final netease = await NeteaseLyrics.fetch(
@@ -519,6 +529,13 @@ class LyricsService {
   /// which are never replaced.)
   static const String wordTimingCheckedMark = '[pear:word-timing-checked]';
   static final RegExp _markLine = RegExp(r'^\[pear:[^\]]*\]\s*$');
+
+  /// An LRC header line such as `[ar: Artist]` or `[offset: 200]`: not a
+  /// lyric, even in lyrics without timestamps.
+  static final RegExp _metadataLine = RegExp(
+    r'^\[(?:ar|ti|al|au|by|la|id|re|ve|tool|length|offset|#)\s*:[^\]]*\]\s*$',
+    caseSensitive: false,
+  );
 
   /// Whether [lrc] carries per-word timing.
   static bool hasWordTiming(String lrc) => _wordTagRegex.hasMatch(lrc);

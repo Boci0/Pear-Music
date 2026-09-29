@@ -91,6 +91,9 @@ class _LyricsViewState extends State<LyricsView>
         _onScrubbingChanged,
       );
       widget.player.scrubbingPositionNotifier.addListener(_onScrubbingChanged);
+      _positionSub?.cancel();
+      _positionSub = null;
+      _updateSubscriptionState();
     }
     if (oldWidget.song.id != widget.song.id) {
       _loadLyrics();
@@ -102,20 +105,50 @@ class _LyricsViewState extends State<LyricsView>
     }
   }
 
+  /// Listens to the position only while lyrics are on screen. The position
+  /// stream is shared (broadcast), and a paused broadcast subscription keeps
+  /// every event it misses, so hidden lyrics cancel instead of pausing: hours
+  /// in the background would otherwise pile up and replay as a burst.
   void _updateSubscriptionState() {
-    final sub = _positionSub;
-    if (sub == null) return;
-    final shouldListen = _isForeground && widget.isVisible;
-    if (shouldListen) {
-      if (sub.isPaused) {
-        sub.resume();
-      }
-    } else {
-      if (!sub.isPaused) {
-        sub.pause();
-      }
+    final shouldListen =
+        _lyrics.isNotEmpty && _isForeground && widget.isVisible;
+    if (shouldListen && _positionSub == null) {
+      _positionSub = widget.player.positionStream.listen(_onPositionUpdate);
+    } else if (!shouldListen && _positionSub != null) {
+      _positionSub!.cancel();
+      _positionSub = null;
     }
     _syncSweepTicker();
+  }
+
+  /// The length of [LyricsView.song] once the player has loaded it. Right
+  /// after a song change the player still reports the previous song's
+  /// length, and lyrics picked by that length get saved for good.
+  Future<Duration?> _loadedDuration() async {
+    final player = widget.player;
+    final songId = widget.song.id;
+    bool loaded() =>
+        player.currentSong?.id == songId &&
+        !player.isAdvancing &&
+        !player.isLoadingTrack &&
+        player.duration != null;
+    if (!loaded() && player.currentSong?.id == songId) {
+      final ready = Completer<void>();
+      void check() {
+        if (loaded() && !ready.isCompleted) ready.complete();
+      }
+
+      player.addListener(check);
+      try {
+        await ready.future.timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {},
+        );
+      } finally {
+        player.removeListener(check);
+      }
+    }
+    return loaded() ? player.duration : null;
   }
 
   /// Whether the line on screen is lighting up word by word (set in build).
@@ -222,7 +255,7 @@ class _LyricsViewState extends State<LyricsView>
     final lyrics = await LyricsService.getLyrics(
       widget.song,
       localAudioPath: localAudioPath,
-      duration: widget.player.duration,
+      durationLookup: _loadedDuration,
     );
 
     if (!mounted || widget.song.id != songId) return;
@@ -233,7 +266,6 @@ class _LyricsViewState extends State<LyricsView>
     });
 
     if (lyrics.isNotEmpty) {
-      _positionSub = widget.player.positionStream.listen(_onPositionUpdate);
       _updateSubscriptionState();
       if (_isForeground && widget.isVisible) {
         _snapToCurrentPosition();
@@ -251,7 +283,7 @@ class _LyricsViewState extends State<LyricsView>
     final upgraded = await LyricsService.upgradeWordTiming(
       widget.song,
       localAudioPath: localAudioPath,
-      duration: widget.player.duration,
+      duration: await _loadedDuration(),
     );
     if (upgraded == null || !mounted || widget.song.id != songId) return;
     setState(() {

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/lyrics_service.dart';
 
 void main() {
@@ -77,6 +78,26 @@ Third stanza line
       expect(lines[0].text, 'First stanza line');
       expect(lines[1].text, 'Second stanza line');
       expect(lines[2].text, 'Third stanza line');
+    });
+
+    test('plain lyrics leave out LRC header tags but keep bracketed lyrics',
+        () {
+      const text = '''
+[ar: Some Artist]
+[ti: Some Song]
+[offset: 300]
+First stanza line
+[Chorus: Guest]
+''';
+      final lines = LyricsService.parseLrc(text);
+      expect(lines.map((l) => l.text), ['First stanza line', '[Chorus: Guest]']);
+    });
+
+    test('accepts a colon before the fraction in line timestamps', () {
+      final lines = LyricsService.parseLrc('[00:12:50] Colon style');
+      expect(lines.single.text, 'Colon style');
+      expect(lines.single.timestamp, const Duration(milliseconds: 12500));
+      expect(lines.single.timed, isTrue);
     });
 
     test('returns empty list for empty or whitespace content', () {
@@ -249,6 +270,31 @@ Third stanza line
   group('LyricsService.compactMemory', () {
     test('clears memory cache cleanly', () {
       expect(() => LyricsService.compactMemory(), returnsNormally);
+    });
+  });
+
+  group('LyricsService.getLyrics', () {
+    test('cached lyrics never wait on the song length', () async {
+      final song = Song(
+        id: 'cached_song',
+        title: 'Cached',
+        fileName: 'cached.mp3',
+        size: 0,
+        checksum: 'x',
+        addedAt: DateTime(2026, 9, 29),
+      );
+      LyricsService.setLyricsForTesting(song.id, '[00:01.00] Hello');
+      var asked = 0;
+      final lines = await LyricsService.getLyrics(
+        song,
+        durationLookup: () async {
+          asked++;
+          return const Duration(minutes: 3);
+        },
+      );
+      expect(lines.single.text, 'Hello');
+      expect(asked, 0);
+      LyricsService.clearMemoryCache();
     });
   });
 
