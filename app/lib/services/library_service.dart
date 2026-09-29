@@ -106,6 +106,7 @@ class LibraryService extends ChangeNotifier {
     // Single-pass directory listing gathers all files in one OS call instead of
     // doing hundreds/thousands of individual File.exists() calls.
     final existingFileNames = <String>{};
+    var listedAll = false;
     try {
       if (await _libraryDir!.exists()) {
         await for (final entity in _libraryDir!.list(followLinks: false)) {
@@ -117,8 +118,11 @@ class LibraryService extends ChangeNotifier {
             } catch (_) {}
           }
         }
+        listedAll = true;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[library] could not list the library folder: $e');
+    }
 
     final missingSongIds = <String>[];
     for (final s in _songs) {
@@ -129,7 +133,10 @@ class LibraryService extends ChangeNotifier {
       }
     }
 
-    if (missingSongIds.isNotEmpty) {
+    // Only a complete listing may drop songs: a listing that failed partway
+    // would otherwise erase every song it had not reached yet (and strip
+    // them from every playlist) for good.
+    if (missingSongIds.isNotEmpty && listedAll) {
       for (final id in missingSongIds) {
         final s = findById(id);
         if (s != null) {
@@ -203,9 +210,18 @@ class LibraryService extends ChangeNotifier {
         final seenIds = <String>{};
         final seenChecksums = <String>{};
         var hadDuplicates = false;
+        var hadBadEntries = false;
         for (final item in decoded) {
           if (item is Map<String, dynamic>) {
-            final s = Song.fromJson(item);
+            final Song s;
+            try {
+              s = Song.fromJson(item);
+            } catch (e) {
+              // One bad entry must not cost the rest of the library.
+              debugPrint('[library] skipping an unreadable index entry: $e');
+              hadBadEntries = true;
+              continue;
+            }
             if (seenIds.contains(s.id) || seenChecksums.contains(s.checksum)) {
               hadDuplicates = true;
               continue;
@@ -216,14 +232,29 @@ class LibraryService extends ChangeNotifier {
             _indexSong(s);
           }
         }
-        if (hadDuplicates) {
+        if (hadBadEntries) await _keepCorruptCopy(_indexFile!);
+        if (hadDuplicates || hadBadEntries) {
           await _saveIndex();
         }
         _retroactiveRepairHttpArtworks();
       }
-    } catch (_) {
-      // Corrupt index - start fresh but keep any orphaned files.
+    } catch (e) {
+      // Corrupt index: start fresh but keep any orphaned files, and keep the
+      // unreadable index aside, since the next save replaces index.json.
+      debugPrint('[library] index.json is unreadable, starting empty: $e');
+      _songs.clear();
+      _songsById.clear();
+      _checksums.clear();
+      await _keepCorruptCopy(_indexFile!);
     }
+  }
+
+  /// Copies an unreadable data file to `<name>.corrupt` so the next save
+  /// does not destroy what might still be recovered from it by hand.
+  static Future<void> _keepCorruptCopy(File file) async {
+    try {
+      await file.copy('${file.path}.corrupt');
+    } catch (_) {}
   }
 
   Future<void> _loadPlaylists() async {
@@ -253,8 +284,12 @@ class LibraryService extends ChangeNotifier {
           });
         }
       }
-    } catch (_) {
-      // Corrupt playlists file — start fresh.
+    } catch (e) {
+      // Corrupt playlists file: start fresh, keeping the old one aside.
+      debugPrint('[library] playlists.json is unreadable, starting empty: $e');
+      _playlists.clear();
+      _deletedPlaylistsAt.clear();
+      await _keepCorruptCopy(_playlistsFile!);
     }
   }
 
@@ -787,12 +822,21 @@ class LibraryService extends ChangeNotifier {
   void _retroactiveRepairHttpArtworks() {
     unawaited(() async {
       bool changed = false;
-      for (var i = 0; i < _songs.length; i++) {
-        final s = _songs[i];
-        if (s.sourceDeviceId == null && s.artwork != null && s.artwork!.startsWith('http')) {
-          final base64Art = await YoutubeService.downloadArtworkAsBase64(s.artwork);
-          if (base64Art != null && base64Art.isNotEmpty) {
-            _songs[i] = Song(
+      final pending = [
+        for (final s in _songs)
+          if (s.sourceDeviceId == null &&
+              s.artwork != null &&
+              s.artwork!.startsWith('http'))
+            s,
+      ];
+      for (final s in pending) {
+        final base64Art = await YoutubeService.downloadArtworkAsBase64(s.artwork);
+        if (base64Art != null && base64Art.isNotEmpty) {
+          // The library may have changed during the download: find the song
+          // again rather than trusting an index taken before it.
+          final i = _songs.indexWhere((x) => identical(x, s));
+          if (i >= 0) {
+            final repaired = Song(
               id: s.id,
               title: s.title,
               fileName: s.fileName,
@@ -802,6 +846,8 @@ class LibraryService extends ChangeNotifier {
               artwork: base64Art,
               addedAt: s.addedAt,
             );
+            _songs[i] = repaired;
+            _indexSong(repaired);
             changed = true;
           }
         }
