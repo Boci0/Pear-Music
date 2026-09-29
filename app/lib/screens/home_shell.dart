@@ -98,6 +98,13 @@ class _HomeShellState extends State<HomeShell>
   /// width constants so the animated width and the padding cannot drift.
   static const double _paneGutter = 12;
 
+  /// Width the Now Playing pane settles at, gutter included.
+  double get _paneSlotWidth =>
+      (_playerExpanded
+          ? NowPlayingPanel.expandedPaneWidth
+          : NowPlayingPanel.compactPaneWidth) +
+      _paneGutter;
+
   List<Widget> get _screens => [
     const PearContentFrame(maxWidth: _contentMaxWidth, child: HomeScreen()),
     PearContentFrame(
@@ -232,33 +239,84 @@ class _HomeShellState extends State<HomeShell>
                             onDestinationSelected: _onDestinationSelected,
                           ),
                           Expanded(
+                            // The tabs take the pane's final width once, when
+                            // the toggle starts, and only the pane animates on
+                            // top. Animating a Row sibling instead re-laid out
+                            // every tab (IndexedStack lays out all five) on
+                            // each frame, which made expand/collapse stutter.
                             child: Stack(
                               children: [
-                                Positioned.fill(
-                                  child: FadeTransition(
-                                    opacity: _tabFadeCurve,
-                                    child: SlideTransition(
-                                      position: _tabRise,
-                                      child: IndexedStack(
-                                        index: _index,
-                                        children: _screens,
-                                      ),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  right: useNowPlayingPane
+                                      ? _paneSlotWidth
+                                      : 0,
+                                  child: RepaintBoundary(
+                                    child: Stack(
+                                      children: [
+                                        Positioned.fill(
+                                          child: FadeTransition(
+                                            opacity: _tabFadeCurve,
+                                            child: SlideTransition(
+                                              position: _tabRise,
+                                              child: IndexedStack(
+                                                index: _index,
+                                                children: _screens,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (!useNowPlayingPane)
+                                          Positioned(
+                                            left: 0,
+                                            right: 0,
+                                            bottom: 0,
+                                            child: Center(
+                                              child: ConstrainedBox(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      maxWidth: 720,
+                                                    ),
+                                                child: const SafeArea(
+                                                  top: false,
+                                                  child: PlayerBar(),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                                if (!useNowPlayingPane)
+                                if (useNowPlayingPane)
                                   Positioned(
-                                    left: 0,
+                                    top: 0,
                                     right: 0,
                                     bottom: 0,
-                                    child: Center(
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(
-                                          maxWidth: 720,
+                                    child: AnimatedContainer(
+                                      duration: NowPlayingPanel
+                                          .expandTransitionDuration,
+                                      curve: Curves.easeOutCubic,
+                                      width: _paneSlotWidth,
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          0,
+                                          8,
+                                          _paneGutter,
+                                          8,
                                         ),
-                                        child: const SafeArea(
+                                        child: SafeArea(
                                           top: false,
-                                          child: PlayerBar(),
+                                          child: NowPlayingPanel(
+                                            expanded: _playerExpanded,
+                                            onToggleExpanded: () =>
+                                                setState(() {
+                                                  _playerExpanded =
+                                                      !_playerExpanded;
+                                                }),
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -266,34 +324,6 @@ class _HomeShellState extends State<HomeShell>
                               ],
                             ),
                           ),
-                          if (useNowPlayingPane)
-                            AnimatedContainer(
-                              duration:
-                                  NowPlayingPanel.expandTransitionDuration,
-                              curve: Curves.easeOutCubic,
-                              width:
-                                  (_playerExpanded
-                                      ? NowPlayingPanel.expandedPaneWidth
-                                      : NowPlayingPanel.compactPaneWidth) +
-                                  _paneGutter,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  0,
-                                  8,
-                                  _paneGutter,
-                                  8,
-                                ),
-                                child: SafeArea(
-                                  top: false,
-                                  child: NowPlayingPanel(
-                                    expanded: _playerExpanded,
-                                    onToggleExpanded: () => setState(() {
-                                      _playerExpanded = !_playerExpanded;
-                                    }),
-                                  ),
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                     ),

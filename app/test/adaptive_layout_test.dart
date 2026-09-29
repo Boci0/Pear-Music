@@ -316,6 +316,38 @@ void main() {
     expect(tester.getSize(panel), settledCard);
   });
 
+  testWidgets('the tabs do not re-flow while the pane grows or shrinks', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1600, 1000));
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    final tabs = find.byType(IndexedStack).first;
+    final compactTabs = tester.getSize(tabs);
+
+    // Expanding: the tabs take their final width on the first frame and
+    // hold it, so only the pane card animates.
+    await tester.tap(find.byKey(const ValueKey('pane_expand')));
+    await tester.pump();
+    final expandedTabs = tester.getSize(tabs);
+    expect(expandedTabs.width, lessThan(compactTabs.width));
+    await tester.pump(NowPlayingPanel.expandTransitionDuration ~/ 2);
+    expect(tester.getSize(tabs), expandedTabs);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(tabs), expandedTabs);
+
+    // Collapsing: same in reverse.
+    await tester.tap(find.byKey(const ValueKey('pane_collapse')));
+    await tester.pump();
+    expect(tester.getSize(tabs), compactTabs);
+    await tester.pump(NowPlayingPanel.expandTransitionDuration ~/ 2);
+    expect(tester.getSize(tabs), compactTabs);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(tabs), compactTabs);
+  });
+
   testWidgets('every tab shares one content width on a very wide window', (
     tester,
   ) async {
