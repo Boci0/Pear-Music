@@ -64,8 +64,9 @@ class UpdateService {
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
   static Future<UpdateInfo?> checkLatestRelease() async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8);
     try {
-      final client = HttpClient();
       client.userAgent = 'PearMusicApp/$currentVersion';
       final request = await client.getUrl(Uri.parse(_releasesApiUrl));
       final response = await request.close().timeout(
@@ -73,7 +74,10 @@ class UpdateService {
       );
 
       if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
+        final body = await response
+            .transform(utf8.decoder)
+            .join()
+            .timeout(const Duration(seconds: 15));
         final json = jsonDecode(body) as Map<String, dynamic>;
         final tagName = (json['tag_name'] as String? ?? '').trim();
         final htmlUrl =
@@ -174,6 +178,8 @@ class UpdateService {
       }
     } catch (e) {
       debugPrint('[UpdateService] Check failed: $e');
+    } finally {
+      client.close(force: true);
     }
     return null;
   }
@@ -185,15 +191,19 @@ class UpdateService {
   ) async {
     final result = <String, String>{};
     if (sumsUrl == null || !sumsUrl.startsWith('https://')) return result;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8);
     try {
-      final client = HttpClient();
       client.userAgent = 'PearMusicApp/$currentVersion';
       final request = await client.getUrl(Uri.parse(sumsUrl));
       final response = await request.close().timeout(
         const Duration(seconds: 8),
       );
       if (response.statusCode == 200) {
-        final text = await response.transform(utf8.decoder).join();
+        final text = await response
+            .transform(utf8.decoder)
+            .join()
+            .timeout(const Duration(seconds: 15));
         for (final line in const LineSplitter().convert(text)) {
           final m = RegExp(
             r'^([0-9a-fA-F]{64})\s+\*?(.+)$',
@@ -207,6 +217,8 @@ class UpdateService {
       }
     } catch (e) {
       debugPrint('[UpdateService] Failed to fetch checksums asset: $e');
+    } finally {
+      client.close(force: true);
     }
     return result;
   }

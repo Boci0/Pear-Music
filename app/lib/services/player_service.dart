@@ -1691,12 +1691,7 @@ class PlayerService extends ChangeNotifier {
             _resetStreamFailureCounters();
           } catch (e) {
             DebugLog.write('[player] Cached file unplayable or corrupt: $e. Evicting from cache.');
-            try {
-              final cacheDir = await StreamCacheManager.getCacheDirectory();
-              if (p.isWithin(cacheDir.path, cachedFile.path) && await cachedFile.exists()) {
-                await cachedFile.delete();
-              }
-            } catch (_) {}
+            await StreamCacheManager.evictUnplayable(cachedFile);
             rethrow;
           }
         } else {
@@ -1812,12 +1807,7 @@ class PlayerService extends ChangeNotifier {
               _resetStreamFailureCounters();
             } catch (e) {
               DebugLog.write('[player] Downloaded stream unplayable or corrupt: $e. Evicting file.');
-              try {
-                final cacheDir = await StreamCacheManager.getCacheDirectory();
-                if (p.isWithin(cacheDir.path, downloadedFile.path) && await downloadedFile.exists()) {
-                  await downloadedFile.delete();
-                }
-              } catch (_) {}
+              await StreamCacheManager.evictUnplayable(downloadedFile);
               rethrow;
             }
           } else {

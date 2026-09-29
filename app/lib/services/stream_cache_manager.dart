@@ -360,6 +360,28 @@ class StreamCacheManager {
     return null;
   }
 
+  /// Deletes a cached file that turned out not to play and forgets it, so
+  /// it is fetched again rather than still counted as cached. Files outside
+  /// the cache (a library copy) are left alone.
+  static Future<void> evictUnplayable(File file) async {
+    try {
+      final dir = await getCacheDirectory();
+      if (!p.isWithin(dir.path, file.path)) return;
+      final rawName = p.basenameWithoutExtension(file.path);
+      final videoId = rawName.contains('.') ? rawName.split('.').first : rawName;
+      _cachedVideoIds.remove(videoId);
+      if (await file.exists()) {
+        final len = await file.length();
+        await file.delete();
+        _setCachedTotalBytes(
+          _cachedTotalBytes - len < 0 ? 0 : _cachedTotalBytes - len,
+        );
+      }
+    } catch (e) {
+      DebugLog.write('[cache] could not evict ${p.basename(file.path)}: $e');
+    }
+  }
+
   /// Inspects any cached file details on disk for a given [videoId].
   static Future<({bool isCached, String? filePath, int? fileSize, String? ext})> inspectTrackCache(String videoId) async {
     try {
@@ -1185,6 +1207,11 @@ class StreamCacheManager {
           artwork: base64Art ?? streamSong.artwork,
         );
         if (song != null) return song;
+        // Null here means this audio is already in the library: hand back
+        // that song instead of downloading it all over again.
+        final existing =
+            library.findByChecksum(await LibraryService.checksum(cached));
+        if (existing != null) return existing;
       }
 
       final ytUrl = 'https://www.youtube.com/watch?v=$videoId';

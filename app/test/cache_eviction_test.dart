@@ -43,4 +43,26 @@ void main() {
         reason: 'the song played longest ago makes room');
     expect(files.where((f) => f.existsSync()), hasLength(StreamCacheManager.maxTrackCount));
   });
+
+  test('an unplayable cached file is deleted and no longer counted as cached',
+      () async {
+    final dir = await StreamCacheManager.getCacheDirectory();
+    final f = File(p.join(dir.path, 'zzzzzzzzzzz.m4a'))
+      ..writeAsBytesSync(List.filled(60000, 1));
+    expect(await StreamCacheManager.getCachedFile('zzzzzzzzzzz'), isNotNull);
+    expect(StreamCacheManager.isStreamCachedSync('zzzzzzzzzzz'), isTrue);
+
+    await StreamCacheManager.evictUnplayable(f);
+
+    expect(f.existsSync(), isFalse);
+    expect(StreamCacheManager.isStreamCachedSync('zzzzzzzzzzz'), isFalse,
+        reason: 'so the next song preload fetches it again');
+  });
+
+  test('a library file handed to evictUnplayable is left alone', () async {
+    final outside = File(p.join(sandbox.path, 'library_song.m4a'))
+      ..writeAsBytesSync([1, 2, 3]);
+    await StreamCacheManager.evictUnplayable(outside);
+    expect(outside.existsSync(), isTrue);
+  });
 }

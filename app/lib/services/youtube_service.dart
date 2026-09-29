@@ -173,17 +173,27 @@ class YoutubeService {
               ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos'
               : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux');
 
-      final client = HttpClient();
+      // Every stream fetch waits on this download, so a stalled connection
+      // must fail rather than leave playback spinning forever.
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 15);
       try {
         final request = await client.getUrl(Uri.parse(downloadUrl));
         request.headers.set('User-Agent', 'PearMusic-App');
         request.headers.set('Accept', 'application/octet-stream');
-        final response = await request.close();
+        final response =
+            await request.close().timeout(const Duration(seconds: 20));
 
         if (response.statusCode == 200) {
           final sink = tempFile.openWrite();
-          await response.pipe(sink);
-          await sink.close();
+          try {
+            // No data for 30 seconds is a dead connection, not a slow one.
+            await sink.addStream(
+              response.timeout(const Duration(seconds: 30)),
+            );
+          } finally {
+            await sink.close();
+          }
 
           final downloadedLen = await tempFile.length();
           if (downloadedLen > 1000000) {
@@ -200,7 +210,7 @@ class YoutubeService {
           }
         }
       } finally {
-        client.close();
+        client.close(force: true);
       }
       _downloadingYtDlp!.complete(null);
       return null;

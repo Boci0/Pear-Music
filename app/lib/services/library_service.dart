@@ -666,6 +666,15 @@ class LibraryService extends ChangeNotifier {
 
   bool hasChecksum(String checksum) => _checksums.contains(checksum);
 
+  /// The library song whose audio has [checksum], if any.
+  Song? findByChecksum(String checksum) {
+    if (!_checksums.contains(checksum)) return null;
+    for (final s in _songs) {
+      if (s.checksum == checksum) return s;
+    }
+    return null;
+  }
+
   /// Copy externally picked files into the library. Deduplicates by checksum.
   /// Returns the songs that were actually added.
   Future<List<Song>> addLocalFiles(List<File> files) async {
