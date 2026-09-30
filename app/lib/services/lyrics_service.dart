@@ -484,7 +484,12 @@ class LyricsService {
         spread = const Duration(milliseconds: 300);
       }
       for (var k = 0; k < n; k++) {
-        result.add((text: parts[k], at: span.start + spread * (k / n)));
+        var at = span.start + spread * (k / n);
+        // Word timings from the source can overlap or arrive out of order;
+        // a letter never lights before the one written ahead of it, or the
+        // line glows in patches with dim letters left behind.
+        if (result.isNotEmpty && at < result.last.at) at = result.last.at;
+        result.add((text: parts[k], at: at));
       }
     }
     return result;

@@ -524,6 +524,17 @@ First stanza line
       expect(glyphs[2].at, const Duration(seconds: 2));
     });
 
+    test('letters never light out of order when word timings overlap', () {
+      final spans = [
+        const LyricSpan('ab', Duration(seconds: 2), Duration(seconds: 3)),
+        const LyricSpan('cd', Duration(seconds: 1), Duration(seconds: 2)),
+      ];
+      final glyphs = LyricsService.glyphTimes(spans);
+      for (var i = 1; i < glyphs.length; i++) {
+        expect(glyphs[i].at, greaterThanOrEqualTo(glyphs[i - 1].at));
+      }
+    });
+
     test('held notes get more time: the last syllable and written stretches',
         () {
       final lines = LyricsService.parseLrc('[00:10.00] 空ーを見て\n[00:14.00] next');
