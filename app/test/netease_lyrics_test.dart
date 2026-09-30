@@ -80,4 +80,50 @@ void main() {
     );
     expect([for (final l in lines) l.text], ['first line', 'second line']);
   });
+
+  group('spaces between words', () {
+    test('a space the word data left out is put back from the plain line', () {
+      expect(
+        NeteaseLyrics.respaced(["I'm", 'going', 'through'], "I'm going through"),
+        ["I'm ", 'going ', 'through'],
+      );
+      // Syllables of one word stay joined.
+      expect(
+        NeteaseLyrics.respaced(['with', 'drawals'], 'withdrawals'),
+        ['with', 'drawals'],
+      );
+    });
+
+    test('spaces already there are never doubled', () {
+      expect(
+        NeteaseLyrics.respaced(['one ', 'two'], 'one two'),
+        ['one ', 'two'],
+      );
+      expect(
+        NeteaseLyrics.respaced(['one', ' two'], 'one two'),
+        ['one', ' two'],
+      );
+    });
+
+    test('a line that does not match its plain line is left alone', () {
+      expect(
+        NeteaseLyrics.respaced(['one', 'two'], 'one three'),
+        ['one', 'two'],
+      );
+      expect(NeteaseLyrics.respaced(['one', 'two'], null), ['one', 'two']);
+    });
+
+    test('word-timed lines take their spaces from the plain lyrics', () {
+      const yrc = '[1000,900](1000,300,0)alpha(1300,300,0)beta(1600,300,0)gamma';
+      const plain = '[00:01.00]alpha beta gamma';
+      final lrc = NeteaseLyrics.yrcToEnhancedLrc(yrc, plainLrc: plain);
+      final lines = LyricsService.parseLrc(lrc);
+      expect(lines.single.text, 'alpha beta gamma');
+      expect([for (final w in lines.single.words) w.text], [
+        'alpha ',
+        'beta ',
+        'gamma',
+      ]);
+    });
+  });
 }

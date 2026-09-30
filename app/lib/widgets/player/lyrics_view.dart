@@ -307,8 +307,7 @@ class _LyricsViewState extends State<LyricsView>
       }
       // Lyrics saved before word timing was looked up get one background
       // look, and switch over in place if real timing turns up.
-      if (!lyrics.any((l) => l.words.isNotEmpty) &&
-          LyricsDisplay.wordGlow.value != WordGlowMode.off) {
+      if (LyricsDisplay.wordGlow.value != WordGlowMode.off) {
         unawaited(_upgradeWordTiming(songId, localAudioPath));
       }
     }

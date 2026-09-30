@@ -762,7 +762,7 @@ class LyricsService {
         final parsed = parseLrc(fetchedLrc);
         if (parsed.isNotEmpty) {
           final saved =
-              '$fetchedLrc\n$wordTimingCheckedMark\n${sourceMark(source)}';
+              '$fetchedLrc\n$wordTimingCheckedMark\n${sourceMark(source)}\n$spacingCheckedMark';
           _setMemoryCache(cacheKey, parsed, rawContent: saved);
           _saveToDiskCache(song.id, saved);
           return parsed;
@@ -780,6 +780,11 @@ class LyricsService {
   /// which are never replaced.)
   static const String wordTimingCheckedMark = '[pear:word-timing-checked]';
   static final RegExp _markLine = RegExp(r'^\[pear:[^\]]*\]\s*$');
+
+  /// Written into NetEase lyrics saved once their word spacing has been
+  /// checked against NetEase's plain lyrics (earlier saves could hold words
+  /// glued together, "I'mgoing").
+  static const String spacingCheckedMark = '[pear:spacing-checked]';
 
   /// Written into saved lyrics to say where they came from (`lrclib`,
   /// `netease` or `lrclib-manual`), for the timing report.
@@ -895,6 +900,27 @@ class LyricsService {
       return null;
     }
     final raw = await getRawLrc(song, localAudioPath: localAudioPath);
+    // Word-timed lyrics saved before the spacing check get one more look:
+    // NetEase's own text puts back spaces the word data left out. Lyrics from
+    // LRCLIB, or picked by hand, are left alone.
+    if (raw != null &&
+        hasWordTiming(raw) &&
+        !raw.contains(spacingCheckedMark) &&
+        sourceOf(raw) != 'lrclib' &&
+        sourceOf(raw) != 'lrclib-manual') {
+      final netease = await NeteaseLyrics.fetch(
+        song,
+        duration: duration,
+        wordTimingOnly: true,
+      );
+      final updated = netease == null
+          ? '$raw\n$spacingCheckedMark'
+          : '${netease.lrc}\n$wordTimingCheckedMark\n${sourceMark('netease')}\n$spacingCheckedMark';
+      final parsed = parseLrc(updated);
+      _setMemoryCache(song.id, parsed, rawContent: updated);
+      await _saveToDiskCache(song.id, updated);
+      return netease == null ? null : parsed;
+    }
     if (raw == null ||
         raw.contains(wordTimingCheckedMark) ||
         hasWordTiming(raw)) {
@@ -907,7 +933,7 @@ class LyricsService {
     );
     final updated = netease == null
         ? '$raw\n$wordTimingCheckedMark'
-        : '${netease.lrc}\n$wordTimingCheckedMark\n${sourceMark('netease')}';
+        : '${netease.lrc}\n$wordTimingCheckedMark\n${sourceMark('netease')}\n$spacingCheckedMark';
     final parsed = parseLrc(updated);
     _setMemoryCache(song.id, parsed, rawContent: updated);
     await _saveToDiskCache(song.id, updated);

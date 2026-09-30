@@ -61,7 +61,7 @@ class NeteaseLyrics {
       final lengthFits = duration != null &&
           (pick.duration - duration).abs() <= wordTimingTolerance;
       if (yrc != null && yrc.trim().isNotEmpty && lengthFits) {
-        final converted = yrcToEnhancedLrc(yrc);
+        final converted = yrcToEnhancedLrc(yrc, plainLrc: lrc);
         if (converted.isNotEmpty) {
           return NeteaseResult(converted, hasWordTiming: true);
         }
@@ -160,8 +160,14 @@ class NeteaseLyrics {
   /// word tags, which the app already reads. A word that stops before the
   /// next one begins gets an end mark, so held notes and pauses keep their
   /// real length.
+  ///
+  /// Word data sometimes leaves out the space between two words ("I'm" and
+  /// "going" glued together). With [plainLrc], NetEase's plain version of the
+  /// same lyrics, a line whose letters match the plain line exactly gets its
+  /// spaces back from it.
   @visibleForTesting
-  static String yrcToEnhancedLrc(String yrc) {
+  static String yrcToEnhancedLrc(String yrc, {String? plainLrc}) {
+    final plain = plainLrc == null ? const <int, String>{} : _plainLines(plainLrc);
     final out = StringBuffer();
     for (final raw in const LineSplitter().convert(yrc)) {
       final line = raw.trim();
@@ -171,12 +177,17 @@ class NeteaseLyrics {
       if (words.isEmpty) continue;
       final text = words.map((w) => w.group(3)!).join();
       if (text.trim().isEmpty || _credit.hasMatch(text)) continue;
+      final lineStart = int.parse(m.group(1)!);
+      final texts = _respaced(
+        [for (final w in words) w.group(3)!],
+        _plainNear(plain, lineStart),
+      );
 
       out.write('[${_stamp(int.parse(m.group(1)!))}]');
       for (var i = 0; i < words.length; i++) {
         final start = int.parse(words[i].group(1)!);
         final end = start + int.parse(words[i].group(2)!);
-        out.write('<${_stamp(start)}>${words[i].group(3)}');
+        out.write('<${_stamp(start)}>${texts[i]}');
         final nextStart =
             i + 1 < words.length ? int.parse(words[i + 1].group(1)!) : null;
         // Mark the end when the word stops short of the next one (or is the
@@ -188,6 +199,76 @@ class NeteaseLyrics {
       out.writeln();
     }
     return out.toString();
+  }
+
+  /// Plain LRC lines by start time in milliseconds.
+  static Map<int, String> _plainLines(String lrc) {
+    final result = <int, String>{};
+    final re = RegExp(r'^\[(\d+):(\d+)(?:[.:](\d+))?\](.*)$');
+    for (final line in const LineSplitter().convert(lrc)) {
+      final m = re.firstMatch(line.trim());
+      if (m == null) continue;
+      final frac = m.group(3) ?? '0';
+      final ms = int.parse(m.group(1)!) * 60000 +
+          int.parse(m.group(2)!) * 1000 +
+          int.parse(frac.padRight(3, '0').substring(0, 3));
+      result[ms] = m.group(4)!.trim();
+    }
+    return result;
+  }
+
+  static String? _plainNear(Map<int, String> plain, int ms) {
+    String? best;
+    var bestGap = 600;
+    plain.forEach((at, text) {
+      final gap = (at - ms).abs();
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = text;
+      }
+    });
+    return best;
+  }
+
+  /// [words] with a space added after each word that [plain] has one after.
+  /// Returns [words] untouched unless the two hold exactly the same letters.
+  @visibleForTesting
+  static List<String> respaced(List<String> words, String? plain) =>
+      _respaced(words, plain);
+
+  static List<String> _respaced(List<String> words, String? plain) {
+    if (plain == null || plain.isEmpty) return words;
+    String strip(String s) => s.replaceAll(RegExp(r'\s+'), '');
+    if (strip(words.join()) != strip(plain)) return words;
+    // For each letter of the plain line, whether a space follows it.
+    final spaceAfter = <bool>[];
+    for (final r in plain.runes) {
+      final isSpace = String.fromCharCode(r).trim().isEmpty;
+      if (isSpace) {
+        if (spaceAfter.isNotEmpty) spaceAfter[spaceAfter.length - 1] = true;
+      } else {
+        spaceAfter.add(false);
+      }
+    }
+    final result = <String>[];
+    var at = 0;
+    for (var wi = 0; wi < words.length; wi++) {
+      final w = words[wi];
+      final nextHasSpace =
+          wi + 1 < words.length &&
+          words[wi + 1].isNotEmpty &&
+          words[wi + 1].substring(0, 1).trim().isEmpty;
+      final letters = strip(w).runes.length;
+      at += letters;
+      final needs =
+          at > 0 &&
+          at <= spaceAfter.length &&
+          spaceAfter[at - 1] &&
+          !nextHasSpace &&
+          !(w.isNotEmpty && w.substring(w.length - 1).trim().isEmpty);
+      result.add(needs ? '$w ' : w);
+    }
+    return result;
   }
 
   /// Plain NetEase LRC without its credit lines.
