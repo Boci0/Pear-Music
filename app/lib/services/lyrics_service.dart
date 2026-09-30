@@ -354,7 +354,8 @@ class LyricsService {
   ///
   /// With [onsets] (where the level in the song's voice range jumps up, see
   /// LoudnessService.onsetsFor) the estimate is pulled onto the song: each
-  /// word starts at the onset nearest its guess, when there is one close by.
+  /// word starts at the onset nearest its guess, when there is one close by
+  /// (within 150 ms, so a wrong snap only moves the glow a little).
   static List<LyricSpan> spansFor(
     List<LyricLine> lyrics,
     int i, {
@@ -422,7 +423,7 @@ class LyricsService {
   }
 
   /// How far a guessed word start may move to meet an onset.
-  static const Duration _snapWindow = Duration(milliseconds: 200);
+  static const Duration _snapWindow = Duration(milliseconds: 150);
 
   /// The shortest time between two word starts after snapping.
   static const Duration _minWordGap = Duration(milliseconds: 80);

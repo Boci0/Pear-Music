@@ -387,10 +387,11 @@ First stanza line
           '[00:10.00] one two three four five\n[00:16.00] next',
         );
         final guess = sungStarts(LyricsService.spansFor(lines, 0));
-        // Everything 180 ms late, and the later words later still: each is
-        // within reach only once the shift of the words before is carried.
+        // Everything 120 ms late, and the later words later still (up to
+        // 360 ms, well past the 150 ms reach): each is within reach only once
+        // the shift of the words before is carried.
         final real = [
-          for (var i = 0; i < guess.length; i++) guess[i] + ms(180 + 90 * i),
+          for (var i = 0; i < guess.length; i++) guess[i] + ms(120 + 60 * i),
         ];
         final spans = LyricsService.spansFor(lines, 0, onsets: real);
         expect(sungStarts(spans), real);

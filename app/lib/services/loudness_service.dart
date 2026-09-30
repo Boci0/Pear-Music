@@ -50,6 +50,11 @@ class LoudnessService {
 
   /// Bumped when the silence rule changes, so older spans are found again.
   static const int _spanVersion = 2;
+
+  /// Bumped when the onset rule changes: songs with older onsets keep their
+  /// level and span and are measured once more. (2: pitched onsets only;
+  /// version 1 also took drum hits.)
+  static const int _onsetVersion = 2;
   static final Map<String, Future<double?>> _inFlight = {};
   static Future<void>? _loading;
   static File? _storeFile;
@@ -123,7 +128,9 @@ class LoudnessService {
                 length: len.toDouble(),
                 onsetsMs: onsets is String ? decodeOnsets(onsets) : const [],
               );
-              if (onsets is! String) _needsOnsets.add(key);
+              if (onsets is! String || v['ov'] != _onsetVersion) {
+                _needsOnsets.add(key);
+              }
             }
           }
         }
@@ -149,8 +156,10 @@ class LoudnessService {
                   'end': span.musicEnd,
                   'len': span.length,
                   'v': _spanVersion,
-                  if (!_needsOnsets.contains(e.key))
+                  if (!_needsOnsets.contains(e.key)) ...{
                     'on': encodeOnsets(span.onsetsMs),
+                    'ov': _onsetVersion,
+                  },
                 },
               null => e.value,
             },

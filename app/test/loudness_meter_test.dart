@@ -163,6 +163,29 @@ void main() {
       }
     });
 
+    test('drum hits are not taken for sung notes', () {
+      const rate = 44100;
+      const notes = [600, 1800, 3000];
+      const hits = [1200, 2400, 3600, 4200];
+      final out = song(notes);
+      final noise = math.Random(7);
+      for (final start in hits) {
+        // A snare: a loud burst of noise that dies away within 100 ms.
+        final s0 = start * rate ~/ 1000;
+        for (var j = 0; j < rate * 0.15; j++) {
+          final env = math.exp(-j / rate * 40);
+          out[s0 + j] += 0.6 * env * (noise.nextDouble() * 2 - 1);
+        }
+      }
+      final analysis =
+          LoudnessMeter.analyzeSamples(out, channels: 1, sampleRate: rate)!;
+      expect(analysis.onsetsMs, hasLength(notes.length),
+          reason: 'found ${analysis.onsetsMs}');
+      for (var i = 0; i < notes.length; i++) {
+        expect((analysis.onsetsMs[i] - notes[i]).abs(), lessThanOrEqualTo(20));
+      }
+    });
+
     test('a steady sound has none', () {
       final analysis = LoudnessMeter.analyzeSamples(
         song(const []),

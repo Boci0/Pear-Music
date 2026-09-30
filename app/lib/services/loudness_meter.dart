@@ -163,6 +163,10 @@ class LoudnessAnalysis {
 /// Finds onsets in the voice range (about 200 Hz to 3 kHz, which leaves out
 /// most of the kick drum, bass and cymbals): 10 ms energy hops, then the
 /// moments the level rises clearly above the hops just before it.
+///
+/// Only onsets followed by a pitched sound are kept. A snare hit or a clap
+/// is noise and fades fast; a sung syllable holds a note. Without this check
+/// the drums, which hit harder than the voice, won most of the snaps.
 class _OnsetDetector {
   final int _hopFrames;
   final _Biquad _highPass;
@@ -171,13 +175,35 @@ class _OnsetDetector {
   double _hopSum = 0;
   int _frameInHop = 0;
 
+  /// The filtered signal kept at a lower rate (the filter already removed
+  /// everything above 3 kHz) for the pitch check, as 16-bit samples.
+  final int _decimate;
+  late final double _keptRate;
+  final List<Int16List> _kept = [];
+  Int16List _chunk = Int16List(_chunkSize);
+  int _inChunk = 0;
+  int _decimateCount = 0;
+  static const int _chunkSize = 1 << 16;
+
   _OnsetDetector(int sampleRate)
     : _hopFrames = math.max(1, (sampleRate / 100).round()),
       _highPass = _Biquad.highPass(200, sampleRate),
-      _lowPass = _Biquad.lowPass(3000, sampleRate);
+      _lowPass = _Biquad.lowPass(3000, sampleRate),
+      _decimate = math.max(1, sampleRate ~/ 8000) {
+    _keptRate = sampleRate / _decimate;
+  }
 
   void addFrame(double mono) {
     final y = _lowPass.process(_highPass.process(mono));
+    if (++_decimateCount == _decimate) {
+      _decimateCount = 0;
+      _chunk[_inChunk] = (y * 32767).round().clamp(-32768, 32767);
+      if (++_inChunk == _chunkSize) {
+        _kept.add(_chunk);
+        _chunk = Int16List(_chunkSize);
+        _inChunk = 0;
+      }
+    }
     _hopSum += y * y;
     if (++_frameInHop == _hopFrames) {
       _hopDb.add(10 * math.log(_hopSum / _hopFrames + 1e-12) / math.ln10);
@@ -233,10 +259,56 @@ class _OnsetDetector {
         }
       }
       if (!isPeak || t - last < minGapHops) continue;
+      if (!_pitchedAfter(t * 10)) continue;
       last = t;
       result.add(t * 10);
     }
     return result;
+  }
+
+  int get _keptLength => _kept.length * _chunkSize + _inChunk;
+
+  double _keptAt(int i) {
+    final c = i ~/ _chunkSize;
+    final v = c < _kept.length ? _kept[c][i % _chunkSize] : _chunk[i % _chunkSize];
+    return v / 32768;
+  }
+
+  /// Whether a pitched sound (80 Hz to 1 kHz, a voice's range) holds in the
+  /// 40 ms starting 20 ms after [ms], past the attack where any hit is
+  /// noisy: some lag must repeat the waveform closely (normalised
+  /// autocorrelation of at least 0.6).
+  bool _pitchedAfter(int ms) {
+    final start = ((ms + 20) * _keptRate / 1000).round();
+    final length = (0.040 * _keptRate).round();
+    final minLag = math.max(1, (_keptRate / 1000).floor());
+    final maxLag = (_keptRate / 80).ceil();
+    if (start < 0 || start + length + maxLag > _keptLength) return false;
+    final x = Float64List(length + maxLag);
+    for (var i = 0; i < x.length; i++) {
+      x[i] = _keptAt(start + i);
+    }
+    var e0 = 0.0;
+    for (var i = 0; i < length; i++) {
+      e0 += x[i] * x[i];
+    }
+    if (e0 <= 1e-9) return false;
+    // Energy of the shifted window, kept up to date as the lag grows.
+    var eLag = 0.0;
+    for (var i = minLag; i < minLag + length; i++) {
+      eLag += x[i] * x[i];
+    }
+    for (var lag = minLag; lag <= maxLag; lag++) {
+      var dot = 0.0;
+      for (var i = 0; i < length; i++) {
+        dot += x[i] * x[i + lag];
+      }
+      if (eLag > 1e-9 && dot / math.sqrt(e0 * eLag) >= 0.6) return true;
+      if (lag < maxLag) {
+        eLag += x[lag + length] * x[lag + length] - x[lag] * x[lag];
+      }
+    }
+    return false;
   }
 }
 

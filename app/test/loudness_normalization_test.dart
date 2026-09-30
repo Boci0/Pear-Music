@@ -104,7 +104,12 @@ void main() {
         'aaaaaaaaaaa': {'lufs': -9.0, 'start': 0.5, 'end': 180.0, 'len': 181.0, 'v': 2},
         'bbbbbbbbbbb': {
           'lufs': -10.0, 'start': 0.0, 'end': 100.0, 'len': 100.0, 'v': 2,
-          'on': LoudnessService.encodeOnsets(const [1000, 1500]),
+          'on': LoudnessService.encodeOnsets(const [1000, 1500]), 'ov': 2,
+        },
+        // Onsets from the first rule, which also took drum hits.
+        'ccccccccccc': {
+          'lufs': -11.0, 'start': 0.0, 'end': 90.0, 'len': 90.0, 'v': 2,
+          'on': LoudnessService.encodeOnsets(const [500]),
         },
       }));
       await LoudnessService.load();
@@ -116,6 +121,12 @@ void main() {
       expect(LoudnessService.isMeasured(old), isFalse,
           reason: 'measured once more to find its onsets');
       expect(LoudnessService.onsetsFor(old), isNull);
+
+      final firstRule = _songWithId('ccccccccccc');
+      expect(LoudnessService.lufsFor(firstRule), -11.0);
+      expect(LoudnessService.isMeasured(firstRule), isFalse,
+          reason: 'onsets from the old rule are found again');
+      expect(LoudnessService.onsetsFor(firstRule), isNull);
 
       expect(LoudnessService.isMeasured(fresh), isTrue);
       expect(LoudnessService.onsetsFor(fresh),
