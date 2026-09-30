@@ -1,15 +1,40 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v4.1.3**.
+Handover notes for the next working session. Latest release: **v4.1.7** (all verified only by tests and the
+owner's reports; the agent cannot hear audio or run the app).
 
 ## Start here
 
-1. **Lyric timing failures reported on v4.1.x.** v4.1.3 added a "Report
-   timing" button (Lyrics Options) and a GitHub issue form
-   (`.github/ISSUE_TEMPLATE/lyric-timing.yml`). Each of these needs a report
-   from the button, or at least "whole line early/late" vs "glow drifts
-   within the line":
-   - HUMBLE. (Kendrick Lamar)
+1. **Confirm the v4.1.4 to v4.1.7 lyric changes by ear.** Nothing below was
+   heard by the agent. Ask the owner how HUMBLE. and Blinding Lights feel now:
+   - v4.1.4: a line too long for its time (rap) is sung nonstop, no held last
+     word, fills 95% of the time (the glow used to run ahead).
+   - v4.1.5: the glow travels through the letters (`glyphTimes`) instead of
+     lighting a word as a block; words no longer pile onto one instant when
+     onset snapping shifts a line late.
+   - v4.1.6: a word's first letter lights exactly on the word start, the rest
+     within 60% of the word and 300 ms, 150 ms fade, no built-in delay; a
+     **Glow timing slider** (-500 to +500 ms, `LyricsDisplay.glowDelayMs`) in
+     Lyrics Options moves only the glow. It is also in the timing report.
+   - v4.1.7: words glued together in NetEase word data ("I'mgoing") get their
+     spaces back from NetEase's plain lyrics when the letters match exactly
+     (`NeteaseLyrics.respaced`); older saved lyrics are refetched once
+     (`[pear:spacing-checked]`). Not yet confirmed on the real song.
+2. **First line far off on Blinding Lights (NetEase).** The report shows the
+   line data itself is late: the "Yeah" the owner hears at 0:14 is stamped
+   about 0:23 in NetEase's data (the rest of the song is mostly fine). Likely
+   NetEase timed to a slightly different recording than the YouTube one (the
+   length check only allows +-3 s). Not an app bug, so no fix yet. Options,
+   in order: pick an LRCLIB version by hand; a first-line-only audio check
+   (pull the line earlier when the loudness pass sees a vocal onset far before
+   its stamp; a guess, could misfire on long instrumental intros); or real
+   alignment (below). Wait for more reports before building the check.
+3. **Lyric timing failures reported on v4.1.x** still need a Report timing
+   (Lyrics Options) or at least "whole line early/late" vs "glow drifts
+   within the line" (issue form: `.github/ISSUE_TEMPLATE/lyric-timing.yml`):
+   - HUMBLE. (Kendrick Lamar): glow ran ahead (fixed in 4.1.4, unconfirmed).
+     Its lyrics were picked by hand from LRCLIB, which has no word timing and
+     is never replaced by NetEase, so it stays on the estimate.
    - Guitar to Kodoku to Aoi Hoshi (Kessoku Band)
    - Yoru ni Kakeru (YOASOBI)
    - Hype Boy (NewJeans)
@@ -19,6 +44,9 @@ Handover notes for the next working session. Latest release: **v4.1.3**.
    The owner can't judge Japanese, Chinese or Korean lyrics, so treat those
    as unverified rather than failed. Saved lyrics record their source
    (`[pear:source:...]`); lyrics saved before 4.1.3 report it as unknown.
+4. **Idea, not built:** a "Try NetEase word timing" button in Lyrics Options
+   so a hand-picked LRCLIB version can borrow real word timing when NetEase
+   has it and fits the song length.
 
 ## Bigger projects
 
@@ -52,15 +80,23 @@ Handover notes for the next working session. Latest release: **v4.1.3**.
 
 - Real word timing (LRCLIB enhanced LRC, NetEase yrc) is used as is.
 - Otherwise words are estimated from typical singing pace
-  (`LyricsService.spansFor`), then snapped to onsets found in the song's
-  voice range during the loudness pass (`LoudnessMeter`, `_OnsetDetector`).
-  Onsets must be followed by a pitched sound (drums are rejected), a word
-  moves at most 150 ms, and a line with more than 1.5 onsets per sung piece
-  (a fast distorted guitar) keeps the plain estimate.
+  (`LyricsService.spansFor`); a line that does not fit its time at that pace
+  is "dense" (no held last word, fills 95% of the room). Estimates are then
+  snapped to onsets found in the song's voice range during the loudness pass
+  (`LoudnessMeter`, `_OnsetDetector`). Onsets must be followed by a pitched
+  sound (drums are rejected), a word moves at most 150 ms, and a line with
+  more than 1.5 onsets per sung piece keeps the plain estimate. A backward
+  pass keeps snapped words at least 80 ms apart.
+- Drawing: `LyricsService.glyphTimes` cuts spans into letters (Arabic, Hebrew
+  and Indic stay whole); `lyrics_view.dart` fades each letter in over 150 ms
+  with a smoothstep, shifted by the user's Glow timing.
 - Onsets are stored in `loudness.json` (compact base64 deltas, `ov` = onset
   rule version); bumping `_onsetVersion` re-measures songs once.
+- Saved lyrics carry marks: `[pear:word-timing-checked]`,
+  `[pear:source:lrclib|netease|lrclib-manual]`, `[pear:spacing-checked]`.
 - Known limits: loud guitar or piano chords can still pass as voice;
-  Japanese and Chinese are timed per character.
+  Japanese and Chinese are timed per character; the player skips leading
+  silence, so positions jump forward at song start.
 
 ## Working notes
 
@@ -75,6 +111,8 @@ Handover notes for the next working session. Latest release: **v4.1.3**.
   `.github/workflows/release.yml`. Tag pushes are rejected from the cloud
   sandbox, so the owner pushes the tag. Keep tag messages free of quotes and
   apostrophes so they paste into PowerShell.
+- `growing_file_audio_source_test` failed once under a full-suite run and
+  passes alone (timing flake, unrelated to lyrics).
 - **Never print or commit real song lyrics** (in tests, renders or chat);
   use placeholder text. A real lyric line once got output blocked.
 - LRCLIB, NetEase and YouTube are unreachable from the cloud sandbox;
