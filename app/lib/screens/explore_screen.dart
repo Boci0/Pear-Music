@@ -546,6 +546,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               result: item,
                               allResults: _results,
                               isCurrent: isCurrent,
+                              radioOnPlay: true,
                             );
                           }
 
@@ -805,6 +806,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               result: item,
                               allResults: _recommendedResults,
                               isCurrent: isCurrent,
+                              radioOnPlay: true,
                             );
                           }
 

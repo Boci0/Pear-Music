@@ -17,11 +17,16 @@ class YouTubeSongTile extends StatefulWidget {
   final List<YouTubeSearchResult>? allResults;
   final bool isCurrent;
 
+  /// Playing this tile starts a radio from its song instead of queueing
+  /// [allResults].
+  final bool radioOnPlay;
+
   const YouTubeSongTile({
     super.key,
     required this.result,
     this.allResults,
     this.isCurrent = false,
+    this.radioOnPlay = false,
   });
 
   @override
@@ -37,6 +42,12 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     AppController controller,
   ) async {
     final song = widget.result.toSong();
+    if (widget.radioOnPlay) {
+      // A pick from the recommendations seeds its own radio queue, so the
+      // upcoming songs follow this song and auto reroll can refresh them.
+      await controller.player.startRadio(song);
+      return;
+    }
     final queue = widget.allResults?.map((r) => r.toSong()).toList();
     await controller.player.playSong(
       song,
