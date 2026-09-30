@@ -1,0 +1,44 @@
+name: Lyric timing problem
+description: Lyrics or the word glow are early, late or drifting on a song
+labels: ["lyrics"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Open the song, go to Lyrics Options and tap **Report timing** while the
+        problem is on screen. Paste what it copied below. Please do not paste
+        the lyrics themselves.
+  - type: input
+    id: song
+    attributes:
+      label: Song and artist
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is off?
+      options:
+        - The whole line is early or late
+        - The glow drifts within the line
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Roughly where in the song
+      description: For example "first verse" or "around 1:20".
+  - type: textarea
+    id: report
+    attributes:
+      label: Timing report
+      description: Paste the text copied by Report timing.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
