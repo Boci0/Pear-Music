@@ -19,10 +19,15 @@ class ArtworkVisualizer extends StatefulWidget {
   final PlayerService player;
   final Color accentColor;
 
+  /// Draws dark bars on a light wash, for bright covers where light bars
+  /// disappear into the artwork (the same call the lyrics make for dark text).
+  final bool onBrightArt;
+
   const ArtworkVisualizer({
     super.key,
     required this.player,
     required this.accentColor,
+    this.onBrightArt = false,
   });
 
   /// The tallest bar, as a share of the card's height.
@@ -584,7 +589,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
           // spectrum repaint never rebuilds the vignette gradient.
           RepaintBoundary(
             child: CustomPaint(
-              painter: _VignettePainter(widget.accentColor),
+              painter: _VignettePainter(
+                widget.accentColor,
+                onBrightArt: widget.onBrightArt,
+              ),
             ),
           ),
           // No AnimatedBuilder here: repaints are driven by [_paintTick] (the
@@ -595,6 +603,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
             willChange: true,
             painter: _ArtworkVisualizerPainter(
               accentColor: widget.accentColor,
+              onBrightArt: widget.onBrightArt,
               activity: () => _decayActivity,
               liveBins: _displayBins,
               trailBins: _trailBins,
@@ -611,17 +620,21 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 /// layer so it is drawn once instead of on every animation frame.
 ///
 /// A deep shade of the song's accent rather than black: it seats the bars in
-/// the artwork's own colour instead of laying a flat dark filter over it.
+/// the artwork's own colour instead of laying a flat dark filter over it. On
+/// a bright cover it is a pale wash instead, behind the dark bars.
 class _VignettePainter extends CustomPainter {
-  const _VignettePainter(this.accentColor);
+  const _VignettePainter(this.accentColor, {this.onBrightArt = false});
 
   final Color accentColor;
+  final bool onBrightArt;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
-    final shade = Color.lerp(accentColor, Colors.black, 0.72)!;
+    final shade = onBrightArt
+        ? Color.lerp(accentColor, Colors.white, 0.85)!
+        : Color.lerp(accentColor, Colors.black, 0.72)!;
     final vignetteRect = Rect.fromLTWH(0, size.height * 0.55, size.width, size.height * 0.45);
     final vignettePaint = Paint()
       ..shader = LinearGradient(
@@ -639,11 +652,13 @@ class _VignettePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _VignettePainter oldDelegate) =>
-      oldDelegate.accentColor != accentColor;
+      oldDelegate.accentColor != accentColor ||
+      oldDelegate.onBrightArt != onBrightArt;
 }
 
 class _ArtworkVisualizerPainter extends CustomPainter {
   final Color accentColor;
+  final bool onBrightArt;
 
   /// Read at paint time because the value keeps decaying between rebuilds.
   final double Function() activity;
@@ -652,6 +667,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
 
   _ArtworkVisualizerPainter({
     required this.accentColor,
+    this.onBrightArt = false,
     required this.activity,
     required this.liveBins,
     required this.trailBins,
@@ -679,8 +695,17 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final radius = Radius.circular(barWidth / 2.0);
     // Translucent at the base so the artwork shows through, brighter at the
     // tip: the bars read as light on the art, not solid blocks over it.
-    final barBottomColor = accentColor.withValues(alpha: 0.35 + (0.20 * act));
-    final barTopColor = Color.lerp(accentColor, Colors.white, 0.55)!.withValues(alpha: 0.85);
+    //
+    // On a bright cover that light-on-light all but vanishes, so the bars turn
+    // into a deep shade of the accent instead, darkest (and most opaque) at
+    // the tip where they stand against the most artwork.
+    final ink = _deepInk(accentColor);
+    final barBottomColor = onBrightArt
+        ? Color.lerp(accentColor, ink, 0.55)!.withValues(alpha: 0.55 + (0.25 * act))
+        : accentColor.withValues(alpha: 0.35 + (0.20 * act));
+    final barTopColor = onBrightArt
+        ? ink.withValues(alpha: 0.92)
+        : Color.lerp(accentColor, Colors.white, 0.55)!.withValues(alpha: 0.85);
 
     // One shader per frame for the whole bar band instead of one per bar:
     // every bar is anchored at the band's bottom, so a shared vertical
@@ -701,10 +726,15 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final trailGradient = LinearGradient(
       begin: Alignment.bottomCenter,
       end: Alignment.topCenter,
-      colors: [
-        Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * act),
-        Colors.white.withValues(alpha: 0.55 * act),
-      ],
+      colors: onBrightArt
+          ? [
+              Color.lerp(accentColor, ink, 0.45)!.withValues(alpha: 0.25 * act),
+              ink.withValues(alpha: 0.40 * act),
+            ]
+          : [
+              Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * act),
+              Colors.white.withValues(alpha: 0.55 * act),
+            ],
     );
 
     // Two reusable paints, each with a shared shader, for all bars per frame.
@@ -749,9 +779,22 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     }
   }
 
+  /// A very dark shade of [accent] when it has real colour, otherwise a
+  /// near-black: a pale or grey accent only darkened a little stays close to
+  /// the bright cover it sits on.
+  static Color _deepInk(Color accent) {
+    final hsl = HSLColor.fromColor(accent);
+    if (hsl.saturation < 0.3) return const Color(0xFF141416);
+    return hsl
+        .withLightness(0.18)
+        .withSaturation(hsl.saturation.clamp(0.0, 0.7))
+        .toColor();
+  }
+
   @override
   bool shouldRepaint(covariant _ArtworkVisualizerPainter oldDelegate) {
-    return oldDelegate.accentColor != accentColor;
+    return oldDelegate.accentColor != accentColor ||
+        oldDelegate.onBrightArt != onBrightArt;
   }
 }
 

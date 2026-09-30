@@ -85,6 +85,8 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
     PlayerArtwork.showLyricsNotifier.addListener(_onLyricsVisibilityChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
+    // The visualizer follows the lyrics text colour setting.
+    LyricsDisplay.mode.addListener(_onPaletteUpdated);
     LyricsDisplay.keepScreenOn.addListener(_updateScreenAwake);
   }
 
@@ -120,6 +122,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   void dispose() {
     PlayerArtwork.showLyricsNotifier.removeListener(_onLyricsVisibilityChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
+    LyricsDisplay.mode.removeListener(_onPaletteUpdated);
     LyricsDisplay.keepScreenOn.removeListener(_updateScreenAwake);
     ScreenAwake.hold(this, false);
     _lyricsAnimController.dispose();
@@ -340,6 +343,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           key: _visualizerKey,
                           player: playerService,
                           accentColor: baseShadowColor,
+                          onBrightArt: LyricsDisplay.resolveDarkText(
+                            mode: LyricsDisplay.mode.value,
+                            artworkPrefersDarkText: isLight,
+                          ),
                         );
 
                   return Stack(
