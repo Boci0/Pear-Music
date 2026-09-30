@@ -354,6 +354,73 @@ First stanza line
       expect(spans.last.end, lessThan(const Duration(seconds: 11)));
     });
 
+    group('pulled onto the song\'s onsets', () {
+      Duration ms(int v) => Duration(milliseconds: v);
+      List<Duration> sungStarts(List<LyricSpan> spans) => [
+            for (final s in spans)
+              if (s.text.trim().isNotEmpty) s.start,
+          ];
+
+      test('each word starts at the onset nearest its guess', () {
+        final lines = LyricsService.parseLrc(
+          '[00:10.00] one two three four\n[00:14.00] next',
+        );
+        final guess = sungStarts(LyricsService.spansFor(lines, 0));
+        // Real starts a little off each guess, in both directions.
+        final real = [
+          guess[0] + ms(40),
+          guess[1] - ms(90),
+          guess[2] + ms(120),
+          guess[3] + ms(60),
+        ];
+        final spans = LyricsService.spansFor(lines, 0, onsets: real);
+        expect(sungStarts(spans), real);
+        expect([for (final s in spans) s.text].join(), lines[0].text);
+        for (var i = 0; i + 1 < spans.length; i++) {
+          expect(spans[i].end, spans[i + 1].start,
+              reason: 'each word runs until the next starts');
+        }
+      });
+
+      test('a line sung late is late throughout', () {
+        final lines = LyricsService.parseLrc(
+          '[00:10.00] one two three four five\n[00:16.00] next',
+        );
+        final guess = sungStarts(LyricsService.spansFor(lines, 0));
+        // Everything 180 ms late, and the later words later still: each is
+        // within reach only once the shift of the words before is carried.
+        final real = [
+          for (var i = 0; i < guess.length; i++) guess[i] + ms(180 + 90 * i),
+        ];
+        final spans = LyricsService.spansFor(lines, 0, onsets: real);
+        expect(sungStarts(spans), real);
+      });
+
+      test('far-away onsets are ignored and order is kept', () {
+        final lines = LyricsService.parseLrc(
+          '[00:10.00] one two three\n[00:14.00] next',
+        );
+        final plain = LyricsService.spansFor(lines, 0);
+        final guess = sungStarts(plain);
+        final spans = LyricsService.spansFor(
+          lines,
+          0,
+          // Only a stray onset a second away, and one past the next line.
+          onsets: [guess[1] + ms(1000), ms(14100)],
+        );
+        expect(sungStarts(spans), guess);
+      });
+
+      test('real word timing is never moved', () {
+        final lines = LyricsService.parseLrc(
+          '[00:10.00] <00:10.00>one <00:10.50>two <00:11.00>three\n[00:14.00] x',
+        );
+        final spans =
+            LyricsService.spansFor(lines, 0, onsets: [ms(10100), ms(10600)]);
+        expect(sungStarts(spans), [ms(10000), ms(10500), ms(11000)]);
+      });
+    });
+
     test('a slow line is spread over its time, up to a limit', () {
       // Five characters (about 1.1 s at a typical pace) with 3 s before the
       // next line: stretched to fill most of it.

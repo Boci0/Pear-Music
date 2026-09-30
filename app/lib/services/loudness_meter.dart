@@ -138,12 +138,139 @@ class LoudnessAnalysis {
   /// Length of the audio that was analysed, in seconds.
   final double length;
 
+  /// Milliseconds at which the level in the voice range jumps up: where
+  /// notes and sung syllables usually start. Used to line estimated lyric
+  /// word timing up with the song. Sorted, possibly empty.
+  final List<int> onsetsMs;
+
   const LoudnessAnalysis({
     required this.lufs,
     required this.musicStart,
     required this.musicEnd,
     required this.length,
+    this.onsetsMs = const [],
   });
+
+  LoudnessAnalysis withOnsets(List<int> onsets) => LoudnessAnalysis(
+        lufs: lufs,
+        musicStart: musicStart,
+        musicEnd: musicEnd,
+        length: length,
+        onsetsMs: onsets,
+      );
+}
+
+/// Finds onsets in the voice range (about 200 Hz to 3 kHz, which leaves out
+/// most of the kick drum, bass and cymbals): 10 ms energy hops, then the
+/// moments the level rises clearly above the hops just before it.
+class _OnsetDetector {
+  final int _hopFrames;
+  final _Biquad _highPass;
+  final _Biquad _lowPass;
+  final List<double> _hopDb = [];
+  double _hopSum = 0;
+  int _frameInHop = 0;
+
+  _OnsetDetector(int sampleRate)
+    : _hopFrames = math.max(1, (sampleRate / 100).round()),
+      _highPass = _Biquad.highPass(200, sampleRate),
+      _lowPass = _Biquad.lowPass(3000, sampleRate);
+
+  void addFrame(double mono) {
+    final y = _lowPass.process(_highPass.process(mono));
+    _hopSum += y * y;
+    if (++_frameInHop == _hopFrames) {
+      _hopDb.add(10 * math.log(_hopSum / _hopFrames + 1e-12) / math.ln10);
+      _hopSum = 0;
+      _frameInHop = 0;
+    }
+  }
+
+  /// Onset times in milliseconds.
+  List<int> onsets() {
+    final n = _hopDb.length;
+    if (n < 10) return const [];
+    // Quiet hops (well under the song's loud parts) never count: breaths,
+    // reverb tails and hiss rise and fall too.
+    final sorted = List<double>.of(_hopDb)..sort();
+    final floor = sorted[(n * 0.9).floor()] - 35;
+
+    // Rise over the recent past: this hop against the mean of the three
+    // before it, in dB, so a loud and a quiet passage are judged alike.
+    final rise = List<double>.filled(n, 0);
+    for (var t = 3; t < n; t++) {
+      if (_hopDb[t] < floor) continue;
+      final before = (_hopDb[t - 1] + _hopDb[t - 2] + _hopDb[t - 3]) / 3;
+      final d = _hopDb[t] - before;
+      if (d > 0) rise[t] = d;
+    }
+
+    // Peaks of the rise: the highest within 50 ms either side, at least 3 dB,
+    // and clearly above the rise nearby (dense instruments keep that high).
+    const halfPeak = 5;
+    const halfLocal = 50;
+    const minGapHops = 8; // 80 ms
+    final result = <int>[];
+    var localSum = 0.0;
+    var lo = 0, hi = -1;
+    var last = -minGapHops;
+    for (var t = 0; t < n; t++) {
+      while (hi < math.min(n - 1, t + halfLocal)) {
+        localSum += rise[++hi];
+      }
+      while (lo < t - halfLocal) {
+        localSum -= rise[lo++];
+      }
+      final r = rise[t];
+      if (r < 3.0) continue;
+      final localMean = localSum / (hi - lo + 1);
+      if (r < localMean + 1.5) continue;
+      var isPeak = true;
+      for (var k = math.max(0, t - halfPeak); k <= math.min(n - 1, t + halfPeak); k++) {
+        if (rise[k] > r || (rise[k] == r && k < t)) {
+          isPeak = false;
+          break;
+        }
+      }
+      if (!isPeak || t - last < minGapHops) continue;
+      last = t;
+      result.add(t * 10);
+    }
+    return result;
+  }
+}
+
+/// A second-order filter (RBJ cookbook), direct form II transposed.
+class _Biquad {
+  final double b0, b1, b2, a1, a2;
+  double _z1 = 0, _z2 = 0;
+
+  _Biquad(this.b0, this.b1, this.b2, this.a1, this.a2);
+
+  factory _Biquad.highPass(double f0, int sampleRate) {
+    final w = 2 * math.pi * f0 / sampleRate;
+    final alpha = math.sin(w) / (2 * math.sqrt1_2);
+    final cosW = math.cos(w);
+    final a0 = 1 + alpha;
+    return _Biquad((1 + cosW) / 2 / a0, -(1 + cosW) / a0, (1 + cosW) / 2 / a0,
+        -2 * cosW / a0, (1 - alpha) / a0);
+  }
+
+  factory _Biquad.lowPass(double f0, int sampleRate) {
+    final w = 2 * math.pi * math.min(f0, sampleRate * 0.45) / sampleRate;
+    final alpha = math.sin(w) / (2 * math.sqrt1_2);
+    final cosW = math.cos(w);
+    final a0 = 1 + alpha;
+    return _Biquad((1 - cosW) / 2 / a0, (1 - cosW) / a0, (1 - cosW) / 2 / a0,
+        -2 * cosW / a0, (1 - alpha) / a0);
+  }
+
+  double process(double x) {
+    final y = b0 * x + _z1;
+    _z1 = b1 * x - a1 * y + _z2;
+    _z2 = b2 * x - a2 * y;
+    return y;
+  }
 }
 
 class _WavFormat {
@@ -178,10 +305,13 @@ class _Accumulator {
   int _channel = 0;
 
   final int _sampleRate;
+  final _OnsetDetector _onsets;
+  double _frameSum = 0;
 
   _Accumulator(this.channels, int sampleRate)
     : _subBlockFrames = (sampleRate / 10).round(),
-      _sampleRate = sampleRate {
+      _sampleRate = sampleRate,
+      _onsets = _OnsetDetector(sampleRate) {
     _z = Float64List(channels * 4);
 
     var f0 = 1681.974450955533;
@@ -218,9 +348,12 @@ class _Accumulator {
     _z[s + 2] = _hb1 * y1 - _ha1 * y2 + _z[s + 3];
     _z[s + 3] = _hb2 * y1 - _ha2 * y2;
     _subSum += y2 * y2;
+    _frameSum += x;
 
     if (++_channel == channels) {
       _channel = 0;
+      _onsets.addFrame(_frameSum / channels);
+      _frameSum = 0;
       if (++_frameInSub == _subBlockFrames) {
         _subBlocks.add(_subSum / _subBlockFrames);
         _subSum = 0;
@@ -249,14 +382,22 @@ class _Accumulator {
     }
     final length =
         _subBlocks.length / 10 + _frameInSub / _sampleRate;
+    final onsets = _onsets.onsets();
     if (first < 0) {
-      return LoudnessAnalysis(lufs: lufs, musicStart: 0, musicEnd: length, length: length);
+      return LoudnessAnalysis(
+        lufs: lufs,
+        musicStart: 0,
+        musicEnd: length,
+        length: length,
+        onsetsMs: onsets,
+      );
     }
     return LoudnessAnalysis(
       lufs: lufs,
       musicStart: first / 10,
       musicEnd: math.min(length, (last + 1) / 10),
       length: length,
+      onsetsMs: onsets,
     );
   }
 

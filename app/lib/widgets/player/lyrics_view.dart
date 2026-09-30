@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/lyrics_display.dart';
+import '../../services/loudness_service.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 import 'lyric_sync_sheet.dart';
@@ -527,7 +528,11 @@ class _LyricsViewState extends State<LyricsView>
         LyricsDisplay.wordGlow.value != WordGlowMode.off;
     if (canSweep && _spansIndex != lineIndex) {
       _spansIndex = lineIndex;
-      _spans = LyricsService.spansFor(_lyrics, lineIndex);
+      _spans = LyricsService.spansFor(
+        _lyrics,
+        lineIndex,
+        onsets: LoudnessService.onsetsFor(widget.song),
+      );
     }
     final spans = _spans;
     if (_sweeping != canSweep) {

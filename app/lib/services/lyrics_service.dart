@@ -351,7 +351,15 @@ class LyricsService {
   /// estimate: pieces take a typical singing time each (a CJK character about
   /// 0.22 s, a word 0.3 s plus a little per letter), squeezed to fit before
   /// the next line when the line is sung faster than that.
-  static List<LyricSpan> spansFor(List<LyricLine> lyrics, int i) {
+  ///
+  /// With [onsets] (where the level in the song's voice range jumps up, see
+  /// LoudnessService.onsetsFor) the estimate is pulled onto the song: each
+  /// word starts at the onset nearest its guess, when there is one close by.
+  static List<LyricSpan> spansFor(
+    List<LyricLine> lyrics,
+    int i, {
+    List<Duration>? onsets,
+  }) {
     final line = lyrics[i];
     final nextStart = i + 1 < lyrics.length ? lyrics[i + 1].timestamp : null;
 
@@ -409,7 +417,96 @@ class LyricsService {
       spans.add(LyricSpan(units[u], at, end));
       at = end;
     }
-    return spans;
+    if (onsets == null || onsets.isEmpty) return spans;
+    return _snapToOnsets(spans, [for (final w in weights) w > 0], onsets, nextStart);
+  }
+
+  /// How far a guessed word start may move to meet an onset.
+  static const Duration _snapWindow = Duration(milliseconds: 200);
+
+  /// The shortest time between two word starts after snapping.
+  static const Duration _minWordGap = Duration(milliseconds: 80);
+
+  /// Moves each sung piece of [spans] to the onset nearest its estimated
+  /// start. Pieces stay in order, and once one word has moved, the words
+  /// after it are looked for with the same shift (a line sung a little late
+  /// is late throughout). A piece with no onset nearby keeps its estimate,
+  /// shifted the same way. Each piece then runs until the next one starts.
+  static List<LyricSpan> _snapToOnsets(
+    List<LyricSpan> spans,
+    List<bool> sung,
+    List<Duration> onsets,
+    Duration? nextStart,
+  ) {
+    final limit = nextStart == null
+        ? null
+        : nextStart - const Duration(milliseconds: 50);
+    final starts = List<Duration?>.filled(spans.length, null);
+    var shift = Duration.zero;
+    Duration? previous;
+    for (var u = 0; u < spans.length; u++) {
+      if (!sung[u]) continue;
+      final raw = spans[u].start;
+      final guess = raw + shift;
+      final earliest = previous == null ? null : previous + _minWordGap;
+      Duration? best;
+      // Look around both the plain estimate and the shifted one (the shift
+      // helps with a steady lag, but a single word off the other way must
+      // still be found), preferring the onset nearest the shifted guess.
+      final from = (raw < guess ? raw : guess) - _snapWindow;
+      final to = (raw > guess ? raw : guess) + _snapWindow;
+      var lo = 0, hi = onsets.length;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (onsets[mid] < from) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      for (var k = lo; k < onsets.length; k++) {
+        final o = onsets[k];
+        if (o > to) break;
+        if (earliest != null && o < earliest) continue;
+        if (limit != null && o >= limit) break;
+        if (best == null || (o - guess).abs() < (best - guess).abs()) best = o;
+      }
+      var start = best ?? guess;
+      if (best != null) shift = best - spans[u].start;
+      if (earliest != null && start < earliest) start = earliest;
+      if (limit != null && start > limit) start = limit;
+      starts[u] = start;
+      previous = start;
+    }
+    if (previous == null) return spans;
+
+    final lastSung = sung.lastIndexOf(true);
+    final result = <LyricSpan>[];
+    for (var u = 0; u < spans.length; u++) {
+      // A piece that is not sung (spacing, punctuation) sits at the start of
+      // the next sung one, or at the end of the last.
+      Duration? nextSungStart;
+      for (var v = u + 1; v < spans.length; v++) {
+        if (starts[v] != null) {
+          nextSungStart = starts[v];
+          break;
+        }
+      }
+      final start = starts[u];
+      if (start == null) {
+        final at = nextSungStart ??
+            result.lastWhere((r) => true, orElse: () => spans[u]).end;
+        result.add(LyricSpan(spans[u].text, at, at));
+      } else if (u == lastSung) {
+        var end = start + (spans[u].end - spans[u].start);
+        if (nextStart != null && end > nextStart) end = nextStart;
+        if (end < start) end = start;
+        result.add(LyricSpan(spans[u].text, start, end));
+      } else {
+        result.add(LyricSpan(spans[u].text, start, nextSungStart ?? start));
+      }
+    }
+    return result;
   }
 
   static Duration _capEnd(Duration end, Duration? nextStart) =>

@@ -44,6 +44,10 @@ class LoudnessService {
   static final Map<String, double> _lufs = {};
   static final Map<String, LoudnessAnalysis> _spans = {};
 
+  /// Songs measured before onsets were recorded: their level and span stay
+  /// in use, and they are measured once more for the onsets.
+  static final Set<String> _needsOnsets = {};
+
   /// Bumped when the silence rule changes, so older spans are found again.
   static const int _spanVersion = 2;
   static final Map<String, Future<double?>> _inFlight = {};
@@ -56,6 +60,8 @@ class LoudnessService {
   static void resetForTesting() {
     _lufs.clear();
     _spans.clear();
+    _needsOnsets.clear();
+    _onsetDurations.clear();
     _inFlight.clear();
     _loading = null;
     _storeFile = null;
@@ -69,6 +75,7 @@ class LoudnessService {
   static void setSpanForTesting(String key, LoudnessAnalysis analysis) {
     _lufs[key] = analysis.lufs;
     _spans[key] = analysis;
+    _onsetDurations.remove(key);
   }
 
   /// Platforms that can decode a song for measuring.
@@ -108,12 +115,15 @@ class LoudnessService {
             final start = v['start'], end = v['end'], len = v['len'];
             if (start is num && end is num && len is num &&
                 v['v'] == _spanVersion) {
+              final onsets = v['on'];
               _spans[key] = LoudnessAnalysis(
                 lufs: lufs,
                 musicStart: start.toDouble(),
                 musicEnd: end.toDouble(),
                 length: len.toDouble(),
+                onsetsMs: onsets is String ? decodeOnsets(onsets) : const [],
               );
+              if (onsets is! String) _needsOnsets.add(key);
             }
           }
         }
@@ -139,6 +149,8 @@ class LoudnessService {
                   'end': span.musicEnd,
                   'len': span.length,
                   'v': _spanVersion,
+                  if (!_needsOnsets.contains(e.key))
+                    'on': encodeOnsets(span.onsetsMs),
                 },
               null => e.value,
             },
@@ -156,8 +168,54 @@ class LoudnessService {
   /// Where the music in [song] starts and stops, or null if not known yet.
   static LoudnessAnalysis? spanFor(Song song) => _spans[keyFor(song)];
 
-  /// True once [song] has its loudness and its music span.
-  static bool isMeasured(Song song) => _spans.containsKey(keyFor(song));
+  /// True once [song] has its loudness, its music span and its onsets.
+  static bool isMeasured(Song song) {
+    final key = keyFor(song);
+    return _spans.containsKey(key) && !_needsOnsets.contains(key);
+  }
+
+  /// Where the level in the voice range jumps up in [song] (see
+  /// [LoudnessAnalysis.onsetsMs]), or null until it has been measured.
+  static List<Duration>? onsetsFor(Song song) {
+    final key = keyFor(song);
+    final span = _spans[key];
+    if (span == null || _needsOnsets.contains(key)) return null;
+    return _onsetDurations[key] ??= [
+      for (final ms in span.onsetsMs) Duration(milliseconds: ms),
+    ];
+  }
+
+  static final Map<String, List<Duration>> _onsetDurations = {};
+
+  /// Onsets stored compactly: the gaps between them in 10 ms steps, as
+  /// little-endian 16-bit numbers in base64 (a few KB per song).
+  @visibleForTesting
+  static String encodeOnsets(List<int> onsetsMs) {
+    final bytes = ByteData(onsetsMs.length * 2);
+    var previous = 0;
+    for (var i = 0; i < onsetsMs.length; i++) {
+      final step = ((onsetsMs[i] - previous) / 10).round().clamp(0, 0xFFFF);
+      bytes.setUint16(i * 2, step, Endian.little);
+      previous += step * 10;
+    }
+    return base64Encode(bytes.buffer.asUint8List());
+  }
+
+  @visibleForTesting
+  static List<int> decodeOnsets(String encoded) {
+    try {
+      final bytes = ByteData.sublistView(base64Decode(encoded));
+      final result = <int>[];
+      var at = 0;
+      for (var i = 0; i + 1 < bytes.lengthInBytes; i += 2) {
+        at += bytes.getUint16(i, Endian.little) * 10;
+        result.add(at);
+      }
+      return result;
+    } catch (_) {
+      return const [];
+    }
+  }
 
   /// Volume multiplier that brings [lufs] to [targetLufs]. Values above 1.0
   /// are a lift, which playback can only apply while the user volume leaves
@@ -201,7 +259,11 @@ class LoudnessService {
     await load();
     final key = keyFor(song);
     final known = _lufs[key];
-    if (known != null && _spans.containsKey(key)) return known;
+    if (known != null &&
+        _spans.containsKey(key) &&
+        !_needsOnsets.contains(key)) {
+      return known;
+    }
     final running = _inFlight[key];
     if (running != null) return running;
 
@@ -218,6 +280,8 @@ class LoudnessService {
       if (result != null) {
         _lufs[key] = result.lufs;
         _spans[key] = result;
+        _needsOnsets.remove(key);
+        _onsetDurations.remove(key);
         _scheduleSave();
         DebugLog.write(
           '[loudness] "${song.title}" = ${result.lufs.toStringAsFixed(1)} LUFS, '

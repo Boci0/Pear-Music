@@ -124,4 +124,52 @@ void main() {
     final file = File('${dir.path}/song.m4a')..writeAsBytesSync([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     expect(await LoudnessMeter.measureWav(file.path), isNull);
   });
+
+  group('onsets', () {
+    /// A steady bass line with short "sung" notes (a vowel-like tone with a
+    /// quick attack and a decay) starting at [notesMs].
+    List<double> song(List<int> notesMs, {double seconds = 6}) {
+      const rate = 44100;
+      final frames = (rate * seconds).round();
+      final out = List<double>.filled(frames, 0);
+      for (var i = 0; i < frames; i++) {
+        // Bass drone at 55 Hz, louder than the voice: outside the voice
+        // range, so it must never register.
+        out[i] = 0.4 * math.sin(2 * math.pi * 55 * i / rate);
+      }
+      for (final start in notesMs) {
+        final s0 = start * rate ~/ 1000;
+        for (var j = 0; j < rate * 0.25 && s0 + j < frames; j++) {
+          final t = j / rate;
+          final env = math.min(1.0, t / 0.01) * math.exp(-t * 6);
+          out[s0 + j] += 0.2 * env *
+              (math.sin(2 * math.pi * 440 * t) + 0.5 * math.sin(2 * math.pi * 880 * t));
+        }
+      }
+      return out;
+    }
+
+    test('are found where notes start, within a hop or two', () {
+      const notes = [500, 1100, 1450, 2300, 2700, 3600, 4200, 5000];
+      final analysis = LoudnessMeter.analyzeSamples(
+        song(notes),
+        channels: 1,
+        sampleRate: 44100,
+      )!;
+      expect(analysis.onsetsMs, hasLength(notes.length));
+      for (var i = 0; i < notes.length; i++) {
+        expect((analysis.onsetsMs[i] - notes[i]).abs(), lessThanOrEqualTo(20),
+            reason: 'note at ${notes[i]} ms');
+      }
+    });
+
+    test('a steady sound has none', () {
+      final analysis = LoudnessMeter.analyzeSamples(
+        song(const []),
+        channels: 1,
+        sampleRate: 44100,
+      )!;
+      expect(analysis.onsetsMs, isEmpty);
+    });
+  });
 }

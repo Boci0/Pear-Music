@@ -1,3 +1,5 @@
+import 'package:path/path.dart' as p;
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -79,6 +81,46 @@ void main() {
     LoudnessService.debugSupportedOverride = null;
     StreamCacheManager.debugEnsureStreamCachedOverride = null;
     PlayerService.debugCubicVolumeOverride = null;
+  });
+
+  group('onsets', () {
+    test('survive the compact encoding (to the nearest 10 ms)', () {
+      const onsets = [0, 120, 125, 480, 1000, 61234, 200000];
+      final decoded =
+          LoudnessService.decodeOnsets(LoudnessService.encodeOnsets(onsets));
+      expect(decoded, hasLength(onsets.length));
+      for (var i = 0; i < onsets.length; i++) {
+        expect((decoded[i] - onsets[i]).abs(), lessThanOrEqualTo(5));
+      }
+    });
+
+    test('a song saved before onsets keeps its level but is measured again',
+        () async {
+      final store = File(p.join(sandbox.path, 'loudness.json'));
+      addTearDown(() {
+        if (store.existsSync()) store.deleteSync();
+      });
+      store.writeAsStringSync(jsonEncode({
+        'aaaaaaaaaaa': {'lufs': -9.0, 'start': 0.5, 'end': 180.0, 'len': 181.0, 'v': 2},
+        'bbbbbbbbbbb': {
+          'lufs': -10.0, 'start': 0.0, 'end': 100.0, 'len': 100.0, 'v': 2,
+          'on': LoudnessService.encodeOnsets(const [1000, 1500]),
+        },
+      }));
+      await LoudnessService.load();
+      final old = _songWithId('aaaaaaaaaaa');
+      final fresh = _songWithId('bbbbbbbbbbb');
+
+      expect(LoudnessService.lufsFor(old), -9.0);
+      expect(LoudnessService.spanFor(old)?.musicStart, 0.5);
+      expect(LoudnessService.isMeasured(old), isFalse,
+          reason: 'measured once more to find its onsets');
+      expect(LoudnessService.onsetsFor(old), isNull);
+
+      expect(LoudnessService.isMeasured(fresh), isTrue);
+      expect(LoudnessService.onsetsFor(fresh),
+          [const Duration(seconds: 1), const Duration(milliseconds: 1500)]);
+    });
   });
 
   group('gain', () {
@@ -197,3 +239,13 @@ void main() {
     });
   });
 }
+
+Song _songWithId(String videoId) => Song(
+      id: 'stream_$videoId',
+      title: videoId,
+      fileName: 'stream_$videoId.m4a',
+      size: 0,
+      checksum: videoId,
+      sourceDeviceId: 'stream',
+      addedAt: DateTime(2026, 9, 30),
+    );
