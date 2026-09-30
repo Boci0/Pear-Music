@@ -90,6 +90,11 @@ class PlayerService extends ChangeNotifier {
   final Set<String> _shufflePlayedSongIds = {};
   bool _autoplay = false;
   final Set<String> _lockedSongIds = {};
+
+  /// Songs the app added to the queue itself (radio and autoplay
+  /// recommendations). Only these may be swapped by the auto reroll: a song
+  /// the listener queued, such as a playlist's next song, never is.
+  final Set<String> _autoAddedSongIds = {};
   bool _autoRerollSeed = false;
   Timer? _autoRerollDebounceTimer;
   String? _lastAutoRerolledSongId;
@@ -1209,6 +1214,7 @@ class PlayerService extends ChangeNotifier {
         }
 
         if (newSongs.isNotEmpty) {
+          _autoAddedSongIds.addAll(newSongs.map((s) => s.id));
           _queue = [..._queue, ...newSongs];
           _syncQueueIndexWithCurrentSong();
           _updateActiveQueueCacheProtection();
@@ -1236,6 +1242,7 @@ class PlayerService extends ChangeNotifier {
           completer.complete(false);
           return false;
         }
+        _autoAddedSongIds.addAll(boundedOffline.map((s) => s.id));
         _queue = [..._queue, ...boundedOffline];
         _syncQueueIndexWithCurrentSong();
         _updateActiveQueueCacheProtection();
@@ -1353,6 +1360,7 @@ class PlayerService extends ChangeNotifier {
       final currentUpcoming = _queue.length > currentActiveIndex + 1 ? _queue.sublist(currentActiveIndex + 1) : <Song>[];
       final currentLockedUpcoming = currentUpcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
 
+      _autoAddedSongIds.addAll(freshSongs.map((s) => s.id));
       _queue = [...currentHead, ...currentLockedUpcoming, ...freshSongs];
       _syncQueueIndexWithCurrentSong();
       _updateActiveQueueCacheProtection();
@@ -1404,6 +1412,12 @@ class PlayerService extends ChangeNotifier {
       final oldNextSong = upcoming.first;
       if (_lockedSongIds.contains(oldNextSong.id)) {
         // The next track is locked; do not replace it.
+        return false;
+      }
+      if (queueSourceId != 'radio' &&
+          !_autoAddedSongIds.contains(oldNextSong.id)) {
+        // The listener chose it (a playlist's next song, say): only songs
+        // the app picked itself are rerolled.
         return false;
       }
 
@@ -1493,6 +1507,7 @@ class PlayerService extends ChangeNotifier {
         }
         final currentTail = currentUpcoming.sublist(1);
 
+        _autoAddedSongIds.add(nextSong.id);
         _queue = [...currentHead, nextSong, ...currentTail];
         _syncQueueIndexWithCurrentSong();
         _updateActiveQueueCacheProtection();
@@ -1582,6 +1597,9 @@ class PlayerService extends ChangeNotifier {
     _requestNotificationPermissionIfNeeded();
 
     if (queue != null) {
+      // A queue the listener just picked (not this queue handed back when
+      // moving along it) starts with nothing added by the app.
+      if (!identical(queue, _queue)) _autoAddedSongIds.clear();
       _queue = List<Song>.from(queue);
     } else if (_queue.isEmpty) {
       _queue = library.songs.isNotEmpty ? List<Song>.from(library.songs) : [song];
@@ -1927,8 +1945,13 @@ class PlayerService extends ChangeNotifier {
       var willAutoReroll = false;
       if (_autoRerollSeed) {
         final hasUpcoming = _queueIndex < _queue.length - 1;
-        final isRadioOrStream = queueSourceId == 'radio' || song.sourceDeviceId == 'stream';
-        if (!hasUpcoming || isRadioOrStream) {
+        // Only a next song the app picked (radio, or recommendations after
+        // the listener's own queue ran out) is rerolled; playlists and
+        // albums keep their order even when their songs stream.
+        final nextIsAutoAdded = hasUpcoming &&
+            _autoAddedSongIds.contains(_queue[_queueIndex + 1].id);
+        final isRadio = queueSourceId == 'radio';
+        if (!hasUpcoming || isRadio || nextIsAutoAdded) {
           if (song.id != _lastAutoRerolledSongId || !hasUpcoming) {
             _lastAutoRerolledSongId = song.id;
             willAutoReroll = true;
@@ -2826,6 +2849,7 @@ class PlayerService extends ChangeNotifier {
     _queueIndex = -1;
     _shufflePlayedSongIds.clear();
     _lockedSongIds.clear();
+    _autoAddedSongIds.clear();
     _isPreloadingUpcoming = false;
     _updateActiveQueueCacheProtection();
     audioHandler?.mediaItem.add(null);

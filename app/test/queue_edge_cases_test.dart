@@ -8,6 +8,7 @@ import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
+import 'package:peerm_app/services/recommendation_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 
 Song _streamSong(String videoId) => Song(
@@ -174,6 +175,52 @@ void main() {
     await player.playSong(songs[1], queue: songs);
     expect(handler.mediaItem.value?.id, songs[1].id);
     expect(handler.mediaItem.value?.duration, const Duration(minutes: 2));
+  });
+
+  group('auto reroll', () {
+    // Radio picks lined up for the first song, so a reroll has something to
+    // swap the next song for.
+    setUp(() {
+      RecommendationService.setRadioBatchForTesting(
+        ids[0],
+        RecommendationBatch(items: [
+          for (var i = 0; i < 6; i++)
+            RecommendationItem(
+              videoId: 'radio$i'.padRight(11, 'x'),
+              title: 'Radio pick $i',
+              artist: 'Someone',
+            ),
+        ]),
+      );
+    });
+
+    test('never replaces the next song of a playlist', () async {
+      final songs = ids.map(_streamSong).toList();
+      final player = PlayerService(LibraryService(), player: _FakePlayer());
+      await player.setLoudnessNormalization(false);
+      player.setAutoRerollSeed(true);
+
+      await player.playSong(songs[0],
+          queue: songs, sourceId: 'playlist:p', sourceTitle: 'Mine');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+
+      expect(player.queue.map((s) => s.id), songs.map((s) => s.id),
+          reason: 'the playlist keeps its order and songs');
+    });
+
+    test('still rerolls the next song on a radio', () async {
+      final songs = ids.map(_streamSong).toList();
+      final player = PlayerService(LibraryService(), player: _FakePlayer());
+      await player.setLoudnessNormalization(false);
+      player.setAutoRerollSeed(true);
+
+      await player.playSong(songs[0],
+          queue: songs, sourceId: 'radio', sourceTitle: 'Radio');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+
+      expect(player.queue[1].id, isNot(songs[1].id));
+      expect(player.queue[1].title, startsWith('Radio pick'));
+    });
   });
 
   test('stop() during a load leaves the player ready to play again', () async {
