@@ -134,6 +134,70 @@ void main() {
       expect(controller.favoriteSongs, isEmpty);
     });
 
+    test('"Recent" lists favourites by when they were hearted, not by when '
+        'the app first saw the song', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final identity = IdentityService(prefs);
+      await identity.setSortOption(SortOption.dateAdded);
+      final library = LibraryService();
+      final controller = AppController(
+        identity: identity,
+        library: library,
+        player: PlayerService(library, identity: identity),
+        youtube: YoutubeService(),
+      );
+      Song made(String id, DateTime seen, {bool stream = false}) => Song(
+            id: id,
+            title: id,
+            fileName: '$id.mp3',
+            size: 1,
+            checksum: 'chk_$id',
+            sourceDeviceId: stream ? 'stream' : null,
+            addedAt: seen,
+          );
+      // Seen (cached or added) in the order old, middle, newest...
+      final old = made('local_old', DateTime(2025, 1, 1));
+      final middle = made('stream_middleAAAA', DateTime(2025, 6, 1), stream: true);
+      final newest = made('local_new', DateTime(2026, 1, 1));
+      library.setSongsForTesting([old, newest]);
+
+      // ...but hearted newest, then old, then middle.
+      await controller.toggleFavorite(newest.id, song: newest);
+      await controller.toggleFavorite(old.id, song: old);
+      await controller.toggleFavorite(middle.id, song: middle);
+
+      List<String> recent() => controller
+          .getSortedSongs(controller.favoriteSongs, favorites: true)
+          .map((s) => s.id)
+          .toList();
+      expect(recent(), ['stream_middleAAAA', 'local_old', 'local_new'],
+          reason: 'most recently favourited first');
+
+      // The order survives a restart.
+      final reopened = AppController(
+        identity: IdentityService(prefs),
+        library: library,
+        player: PlayerService(library),
+        youtube: YoutubeService(),
+      );
+      expect(
+        reopened
+            .getSortedSongs(reopened.favoriteSongs, favorites: true)
+            .map((s) => s.id),
+        ['stream_middleAAAA', 'local_old', 'local_new'],
+      );
+
+      // Hearting again after un-hearting makes it the most recent.
+      await controller.toggleFavorite(newest.id);
+      await controller.toggleFavorite(newest.id, song: newest);
+      expect(recent().first, 'local_new');
+
+      // The whole library keeps sorting by date added.
+      expect(controller.getSortedSongs(library.songs).map((s) => s.id),
+          ['local_new', 'local_old']);
+    });
+
     test('downloading a favourited online song keeps a single favourite',
         () async {
       SharedPreferences.setMockInitialValues({});

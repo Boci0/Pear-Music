@@ -483,7 +483,10 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
       songs = songsForPlaylist(controller, playlist);
     } else if (player.queueSourceId == 'favorites') {
       sectionTitle = 'Favorites';
-      songs = controller.getSortedSongs(controller.favoriteSongs);
+      songs = controller.getSortedSongs(
+        controller.favoriteSongs,
+        favorites: true,
+      );
     } else {
       sectionTitle = 'All Songs';
       songs = controller.getSortedSongs(controller.songs);

@@ -418,7 +418,10 @@ class _HomeScreenState extends State<HomeScreen> {
       rawSongs = rawSongs.where((s) => s.lowerTitle.contains(q)).toList();
     }
 
-    final songs = controller.getSortedSongs(rawSongs);
+    final songs = controller.getSortedSongs(
+      rawSongs,
+      favorites: _showOnlyFavorites,
+    );
     final theme = Theme.of(context);
     final currentSongId = controller.player.currentSong?.id;
 

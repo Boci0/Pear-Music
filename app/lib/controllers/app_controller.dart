@@ -95,9 +95,14 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   List<Song>? _cachedFavoriteSongs;
+
+  /// When each favourite was hearted, as its place in the order favourites
+  /// were added (higher is more recent). Built with [favoriteSongs].
+  Map<String, int> _favoriteRank = const {};
   List<Song>? _cachedHistorySongs;
   List<Song>? _lastSortInput;
   SortOption? _lastSortOption;
+  bool _lastSortFavorites = false;
   List<Song>? _lastSortResult;
 
   bool _disposed = false;
@@ -142,6 +147,23 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     final List<Song> result = [];
     final seenIds = <String>{};
     final seenVideoIds = <String>{};
+    // Favourites are stored in the order they were hearted. A song hearted
+    // as one copy (online or downloaded) has its other copies hearted a
+    // moment later, so each song counts from its earliest copy.
+    final order = <String, int>{};
+    var i = 0;
+    for (final id in identity.favoriteSongIds) {
+      order[id] = i++;
+    }
+    final videoRank = <String, int>{};
+    for (final id in identity.favoriteSongIds) {
+      final videoId = _videoIdOf(findSongById(id), id);
+      if (videoId == null) continue;
+      final r = order[id]!;
+      final known = videoRank[videoId];
+      if (known == null || r < known) videoRank[videoId] = r;
+    }
+    final rank = <String, int>{};
     void add(Song song) {
       if (seenIds.contains(song.id)) return;
       final videoId = _videoIdOf(song, song.id);
@@ -151,6 +173,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       result.add(song);
       seenIds.add(song.id);
       if (videoId != null) seenVideoIds.add(videoId);
+      rank[song.id] =
+          (videoId == null ? null : videoRank[videoId]) ?? order[song.id] ?? -1;
     }
 
     for (final s in library.songs) {
@@ -175,6 +199,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     _cachedFavoriteSongs = result;
+    _favoriteRank = rank;
     return result;
   }
 
@@ -248,13 +273,28 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  List<Song> getSortedSongs(List<Song> songList) {
+  /// [songList] in the chosen sort order. For a list of favourites
+  /// ([favorites]), "Recent" means most recently favourited first rather
+  /// than most recently added to the app (for online songs that is when the
+  /// app first came across them).
+  List<Song> getSortedSongs(List<Song> songList, {bool favorites = false}) {
     if (identical(songList, _lastSortInput) &&
         identity.sortOption == _lastSortOption &&
+        favorites == _lastSortFavorites &&
         _lastSortResult != null) {
       return _lastSortResult!;
     }
     final list = List<Song>.from(songList);
+    if (favorites && identity.sortOption == SortOption.dateAdded) {
+      favoriteSongs; // builds the ranks
+      list.sort((a, b) =>
+          (_favoriteRank[b.id] ?? -1).compareTo(_favoriteRank[a.id] ?? -1));
+      _lastSortInput = songList;
+      _lastSortOption = identity.sortOption;
+      _lastSortFavorites = favorites;
+      _lastSortResult = list;
+      return list;
+    }
     switch (identity.sortOption) {
       case SortOption.title:
         list.sort((a, b) => a.lowerTitle.compareTo(b.lowerTitle));
@@ -268,6 +308,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     }
     _lastSortInput = songList;
     _lastSortOption = identity.sortOption;
+    _lastSortFavorites = favorites;
     _lastSortResult = list;
     return list;
   }
