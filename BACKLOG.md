@@ -1,19 +1,14 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v4.1.2**
-(tagged, built from `2b502fe` on `main`).
+Handover notes for the next working session. Latest release: **v4.1.3**.
 
 ## Start here
 
-1. **"Report timing" button** (small, do first). In Lyrics Options, copy
-   to the clipboard everything needed to diagnose a lyric timing report:
-   song id and title, song length, which source the lyrics came from
-   (local `.lrc`, LRCLIB, NetEase), the current line's timestamp against
-   the playback position, the timing offset, and whether the line has real
-   word timing or the estimate (and whether onset snapping ran for it).
-   Without this, timing reports can't be told apart and fixes are guesses.
-2. **Lyric timing failures reported on v4.1.x** (need a report from (1),
-   or at least "whole line early/late" vs "glow drifts within the line"):
+1. **Lyric timing failures reported on v4.1.x.** v4.1.3 added a "Report
+   timing" button (Lyrics Options) and a GitHub issue form
+   (`.github/ISSUE_TEMPLATE/lyric-timing.yml`). Each of these needs a report
+   from the button, or at least "whole line early/late" vs "glow drifts
+   within the line":
    - HUMBLE. (Kendrick Lamar)
    - Guitar to Kodoku to Aoi Hoshi (Kessoku Band)
    - Yoru ni Kakeru (YOASOBI)
@@ -22,10 +17,8 @@ Handover notes for the next working session. Latest release: **v4.1.2**
    - Lemon (Kenshi Yonezu): no real word timing from either source, so it
      is on the estimate; likely a source limit, not an app bug.
    The owner can't judge Japanese, Chinese or Korean lyrics, so treat those
-   as unverified rather than failed.
-3. **GitHub issue form for lyric timing** (`.github/ISSUE_TEMPLATE/`), for
-   outside testers: song, whole-line vs within-line, roughly where in the
-   song, and the pasted report from (1).
+   as unverified rather than failed. Saved lyrics record their source
+   (`[pear:source:...]`); lyrics saved before 4.1.3 report it as unknown.
 
 ## Bigger projects
 
@@ -48,12 +41,9 @@ Handover notes for the next working session. Latest release: **v4.1.2**
 
 ## Smaller items
 
-- **Song title and artist for media controls.** Online songs are stored as
-  `"Title - Artist"` (built in `RecommendationItem.toSong`), and the
-  notification, lock screen and Windows media overlay show that whole
-  string as the title with no artist. Splitting the string back apart is
-  unreliable (YouTube titles often already contain the artist), so this
-  needs a real `artist` field on `Song`, filled when the song is created.
+- **Artist for downloaded songs.** `Song.artist` is filled for online songs
+  (v4.1.3) and shown on its own line in media controls. Songs saved to the
+  library and favorites restored from an import do not carry it yet.
 - **Android analysis priority.** The loudness and onset analysis runs in a
   normal-priority isolate (the Android decode itself is low priority). If a
   stutter a second or two into a song ever shows up, look here first.
