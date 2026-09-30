@@ -8,15 +8,24 @@ import '../widgets/tactile_button.dart';
 
 /// Short "when was this played" label for the History meta line: "just now",
 /// "12 min ago", "3 h ago", "yesterday", "4 days ago", then a short date.
-String? _playedAgo(DateTime? time, DateTime now) {
+@visibleForTesting
+String? playedAgo(DateTime? time, DateTime now) {
   if (time == null) return null;
   final diff = now.difference(time);
   if (diff.inMinutes < 1) return 'just now';
   if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
   if (diff.inHours < 24) return '${diff.inHours} h ago';
-  if (diff.inDays == 1) return 'yesterday';
-  if (diff.inDays < 7) return '${diff.inDays} days ago';
+  // Past a day, count calendar days: a song played late on Monday was not
+  // played "yesterday" early on Wednesday, however few hours ago that was.
   final local = time.toLocal();
+  final today = now.toLocal();
+  final days = (DateTime(today.year, today.month, today.day)
+              .difference(DateTime(local.year, local.month, local.day))
+              .inHours /
+          24)
+      .round();
+  if (days <= 1) return 'yesterday';
+  if (days < 7) return '$days days ago';
   const months = [
     'Jan',
     'Feb',
@@ -132,7 +141,7 @@ class HistoryScreen extends StatelessWidget {
                             sourceId: 'history',
                             sourceTitle: 'History',
                             isCurrent: currentSongId == song.id,
-                            metaSuffix: _playedAgo(playedAt[song.id], now),
+                            metaSuffix: playedAgo(playedAt[song.id], now),
                           ),
                         );
                       }

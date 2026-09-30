@@ -311,4 +311,22 @@ void main() {
       expect(find.textContaining('3 h ago'), findsOneWidget);
     });
   });
+
+  group('played-ago label', () {
+    final now = DateTime(2026, 9, 30, 1, 0); // Wednesday, 1 am
+
+    test('counts calendar days, not 24-hour blocks', () {
+      // Monday 23:00 is 26 hours back, but two days ago, not yesterday.
+      expect(playedAgo(DateTime(2026, 9, 28, 23, 0), now), '2 days ago');
+      // Tuesday 00:30 is 24.5 hours back and was yesterday.
+      expect(playedAgo(DateTime(2026, 9, 29, 0, 30), now), 'yesterday');
+    });
+
+    test('recent plays keep their minutes and hours', () {
+      expect(playedAgo(DateTime(2026, 9, 30, 0, 50), now), '10 min ago');
+      // Late last night is still counted in hours within a day.
+      expect(playedAgo(DateTime(2026, 9, 29, 22, 0), now), '3 h ago');
+      expect(playedAgo(DateTime(2026, 9, 20), now), '20 Sep');
+    });
+  });
 }
