@@ -425,6 +425,9 @@ class LyricsService {
   /// How far a guessed word start may move to meet an onset.
   static const Duration _snapWindow = Duration(milliseconds: 150);
 
+  /// More onsets than this per sung piece and a line is left unsnapped.
+  static const double _maxOnsetsPerPiece = 1.5;
+
   /// The shortest time between two word starts after snapping.
   static const Duration _minWordGap = Duration(milliseconds: 80);
 
@@ -442,6 +445,20 @@ class LyricsService {
     final limit = nextStart == null
         ? null
         : nextStart - const Duration(milliseconds: 50);
+
+    // With far more onsets than pieces to sing, most of them are not the
+    // voice (a fast, distorted guitar is pitched too) and every guess would
+    // find one to snap to. The plain estimate is steadier there.
+    final sungCount = sung.where((s) => s).length;
+    if (sungCount == 0) return spans;
+    final from = spans.first.start - _snapWindow;
+    final to = spans.last.end + _snapWindow;
+    var inLine = 0;
+    for (final o in onsets) {
+      if (o >= from && o <= to) inLine++;
+    }
+    if (inLine > sungCount * _maxOnsetsPerPiece) return spans;
+
     final starts = List<Duration?>.filled(spans.length, null);
     var shift = Duration.zero;
     Duration? previous;

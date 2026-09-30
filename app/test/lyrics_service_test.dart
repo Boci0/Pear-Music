@@ -412,6 +412,21 @@ First stanza line
         expect(sungStarts(spans), guess);
       });
 
+      test('a line buried in onsets keeps its steady estimate', () {
+        final lines = LyricsService.parseLrc(
+          '[00:10.00] one two three four\n[00:14.00] next',
+        );
+        final plain = LyricsService.spansFor(lines, 0);
+        final guess = sungStarts(plain);
+        // A fast guitar: an onset every 90 ms through the whole line, three
+        // times as many as there are words.
+        final dense = [
+          for (var t = 9800; t < 13600; t += 90) ms(t),
+        ];
+        final spans = LyricsService.spansFor(lines, 0, onsets: dense);
+        expect(sungStarts(spans), guess);
+      });
+
       test('real word timing is never moved', () {
         final lines = LyricsService.parseLrc(
           '[00:10.00] <00:10.00>one <00:10.50>two <00:11.00>three\n[00:14.00] x',
