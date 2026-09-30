@@ -203,6 +203,32 @@ class _LyricsViewState extends State<LyricsView>
             : elapsed);
   }
 
+  /// [style] with its font made smaller (down to 60%) until [text] fits
+  /// [room] when wrapped at its full width.
+  TextStyle? _fitToRoom(TextStyle? style, String text, BoxConstraints room) {
+    final start = style?.fontSize;
+    if (style == null ||
+        start == null ||
+        !room.hasBoundedWidth ||
+        !room.hasBoundedHeight) {
+      return style;
+    }
+    final minSize = start * 0.6;
+    var size = start;
+    while (true) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style.copyWith(fontSize: size)),
+        textAlign: TextAlign.center,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: room.maxWidth);
+      final fits = painter.height <= room.maxHeight;
+      painter.dispose();
+      if (fits || size <= minSize) return style.copyWith(fontSize: size);
+      size = (size * 0.92).clamp(minSize, start);
+    }
+  }
+
   /// Opacity of words still to be sung: far enough back that the sung part
   /// of the line stands out on any cover.
   static const double _waitingAlpha = 0.30;
@@ -540,14 +566,14 @@ class _LyricsViewState extends State<LyricsView>
       _syncSweepTicker();
     }
 
-    Widget lineText() {
+    // The whole line always shows: a long one (a fast rap verse) gets a
+    // smaller font until it fits the card, instead of being cut off.
+    Widget lineText(TextStyle? style) {
       if (!canSweep) {
         return Text(
           text,
           textAlign: TextAlign.center,
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          style: baseStyle?.copyWith(shadows: glow(1)),
+          style: style?.copyWith(shadows: glow(1)),
         );
       }
       // Sung pieces glow at full strength, the one being sung brightens as it
@@ -575,9 +601,7 @@ class _LyricsViewState extends State<LyricsView>
             ],
           ),
           textAlign: TextAlign.center,
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          style: baseStyle,
+          style: style,
         ),
       );
     }
@@ -612,14 +636,15 @@ class _LyricsViewState extends State<LyricsView>
             child: Container(
               key: ValueKey('pop_lyric_${widget.song.id}_$_activeIndex'),
               alignment: Alignment.center,
-              // A line too tall for the room shrinks a little rather than
-              // running into the bars; it keeps wrapping at the full width.
+              // A line too tall for the room gets a smaller font, still
+              // wrapping at the full width; past the smallest font it is
+              // scaled down as a whole rather than running into the bars.
               child: LayoutBuilder(
                 builder: (context, constraints) => FittedBox(
                   fit: BoxFit.scaleDown,
                   child: SizedBox(
                     width: constraints.maxWidth,
-                    child: lineText(),
+                    child: lineText(_fitToRoom(baseStyle, text, constraints)),
                   ),
                 ),
               ),

@@ -140,6 +140,13 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final baseShadowColor = (widget.accent ?? scheme.primary);
     final isAccentDark = ThemeData.estimateBrightnessForColor(baseShadowColor) == Brightness.dark;
     final isLight = ArtworkPalette.prefersDarkText(song);
+    // The colour the lyrics text actually uses (the Lyrics text colour
+    // setting can override the cover's guess): the card behind the lyrics,
+    // the visualizer and the border all follow it.
+    final darkText = LyricsDisplay.resolveDarkText(
+      mode: LyricsDisplay.mode.value,
+      artworkPrefersDarkText: isLight,
+    );
     final useSynthesizer = context.select<AppController?, bool>(
       (c) => c?.identity.synthesizerBar ?? false,
     );
@@ -343,10 +350,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           key: _visualizerKey,
                           player: playerService,
                           accentColor: baseShadowColor,
-                          onBrightArt: LyricsDisplay.resolveDarkText(
-                            mode: LyricsDisplay.mode.value,
-                            artworkPrefersDarkText: isLight,
-                          ),
+                          onBrightArt: darkText,
                         );
 
                   return Stack(
@@ -376,13 +380,19 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             ),
                           ),
                         ),
-                      // Calms busy bright artwork so dark lyrics stay readable.
-                      if (cachedBackdrop != null && isLyricsActive && isLight)
+                      // Evens the blurred cover out towards the side the text
+                      // stands against: a light wash behind dark text, a dark
+                      // one behind white text. A cover with both a black and
+                      // a white part (a dark figure on a white page) otherwise
+                      // leaves either text colour unreadable on one of them.
+                      if (cachedBackdrop != null && isLyricsActive)
                         FadeTransition(
                           opacity: _blurAnimation,
                           child: IgnorePointer(
                             child: Container(
-                              color: Colors.white.withValues(alpha: 0.16),
+                              color: darkText
+                                  ? Colors.white.withValues(alpha: 0.55)
+                                  : Colors.black.withValues(alpha: 0.42),
                             ),
                           ),
                         ),
@@ -444,7 +454,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             decoration: BoxDecoration(
                               borderRadius: radius,
                               border: Border.all(
-                                color: (isLyricsFullyOpen && isLight)
+                                color: (isLyricsFullyOpen && darkText)
                                     ? Colors.black.withValues(alpha: 0.12)
                                     : (isLyricsFullyOpen
                                         ? Colors.white.withValues(alpha: 0.22)
