@@ -41,7 +41,7 @@ class UpdateService {
   /// One version ahead of the latest official release: this is the version
   /// the unreleased work on top of v3.9.8 reports as, so a local/Beta build
   /// reads as newer than the published app.
-  static const String currentVersion = '4.0.8';
+  static const String currentVersion = '4.0.9';
 
   /// True when this build runs from the Beta install. The Windows runner
   /// marks the Beta by its install folder (see windows/runner/main.cpp), so
