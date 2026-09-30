@@ -422,10 +422,20 @@ class PlayerService extends ChangeNotifier {
 
   bool get autoRerollSeed => _autoRerollSeed;
 
+  /// Whether the automatic reroll may swap the next song: only one the app
+  /// picked itself (a radio queue, or recommendations added once the
+  /// listener's own queue ran out). A song the listener queued, such as a
+  /// playlist's next song, is never swapped.
+  bool get _nextIsAutoRerollable {
+    final i = _queueIndex + 1;
+    if (i <= 0 || i >= _queue.length) return false;
+    return queueSourceId == 'radio' || _autoAddedSongIds.contains(_queue[i].id);
+  }
+
   void toggleAutoRerollSeed() {
     _autoRerollSeed = !_autoRerollSeed;
     identity?.setAutoRerollSeed(_autoRerollSeed);
-    if (_autoRerollSeed && currentSong != null) {
+    if (_autoRerollSeed && currentSong != null && _nextIsAutoRerollable) {
       _lastAutoRerolledSongId = currentSong!.id;
       unawaited(rerollNextTrackOnly());
     }
@@ -436,7 +446,7 @@ class PlayerService extends ChangeNotifier {
     if (_autoRerollSeed == value) return;
     _autoRerollSeed = value;
     identity?.setAutoRerollSeed(_autoRerollSeed);
-    if (_autoRerollSeed && currentSong != null) {
+    if (_autoRerollSeed && currentSong != null && _nextIsAutoRerollable) {
       _lastAutoRerolledSongId = currentSong!.id;
       unawaited(rerollNextTrackOnly());
     }
@@ -1414,12 +1424,6 @@ class PlayerService extends ChangeNotifier {
         // The next track is locked; do not replace it.
         return false;
       }
-      if (queueSourceId != 'radio' &&
-          !_autoAddedSongIds.contains(oldNextSong.id)) {
-        // The listener chose it (a playlist's next song, say): only songs
-        // the app picked itself are rerolled.
-        return false;
-      }
 
       final tail = upcoming.sublist(1);
 
@@ -1948,10 +1952,7 @@ class PlayerService extends ChangeNotifier {
         // Only a next song the app picked (radio, or recommendations after
         // the listener's own queue ran out) is rerolled; playlists and
         // albums keep their order even when their songs stream.
-        final nextIsAutoAdded = hasUpcoming &&
-            _autoAddedSongIds.contains(_queue[_queueIndex + 1].id);
-        final isRadio = queueSourceId == 'radio';
-        if (!hasUpcoming || isRadio || nextIsAutoAdded) {
+        if (!hasUpcoming || _nextIsAutoRerollable) {
           if (song.id != _lastAutoRerolledSongId || !hasUpcoming) {
             _lastAutoRerolledSongId = song.id;
             willAutoReroll = true;
@@ -2017,7 +2018,9 @@ class PlayerService extends ChangeNotifier {
         return;
       }
       DebugLog.write('[radio] Auto-rerolling next track for "${currentSong!.title}"');
-      final changed = await rerollNextTrackOnly();
+      // The queue may have changed since this was scheduled.
+      final changed =
+          _nextIsAutoRerollable ? await rerollNextTrackOnly() : false;
       if (!changed && token == _playRequestToken) {
         _preloadUpcomingStreams(delay: Duration.zero);
       }
