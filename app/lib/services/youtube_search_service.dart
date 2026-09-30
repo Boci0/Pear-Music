@@ -70,17 +70,41 @@ class YouTubeSearchService {
   }
 
   /// Search YouTube for songs/videos matching [query].
+  ///
+  /// When the expanded scope (video results) finds nothing, the search is
+  /// repeated with it off so a query never comes back empty because of it.
   static Future<List<YouTubeSearchResult>> search(
     String query, {
     int limit = 20,
     bool? allowVideoResults,
     void Function(List<YouTubeSearchResult> firstPage)? onFirstPage,
   }) async {
+    final bool enableVideos =
+        allowVideoResults ?? YouTubeSearchService.allowVideoResults;
+    final results = await _search(
+      query,
+      limit: limit,
+      enableVideos: enableVideos,
+      onFirstPage: onFirstPage,
+    );
+    if (results.isNotEmpty || !enableVideos) return results;
+    return _search(
+      query,
+      limit: limit,
+      enableVideos: false,
+      onFirstPage: onFirstPage,
+    );
+  }
+
+  static Future<List<YouTubeSearchResult>> _search(
+    String query, {
+    required int limit,
+    required bool enableVideos,
+    void Function(List<YouTubeSearchResult> firstPage)? onFirstPage,
+  }) async {
     final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return const [];
 
-    final bool enableVideos =
-        allowVideoResults ?? YouTubeSearchService.allowVideoResults;
     final cacheKey = '$clean:$enableVideos';
 
     final cached = _cache[cacheKey];
