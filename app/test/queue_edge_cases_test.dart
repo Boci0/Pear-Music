@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 
@@ -18,6 +19,8 @@ Song _streamSong(String videoId) => Song(
       sourceDeviceId: 'stream',
       addedAt: DateTime(2026, 9, 29),
     );
+
+const _ids = ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'ddddddddddd'];
 
 /// A silent engine that only records which files were loaded.
 class _FakePlayer extends AudioPlayer {
@@ -36,8 +39,12 @@ class _FakePlayer extends AudioPlayer {
   @override
   Duration get position => Duration.zero;
 
+  /// Each test song has its own length: 1 min for the first id, 2 for the
+  /// second, and so on.
+  Duration? _duration;
+
   @override
-  Duration? get duration => const Duration(minutes: 1);
+  Duration? get duration => _duration;
 
   @override
   Future<Duration?> setAudioSource(
@@ -46,9 +53,11 @@ class _FakePlayer extends AudioPlayer {
     int? initialIndex,
     Duration? initialPosition,
   }) async {
-    loaded.add(p.basenameWithoutExtension(
-        (source as UriAudioSource).uri.toFilePath()));
-    return const Duration(minutes: 1);
+    final id = p.basenameWithoutExtension(
+        (source as UriAudioSource).uri.toFilePath());
+    loaded.add(id);
+    _duration = Duration(minutes: 1 + _ids.indexOf(id));
+    return _duration;
   }
 
   @override
@@ -76,7 +85,7 @@ class _FakePlayer extends AudioPlayer {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const ids = ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'ddddddddddd'];
+  const ids = _ids;
   final sandbox = Directory.systemTemp.createTempSync('peerm_queue_edges_');
   setUpAll(() async {
     const channel = MethodChannel('plugins.flutter.io/path_provider');
@@ -148,6 +157,23 @@ void main() {
     await settle();
     expect(engine.loaded, [ids[0], ids[0]],
         reason: 'loop all: the only song plays again');
+  });
+
+  test('the notification gets the length of the song playing, not the one '
+      'before it', () async {
+    final songs = ids.map(_streamSong).toList();
+    final handler = PearAudioHandler();
+    final engine = _FakePlayer();
+    final player =
+        PlayerService(LibraryService(), player: engine, audioHandler: handler);
+    await player.setLoudnessNormalization(false);
+
+    await player.playSong(songs[0], queue: songs);
+    expect(handler.mediaItem.value?.duration, const Duration(minutes: 1));
+
+    await player.playSong(songs[1], queue: songs);
+    expect(handler.mediaItem.value?.id, songs[1].id);
+    expect(handler.mediaItem.value?.duration, const Duration(minutes: 2));
   });
 
   test('stop() during a load leaves the player ready to play again', () async {

@@ -218,6 +218,20 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
     mediaItem.add(item);
   }
 
+  /// Sets the length of the song on screen once the player knows it: the
+  /// notification and lock screen draw their progress bar from it.
+  void updateSongDuration(String songId, Duration? duration) {
+    final current = mediaItem.valueOrNull;
+    if (current == null ||
+        current.id != songId ||
+        duration == null ||
+        duration <= Duration.zero ||
+        current.duration == duration) {
+      return;
+    }
+    mediaItem.add(current.copyWith(duration: duration));
+  }
+
   /// Synchronizes playback and notification transport state with [PlayerService].
   void updateState({
     required bool playing,

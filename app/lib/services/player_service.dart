@@ -978,7 +978,9 @@ class PlayerService extends ChangeNotifier {
     // [positionStream] directly with a StreamBuilder instead (see PlayerScreen
     // seek bar). We still notify on everything that changes rarely: duration,
     // play/pause state and processing state.
-    _subs.add(_player.durationStream.listen((_) {
+    _subs.add(_player.durationStream.listen((duration) {
+      final song = currentSong;
+      if (song != null) audioHandler?.updateSongDuration(song.id, duration);
       _publishNotificationState();
       notifyListeners();
     }));
@@ -1634,11 +1636,9 @@ class PlayerService extends ChangeNotifier {
       );
     }
     if (token != _playRequestToken) return;
-    audioHandler?.updateSongMediaItem(
-      song,
-      duration: _player.duration,
-      artUri: effectiveArtUri,
-    );
+    // The player still holds the previous song here, so its length is not
+    // passed on: the new song's arrives once it has loaded.
+    audioHandler?.updateSongMediaItem(song, artUri: effectiveArtUri);
 
     final stopwatch = Stopwatch()..start();
     Future<File?>? pendingDownload;
@@ -1922,6 +1922,7 @@ class PlayerService extends ChangeNotifier {
       _isLoadingTrack = false;
       _isAdvancing = false;
       _consecutiveStreamFailures = 0;
+      audioHandler?.updateSongDuration(song.id, _player.duration);
       _publishNotificationState();
       var willAutoReroll = false;
       if (_autoRerollSeed) {
