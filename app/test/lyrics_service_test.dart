@@ -490,6 +490,40 @@ First stanza line
       expect(lastLen, lessThan(firstLen * 1.2));
     });
 
+    test('words shifted late by onsets never pile onto one instant', () {
+      final lines = LyricsService.parseLrc(
+        '[00:10.00] aaaa bbbb cccc dddd eeee ffff gggg hhhh\n[00:13.00] next',
+      );
+      final plain = LyricsService.spansFor(lines, 0);
+      final onsets = [
+        for (final s in plain)
+          if (s.text.trim().isNotEmpty) s.start + const Duration(milliseconds: 140),
+      ];
+      final spans = LyricsService.spansFor(lines, 0, onsets: onsets);
+      final starts = [
+        for (final s in spans)
+          if (s.text.trim().isNotEmpty) s.start,
+      ];
+      for (var i = 1; i < starts.length; i++) {
+        expect(
+          starts[i] - starts[i - 1],
+          greaterThanOrEqualTo(const Duration(milliseconds: 40)),
+          reason: 'word $i sits on top of the one before it',
+        );
+      }
+    });
+
+    test('a line is cut into letters spread over each word', () {
+      final spans = [
+        const LyricSpan('ab', Duration(seconds: 1), Duration(seconds: 2)),
+        const LyricSpan('éx', Duration(seconds: 2), Duration(seconds: 3)),
+      ];
+      final glyphs = LyricsService.glyphTimes(spans);
+      expect([for (final g in glyphs) g.text], ['a', 'b', 'é', 'x']);
+      expect(glyphs[1].at, const Duration(milliseconds: 1500));
+      expect(glyphs[2].at, const Duration(seconds: 2));
+    });
+
     test('held notes get more time: the last syllable and written stretches',
         () {
       final lines = LyricsService.parseLrc('[00:10.00] 空ーを見て\n[00:14.00] next');

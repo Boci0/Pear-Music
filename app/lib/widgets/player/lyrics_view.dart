@@ -54,6 +54,9 @@ class _LyricsViewState extends State<LyricsView>
   final Stopwatch _sinceAnchor = Stopwatch();
   int _spansIndex = -1;
   List<LyricSpan> _spans = const [];
+
+  /// [_spans] cut into letters, each with the moment it is sung.
+  List<({String text, Duration at})> _glyphs = const [];
   bool _isForeground = true;
 
   @override
@@ -232,6 +235,9 @@ class _LyricsViewState extends State<LyricsView>
   /// Opacity of words still to be sung: far enough back that the sung part
   /// of the line stands out on any cover.
   static const double _waitingAlpha = 0.30;
+
+  /// How long a letter takes to go from waiting to fully lit.
+  static const int _glowRampMicros = 260000;
 
   /// The colour sung words take in dark-text mode: a very dark shade of the
   /// song accent when it has real colour, otherwise plain [ink]. A pale or
@@ -559,8 +565,9 @@ class _LyricsViewState extends State<LyricsView>
         lineIndex,
         onsets: LoudnessService.onsetsFor(widget.song),
       );
+      _glyphs = LyricsService.glyphTimes(_spans);
     }
-    final spans = _spans;
+    final glyphs = _glyphs;
     if (_sweeping != canSweep) {
       _sweeping = canSweep;
       _syncSweepTicker();
@@ -576,18 +583,22 @@ class _LyricsViewState extends State<LyricsView>
           style: style?.copyWith(shadows: glow(1)),
         );
       }
-      // Sung pieces glow at full strength, the one being sung brightens as it
-      // goes, the rest wait dimmed.
+      // Each letter brightens smoothly over a moment once it is sung, so the
+      // light travels through the line like a soft wave instead of switching
+      // a whole word on at once; letters not yet sung wait dimmed.
       return ValueListenableBuilder<Duration>(
         valueListenable: _sweepPosition,
         builder: (context, position, _) => Text.rich(
           TextSpan(
             children: [
-              for (final span in spans)
+              for (final glyph in glyphs)
                 () {
-                  final p = span.progressAt(position);
+                  final t =
+                      ((position - glyph.at).inMicroseconds / _glowRampMicros)
+                          .clamp(0.0, 1.0);
+                  final p = t * t * (3 - 2 * t);
                   return TextSpan(
-                    text: span.text,
+                    text: glyph.text,
                     style: TextStyle(
                       color: Color.lerp(
                         textColor.withValues(alpha: _waitingAlpha),

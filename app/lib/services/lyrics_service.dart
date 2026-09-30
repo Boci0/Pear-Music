@@ -465,6 +465,61 @@ class LyricsService {
     return _snapToOnsets(spans, [for (final w in weights) w > 0], onsets, nextStart);
   }
 
+  /// Splits [spans] into the smallest pieces that can light up on their own
+  /// (letters, with accents and joiners kept on their letter), each with the
+  /// moment it is sung, spread evenly over its word. Scripts that join letters
+  /// (Arabic, Hebrew, Indic) stay whole so their shaping is not broken.
+  static List<({String text, Duration at})> glyphTimes(List<LyricSpan> spans) {
+    final result = <({String text, Duration at})>[];
+    for (final span in spans) {
+      final parts = _joinsLetters(span.text)
+          ? [span.text]
+          : _glyphs(span.text);
+      final n = parts.length;
+      for (var k = 0; k < n; k++) {
+        result.add((
+          text: parts[k],
+          at: span.start + (span.end - span.start) * (k / n),
+        ));
+      }
+    }
+    return result;
+  }
+
+  /// Scripts whose letters join or reorder (Hebrew and Arabic, through the
+  /// Indic scripts): lit whole, never letter by letter.
+  static bool _joinsLetters(String text) {
+    for (final r in text.runes) {
+      if ((r >= 0x0590 && r <= 0x06FF) ||
+          (r >= 0x0750 && r <= 0x077F) ||
+          (r >= 0x0900 && r <= 0x0DFF)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static List<String> _glyphs(String text) {
+    final out = <String>[];
+    var afterJoiner = false;
+    for (final r in text.runes) {
+      final joiner = r == 0x200D;
+      final attaches =
+          joiner ||
+          afterJoiner ||
+          (r >= 0x300 && r <= 0x36F) ||
+          (r >= 0xFE00 && r <= 0xFE0F) ||
+          (r >= 0x1F3FB && r <= 0x1F3FF);
+      if (out.isNotEmpty && attaches) {
+        out[out.length - 1] += String.fromCharCode(r);
+      } else {
+        out.add(String.fromCharCode(r));
+      }
+      afterJoiner = joiner;
+    }
+    return out;
+  }
+
   /// How far a guessed word start may move to meet an onset.
   static const Duration _snapWindow = Duration(milliseconds: 150);
 
@@ -540,6 +595,29 @@ class LyricsService {
       previous = start;
     }
     if (previous == null) return spans;
+
+    // Clamping to the line's end can pile the last words onto one instant
+    // (a shift carried too far). Walk back and give each word room before the
+    // one after it, as far as the line's own time allows.
+    var following = -1;
+    for (var u = spans.length - 1; u >= 0; u--) {
+      final s = starts[u];
+      if (s == null) continue;
+      if (following >= 0) {
+        final latest = starts[following]! - _minWordGap;
+        if (s > latest) starts[u] = latest;
+      }
+      following = u;
+    }
+    // Room ran out at the front: keep the order, never before the window.
+    Duration? floor;
+    for (var u = 0; u < spans.length; u++) {
+      final s = starts[u];
+      if (s == null) continue;
+      final lower = floor ?? spans[u].start - _snapWindow;
+      if (s < lower) starts[u] = lower;
+      floor = starts[u]!;
+    }
 
     final lastSung = sung.lastIndexOf(true);
     final result = <LyricSpan>[];

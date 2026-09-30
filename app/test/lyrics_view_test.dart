@@ -147,11 +147,19 @@ void main() {
   testWidgets('the words light up as they are sung', (tester) async {
     await pumpLyrics(tester);
     // At 6.5 s: "two" is sung, "has" is half way, "words" is still to come.
+    // The light moves letter by letter, so the letters fade in one after the
+    // other rather than a whole word switching on.
     final alphas = pieceAlphas(tester, 'Line two has words');
     expect(alphas.first, closeTo(1, 0.01));
-    expect(alphas[1], lessThan(1));
-    expect(alphas[1], greaterThan(alphas.last));
     expect(alphas.last, closeTo(0.30, 0.01));
+    for (var i = 1; i < alphas.length; i++) {
+      expect(alphas[i], lessThanOrEqualTo(alphas[i - 1] + 1e-9));
+    }
+    expect(
+      alphas.where((a) => a > 0.31 && a < 0.999),
+      isNotEmpty,
+      reason: 'a letter is part way lit',
+    );
   });
 
   testWidgets(
