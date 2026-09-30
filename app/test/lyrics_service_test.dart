@@ -93,6 +93,29 @@ First stanza line
       expect(lines.map((l) => l.text), ['First stanza line', '[Chorus: Guest]']);
     });
 
+    test('a translation or romanisation at the same time is not shown', () {
+      final lines = LyricsService.parseLrc('''
+[00:05.00]First original
+[00:05.00]First romanised
+[00:09.00]Second original
+[00:09.00]Second romanised
+[00:12.00]
+[00:12.00]Third original
+''');
+      expect(lines.map((l) => l.text),
+          ['First original', 'Second original', 'Third original']);
+    });
+
+    test('a space timed on its own stays between the words', () {
+      final lines = LyricsService.parseLrc(
+        '[00:10.00]<00:10.00>I<00:10.40> <00:10.50>said<00:11.00> <00:11.10>hey\n'
+        '[00:14.00] next',
+      );
+      final spans = LyricsService.spansFor(lines, 0);
+      expect([for (final s in spans) s.text].join(), 'I said hey');
+      expect(lines.first.text, 'I said hey');
+    });
+
     test('accepts a colon before the fraction in line timestamps', () {
       final lines = LyricsService.parseLrc('[00:12:50] Colon style');
       expect(lines.single.text, 'Colon style');

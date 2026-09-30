@@ -174,8 +174,13 @@ class LyricsService {
       );
       if (text.trim().isEmpty) {
         // A tag with no word after it marks where the previous word stops
-        // (the end of a held note, or a pause before the next word).
-        if (words.isNotEmpty) words.last = words.last.endingAt(at);
+        // (the end of a held note, or a pause before the next word). Some
+        // sources time the space between two words on its own; the space
+        // stays with the word before it, or the words would run together.
+        if (words.isNotEmpty) {
+          final last = words.last;
+          words.last = LyricWord(start: last.start, text: last.text + text, end: at);
+        }
         continue;
       }
       words.add(LyricWord(start: at, text: text));
@@ -309,8 +314,34 @@ class LyricsService {
     }
 
     if (hasTimestamp) {
-      result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      return result;
+      // Sorted by time, lines at the same time kept in file order (the sort
+      // itself does not promise that).
+      final fileOrder = Map<LyricLine, int>.identity();
+      for (var i = 0; i < result.length; i++) {
+        fileOrder[result[i]] = i;
+      }
+      result.sort((a, b) {
+        final byTime = a.timestamp.compareTo(b.timestamp);
+        return byTime != 0 ? byTime : fileOrder[a]!.compareTo(fileOrder[b]!);
+      });
+      // Files that carry a translation or romanisation put it on its own
+      // line at the same time as the original. Only the first (the
+      // original) is shown.
+      final deduped = <LyricLine>[];
+      for (final line in result) {
+        if (deduped.isNotEmpty &&
+            deduped.last.timestamp == line.timestamp &&
+            deduped.last.text.isNotEmpty) {
+          continue;
+        }
+        if (deduped.isNotEmpty &&
+            deduped.last.timestamp == line.timestamp &&
+            deduped.last.text.isEmpty) {
+          deduped.removeLast();
+        }
+        deduped.add(line);
+      }
+      return deduped;
     }
 
     // Fallback for plain-text lyrics without timestamps
