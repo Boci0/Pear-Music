@@ -22,6 +22,10 @@ class Song {
   final String checksum;
   final String? sourceDeviceId;
   final String? artwork;
+
+  /// The artist, when known (online songs); [title] then ends with
+  /// ` - artist` unless the title already named them.
+  final String? artist;
   final DateTime addedAt;
   late final String lowerTitle = title.toLowerCase();
 
@@ -33,8 +37,20 @@ class Song {
     required this.checksum,
     this.sourceDeviceId,
     this.artwork,
+    this.artist,
     required this.addedAt,
   });
+
+  /// [title] without the ` - artist` suffix added for online songs, for
+  /// places that show the artist on its own line.
+  String get titleOnly {
+    final a = artist;
+    if (a == null || a.isEmpty) return title;
+    final suffix = ' - $a';
+    return title.endsWith(suffix) && title.length > suffix.length
+        ? title.substring(0, title.length - suffix.length)
+        : title;
+  }
 
   String get extension {
     final dot = fileName.lastIndexOf('.');
@@ -58,6 +74,7 @@ class Song {
         'checksum': checksum,
         'sourceDeviceId': sourceDeviceId,
         'artwork': artwork,
+        if (artist != null) 'artist': artist,
         'addedAt': addedAt.toIso8601String(),
       };
 
@@ -69,6 +86,7 @@ class Song {
         checksum: json['checksum'] as String? ?? '',
         sourceDeviceId: json['sourceDeviceId'] as String?,
         artwork: json['artwork'] as String?,
+        artist: json['artist'] as String?,
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
             DateTime.now(),
       );

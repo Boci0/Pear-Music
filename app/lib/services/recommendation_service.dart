@@ -49,6 +49,7 @@ class RecommendationItem {
       checksum: 'stream_$videoId',
       sourceDeviceId: sourceDeviceId,
       artwork: thumbnailUrl,
+      artist: artist.isEmpty ? null : artist,
       addedAt: DateTime.now(),
     );
   }

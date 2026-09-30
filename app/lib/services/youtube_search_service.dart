@@ -49,6 +49,7 @@ class YouTubeSearchResult {
       checksum: 'stream_$videoId',
       sourceDeviceId: sourceDeviceId,
       artwork: thumbnailUrl,
+      artist: author.isEmpty ? null : author,
       addedAt: DateTime.now(),
     );
   }

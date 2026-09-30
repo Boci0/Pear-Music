@@ -210,7 +210,8 @@ class PearAudioHandler extends BaseAudioHandler with SeekHandler {
     final prev = mediaItem.valueOrNull;
     final item = MediaItem(
       id: song.id,
-      title: song.title,
+      title: song.titleOnly,
+      artist: song.artist,
       album: song.sourceDeviceId == 'stream' ? 'Pear Radio' : 'Local Music',
       duration: duration ?? (prev?.id == song.id ? prev?.duration : null),
       artUri: artUri ?? (prev?.id == song.id ? prev?.artUri : null),
