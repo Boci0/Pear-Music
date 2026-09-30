@@ -185,14 +185,12 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (playlist != null) {
-      for (final song in selectedSongs) {
-        await controller.library.addSongToPlaylist(playlist.id, song.id);
-      }
+      final added = await _addAllToPlaylist(controller, playlist.id, selectedSongs);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Added ${selectedSongs.length} songs to ${playlist.name}',
+              _addedMessage(added, selectedSongs.length, playlist.name),
             ),
           ),
         );
@@ -202,6 +200,35 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+  }
+
+  /// Adds [songs] through the controller, which also remembers online
+  /// songs (a playlist holds only ids, so an online song it cannot look up
+  /// later drops out of it). Returns how many were new to the playlist.
+  Future<int> _addAllToPlaylist(
+    AppController controller,
+    String playlistId,
+    List<Song> songs,
+  ) async {
+    var added = 0;
+    for (final song in songs) {
+      if (await controller.addSongToPlaylist(playlistId, song.id, song: song)) {
+        added++;
+      }
+    }
+    return added;
+  }
+
+  static String _addedMessage(int added, int selected, String playlist) {
+    String songs(int n) => n == 1 ? '1 song' : '$n songs';
+    if (added == selected) return 'Added ${songs(added)} to $playlist';
+    if (added == 0) {
+      return selected == 1
+          ? 'Already in $playlist'
+          : 'All ${songs(selected)} are already in $playlist';
+    }
+    return 'Added ${songs(added)} to $playlist '
+        '(${selected - added} already there)';
   }
 
   Future<void> _showCreatePlaylistDialog(
@@ -233,13 +260,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (name != null && name.isNotEmpty) {
         final p = await controller.library.createPlaylist(name);
-        for (final song in selectedSongs) {
-          await controller.library.addSongToPlaylist(p.id, song.id);
-        }
+        final added = await _addAllToPlaylist(controller, p.id, selectedSongs);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Added ${selectedSongs.length} songs to ${p.name}'),
+              content: Text(_addedMessage(added, selectedSongs.length, p.name)),
             ),
           );
           setState(() {
