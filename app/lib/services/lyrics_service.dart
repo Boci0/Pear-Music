@@ -430,15 +430,27 @@ class LyricsService {
     // The last sung syllable of a line is usually held, so it gets the time a
     // few syllables would.
     final last = weights.lastIndexWhere((w) => w > 0);
-    if (last >= 0 && !_stretchRegex.hasMatch(units[last])) weights[last] *= 2.5;
-    final natural = weights.fold<double>(0, (a, b) => a + b);
+    final canHold = last >= 0 && !_stretchRegex.hasMatch(units[last]);
+    final held = canHold ? weights[last] * 2.5 : 0.0;
+    var natural = weights.fold<double>(0, (a, b) => a + b);
+    if (canHold) natural += held - weights[last];
+    // A line that does not fit the time at a typical pace (a rap verse) is
+    // sung without a pause: no held last syllable, and the sweep fills almost
+    // all of the time to the next line, else it runs ahead of the voice.
+    final dense =
+        nextStart != null &&
+        natural > 0 &&
+        (nextStart - line.timestamp).inMilliseconds / 1000 * 0.85 < natural;
+    if (canHold && !dense) weights[last] = held;
+    if (dense) natural = weights.fold<double>(0, (a, b) => a + b);
     // Lines are usually sung across most of the time until the next one, so
     // spread the sweep over about 85% of it: squeezed when that is shorter
     // than a typical pace, stretched when longer, but at most to 1.8x the
     // typical pace so a line before a long instrumental break does not crawl.
     var scale = 1.0;
     if (nextStart != null && natural > 0) {
-      final room = (nextStart - line.timestamp).inMilliseconds / 1000 * 0.85;
+      final room =
+          (nextStart - line.timestamp).inMilliseconds / 1000 * (dense ? 0.95 : 0.85);
       if (room > 0) scale = (room / natural).clamp(0.0, 1.8);
     }
     final spans = <LyricSpan>[];

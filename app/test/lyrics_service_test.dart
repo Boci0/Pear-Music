@@ -474,6 +474,22 @@ First stanza line
           lessThan(const Duration(seconds: 12, milliseconds: 700)));
     });
 
+    test('a line too long for its time is sung nonstop, filling almost all of it',
+        () {
+      // Twelve words in 3 s cannot be sung at a typical pace: the sweep must
+      // not finish early, and the last word is not held.
+      const words = 'aaaaa bbbbb ccccc ddddd eeeee fffff ggggg hhhhh iiiii jjjjj kkkkk lllll';
+      final lines = LyricsService.parseLrc('[00:10.00] $words\n[00:13.00] next');
+      final spans = LyricsService.spansFor(lines, 0);
+      final end = spans.last.end;
+      expect(end, greaterThan(const Duration(seconds: 12, milliseconds: 700)));
+      expect(end, lessThanOrEqualTo(const Duration(seconds: 12, milliseconds: 900)));
+      final sung = spans.where((s) => s.text.trim().isNotEmpty).toList();
+      final firstLen = sung.first.end - sung.first.start;
+      final lastLen = sung.last.end - sung.last.start;
+      expect(lastLen, lessThan(firstLen * 1.2));
+    });
+
     test('held notes get more time: the last syllable and written stretches',
         () {
       final lines = LyricsService.parseLrc('[00:10.00] 空ーを見て\n[00:14.00] next');
