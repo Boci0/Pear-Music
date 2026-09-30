@@ -55,16 +55,23 @@ void main() {
     expect(LyricsDisplay.mode.value, LyricsColorMode.dark);
   });
 
-  test('word glow defaults to exact only and remembers the choice', () async {
+  test('word glow defaults to word by word and remembers the choice',
+      () async {
     SharedPreferences.setMockInitialValues({});
     await LyricsDisplay.init(await SharedPreferences.getInstance());
-    expect(LyricsDisplay.wordGlow.value, WordGlowMode.exact);
+    expect(LyricsDisplay.wordGlow.value, WordGlowMode.estimated);
 
+    await LyricsDisplay.setWordGlow(WordGlowMode.off);
+    LyricsDisplay.wordGlow.value = WordGlowMode.estimated;
+    await LyricsDisplay.init(await SharedPreferences.getInstance());
+    expect(LyricsDisplay.wordGlow.value, WordGlowMode.off);
     await LyricsDisplay.setWordGlow(WordGlowMode.estimated);
-    LyricsDisplay.wordGlow.value = WordGlowMode.off;
+  });
+
+  test('the old "Exact only" setting loads as word by word', () async {
+    SharedPreferences.setMockInitialValues({'peerm_lyrics_word_glow': 'exact'});
     await LyricsDisplay.init(await SharedPreferences.getInstance());
     expect(LyricsDisplay.wordGlow.value, WordGlowMode.estimated);
-    await LyricsDisplay.setWordGlow(WordGlowMode.exact);
   });
 
   test('keep screen on defaults to on and remembers being turned off', () async {

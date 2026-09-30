@@ -518,15 +518,13 @@ class _LyricsViewState extends State<LyricsView>
     final lineIndex = _activeIndex >= 0 && _activeIndex < _lyrics.length
         ? _activeIndex
         : 0;
-    // Word by word per the Word glow setting: "Exact only" needs the line's
-    // own word timing; without it the whole line lights up at once.
-    final glowMode = LyricsDisplay.wordGlow.value;
+    // Word by word unless Word Glow is off: by the line's own word timing
+    // when it has it, otherwise by an estimate (see LyricsService.spansFor).
     final canSweep =
         active != null &&
         active.timed &&
         active.text.isNotEmpty &&
-        (glowMode == WordGlowMode.estimated ||
-            (glowMode == WordGlowMode.exact && active.words.isNotEmpty));
+        LyricsDisplay.wordGlow.value != WordGlowMode.off;
     if (canSweep && _spansIndex != lineIndex) {
       _spansIndex = lineIndex;
       _spans = LyricsService.spansFor(_lyrics, lineIndex);

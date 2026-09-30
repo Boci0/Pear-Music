@@ -16,11 +16,9 @@ enum LyricsColorMode {
 
 /// How the current line lights up as it is sung.
 enum WordGlowMode {
-  /// Word by word only when the lyrics carry real word timing; otherwise the
-  /// whole line lights up at once.
-  exact,
-
-  /// Word by word always, estimating the timing when the lyrics have none.
+  /// Word by word: by the lyrics' own word timing when they carry it,
+  /// otherwise by an estimate. (Stored as "estimated"; the former "exact"
+  /// setting, which lit untimed lines all at once, loads as this.)
   estimated,
 
   /// The whole line lights up at once.
@@ -38,7 +36,7 @@ class LyricsDisplay {
 
   /// How the current line lights up; see [WordGlowMode].
   static final ValueNotifier<WordGlowMode> wordGlow =
-      ValueNotifier<WordGlowMode>(WordGlowMode.exact);
+      ValueNotifier<WordGlowMode>(WordGlowMode.estimated);
 
   /// Updates and persists [wordGlow].
   static Future<void> setWordGlow(WordGlowMode value) async {
@@ -66,7 +64,7 @@ class LyricsDisplay {
     final glow = prefs.getString(_wordGlowKey);
     wordGlow.value = WordGlowMode.values.firstWhere(
       (m) => m.name == glow,
-      orElse: () => WordGlowMode.exact,
+      orElse: () => WordGlowMode.estimated,
     );
   }
 

@@ -487,12 +487,8 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         key: const ValueKey('lyrics_word_glow'),
                         segments: const [
                           ButtonSegment(
-                            value: WordGlowMode.exact,
-                            label: Text('Exact only'),
-                          ),
-                          ButtonSegment(
                             value: WordGlowMode.estimated,
-                            label: Text('Estimated'),
+                            label: Text('Word by word'),
                           ),
                           ButtonSegment(
                             value: WordGlowMode.off,
