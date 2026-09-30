@@ -652,18 +652,23 @@ class LyricsService {
         duration = await durationLookup();
       }
       var fetchedLrc = await _fetchFromLrclib(song, duration: duration);
+      var source = 'lrclib';
       if (fetchedLrc == null || !hasWordTiming(fetchedLrc)) {
         final netease = await NeteaseLyrics.fetch(
           song,
           duration: duration,
           wordTimingOnly: fetchedLrc != null,
         );
-        if (netease != null) fetchedLrc = netease.lrc;
+        if (netease != null) {
+          fetchedLrc = netease.lrc;
+          source = 'netease';
+        }
       }
       if (fetchedLrc != null && fetchedLrc.isNotEmpty) {
         final parsed = parseLrc(fetchedLrc);
         if (parsed.isNotEmpty) {
-          final saved = '$fetchedLrc\n$wordTimingCheckedMark';
+          final saved =
+              '$fetchedLrc\n$wordTimingCheckedMark\n${sourceMark(source)}';
           _setMemoryCache(cacheKey, parsed, rawContent: saved);
           _saveToDiskCache(song.id, saved);
           return parsed;
@@ -681,6 +686,91 @@ class LyricsService {
   /// which are never replaced.)
   static const String wordTimingCheckedMark = '[pear:word-timing-checked]';
   static final RegExp _markLine = RegExp(r'^\[pear:[^\]]*\]\s*$');
+
+  /// Written into saved lyrics to say where they came from (`lrclib`,
+  /// `netease` or `lrclib-manual`), for the timing report.
+  static String sourceMark(String source) => '[pear:source:$source]';
+  static final RegExp _sourceRegex = RegExp(r'\[pear:source:([\w-]+)\]');
+
+  /// The source written by [sourceMark] into [raw], or null for lyrics saved
+  /// before sources were recorded.
+  static String? sourceOf(String raw) => _sourceRegex.firstMatch(raw)?.group(1);
+
+  /// A plain-text report for diagnosing a lyric timing problem: where the
+  /// lyrics came from, the current line against the playback position, and
+  /// how its words are timed. Never includes lyric text.
+  static String timingReport({
+    required Song song,
+    required Duration? songLength,
+    required Duration position,
+    required List<LyricLine> lyrics,
+    required int offsetMs,
+    required String source,
+    List<Duration>? onsets,
+  }) {
+    String t(Duration d) {
+      final ms = d.inMilliseconds;
+      final sign = ms < 0 ? '-' : '';
+      final a = ms.abs();
+      return '$sign${a ~/ 60000}:${(a ~/ 1000 % 60).toString().padLeft(2, '0')}'
+          '.${(a % 1000).toString().padLeft(3, '0')}';
+    }
+
+    final b = StringBuffer()
+      ..writeln('Pear Music lyric timing report')
+      ..writeln('App version: ${UpdateService.currentVersion}')
+      ..writeln('Song id: ${song.id}')
+      ..writeln('Title: ${song.title}')
+      ..writeln('Song length: ${songLength == null ? 'unknown' : t(songLength)}')
+      ..writeln('Lyrics source: $source')
+      ..writeln('Timing offset: ${offsetMs}ms')
+      ..writeln('Playback position: ${t(position)}');
+    final timed = lyrics.any((l) => l.timed);
+    if (lyrics.isEmpty || !timed) {
+      b.writeln(lyrics.isEmpty ? 'Lyrics: none loaded' : 'Lyrics: plain, not timed');
+      return b.toString().trimRight();
+    }
+    var i = -1;
+    for (var k = 0; k < lyrics.length; k++) {
+      if (lyrics[k].timestamp <= position) i = k;
+    }
+    b.writeln('Lines: ${lyrics.length}');
+    if (i < 0) {
+      b.writeln('Current line: none yet (before the first line at '
+          '${t(lyrics.first.timestamp)})');
+      return b.toString().trimRight();
+    }
+    final line = lyrics[i];
+    b
+      ..writeln('Current line: #${i + 1} at ${t(line.timestamp)} '
+          '(${position - line.timestamp >= Duration.zero ? '+' : ''}'
+          '${(position - line.timestamp).inMilliseconds}ms into it)')
+      ..writeln(i + 1 < lyrics.length
+          ? 'Next line at: ${t(lyrics[i + 1].timestamp)}'
+          : 'Next line at: none (last line)');
+    if (line.words.isNotEmpty) {
+      b
+        ..writeln('Word timing: real (${line.words.length} words)')
+        ..writeln('First word at: ${t(line.words.first.start)}');
+    } else {
+      final plain = spansFor(lyrics, i);
+      final snapped = onsets == null || onsets.isEmpty
+          ? plain
+          : spansFor(lyrics, i, onsets: onsets);
+      var moved = false;
+      for (var k = 0; k < plain.length; k++) {
+        if (plain[k].start != snapped[k].start) moved = true;
+      }
+      b.writeln('Word timing: estimated');
+      b.writeln(onsets == null
+          ? 'Onset snapping: not measured yet'
+          : onsets.isEmpty
+          ? 'Onset snapping: no onsets found in this song'
+          : 'Onset snapping: ${moved ? 'ran for this line' : 'did not move this line'}'
+                ' (${onsets.length} onsets in the song)');
+    }
+    return b.toString().trimRight();
+  }
 
   /// An LRC header line such as `[ar: Artist]` or `[offset: 200]`: not a
   /// lyric, even in lyrics without timestamps.
@@ -721,7 +811,7 @@ class LyricsService {
     );
     final updated = netease == null
         ? '$raw\n$wordTimingCheckedMark'
-        : '${netease.lrc}\n$wordTimingCheckedMark';
+        : '${netease.lrc}\n$wordTimingCheckedMark\n${sourceMark('netease')}';
     final parsed = parseLrc(updated);
     _setMemoryCache(song.id, parsed, rawContent: updated);
     await _saveToDiskCache(song.id, updated);
@@ -1020,7 +1110,9 @@ class LyricsService {
   }) async {
     // A hand-picked choice is final: marked so word timing from NetEase
     // never replaces it later.
-    final content = '${candidate.lyricsContent}\n$wordTimingCheckedMark';
+    final content =
+        '${candidate.lyricsContent}\n$wordTimingCheckedMark\n'
+        '${sourceMark('lrclib-manual')}';
     final parsed = parseLrc(content);
     final cacheKey = song.id;
     _setMemoryCache(cacheKey, parsed, rawContent: content);

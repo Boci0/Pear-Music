@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 import '../../models/song.dart';
 import '../../services/lyrics_display.dart';
+import '../../services/loudness_service.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 import '../pear_popup.dart';
@@ -145,6 +150,43 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
       localAudioPath: _localAudioPath,
     );
     widget.onLyricsUpdated?.call();
+  }
+
+  /// Copies what is needed to diagnose a lyric timing report (never the
+  /// lyric text itself).
+  Future<void> _copyTimingReport() async {
+    final path = _localAudioPath;
+    final raw = _currentRawLrc;
+    final hasLocalLrc =
+        path != null && await File(p.setExtension(path, '.lrc')).exists();
+    final lyrics = await LyricsService.getLyrics(
+      widget.song,
+      localAudioPath: path,
+    );
+    final source = hasLocalLrc
+        ? 'local .lrc file'
+        : raw == null
+        ? 'none'
+        : switch (LyricsService.sourceOf(raw)) {
+            'lrclib' => 'LRCLIB',
+            'netease' => 'NetEase',
+            'lrclib-manual' => 'LRCLIB (picked by hand)',
+            _ => 'unknown (saved before sources were recorded)',
+          };
+    final report = LyricsService.timingReport(
+      song: widget.song,
+      songLength: widget.player.duration,
+      position: widget.player.position ?? Duration.zero,
+      lyrics: lyrics,
+      offsetMs: _currentOffsetMs,
+      source: source,
+      onsets: LoudnessService.onsetsFor(widget.song),
+    );
+    await Clipboard.setData(ClipboardData(text: report));
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('Timing report copied')),
+    );
   }
 
   Future<void> _performSearch() async {
@@ -409,6 +451,17 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 10.5,
                           color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      TextButton.icon(
+                        key: const ValueKey('lyrics_report_timing'),
+                        onPressed: _isLoadingOffset ? null : _copyTimingReport,
+                        icon: const Icon(Icons.content_copy_rounded, size: 16),
+                        label: const Text('Report timing'),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                       ),
                     ],

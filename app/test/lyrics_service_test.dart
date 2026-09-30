@@ -584,4 +584,77 @@ First stanza line
       );
     });
   });
+
+  group('LyricsService.timingReport', () {
+    final song = Song(
+      id: 'report_song',
+      title: 'Report',
+      fileName: 'report.mp3',
+      size: 0,
+      checksum: 'x',
+      addedAt: DateTime(2026, 9, 30),
+    );
+
+    test('reads the source mark back and never holds lyric text', () {
+      final raw = '[00:01.00] placeholder\n${LyricsService.sourceMark('netease')}';
+      expect(LyricsService.sourceOf(raw), 'netease');
+      expect(LyricsService.sourceOf('[00:01.00] x'), isNull);
+      final lines = LyricsService.parseLrc(raw);
+      expect(lines.length, 1);
+      expect(lines.single.text, 'placeholder');
+    });
+
+    test('reports estimated timing, the offset and the current line', () {
+      final lines = LyricsService.parseLrc(
+        '[00:10.00] alpha beta\n[00:20.00] gamma delta',
+      );
+      final report = LyricsService.timingReport(
+        song: song,
+        songLength: const Duration(minutes: 3, seconds: 5),
+        position: const Duration(seconds: 12, milliseconds: 500),
+        lyrics: lines,
+        offsetMs: -200,
+        source: 'LRCLIB',
+        onsets: const [],
+      );
+      expect(report, contains('Song id: report_song'));
+      expect(report, contains('Song length: 3:05.000'));
+      expect(report, contains('Lyrics source: LRCLIB'));
+      expect(report, contains('Timing offset: -200ms'));
+      expect(report, contains('Current line: #1 at 0:10.000 (+2500ms'));
+      expect(report, contains('Next line at: 0:20.000'));
+      expect(report, contains('Word timing: estimated'));
+      expect(report, contains('no onsets found'));
+      expect(report, isNot(contains('alpha')));
+    });
+
+    test('reports real word timing', () {
+      final lines = LyricsService.parseLrc(
+        '[00:10.00] <00:10.00> alpha <00:10.50> beta',
+      );
+      final report = LyricsService.timingReport(
+        song: song,
+        songLength: null,
+        position: const Duration(seconds: 11),
+        lyrics: lines,
+        offsetMs: 0,
+        source: 'NetEase',
+      );
+      expect(report, contains('Song length: unknown'));
+      expect(report, contains('Word timing: real (2 words)'));
+      expect(report, contains('Next line at: none'));
+    });
+
+    test('says so before the first line', () {
+      final report = LyricsService.timingReport(
+        song: song,
+        songLength: null,
+        position: Duration.zero,
+        lyrics: LyricsService.parseLrc('[00:10.00] alpha'),
+        offsetMs: 0,
+        source: 'LRCLIB',
+      );
+      expect(report, contains('Current line: none yet'));
+    });
+  });
 }
