@@ -33,6 +33,22 @@ class LyricsDisplay {
   static const String _key = 'peerm_lyrics_text_color';
   static const String _keepScreenOnKey = 'peerm_lyrics_keep_screen_on';
   static const String _wordGlowKey = 'peerm_lyrics_word_glow';
+  static const String _glowDelayKey = 'peerm_lyrics_glow_delay_ms';
+
+  /// How far the word glow is held back (positive) or pulled forward
+  /// (negative), in milliseconds, for songs where it runs off from the voice.
+  /// Only the glow moves; the line changes stay where the lyrics put them.
+  static final ValueNotifier<int> glowDelayMs = ValueNotifier<int>(0);
+  static const int glowDelayLimitMs = 500;
+
+  /// Updates and persists [glowDelayMs] (kept within +-[glowDelayLimitMs]).
+  static Future<void> setGlowDelayMs(int value) async {
+    final v = value.clamp(-glowDelayLimitMs, glowDelayLimitMs);
+    if (glowDelayMs.value == v) return;
+    glowDelayMs.value = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_glowDelayKey, v);
+  }
 
   /// How the current line lights up; see [WordGlowMode].
   static final ValueNotifier<WordGlowMode> wordGlow =
@@ -61,6 +77,10 @@ class LyricsDisplay {
       orElse: () => LyricsColorMode.auto,
     );
     keepScreenOn.value = prefs.getBool(_keepScreenOnKey) ?? true;
+    glowDelayMs.value = (prefs.getInt(_glowDelayKey) ?? 0).clamp(
+      -glowDelayLimitMs,
+      glowDelayLimitMs,
+    );
     final glow = prefs.getString(_wordGlowKey);
     wordGlow.value = WordGlowMode.values.firstWhere(
       (m) => m.name == glow,

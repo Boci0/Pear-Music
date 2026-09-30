@@ -68,6 +68,7 @@ class _LyricsViewState extends State<LyricsView>
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
     LyricsDisplay.mode.addListener(_onPaletteUpdated);
     LyricsDisplay.wordGlow.addListener(_onPaletteUpdated);
+    LyricsDisplay.glowDelayMs.addListener(_onPaletteUpdated);
     _loadLyrics();
   }
 
@@ -237,7 +238,7 @@ class _LyricsViewState extends State<LyricsView>
   static const double _waitingAlpha = 0.30;
 
   /// How long a letter takes to go from waiting to fully lit.
-  static const int _glowRampMicros = 260000;
+  static const int _glowRampMicros = 150000;
 
   /// The colour sung words take in dark-text mode: a very dark shade of the
   /// song accent when it has real colour, otherwise plain [ink]. A pale or
@@ -259,6 +260,7 @@ class _LyricsViewState extends State<LyricsView>
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     LyricsDisplay.mode.removeListener(_onPaletteUpdated);
     LyricsDisplay.wordGlow.removeListener(_onPaletteUpdated);
+    LyricsDisplay.glowDelayMs.removeListener(_onPaletteUpdated);
     _positionSub?.cancel();
     _sweepTicker.dispose();
     _sweepPosition.dispose();
@@ -568,6 +570,7 @@ class _LyricsViewState extends State<LyricsView>
       _glyphs = LyricsService.glyphTimes(_spans);
     }
     final glyphs = _glyphs;
+    final glowDelay = Duration(milliseconds: LyricsDisplay.glowDelayMs.value);
     if (_sweeping != canSweep) {
       _sweeping = canSweep;
       _syncSweepTicker();
@@ -594,7 +597,8 @@ class _LyricsViewState extends State<LyricsView>
               for (final glyph in glyphs)
                 () {
                   final t =
-                      ((position - glyph.at).inMicroseconds / _glowRampMicros)
+                      ((position - glowDelay - glyph.at).inMicroseconds /
+                              _glowRampMicros)
                           .clamp(0.0, 1.0);
                   final p = t * t * (3 - 2 * t);
                   return TextSpan(

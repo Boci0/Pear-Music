@@ -145,8 +145,9 @@ void main() {
   });
 
   testWidgets('the words light up as they are sung', (tester) async {
-    await pumpLyrics(tester);
-    // At 6.5 s: "two" is sung, "has" is half way, "words" is still to come.
+    await pumpLyrics(tester, at: const Duration(seconds: 6, milliseconds: 150));
+    // At 6.15 s: "two" is sung, "has" has just begun, "words" is still to
+    // come.
     // The light moves letter by letter, so the letters fade in one after the
     // other rather than a whole word switching on.
     final alphas = pieceAlphas(tester, 'Line two has words');

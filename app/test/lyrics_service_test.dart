@@ -520,7 +520,7 @@ First stanza line
       ];
       final glyphs = LyricsService.glyphTimes(spans);
       expect([for (final g in glyphs) g.text], ['a', 'b', 'é', 'x']);
-      expect(glyphs[1].at, const Duration(milliseconds: 1500));
+      expect(glyphs[1].at, const Duration(milliseconds: 1150));
       expect(glyphs[2].at, const Duration(seconds: 2));
     });
 

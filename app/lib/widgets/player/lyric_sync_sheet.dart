@@ -179,6 +179,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
       position: widget.player.position ?? Duration.zero,
       lyrics: lyrics,
       offsetMs: _currentOffsetMs,
+      glowDelayMs: LyricsDisplay.glowDelayMs.value,
       source: source,
       onsets: LoudnessService.onsetsFor(widget.song),
     );
@@ -564,6 +565,33 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         'Exact only lights up word by word when the lyrics have real '
                         'word timing, and the whole line otherwise. Estimated guesses '
                         'the timing for every line.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 10.5,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Glow timing: ${LyricsDisplay.glowDelayMs.value == 0 ? 'default' : '${LyricsDisplay.glowDelayMs.value > 0 ? '+' : ''}${LyricsDisplay.glowDelayMs.value} ms'}',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      Slider(
+                        key: const ValueKey('lyrics_glow_delay'),
+                        min: -LyricsDisplay.glowDelayLimitMs.toDouble(),
+                        max: LyricsDisplay.glowDelayLimitMs.toDouble(),
+                        divisions: 20,
+                        value: LyricsDisplay.glowDelayMs.value.toDouble(),
+                        onChanged: (v) {
+                          LyricsDisplay.setGlowDelayMs(v.round());
+                          setState(() {});
+                        },
+                      ),
+                      Text(
+                        'Slide right if the glow runs ahead of the words, left if it lags. Only the glow moves, not the lines.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 10.5,
                           color: scheme.onSurfaceVariant,

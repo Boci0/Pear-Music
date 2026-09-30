@@ -467,7 +467,10 @@ class LyricsService {
 
   /// Splits [spans] into the smallest pieces that can light up on their own
   /// (letters, with accents and joiners kept on their letter), each with the
-  /// moment it is sung, spread evenly over its word. Scripts that join letters
+  /// moment it is sung. A word's first letter lights exactly when the word
+  /// starts and the rest follow quickly (over at most 60% of the word and
+  /// 300 ms), because most of a sung word's sound is at its start: spreading
+  /// the letters over the whole word made the glow trail the voice. Scripts that join letters
   /// (Arabic, Hebrew, Indic) stay whole so their shaping is not broken.
   static List<({String text, Duration at})> glyphTimes(List<LyricSpan> spans) {
     final result = <({String text, Duration at})>[];
@@ -476,11 +479,12 @@ class LyricsService {
           ? [span.text]
           : _glyphs(span.text);
       final n = parts.length;
+      var spread = (span.end - span.start) * 0.6;
+      if (spread > const Duration(milliseconds: 300)) {
+        spread = const Duration(milliseconds: 300);
+      }
       for (var k = 0; k < n; k++) {
-        result.add((
-          text: parts[k],
-          at: span.start + (span.end - span.start) * (k / n),
-        ));
+        result.add((text: parts[k], at: span.start + spread * (k / n)));
       }
     }
     return result;
@@ -795,6 +799,7 @@ class LyricsService {
     required Duration position,
     required List<LyricLine> lyrics,
     required int offsetMs,
+    int glowDelayMs = 0,
     required String source,
     List<Duration>? onsets,
   }) {
@@ -814,6 +819,7 @@ class LyricsService {
       ..writeln('Song length: ${songLength == null ? 'unknown' : t(songLength)}')
       ..writeln('Lyrics source: $source')
       ..writeln('Timing offset: ${offsetMs}ms')
+      ..writeln('Glow delay: ${glowDelayMs}ms')
       ..writeln('Playback position: ${t(position)}');
     final timed = lyrics.any((l) => l.timed);
     if (lyrics.isEmpty || !timed) {
