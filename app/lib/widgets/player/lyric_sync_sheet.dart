@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/song.dart';
 import '../../services/lyrics_display.dart';
@@ -186,8 +187,31 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
     await Clipboard.setData(ClipboardData(text: report));
     if (!mounted) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('Timing report copied')),
+      SnackBar(
+        content: const Text('Timing report copied'),
+        action: SnackBarAction(
+          label: 'Open issue form',
+          onPressed: _openIssueForm,
+        ),
+      ),
     );
+  }
+
+  /// Opens the lyric timing issue form with the song name filled in. The
+  /// copied report is pasted into the form by hand; it is too long for the
+  /// link.
+  Future<void> _openIssueForm() async {
+    final artist = widget.song.artist;
+    final name = artist == null || artist.isEmpty
+        ? widget.song.titleOnly
+        : '${widget.song.titleOnly} - $artist';
+    final uri = Uri.https('github.com', '/Boci0/Pear-Music/issues/new', {
+      'template': 'lyric-timing.yml',
+      'song': name,
+    });
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 
   Future<void> _performSearch() async {
