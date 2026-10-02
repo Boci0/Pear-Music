@@ -1545,6 +1545,9 @@ class PlayerService extends ChangeNotifier {
 
   int _playRequestToken = 0;
 
+  /// How long opening a stream's direct link may take before falling back.
+  static const Duration _earlyStreamOpenTimeout = Duration(seconds: 10);
+
   /// Logs [song] as played. Stream songs are also registered as known online
   /// songs so the history row can still resolve its title/artwork later (they
   /// are not in the library until the user saves them).
@@ -1762,10 +1765,16 @@ class PlayerService extends ChangeNotifier {
                     contentType: link.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
                   );
             try {
-              await _player.setAudioSource(
-                growing ??
-                    AudioSource.uri(Uri.parse(link.url), headers: link.headers),
-              );
+              // A link that was already used up or throttled (HTTP 403) can
+              // leave the player opening it forever, which kept the song on
+              // "loading" with no error. Give up and use the cached file.
+              await _player
+                  .setAudioSource(
+                    growing ??
+                        AudioSource.uri(Uri.parse(link.url),
+                            headers: link.headers),
+                  )
+                  .timeout(_earlyStreamOpenTimeout);
               if (token != _playRequestToken) {
                 if (growing != null) unawaited(growing.close());
                 return;
