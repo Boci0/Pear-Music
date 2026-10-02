@@ -800,6 +800,21 @@ class LyricsService {
   /// before sources were recorded.
   static String? sourceOf(String raw) => _sourceRegex.firstMatch(raw)?.group(1);
 
+  /// The lyric timing issue form with the song and artist already filled in.
+  /// Only the song is prefilled: the report itself is too long for a link and
+  /// is pasted from the clipboard.
+  static Uri timingIssueUri(Song song) {
+    final artist = song.artist?.trim() ?? '';
+    final label = artist.isEmpty ||
+            song.title.toLowerCase().contains(artist.toLowerCase())
+        ? song.title
+        : '${song.title} - $artist';
+    return Uri.https('github.com', '/Boci0/Pear-Music/issues/new', {
+      'template': 'lyric-timing.yml',
+      'song': label,
+    });
+  }
+
   /// A plain-text report for diagnosing a lyric timing problem: where the
   /// lyrics came from, the current line against the playback position, and
   /// how its words are timed. Never includes lyric text.

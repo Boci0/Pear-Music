@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/song.dart';
 import '../../services/lyrics_display.dart';
@@ -186,7 +187,16 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
     await Clipboard.setData(ClipboardData(text: report));
     if (!mounted) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('Timing report copied')),
+      SnackBar(
+        content: const Text('Timing report copied'),
+        action: SnackBarAction(
+          label: 'Open issue form',
+          onPressed: () => launchUrl(
+            LyricsService.timingIssueUri(widget.song),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+      ),
     );
   }
 
