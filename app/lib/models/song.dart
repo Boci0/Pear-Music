@@ -28,6 +28,7 @@ class Song {
   final String? artist;
   final DateTime addedAt;
   late final String lowerTitle = title.toLowerCase();
+  late final String lowerArtist = (artist ?? '').toLowerCase();
 
   Song({
     required this.id,

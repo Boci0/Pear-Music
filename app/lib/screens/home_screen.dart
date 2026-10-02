@@ -440,7 +440,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
-      rawSongs = rawSongs.where((s) => s.lowerTitle.contains(q)).toList();
+      rawSongs = rawSongs
+          .where((s) => s.lowerTitle.contains(q) || s.lowerArtist.contains(q))
+          .toList();
     }
 
     final songs = controller.getSortedSongs(

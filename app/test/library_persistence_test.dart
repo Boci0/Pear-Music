@@ -71,4 +71,24 @@ void main() {
 
     expect(lib.songs.map((s) => s.id), ['a']);
   });
+
+  test('a saved online song keeps its artist across a restart', () async {
+    final lib = LibraryService()..debugBaseDirectory = tempDir;
+    await lib.init();
+    final src = File(p.join(tempDir.path, 'src.mp3'))
+      ..writeAsBytesSync([9, 8, 7, 6]);
+
+    final added = await lib.addScrapedFile(
+      src,
+      title: 'Track - Someone',
+      artist: '  Someone ',
+    );
+    expect(added?.artist, 'Someone');
+    await lib.flushSaveIndex();
+
+    final reloaded = LibraryService()..debugBaseDirectory = tempDir;
+    await reloaded.init();
+    expect(reloaded.songs.single.artist, 'Someone');
+    expect(reloaded.songs.single.lowerArtist, 'someone');
+  });
 }

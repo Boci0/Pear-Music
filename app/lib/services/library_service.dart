@@ -55,6 +55,11 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
+  static String? _cleanArtist(String? artist) {
+    final a = artist?.trim();
+    return a == null || a.isEmpty ? null : a;
+  }
+
   void _indexSong(Song s) {
     _songsById[s.id] = s;
     _checksums.add(s.checksum);
@@ -784,6 +789,7 @@ class LibraryService extends ChangeNotifier {
     File file, {
     required String title,
     String? artwork,
+    String? artist,
   }) async {
     if (!await file.exists()) return null;
     final sum = await checksum(file);
@@ -811,6 +817,7 @@ class LibraryService extends ChangeNotifier {
       checksum: sum,
       sourceDeviceId: null,
       artwork: effectiveArtwork ?? artwork,
+      artist: _cleanArtist(artist),
       addedAt: DateTime.now(),
     );
     _songs.add(song);
@@ -853,6 +860,7 @@ class LibraryService extends ChangeNotifier {
               checksum: s.checksum,
               sourceDeviceId: s.sourceDeviceId,
               artwork: base64Art,
+              artist: s.artist,
               addedAt: s.addedAt,
             );
             _songs[i] = repaired;

@@ -217,6 +217,33 @@ not a link
     });
   });
 
+  group('online favorite artist', () {
+    test('round trips and stays compatible with exports without one', () {
+      final built = LibraryProfile.build(
+        const [],
+        onlineFavorites: const [
+          ProfileOnlineFavorite(
+            videoId: 'kJQP7kiw5Fk',
+            title: 'Stream Only',
+            artist: 'Some Artist',
+          ),
+          ProfileOnlineFavorite(videoId: 'dQw4w9WgXcQ', title: 'No Artist'),
+        ],
+      )!;
+      final online = LibraryProfile.parseOnlineFavorites(built);
+      expect(online.map((f) => f.artist).toList(), ['Some Artist', null]);
+
+      const old = '''
+#PEARMUSIC-ONLINE-FAVORITES
+#EXTINF:-1,Old Export
+https://www.youtube.com/watch?v=kJQP7kiw5Fk
+''';
+      final parsed = LibraryProfile.parseOnlineFavorites(old);
+      expect(parsed.single.title, 'Old Export');
+      expect(parsed.single.artist, isNull);
+    });
+  });
+
   group('LibraryProfile.isProfile', () {
     test('accepts files carrying the profile marker', () {
       final built = LibraryProfile.build([

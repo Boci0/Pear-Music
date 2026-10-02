@@ -1205,6 +1205,7 @@ class StreamCacheManager {
           cached,
           title: streamSong.title,
           artwork: base64Art ?? streamSong.artwork,
+          artist: streamSong.artist,
         );
         if (song != null) return song;
         // Null here means this audio is already in the library: hand back
@@ -1220,6 +1221,7 @@ class StreamCacheManager {
       return await youtubeService.scrapeAndAddWithYtDlp(
         library,
         ytUrl,
+        artist: streamSong.artist,
       );
     } catch (e) {
       debugPrint('[StreamCacheManager] Failed to save stream song: $e');

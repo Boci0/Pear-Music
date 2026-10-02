@@ -20,6 +20,7 @@ class LibraryProfile {
   static const String favoriteMarker = '#FAVORITE';
   static const String onlineFavoritesMarker = '#PEARMUSIC-ONLINE-FAVORITES';
   static const String artworkMarker = '#PEARMUSIC-ART';
+  static const String artistMarker = '#PEARMUSIC-ARTIST';
   static final RegExp _videoIdTag = RegExp(r'\[([a-zA-Z0-9_-]{11})\]');
 
   /// Extracts the YouTube ID stored in a link-added song's file name.
@@ -75,6 +76,10 @@ class LibraryProfile {
       for (final fav in onlineFavorites) {
         if (fav.title.isNotEmpty) {
           buffer.writeln('#EXTINF:-1,${fav.title}');
+        }
+        final artist = fav.artist;
+        if (artist != null && artist.isNotEmpty) {
+          buffer.writeln('$artistMarker $artist');
         }
         final artwork = fav.artwork;
         if (artwork != null && artwork.isNotEmpty) {
@@ -138,6 +143,7 @@ class LibraryProfile {
     var inSection = false;
     var pendingTitle = '';
     String? pendingArtwork;
+    String? pendingArtist;
     for (final raw in content.split(RegExp(r'\r?\n'))) {
       final line = raw.trim();
       if (line.isEmpty) continue;
@@ -151,6 +157,11 @@ class LibraryProfile {
         pendingTitle = comma == -1 ? '' : line.substring(comma + 1).trim();
         continue;
       }
+      if (line.startsWith(artistMarker)) {
+        final a = line.substring(artistMarker.length).trim();
+        pendingArtist = a.isEmpty ? null : a;
+        continue;
+      }
       if (line.startsWith(artworkMarker)) {
         pendingArtwork = line.substring(artworkMarker.length).trim();
         continue;
@@ -160,15 +171,18 @@ class LibraryProfile {
       if (videoId == null || !seen.add(videoId)) {
         pendingTitle = '';
         pendingArtwork = null;
+        pendingArtist = null;
         continue;
       }
       favorites.add(ProfileOnlineFavorite(
         videoId: videoId,
         title: pendingTitle,
         artwork: pendingArtwork,
+        artist: pendingArtist,
       ));
       pendingTitle = '';
       pendingArtwork = null;
+      pendingArtist = null;
     }
     return favorites;
   }
@@ -179,11 +193,13 @@ class ProfileOnlineFavorite {
   final String videoId;
   final String title;
   final String? artwork;
+  final String? artist;
 
   const ProfileOnlineFavorite({
     required this.videoId,
     this.title = '',
     this.artwork,
+    this.artist,
   });
 }
 

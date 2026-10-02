@@ -903,6 +903,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         onlineFavorites.add(ProfileOnlineFavorite(
           videoId: videoId,
           title: meta?.title ?? '',
+          artist: meta?.artist,
           artwork: (artwork != null && artwork.startsWith('http'))
               ? artwork
               : null,
@@ -1163,6 +1164,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         checksum: streamId,
         sourceDeviceId: 'stream',
         artwork: fav.artwork,
+        artist: fav.artist,
         addedAt: DateTime.now(),
       );
       await identity.registerOnlineSongs([song]);
