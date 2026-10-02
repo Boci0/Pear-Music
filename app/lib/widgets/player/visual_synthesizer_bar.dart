@@ -475,12 +475,20 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       }
     }
 
-    // Repaint on every tick (display refresh rate). This used to be throttled
-    // to ~30 fps because the full-rate spectrum repaint was the heaviest
-    // continuous cost; the painter now reuses a single gradient shader for all
-    // bars, so full-rate repaints stay cheap and the motion reads as fluid.
-    _requestPaint();
+    // Repaint at most about 60 times a second. The painter reuses one
+    // gradient shader for all bars, so 60 fps reads as fluid; on 120 or 144 Hz
+    // displays repainting every tick only doubled the GPU cost. The bar state
+    // above still advances every tick, so motion speed is unchanged.
+    if (nowMs - _lastPaintMs >= _minPaintGapMs) {
+      _lastPaintMs = nowMs;
+      _requestPaint();
+    }
   }
+
+  /// Slightly under one 60 Hz frame, so a steady 60 Hz display is never
+  /// skipped by timer jitter.
+  static const int _minPaintGapMs = 15;
+  int _lastPaintMs = 0;
 
   void _requestPaint() {
     _paintTick.value++;
