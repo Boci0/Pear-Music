@@ -174,6 +174,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
             'lrclib-manual' => 'LRCLIB (picked by hand)',
             _ => 'unknown (saved before sources were recorded)',
           };
+    final borrowed = raw?.contains(LyricsService.timingBorrowedMark) ?? false;
     final report = LyricsService.timingReport(
       song: widget.song,
       songLength: widget.player.duration,
@@ -181,7 +182,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
       lyrics: lyrics,
       offsetMs: _currentOffsetMs,
       glowDelayMs: LyricsDisplay.glowDelayMs.value,
-      source: source,
+      source: borrowed ? '$source + word timing from NetEase' : source,
       onsets: LoudnessService.onsetsFor(widget.song),
     );
     await Clipboard.setData(ClipboardData(text: report));
@@ -195,6 +196,42 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
             LyricsService.timingIssueUri(widget.song),
             mode: LaunchMode.externalApplication,
           ),
+        ),
+      ),
+    );
+  }
+
+  bool _isBorrowing = false;
+
+  Future<void> _borrowWordTiming() async {
+    if (_isBorrowing) return;
+    setState(() => _isBorrowing = true);
+    List<LyricLine>? result;
+    try {
+      result = await LyricsService.tryNeteaseWordTiming(
+        widget.song,
+        localAudioPath: _localAudioPath,
+        duration: widget.player.duration,
+      );
+    } finally {
+      if (mounted) setState(() => _isBorrowing = false);
+    }
+    if (!mounted) return;
+    if (result != null) {
+      final raw = await LyricsService.getRawLrc(
+        widget.song,
+        localAudioPath: _localAudioPath,
+      );
+      if (!mounted) return;
+      setState(() => _currentRawLrc = raw);
+      widget.onLyricsUpdated?.call();
+    }
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          result != null
+              ? 'Word timing added from NetEase'
+              : 'NetEase has no word timing that fits this song',
         ),
       ),
     );
@@ -465,6 +502,20 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         ),
                       ),
                       const SizedBox(height: 4),
+                      if (_currentRawLrc != null &&
+                          !LyricsService.hasWordTiming(_currentRawLrc!))
+                        TextButton.icon(
+                          key: const ValueKey('lyrics_borrow_word_timing'),
+                          onPressed: _isLoadingOffset || _isBorrowing
+                              ? null
+                              : _borrowWordTiming,
+                          icon: const Icon(Icons.timer_outlined, size: 16),
+                          label: const Text('Try NetEase word timing'),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
                       TextButton.icon(
                         key: const ValueKey('lyrics_report_timing'),
                         onPressed: _isLoadingOffset ? null : _copyTimingReport,

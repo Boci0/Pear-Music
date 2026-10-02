@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
+import 'lyric_timing_borrow.dart';
 import 'netease_lyrics.dart';
 import 'update_service.dart';
 
@@ -784,6 +785,9 @@ class LyricsService {
   /// so it is asked only once per song. (Also set on lyrics picked by hand,
   /// which are never replaced.)
   static const String wordTimingCheckedMark = '[pear:word-timing-checked]';
+  /// Written when word timing was borrowed from NetEase onto lyrics picked
+  /// by hand, so the timing report can say so.
+  static const String timingBorrowedMark = '[pear:timing-borrowed]';
   static final RegExp _markLine = RegExp(r'^\[pear:[^\]]*\]\s*$');
 
   /// Written into NetEase lyrics saved once their word spacing has been
@@ -958,6 +962,53 @@ class LyricsService {
     _setMemoryCache(song.id, parsed, rawContent: updated);
     await _saveToDiskCache(song.id, updated);
     return netease == null ? null : parsed;
+  }
+
+  @visibleForTesting
+  static Future<NeteaseResult?> Function(Song, {Duration? duration})?
+      neteaseWordTimingForTesting;
+
+  /// Asked for by the user: borrows NetEase's word timing for lyrics that
+  /// have none, keeping their text, line times and offset (this is the one
+  /// way past the guard on lyrics picked by hand). Returns the new lyrics, or
+  /// null when NetEase has no timing that fits and nothing was changed.
+  static Future<List<LyricLine>?> tryNeteaseWordTiming(
+    Song song, {
+    String? localAudioPath,
+    Duration? duration,
+  }) async {
+    if (duration == null || duration.inSeconds <= 0) return null;
+    final raw = await getRawLrc(song, localAudioPath: localAudioPath);
+    if (raw == null || hasWordTiming(raw)) return null;
+    final fetch = neteaseWordTimingForTesting ??
+        (Song s, {Duration? duration}) =>
+            NeteaseLyrics.fetch(s, duration: duration, wordTimingOnly: true);
+    final netease = await fetch(song, duration: duration);
+    if (netease == null || !netease.hasWordTiming) return null;
+    final merged = LyricTimingBorrow.merge(raw, netease.lrc);
+    if (merged == null) return null;
+
+    final content = StringBuffer(merged);
+    if (!merged.contains(wordTimingCheckedMark)) {
+      content.write('\n$wordTimingCheckedMark');
+    }
+    content.write('\n$timingBorrowedMark');
+    final saved = content.toString();
+    final parsed = parseLrc(saved);
+    _setMemoryCache(song.id, parsed, rawContent: saved);
+
+    if (localAudioPath != null && localAudioPath.isNotEmpty) {
+      final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
+      try {
+        // Lyrics read from the file next to the music are written back to it,
+        // without the app's marks.
+        if (await lrcFile.exists()) {
+          await lrcFile.writeAsString(merged, flush: true);
+        }
+      } catch (_) {}
+    }
+    await _saveToDiskCache(song.id, saved);
+    return parsed;
   }
 
   static Future<String?> _fetchFromLrclib(
