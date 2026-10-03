@@ -14,7 +14,7 @@ owner's reports; the agent cannot hear audio or run the app).
      onset snapping shifts a line late.
    - v4.1.6: a word's first letter lights exactly on the word start, the rest
      within 60% of the word and 300 ms, 150 ms fade, no built-in delay; a
-     **Glow timing slider** (-500 to +500 ms, `LyricsDisplay.glowDelayMs`) in
+     **Highlight delay slider** (-500 to +500 ms, `LyricsDisplay.glowDelayMs`) in
      Lyrics Options moves only the glow. It is also in the timing report.
    - v4.1.7: words glued together in NetEase word data ("I'mgoing") get their
      spaces back from NetEase's plain lyrics when the letters match exactly
@@ -89,7 +89,7 @@ owner's reports; the agent cannot hear audio or run the app).
   pass keeps snapped words at least 80 ms apart.
 - Drawing: `LyricsService.glyphTimes` cuts spans into letters (Arabic, Hebrew
   and Indic stay whole); `lyrics_view.dart` fades each letter in over 150 ms
-  with a smoothstep, shifted by the user's Glow timing.
+  with a smoothstep, shifted by the user's Highlight delay.
 - Onsets are stored in `loudness.json` (compact base64 deltas, `ov` = onset
   rule version); bumping `_onsetVersion` re-measures songs once.
 - Saved lyrics carry marks: `[pear:word-timing-checked]`,
