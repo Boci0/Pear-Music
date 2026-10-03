@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -141,6 +142,48 @@ class YoutubeService {
     return null;
   }
 
+  static const _ytDlpReleaseBase =
+      'https://github.com/yt-dlp/yt-dlp/releases/latest/download';
+
+  /// Finds [assetName]'s SHA-256 in the text of a release `SHA2-256SUMS` file
+  /// (`<hex>  <name>` per line). Returns null when the asset is not listed.
+  @visibleForTesting
+  static String? parseSha256Sums(String sums, String assetName) {
+    for (final line in const LineSplitter().convert(sums)) {
+      final m = RegExp(r'^([0-9a-fA-F]{64})\s+\*?(\S+)\s*$').firstMatch(line.trim());
+      if (m != null && m.group(2) == assetName) return m.group(1)!.toLowerCase();
+    }
+    return null;
+  }
+
+  /// Checks a freshly downloaded yt-dlp binary against the `SHA2-256SUMS`
+  /// file published in the same release. Fails closed: if the sums cannot be
+  /// fetched or do not list the asset, the binary is not trusted.
+  static Future<bool> _verifyYtDlpChecksum(
+    HttpClient client,
+    File file,
+    String assetName,
+  ) async {
+    try {
+      final request =
+          await client.getUrl(Uri.parse('$_ytDlpReleaseBase/SHA2-256SUMS'));
+      request.headers.set('User-Agent', 'PearMusic-App');
+      final response = await request.close().timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return false;
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 20));
+      final expected = parseSha256Sums(body, assetName);
+      if (expected == null) return false;
+      final actual = (await sha256.bind(file.openRead()).first).toString();
+      return actual == expected;
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp checksum verification failed: $e');
+      return false;
+    }
+  }
+
   static bool _updateChecked = false;
   static Completer<String?>? _downloadingYtDlp;
 
@@ -167,11 +210,10 @@ class YoutubeService {
       final tempFile = File('${targetFile.path}.tmp');
       if (await tempFile.exists()) await tempFile.delete();
 
-      final downloadUrl = Platform.isWindows
-          ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-          : (Platform.isMacOS
-              ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos'
-              : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux');
+      final assetName = Platform.isWindows
+          ? 'yt-dlp.exe'
+          : (Platform.isMacOS ? 'yt-dlp_macos' : 'yt-dlp_linux');
+      final downloadUrl = '$_ytDlpReleaseBase/$assetName';
 
       // Every stream fetch waits on this download, so a stalled connection
       // must fail rather than leave playback spinning forever.
@@ -196,7 +238,9 @@ class YoutubeService {
           }
 
           final downloadedLen = await tempFile.length();
-          if (downloadedLen > 1000000) {
+          final verified = downloadedLen > 1000000 &&
+              await _verifyYtDlpChecksum(client, tempFile, assetName);
+          if (verified) {
             if (!Platform.isWindows) {
               await Process.run('chmod', ['+x', tempFile.path]);
             }
@@ -205,7 +249,7 @@ class YoutubeService {
             _downloadingYtDlp!.complete(targetFile.path);
             return targetFile.path;
           } else {
-            debugPrint('[pearmusic] Downloaded binary too small ($downloadedLen bytes), dropping');
+            debugPrint('[pearmusic] Downloaded yt-dlp failed size or checksum verification ($downloadedLen bytes), dropping');
             if (await tempFile.exists()) await tempFile.delete();
           }
         }

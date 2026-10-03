@@ -89,4 +89,19 @@ void main() {
       );
     });
   });
+  group('parseSha256Sums', () {
+    final hash = 'a' * 64;
+    final other = 'B' * 64;
+    final sums = '$hash  yt-dlp.exe\n$other *yt-dlp_linux\nnot a line\n';
+
+    test('finds the hash for an asset, lowercased', () {
+      expect(YoutubeService.parseSha256Sums(sums, 'yt-dlp.exe'), hash);
+      expect(YoutubeService.parseSha256Sums(sums, 'yt-dlp_linux'), other.toLowerCase());
+    });
+
+    test('returns null for an unlisted asset or a malformed hash', () {
+      expect(YoutubeService.parseSha256Sums(sums, 'yt-dlp_macos'), isNull);
+      expect(YoutubeService.parseSha256Sums('abc  yt-dlp.exe', 'yt-dlp.exe'), isNull);
+    });
+  });
 }
