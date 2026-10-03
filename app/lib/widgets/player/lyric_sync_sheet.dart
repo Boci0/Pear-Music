@@ -281,14 +281,23 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
       child: Column(
         children: [
           Text(
-            'Move one line',
+            'Fix one line',
             style: label?.copyWith(
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
               color: scheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
+          Text(
+            'Only one line is early or late? Tap Playing line, then nudge it. The rest of the lyrics stay put.',
+            textAlign: TextAlign.center,
+            style: label?.copyWith(
+              fontSize: 10.5,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
           Text(
             target?.text ?? 'No line is playing yet',
             maxLines: 2,
@@ -648,7 +657,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Negative shows lyrics earlier; positive delays them.',
+                        'Whole song early or late? Shift every line together. Negative shows lyrics earlier; positive delays them.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 10.5,
                           color: scheme.onSurfaceVariant,
@@ -793,7 +802,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Glow timing: ${LyricsDisplay.glowDelayMs.value == 0 ? 'default' : '${LyricsDisplay.glowDelayMs.value > 0 ? '+' : ''}${LyricsDisplay.glowDelayMs.value} ms'}',
+                        'Highlight delay: ${LyricsDisplay.glowDelayMs.value == 0 ? 'default' : '${LyricsDisplay.glowDelayMs.value > 0 ? '+' : ''}${LyricsDisplay.glowDelayMs.value} ms'}',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -812,7 +821,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                         },
                       ),
                       Text(
-                        'Slide right if the glow runs ahead of the words, left if it lags. Only the glow moves, not the lines.',
+                        'Lines are right but the word highlight is off? Slide right if it runs ahead of the words, left if it lags. Only the highlight moves, not the lines.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 10.5,
                           color: scheme.onSurfaceVariant,
