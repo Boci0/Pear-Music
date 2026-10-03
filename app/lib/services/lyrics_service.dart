@@ -1285,6 +1285,95 @@ class LyricsService {
     return parsed;
   }
 
+  static final RegExp _rowTags = RegExp(
+    r'^(\s*)((?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\])+)(.*)$',
+  );
+
+  static String _stampMs(int ms) {
+    final m = ms ~/ 60000;
+    final s = (ms % 60000) ~/ 1000;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+        '.${(ms % 1000).toString().padLeft(3, '0')}';
+  }
+
+  static String _collapse(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  /// [raw] with the one line [line] moved by [deltaMs] (negative is earlier),
+  /// its word timing moving with it, or null when the line is not in [raw].
+  /// Every other line, the offset header and the marks stay as they are.
+  @visibleForTesting
+  static String? nudgeLineInRaw(String raw, LyricLine line, int deltaMs) {
+    final offsetMs = extractOffsetMs(raw);
+    final rows = raw.split(_lineSplitRegex);
+    for (var i = 0; i < rows.length; i++) {
+      final m = _rowTags.firstMatch(rows[i]);
+      if (m == null) continue;
+      final body = m.group(3)!;
+      final plain = _collapse(body.replaceAll(_wordTagRegex, ''));
+      if (plain != _collapse(line.text)) continue;
+      final tags = _tagRegex.allMatches(m.group(2)!).toList();
+      final at = tags.indexWhere(
+        (t) => math.max(0, _tagMillis(t) + offsetMs) == line.timestamp.inMilliseconds,
+      );
+      if (at < 0) continue;
+
+      int moved(int ms) => math.max(0, ms + deltaMs);
+      final newTag = '[${_stampMs(moved(_tagMillis(tags[at])))}]';
+      if (tags.length == 1) {
+        rows[i] = '${m.group(1)}$newTag${body.replaceAllMapped(
+          _wordTagRegex,
+          (w) => '<${_stampMs(moved(_tagMillis(w as RegExpMatch)))}>',
+        )}';
+        return rows.join('\n');
+      }
+      // A line listed at several times: only this time moves, as a line of
+      // its own, so the repeats stay where they are.
+      final rest = [
+        for (var t = 0; t < tags.length; t++)
+          if (t != at) tags[t].group(0)!,
+      ].join();
+      final words = StringBuffer();
+      for (final w in line.words) {
+        words.write('<${_stampMs(moved(w.start.inMilliseconds - offsetMs))}>${w.text}');
+        final end = w.end;
+        if (end != null) {
+          words.write('<${_stampMs(moved(end.inMilliseconds - offsetMs))}>');
+        }
+      }
+      rows[i] = '${m.group(1)}$rest$body';
+      rows.insert(i + 1, '$newTag${line.words.isEmpty ? line.text : words}');
+      return rows.join('\n');
+    }
+    return null;
+  }
+
+  /// Moves one line of [song]'s lyrics by [deltaMs] and saves them, like
+  /// [setOffset] does for the whole song. Returns the new lyrics, or null when
+  /// the line could not be found (nothing is changed then).
+  static Future<List<LyricLine>?> nudgeLine(
+    Song song,
+    LyricLine line,
+    int deltaMs, {
+    String? localAudioPath,
+  }) async {
+    final raw = await getRawLrc(song, localAudioPath: localAudioPath);
+    if (raw == null || raw.trim().isEmpty) return null;
+    final updated = nudgeLineInRaw(raw, line, deltaMs);
+    if (updated == null) return null;
+    final parsed = parseLrc(updated);
+    _setMemoryCache(song.id, parsed, rawContent: updated);
+    if (localAudioPath != null && localAudioPath.isNotEmpty) {
+      try {
+        final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
+        if (await lrcFile.exists()) {
+          await lrcFile.writeAsString(updated, flush: true);
+        }
+      } catch (_) {}
+    }
+    await _saveToDiskCache(song.id, updated);
+    return parsed;
+  }
+
   /// Nudges the timing offset of [song] by [deltaMs] milliseconds.
   static Future<List<LyricLine>> adjustOffset(
     Song song,

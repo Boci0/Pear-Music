@@ -100,6 +100,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
     );
 
     _loadCurrentOffset();
+    _pickPlayingLine();
     if (widget.initialSearchOpen) {
       _performSearch();
     }
@@ -202,6 +203,158 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
   }
 
   bool _isBorrowing = false;
+
+  // The line being nudged on its own (see [LyricsService.nudgeLine]) and how
+  // far it has been moved since it was picked.
+  LyricLine? _nudgeTarget;
+  int _nudgedMs = 0;
+
+  /// Picks the line being sung now as the one to nudge.
+  Future<void> _pickPlayingLine() async {
+    final lines = await LyricsService.getLyrics(
+      widget.song,
+      localAudioPath: _localAudioPath,
+    );
+    if (!mounted) return;
+    final position = widget.player.position ?? Duration.zero;
+    LyricLine? playing;
+    for (final line in lines) {
+      if (!line.timed || line.text.isEmpty) continue;
+      if (line.timestamp > position) break;
+      playing = line;
+    }
+    setState(() {
+      _nudgeTarget = playing;
+      _nudgedMs = 0;
+    });
+  }
+
+  Future<void> _nudgePickedLine(int deltaMs) async {
+    final target = _nudgeTarget;
+    if (target == null) return;
+    final lines = await LyricsService.nudgeLine(
+      widget.song,
+      target,
+      deltaMs,
+      localAudioPath: _localAudioPath,
+    );
+    if (!mounted) return;
+    if (lines == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Could not find this line to move it')),
+      );
+      return;
+    }
+    // Follow the line to its new time.
+    final wanted = target.timestamp + Duration(milliseconds: deltaMs);
+    LyricLine? moved;
+    for (final line in lines) {
+      if (line.text != target.text) continue;
+      if (moved == null ||
+          (line.timestamp - wanted).abs() < (moved.timestamp - wanted).abs()) {
+        moved = line;
+      }
+    }
+    final raw = await LyricsService.getRawLrc(
+      widget.song,
+      localAudioPath: _localAudioPath,
+    );
+    if (!mounted) return;
+    setState(() {
+      _nudgeTarget = moved ?? target;
+      _nudgedMs += deltaMs;
+      _currentRawLrc = raw;
+    });
+    widget.onLyricsUpdated?.call();
+  }
+
+  Widget _buildLineNudgeCard(ColorScheme scheme) {
+    final target = _nudgeTarget;
+    final label = Theme.of(context).textTheme.labelSmall;
+    return Container(
+      key: const ValueKey('lyrics_line_nudge'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Move one line',
+            style: label?.copyWith(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            target?.text ?? 'No line is playing yet',
+            maxLines: 2,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: target == null
+                  ? scheme.onSurfaceVariant
+                  : scheme.onSurface,
+            ),
+          ),
+          if (_nudgedMs != 0) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Moved ${_nudgedMs > 0 ? '+' : ''}$_nudgedMs ms',
+              style: label?.copyWith(fontSize: 11, color: scheme.primary),
+            ),
+          ],
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildOffsetButton(
+                  '-0.5s',
+                  target == null ? null : () => _nudgePickedLine(-500),
+                ),
+                const SizedBox(width: 5),
+                _buildOffsetButton(
+                  '-0.1s',
+                  target == null ? null : () => _nudgePickedLine(-100),
+                ),
+                const SizedBox(width: 6),
+                OutlinedButton(
+                  key: const ValueKey('lyrics_line_nudge_pick'),
+                  onPressed: _pickPlayingLine,
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    minimumSize: const Size(0, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: Text(
+                    'Playing line',
+                    style: label?.copyWith(fontSize: 11.5),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                _buildOffsetButton(
+                  '+0.1s',
+                  target == null ? null : () => _nudgePickedLine(100),
+                ),
+                const SizedBox(width: 5),
+                _buildOffsetButton(
+                  '+0.5s',
+                  target == null ? null : () => _nudgePickedLine(500),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _borrowWordTiming() async {
     if (_isBorrowing) return;
@@ -530,6 +683,13 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                if (!_isLoadingOffset &&
+                    _currentRawLrc != null &&
+                    LyricsService.parseLrc(_currentRawLrc!).any((l) => l.timed))
+                  ...[
+                    _buildLineNudgeCard(scheme),
+                    const SizedBox(height: 12),
+                  ],
                 // Lyrics text colour
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -1164,7 +1324,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
     );
   }
 
-  Widget _buildOffsetButton(String label, VoidCallback onPressed) {
+  Widget _buildOffsetButton(String label, VoidCallback? onPressed) {
     return FilledButton.tonal(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
