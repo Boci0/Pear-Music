@@ -38,20 +38,17 @@ jobs:
         run: |
           # 1. Pre-bundle yt-dlp resolver executable into release build directory
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-          $ytUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+          # Pinned release. To bump: pick a tag from github.com/yt-dlp/yt-dlp/releases, then copy the
+          # yt-dlp.exe line from that release's SHA2-256SUMS (and confirm it against the downloaded file).
+          $ytVersion = "2026.08.19"
+          $ytSha256 = "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"
+          $ytUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/$ytVersion/yt-dlp.exe"
           $ytDest = "app/build/windows/x64/runner/Release/yt-dlp.exe"
           Write-Host "Downloading $ytUrl to $ytDest..."
           Invoke-WebRequest -Uri $ytUrl -OutFile $ytDest -UserAgent "PearMusic-CI"
-
-          # Verify against the SHA2-256SUMS published in the same release; fail the build on any mismatch.
-          $sums = (Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS" -UserAgent "PearMusic-CI").Content
-          if ($sums -is [byte[]]) { $sums = [Text.Encoding]::UTF8.GetString($sums) }
-          $line = ($sums -split "`r?`n") | Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?yt-dlp\.exe\s*$' } | Select-Object -First 1
-          if (-not $line) { throw "yt-dlp.exe is not listed in SHA2-256SUMS" }
-          $expected = ($line -split '\s+')[0].ToLower()
           $actual = (Get-FileHash -Algorithm SHA256 $ytDest).Hash.ToLower()
-          if ($actual -ne $expected) { throw "yt-dlp.exe checksum mismatch: expected $expected, got $actual" }
-          Write-Host "yt-dlp.exe SHA-256 verified: $actual"
+          if ($actual -ne $ytSha256) { throw "yt-dlp.exe $ytVersion checksum mismatch: expected $ytSha256, got $actual" }
+          Write-Host "yt-dlp.exe $ytVersion SHA-256 verified: $actual"
 
           # 2. Bundle install and uninstall scripts
           Copy-Item "tool/install.ps1" "app/build/windows/x64/runner/Release/install.ps1"
