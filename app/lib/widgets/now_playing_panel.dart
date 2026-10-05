@@ -378,12 +378,20 @@ class NowPlayingPanel extends StatelessWidget {
                                         color: control,
                                       ),
                                     )
-                                  : Icon(
-                                      player.playing
-                                          ? Icons.pause_circle_filled
-                                          : Icons.play_circle_filled,
-                                      size: 52,
-                                      color: control,
+                                  : Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: control,
+                                      ),
+                                      child: Icon(
+                                        player.playing
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        size: 30,
+                                        color: Colors.black,
+                                      ),
                                     ),
                             ),
                           ),
@@ -668,7 +676,27 @@ class _Artwork extends StatelessWidget {
       );
     }
 
-    return ClipRRect(borderRadius: BorderRadius.circular(16), child: image);
+    final radius = BorderRadius.circular(PearRadius.sheet - 4);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        ),
+        child: ClipRRect(borderRadius: radius, child: image),
+      ),
+    );
   }
 }
 

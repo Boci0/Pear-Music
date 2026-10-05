@@ -493,14 +493,10 @@ class _SongRow extends StatelessWidget {
                             theme.colorScheme.primary.withValues(alpha: 0.02),
                           ],
                         )
-                      : null,
-                  // Same card body as the playlist tile: a visible fill when
-                  // idle, the accent gradient when this row is playing.
-                  color: isCurrent
-                      ? null
-                      : Colors.white.withValues(
-                          alpha: PearGlassTokens.cardFill,
-                        ),
+                      : PearGlassTokens.cardSheen,
+                  // Same card body as the playlist tile: a top-lit glass sheen
+                  // when idle, the accent gradient when this row is playing.
+                  border: Border.all(color: PearGlassTokens.cardRim),
                 ),
                 child: SizedBox(
                   height: 64,

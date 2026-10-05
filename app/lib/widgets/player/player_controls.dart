@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -8,6 +9,8 @@ import '../../controllers/app_controller.dart';
 import '../../services/ambient_ticker.dart';
 import '../../services/player_service.dart';
 import '../../services/window_focus.dart';
+import '../../theme/glass.dart';
+import '../../theme/tokens.dart';
 import '../tactile_button.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
@@ -56,12 +59,11 @@ class PlayerTransport extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TactileIconButton(
-                  iconSize: 32,
-                  icon: Icon(
-                    Icons.shuffle,
-                    color: player.shuffle
-                        ? effectiveAccent
-                        : scheme.onSurfaceVariant,
+                  iconSize: 24,
+                  icon: _ToggleGlyph(
+                    icon: Icons.shuffle,
+                    active: player.shuffle,
+                    accent: effectiveAccent,
                   ),
                   tooltip: player.shuffle ? 'Shuffle on' : 'Shuffle',
                   onPressed: controller.toggleShuffle,
@@ -82,10 +84,11 @@ class PlayerTransport extends StatelessWidget {
                   onPressed: () => controller.nextTrack(),
                 ),
                 TactileIconButton(
-                  iconSize: 32,
-                  icon: Icon(
-                    loopIcon,
-                    color: loopActive ? effectiveAccent : scheme.onSurfaceVariant,
+                  iconSize: 24,
+                  icon: _ToggleGlyph(
+                    icon: loopIcon,
+                    active: loopActive,
+                    accent: effectiveAccent,
                   ),
                   tooltip: loopLabel,
                   onPressed: controller.toggleLoop,
@@ -109,6 +112,39 @@ class PlayerTransport extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// Shuffle / repeat glyph: when on, it sits in a soft accent disc so the
+/// state reads at a glance instead of only by a colour change.
+class _ToggleGlyph extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final Color accent;
+  const _ToggleGlyph({
+    required this.icon,
+    required this.active,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: active ? accent.withValues(alpha: 0.16) : Colors.transparent,
+      ),
+      child: Icon(
+        icon,
+        size: 22,
+        color: active ? accent : scheme.onSurfaceVariant,
+      ),
     );
   }
 }
@@ -184,7 +220,9 @@ class _PlayPauseButtonState extends State<_PlayPauseButton> {
                     color: bgColor,
                     boxShadow: [
                       BoxShadow(
-                        color: effectiveColor.withValues(alpha: _isHovered ? 0.38 : 0.22),
+                        color: effectiveColor.withValues(
+                          alpha: _isHovered ? 0.30 : 0.22,
+                        ),
                         blurRadius: _isHovered ? 14 : 10,
                         offset: const Offset(0, 3),
                       ),
@@ -560,8 +598,13 @@ class PlayerVolumeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: PearGlassTokens.cardFill),
+        borderRadius: PearRadius.pillAll,
+      ),
       child: PlayerVolumeSlider(accent: accent),
     );
   }
@@ -583,13 +626,56 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
   bool _isHovered = false;
   bool _isDragging = false;
 
+  // Dragging pushes the volume to the player at most every 40 ms: each push
+  // notifies the whole player listener tree, and the knob already follows the
+  // pointer from local state.
+  double? _pendingVolume;
+  Timer? _pushTimer;
+
+  void _pushVolume(PlayerService player, double v) {
+    if (_pushTimer?.isActive ?? false) {
+      _pendingVolume = v;
+      return;
+    }
+    player.setVolume(v);
+    _pushTimer = Timer(const Duration(milliseconds: 40), () {
+      final pending = _pendingVolume;
+      _pendingVolume = null;
+      if (pending != null) _pushVolume(player, pending);
+    });
+  }
+
+  void _flushVolume(PlayerService player) {
+    _pushTimer?.cancel();
+    final pending = _pendingVolume;
+    _pendingVolume = null;
+    if (pending != null) player.setVolume(pending);
+  }
+
+  @override
+  void dispose() {
+    _pushTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final player = context.read<PlayerService>();
+    return ValueListenableBuilder<double>(
+      valueListenable: player.volumeNotifier,
+      builder: (context, currentVolume, _) =>
+          _buildSlider(context, player, currentVolume),
+    );
+  }
+
+  Widget _buildSlider(
+    BuildContext context,
+    PlayerService player,
+    double currentVolume,
+  ) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final effectiveAccent = widget.accent ?? scheme.primary;
-    final player = context.read<PlayerService>();
-    final currentVolume = context.select<PlayerService, double>((p) => p.volume);
     final value = (_dragValue ?? currentVolume).clamp(0.0, 1.0);
 
     final volumeIcon = value == 0
@@ -598,7 +684,7 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
 
     final pctText = '${(value * 100).round()}%';
     const double knobSize = 11.0;
-    const double trackHeight = 3.5;
+    const double trackHeight = 4.5;
     const double containerHeight = 36.0;
 
     return Listener(
@@ -660,7 +746,7 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                   final fraction = ((localDx - (knobSize / 2)) / usableWidth).clamp(0.0, 1.0);
                   if (fraction > 0) _lastNonZeroVolume = fraction;
                   setState(() => _dragValue = fraction);
-                  player.setVolume(fraction);
+                  _pushVolume(player, fraction);
                 }
 
                 return MouseRegion(
@@ -675,14 +761,20 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                       handleDragUpdate(details.localPosition.dx);
                     },
                     onHorizontalDragUpdate: (details) => handleDragUpdate(details.localPosition.dx),
-                    onHorizontalDragEnd: (_) => setState(() {
-                      _isDragging = false;
-                      _dragValue = null;
-                    }),
-                    onHorizontalDragCancel: () => setState(() {
-                      _isDragging = false;
-                      _dragValue = null;
-                    }),
+                    onHorizontalDragEnd: (_) {
+                      _flushVolume(player);
+                      setState(() {
+                        _isDragging = false;
+                        _dragValue = null;
+                      });
+                    },
+                    onHorizontalDragCancel: () {
+                      _flushVolume(player);
+                      setState(() {
+                        _isDragging = false;
+                        _dragValue = null;
+                      });
+                    },
                     child: SizedBox(
                       height: containerHeight,
                       child: Stack(
@@ -749,7 +841,7 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                 textAlign: TextAlign.right,
                 style: theme.textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w600,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontFeatures: const [FontFeature.tabularFigures()],
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.85),
                 ),

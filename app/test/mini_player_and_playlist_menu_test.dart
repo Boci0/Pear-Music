@@ -29,12 +29,15 @@ class _FakePlayerVolumeService extends ChangeNotifier implements PlayerService {
   double _volume = 0.5;
 
   @override
+  final ValueNotifier<double> volumeNotifier = ValueNotifier<double>(0.5);
+
+  @override
   double get volume => _volume;
 
   @override
   Future<void> setVolume(double value) async {
     _volume = value.clamp(0.0, 1.0);
-    notifyListeners();
+    volumeNotifier.value = _volume;
   }
 
   @override

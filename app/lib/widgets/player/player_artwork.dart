@@ -1,5 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+
+import '../../theme/tokens.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -132,7 +134,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(16);
+    final radius = BorderRadius.circular(PearRadius.sheet);
     final size = widget.size;
     final song = widget.song;
     final networkUrl = widget.networkUrl;
@@ -324,14 +326,14 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
             decoration: BoxDecoration(
               borderRadius: radius,
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.12),
+                color: Colors.white.withValues(alpha: 0.18),
                 width: 1.0,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  blurRadius: 8.0,
-                  offset: const Offset(0, 4),
+                  color: Colors.black.withValues(alpha: 0.30),
+                  blurRadius: 16.0,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
@@ -696,7 +698,11 @@ class PlayerSongInfo extends StatelessWidget {
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.headlineSmall?.copyWith(height: 1.24),
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              height: 1.24,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.3,
+                            ),
                           ),
                         ),
                       ),
@@ -806,8 +812,9 @@ class PlayerSongInfo extends StatelessWidget {
       );
     }
 
+
     return SizedBox(
-      height: 24,
+      height: 26,
       child: Center(
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),

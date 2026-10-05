@@ -1086,12 +1086,8 @@ class _QueueRow extends StatelessWidget {
                         readableAccent.withValues(alpha: 0.03),
                       ],
                     )
-                  : null,
-              color: isCurrent
-                  ? null
-                  : Colors.white.withValues(
-                      alpha: PearGlassTokens.cardFill,
-                    ),
+                  : PearGlassTokens.cardSheen,
+              border: Border.all(color: PearGlassTokens.cardRim),
             ),
             child: Row(
               children: [

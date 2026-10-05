@@ -226,6 +226,11 @@ class PlayerService extends ChangeNotifier {
   double _userVolume = 0.75;
   double get volume => _userVolume;
 
+  /// Volume changes ride their own notifier instead of [notifyListeners]:
+  /// dragging the slider fires many updates a second, and a player-wide
+  /// broadcast rebuilt the whole Now Playing pane on each one.
+  final ValueNotifier<double> volumeNotifier = ValueNotifier<double>(0.75);
+
   /// Loudness normalisation multiplier for the current song (1.0 until it
   /// has been measured, see [LoudnessService]).
   double _songGain = 1.0;
@@ -982,6 +987,7 @@ class PlayerService extends ChangeNotifier {
     // implemented in Dart (single-source loads). This is also what fixes the
     // "loops on 1 song" issue on backends that don't advance playlists.
     _userVolume = identity?.playbackVolume ?? 0.75;
+    volumeNotifier.value = _userVolume;
     unawaited(_player.setVolume(_effectiveVolume));
     unawaited(_player.setLoopMode(LoopMode.off));
 
@@ -2641,12 +2647,12 @@ class PlayerService extends ChangeNotifier {
     if ((_userVolume - clamped).abs() < 0.001) return;
     _volumeFadeToken++;
     _userVolume = clamped;
+    volumeNotifier.value = clamped;
     await _player.setVolume(_effectiveVolume);
     _saveVolumeDebounceTimer?.cancel();
     _saveVolumeDebounceTimer = Timer(const Duration(milliseconds: 400), () {
       identity?.setPlaybackVolume(_userVolume);
     });
-    notifyListeners();
   }
 
   /// Android 13+ (API 33+) requires the POST_NOTIFICATIONS runtime permission

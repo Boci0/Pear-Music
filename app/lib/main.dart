@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'controllers/app_controller.dart';
 import 'screens/home_shell.dart';
+import 'services/debug_control.dart';
 import 'services/debug_log.dart';
 import 'services/history_service.dart';
 import 'services/identity_service.dart';
@@ -158,6 +159,7 @@ Future<void> _bootstrapAndRunApp() async {
 
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);
+  unawaited(startDebugControl(controller));
   runApp(PearMusicApp(
     controller: controller,
     playerTheme: playerTheme,

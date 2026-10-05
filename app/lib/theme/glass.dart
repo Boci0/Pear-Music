@@ -48,6 +48,17 @@ class PearGlassTokens {
   /// Resting fill for cards and rows that sit on the backdrop without a blur.
   static const double cardFill = 0.045;
 
+  /// Idle card body: lit from the top so rows read as raised glass instead of
+  /// a flat sheet. Same average strength as [cardFill].
+  static const LinearGradient cardSheen = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0x14FFFFFF), Color(0x0AFFFFFF)],
+  );
+
+  /// Hairline rim for card rows.
+  static const Color cardRim = Color(0x10FFFFFF);
+
   static final List<BoxShadow> shadow = [
     BoxShadow(
       color: Colors.black.withValues(alpha: 0.35),

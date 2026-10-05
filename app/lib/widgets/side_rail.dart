@@ -20,7 +20,7 @@ class SideRail extends StatelessWidget {
   });
 
   static const List<({String label, IconData icon, IconData activeIcon})>
-      _items = [
+  _items = [
     (
       label: 'Library',
       icon: Icons.library_music_outlined,
@@ -59,9 +59,19 @@ class SideRail extends StatelessWidget {
           borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
           child: Column(
             children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 16, bottom: 6),
-                child: PearMark(size: 30),
+              Padding(
+                padding: const EdgeInsets.only(top: 14, bottom: 10),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: PearGlassTokens.cardSheen,
+                    border: Border.all(color: PearGlassTokens.cardRim),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const PearMark(size: 26),
+                ),
               ),
               Stack(
                 children: [
@@ -71,7 +81,8 @@ class SideRail extends StatelessWidget {
                   AnimatedPositioned(
                     duration: const Duration(milliseconds: 340),
                     curve: Curves.easeOutBack,
-                    top: selectedIndex * _SideRailItem.height +
+                    top:
+                        selectedIndex * _SideRailItem.height +
                         _SideRailItem.iconTop,
                     left: 0,
                     right: 0,
@@ -123,8 +134,7 @@ class _SideRailItem extends StatefulWidget {
   static const double pillHeight = 30;
   static const double _labelHeight = 14;
   static const double _gap = 3;
-  static const double iconTop =
-      (height - pillHeight - _gap - _labelHeight) / 2;
+  static const double iconTop = (height - pillHeight - _gap - _labelHeight) / 2;
 
   final int index;
   final int selectedIndex;
@@ -187,8 +197,7 @@ class _SideRailItemState extends State<_SideRailItem> {
                 child: Icon(
                   isSelected ? widget.activeIcon : widget.icon,
                   size: 22,
-                  color:
-                      isSelected ? scheme.onSurface : scheme.onSurfaceVariant,
+                  color: isSelected ? scheme.primary : scheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: _SideRailItem._gap),
@@ -203,10 +212,11 @@ class _SideRailItemState extends State<_SideRailItem> {
                       fontSize: 10.5,
                       height: 1.0,
                       letterSpacing: -0.4,
-                      fontWeight:
-                          isSelected ? FontWeight.w600 : FontWeight.w500,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
                       color: isSelected
-                          ? scheme.onSurface
+                          ? scheme.primary
                           : scheme.onSurfaceVariant,
                     ),
                   ),

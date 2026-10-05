@@ -348,12 +348,8 @@ class _PlaylistTile extends StatelessWidget {
                           theme.colorScheme.primary.withValues(alpha: 0.02),
                         ],
                       )
-                    : null,
-                color: isActive
-                    ? null
-                    : Colors.white.withValues(
-                        alpha: PearGlassTokens.cardFill,
-                      ),
+                    : PearGlassTokens.cardSheen,
+                border: Border.all(color: PearGlassTokens.cardRim),
               ),
               child: SizedBox(
                 height: 64,
