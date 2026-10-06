@@ -60,6 +60,30 @@ class _RecordingAudioPlayer extends AudioPlayer {
   Future<void> setLoopMode(LoopMode mode) async {}
 }
 
+/// An engine that takes its time to report a source that has no data, like
+/// the audio engine retrying an empty file: opening a growing file source
+/// never completes on its own.
+class _SlowToFailAudioPlayer extends _RecordingAudioPlayer {
+  @override
+  Future<Duration?> setAudioSource(
+    AudioSource source, {
+    bool preload = true,
+    int? initialIndex,
+    Duration? initialPosition,
+  }) {
+    if (source is GrowingFileAudioSource) {
+      loaded.add(source);
+      return Completer<Duration?>().future;
+    }
+    return super.setAudioSource(
+      source,
+      preload: preload,
+      initialIndex: initialIndex,
+      initialPosition: initialPosition,
+    );
+  }
+}
+
 const _link = ResolvedStream(
   url: 'https://rr1---sn-test.googlevideo.com/videoplayback?id=1',
   headers: {'User-Agent': 'Mozilla/5.0 test'},
@@ -232,6 +256,43 @@ void main() {
 
       downloadDone.complete(null);
       await Future<void>.delayed(Duration.zero);
+    });
+
+    test('a fetch that fails while the early stream opens retries at once',
+        () async {
+      final audio = _SlowToFailAudioPlayer();
+      final player = PlayerService(LibraryService(), player: audio);
+      final song = _streamSong('failfastvid', 'Flaky Song');
+      final writing = p.join(sandbox.path, 'failfastvid.m4a');
+      final cached = File(p.join(sandbox.path, 'failfastvid.webm'))
+        ..writeAsBytesSync(List.filled(64, 1));
+      var calls = 0;
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        calls++;
+        if (calls == 1) {
+          // First attempt: a link, then the download dies (HTTP 403).
+          StreamCacheManager.debugPublishResolvedStream(
+            videoId,
+            const ResolvedStream(
+              url: 'https://blocked.googlevideo.com/x',
+              ext: 'm4a',
+            ).withLocalPath(writing),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          return null;
+        }
+        return cached;
+      };
+
+      final stopwatch = Stopwatch()..start();
+      await player.playSong(song, queue: [song]);
+      stopwatch.stop();
+
+      expect(calls, 2, reason: 'the failed fetch is retried once');
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)),
+          reason: 'must not wait out the early-open timeout (10 s)');
+      expect(player.playbackError, isNull);
     });
 
     test('a link that will not play falls back to the cached file', () async {

@@ -1774,13 +1774,34 @@ class PlayerService extends ChangeNotifier {
               // A link that was already used up or throttled (HTTP 403) can
               // leave the player opening it forever, which kept the song on
               // "loading" with no error. Give up and use the cached file.
-              await _player
+              final opening = _player
                   .setAudioSource(
                     growing ??
                         AudioSource.uri(Uri.parse(link.url),
                             headers: link.headers),
                   )
                   .timeout(_earlyStreamOpenTimeout);
+              // A fetch that ends with no file (a 403, a dropped connection)
+              // leaves the engine retrying an empty source for seconds before
+              // it reports an error. Once the fetch itself is over with
+              // nothing to play, stop waiting and go straight to the retry.
+              final fetchEndedEmpty = Completer<void>();
+              unawaited(download.then(
+                (file) {
+                  if (file == null && !fetchEndedEmpty.isCompleted) {
+                    fetchEndedEmpty.complete();
+                  }
+                },
+                onError: (_) {
+                  if (!fetchEndedEmpty.isCompleted) fetchEndedEmpty.complete();
+                },
+              ));
+              await Future.any<void>([
+                opening,
+                fetchEndedEmpty.future.then(
+                  (_) => throw StateError('the fetch ended without a file'),
+                ),
+              ]);
               if (token != _playRequestToken) {
                 if (growing != null) unawaited(growing.close());
                 return;
