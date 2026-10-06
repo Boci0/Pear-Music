@@ -221,18 +221,63 @@ class StreamCacheManager {
 
   static Directory? _cacheDir;
 
-  /// Gets or creates the radio stream cache directory in temporary storage.
+  static const String _cacheDirName = 'peerm_radio_cache';
+
+  static Future<Directory>? _cacheDirResolving;
+
+  /// Gets or creates the radio stream cache directory.
+  ///
+  /// On desktop it lives in the app's own cache folder (local, not roaming),
+  /// not in the system temp folder: Windows and cleanup tools treat temp as
+  /// disposable, which quietly emptied the cache between sessions and turned
+  /// preloaded tracks into cold plays. On Android the temporary directory is
+  /// already the app's own cache, so it stays there.
   static Future<Directory> getCacheDirectory() async {
-    if (_cacheDir != null && await _cacheDir!.exists()) {
-      return _cacheDir!;
+    final cached = _cacheDir;
+    if (cached != null && await cached.exists()) return cached;
+    return _cacheDirResolving ??= _resolveCacheDirectory().whenComplete(
+      () => _cacheDirResolving = null,
+    );
+  }
+
+  static bool get _cacheBelongsInAppCache =>
+      !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+
+  static Future<Directory> _resolveCacheDirectory() async {
+    final Directory base;
+    if (_cacheBelongsInAppCache) {
+      base = await getApplicationCacheDirectory();
+    } else {
+      base = await getTemporaryDirectory();
     }
-    final temp = await getTemporaryDirectory();
-    final dir = Directory(p.join(temp.path, 'peerm_radio_cache'));
+    final dir = Directory(p.join(base.path, _cacheDirName));
+    if (_cacheBelongsInAppCache) {
+      final temp = await getTemporaryDirectory();
+      await adoptCacheFrom(Directory(p.join(temp.path, _cacheDirName)), dir);
+    }
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
     _cacheDir = dir;
     return dir;
+  }
+
+  /// One-time move of the cache from its old temp location, so tracks cached
+  /// before the move are kept. Does nothing when the new folder already
+  /// exists, the old one is gone, or both are the same folder; a failed move
+  /// (another drive, a file in use) just leaves the old folder behind and the
+  /// cache refills on its own.
+  @visibleForTesting
+  static Future<void> adoptCacheFrom(Directory oldDir, Directory newDir) async {
+    try {
+      if (p.equals(oldDir.path, newDir.path)) return;
+      if (await newDir.exists() || !await oldDir.exists()) return;
+      await newDir.parent.create(recursive: true);
+      await oldDir.rename(newDir.path);
+      DebugLog.write('[cache] Moved the stream cache to ${newDir.path}');
+    } catch (e) {
+      DebugLog.write('[cache] Could not move the old stream cache: $e');
+    }
   }
 
   static Directory? _ytdlpCacheDir;
