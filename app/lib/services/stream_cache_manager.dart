@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'debug_log.dart';
 import 'library_service.dart';
+import 'resolved_link_cache.dart';
 import 'youtube_service.dart';
 import 'ytdlp_prewarmer.dart';
 
@@ -204,6 +205,8 @@ class StreamCacheManager {
   /// Drops yt-dlp's persistent player/session cache. A stale cached player is
   /// a common cause of HTTP 403 responses, so an explicit retry rebuilds it.
   static Future<void> refreshYtDlpCache() async {
+    // Links resolved before a block are as suspect as the player cache.
+    linkCache.clear();
     try {
       final dir = await getYtDlpCacheDirectory();
       if (await dir.exists()) {
@@ -588,6 +591,139 @@ class StreamCacheManager {
     ];
   }
 
+  static bool get _isDesktopEngine => !kIsWeb && !Platform.isAndroid;
+
+  /// Links resolved ahead of a play by [prefetchLink].
+  static final ResolvedLinkCache linkCache = ResolvedLinkCache();
+
+  /// Whether links are resolved ahead of a play at all. Set
+  /// `PEERM_LINK_PREFETCH=0` to turn it off.
+  static bool get linkPrefetchEnabled =>
+      _linkPrefetchEnabled ??= _readLinkPrefetchEnabled();
+
+  static bool? _linkPrefetchEnabled;
+
+  static bool _readLinkPrefetchEnabled() {
+    try {
+      final raw = Platform.environment['PEERM_LINK_PREFETCH']?.toLowerCase();
+      if (raw == '0' || raw == 'false' || raw == 'off') return false;
+    } catch (_) {}
+    return true;
+  }
+
+  @visibleForTesting
+  static void setLinkPrefetchEnabledForTesting(bool? value) =>
+      _linkPrefetchEnabled = value;
+
+  static Process? _linkPrefetchProcess;
+  static String? _linkPrefetchVideoId;
+
+  /// Longest a link lookup may take before it is given up on.
+  static const Duration _linkPrefetchTimeout = Duration(seconds: 25);
+
+  /// Options for a link-only lookup: the same format choice and yt-dlp cache
+  /// as a fetch, but without `--no-simulate`, so nothing is downloaded.
+  static List<String> _linkPrefetchArgs(String ytdlpCachePath) {
+    return [
+      '--print',
+      'video:$streamLinePrefix%(.{url,http_headers,ext,filesize})j',
+      '-f',
+      getAudioFormatArg(),
+      '--cache-dir',
+      ytdlpCachePath,
+      '--extractor-args',
+      'youtube:skip=webpage,authcheck,translated_subs,hls;player_skip=js',
+      '--no-playlist',
+      '--no-warnings',
+      '--quiet',
+      '--force-ipv4',
+      '--socket-timeout',
+      '10',
+      '--extractor-retries',
+      '1',
+    ];
+  }
+
+  /// Resolves the direct audio link for [videoId] in the background and keeps
+  /// it in [linkCache], so a play of a track nobody could preload (a pick
+  /// from a list) starts from that link instead of waiting for yt-dlp.
+  ///
+  /// Meant for a cheap signal such as the pointer resting on a row. It never
+  /// competes with real work: it does nothing while a download is running,
+  /// uses its own process (the pre-booted spare stays for the real fetch),
+  /// and is cancelled the moment a fetch starts. Failures are only logged.
+  static Future<void> prefetchLink(String videoId) async {
+    if (!_isDesktopEngine || !linkPrefetchEnabled || videoId.isEmpty) return;
+    if (_activeDownloadingVideoId != null) return;
+    if (_linkPrefetchVideoId == videoId) return;
+    if (linkCache.contains(videoId) || isStreamCachedSync(videoId)) return;
+
+    cancelLinkPrefetch();
+    _linkPrefetchVideoId = videoId;
+    Process? process;
+    try {
+      final bin = await YoutubeService.ytDlpPath();
+      if (bin == null || _linkPrefetchVideoId != videoId) return;
+      final ytdlpCache = await getYtDlpCacheDirectory();
+      // A fetch may have started while the paths were being looked up.
+      if (_linkPrefetchVideoId != videoId || _activeDownloadingVideoId != null) {
+        return;
+      }
+      final stopwatch = Stopwatch()..start();
+      process = await Process.start(bin, [
+        ..._linkPrefetchArgs(ytdlpCache.path),
+        'https://www.youtube.com/watch?v=$videoId',
+      ]);
+      if (_linkPrefetchVideoId != videoId) {
+        YoutubeService.killProcessTree(process.pid);
+        return;
+      }
+      _linkPrefetchProcess = process;
+      // The link is kept the moment its line is read: yt-dlp is done with the
+      // useful part then, and the stdout pipe can stay open for a while after
+      // the process ends, so the end of the stream is not waited for.
+      var stored = false;
+      final stdout = process.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (stored || _linkPrefetchVideoId != videoId) return;
+        final stream = parseStreamLine(line);
+        if (stream == null) return;
+        stored = true;
+        linkCache.put(videoId, stream);
+        DebugLog.write(
+          '[prefetch] Link for $videoId ready in ${stopwatch.elapsedMilliseconds}ms',
+        );
+      }, onError: (_) {});
+      unawaited(process.stderr.drain<void>().catchError((_) {}));
+      await process.exitCode.timeout(_linkPrefetchTimeout);
+      unawaited(stdout.cancel());
+    } on TimeoutException {
+      DebugLog.write('[prefetch] Link lookup for $videoId timed out');
+      if (process != null) YoutubeService.killProcessTree(process.pid);
+    } catch (e) {
+      DebugLog.write('[prefetch] Link lookup for $videoId failed: $e');
+    } finally {
+      if (identical(_linkPrefetchProcess, process)) {
+        _linkPrefetchProcess = null;
+      }
+      if (_linkPrefetchVideoId == videoId) _linkPrefetchVideoId = null;
+    }
+  }
+
+  /// Stops a running link lookup (a real fetch is about to use the
+  /// connection, or the app is closing).
+  static void cancelLinkPrefetch() {
+    final process = _linkPrefetchProcess;
+    _linkPrefetchProcess = null;
+    _linkPrefetchVideoId = null;
+    if (process == null) return;
+    try {
+      YoutubeService.killProcessTree(process.pid);
+    } catch (_) {}
+  }
+
   /// Boots a spare yt-dlp process so the next fetch starts without paying the
   /// ~2 s startup. Called once after launch and again after every fetch, so
   /// the cost lands while the app is idle.
@@ -775,8 +911,14 @@ class StreamCacheManager {
     }
     final listeners = _streamListeners.putIfAbsent(videoId, () => []);
     listeners.add(onStreamUrl);
-    final alreadyResolved = _resolvedStreams[videoId];
-    if (alreadyResolved != null) onStreamUrl(alreadyResolved);
+    // A link from a running fetch, or one resolved ahead of this play (see
+    // [prefetchLink]), so playback can start before the fetch has its own.
+    final alreadyResolved = _resolvedStreams[videoId] ??
+        (_isDesktopEngine ? linkCache.take(videoId) : null);
+    if (alreadyResolved != null) {
+      DebugLog.write('[cache] Using an already resolved link for $videoId');
+      onStreamUrl(alreadyResolved);
+    }
     try {
       return await _ensureStreamCached(videoId, isPreload: isPreload);
     } finally {
@@ -877,6 +1019,8 @@ class StreamCacheManager {
 
     _activeDownloadingVideoId = videoId;
     _isActiveDownloadPreload = isPreload;
+    // A link lookup must not share the connection with a real fetch.
+    cancelLinkPrefetch();
 
     final completer = Completer<File?>();
     _inFlightDownloads[videoId] = completer;
@@ -1252,6 +1396,8 @@ class StreamCacheManager {
 
   /// Clean up resources on shutdown.
   static void dispose() {
+    cancelLinkPrefetch();
+    linkCache.clear();
     cancelActiveDownload();
     cancelPreload();
   }

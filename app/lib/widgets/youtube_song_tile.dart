@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/artwork_service.dart';
+import '../services/stream_cache_manager.dart';
 import '../services/youtube_search_service.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
@@ -36,6 +39,27 @@ class YouTubeSongTile extends StatefulWidget {
 class _YouTubeSongTileState extends State<YouTubeSongTile> {
   bool _isDownloading = false;
   double? _downloadProgress;
+
+  /// How long the pointer must rest on the row before its audio link is
+  /// looked up ahead of a tap. Short enough to beat a deliberate click,
+  /// long enough that sweeping across a list starts nothing.
+  static const Duration _hoverDwell = Duration(milliseconds: 250);
+  Timer? _hoverTimer;
+
+  void _onHover(bool hovering) {
+    _hoverTimer?.cancel();
+    if (!hovering) return;
+    final videoId = widget.result.videoId;
+    _hoverTimer = Timer(_hoverDwell, () {
+      unawaited(StreamCacheManager.prefetchLink(videoId));
+    });
+  }
+
+  @override
+  void dispose() {
+    _hoverTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _streamAndPlay(
     BuildContext context,
@@ -402,7 +426,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                 _showContextMenu(context, details.globalPosition),
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
+              onHover: _onHover,
               onTap: () {
+                _hoverTimer?.cancel();
                 TactileFeedback.click();
                 _streamAndPlay(context, controller);
               },
