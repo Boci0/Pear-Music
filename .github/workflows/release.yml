@@ -208,27 +208,75 @@ jobs:
             echo '```'
           } > RELEASE_NOTES.md
 
+      - name: Sign app update manifest
+        env:
+          SIGNING_KEY: ${{ secrets.YTDLP_SIGNING_KEY }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          MIRROR_BASES: https://github.com/Boci0/pm-resolver-mirror/releases/download/app-update
+          NOTES_FILE: RELEASE_NOTES.md
+        run: |
+          # The app only installs updates it can check against this signature, so a
+          # release without it still publishes but the app points users at the page.
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::YTDLP_SIGNING_KEY is not set, publishing without a signed app-update manifest"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/app-update-signing.pem"
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$key")
+          bash tool/app_update_sign_manifest.sh . "${TAG#v}" "$key"
+          rm -f "$key"
+
       - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          EXTRA=()
+          for f in app-update.json app-update.json.sig; do
+            [ -f "$f" ] && EXTRA+=("$f")
+          done
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "Release $TAG already exists; uploading release assets with clobber"
             gh release upload "$TAG" \
-              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS \
+              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS "${EXTRA[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
             gh release edit "$TAG" --notes-file RELEASE_NOTES.md --draft=false --latest --repo "$GITHUB_REPOSITORY"
           else
             echo "Creating release $TAG"
             gh release create "$TAG" \
-              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS \
+              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS "${EXTRA[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Pear Music ${TAG#v}" \
               --notes-file RELEASE_NOTES.md
             gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
           fi
 
-
-
+      # A second copy of the app files and the signed manifest in the separate
+      # mirror repository, so updates keep working if this repository is taken
+      # down. Best effort: the manifest lists these URLs, and the app tries the
+      # next host when one does not answer.
+      - name: Publish app update to the mirror repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
+          MIRROR_REPO: Boci0/pm-resolver-mirror
+          MIRROR_TAG: app-update
+        run: |
+          if [ -z "$GH_TOKEN" ] || [ ! -f app-update.json ]; then
+            echo "::warning::No mirror token or no signed manifest, skipping the app update mirror"
+            exit 0
+          fi
+          if ! gh release view "$MIRROR_TAG" --repo "$MIRROR_REPO" > /dev/null 2>&1; then
+            gh release create "$MIRROR_TAG" --repo "$MIRROR_REPO" \
+              --title "App update" \
+              --notes "Copies of the latest app files for the in-app updater." \
+              --prerelease --latest=false
+          fi
+          # Files first, manifest last: the manifest is what the app trusts.
+          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
+            PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk \
+            PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip
+          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
+            app-update.json app-update.json.sig

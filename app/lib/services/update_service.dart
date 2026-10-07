@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'app_update_manifest.dart';
 
 class UpdateInfo {
   final bool hasUpdate;
@@ -24,6 +27,15 @@ class UpdateInfo {
   /// verify downloads before installing them.
   final Map<String, String> sha256ByName;
 
+  /// True only when this came from a manifest whose Ed25519 signature checked
+  /// out. Only verified updates are downloaded and installed in place; anything
+  /// else just points the user at the release page.
+  final bool verified;
+
+  /// Every place each asset can be fetched from, keyed by file name, best
+  /// first. Empty for unverified updates.
+  final Map<String, List<String>> urlsByName;
+
   const UpdateInfo({
     required this.hasUpdate,
     required this.currentVersion,
@@ -34,6 +46,8 @@ class UpdateInfo {
     this.setupUrl,
     this.zipUrl,
     this.sha256ByName = const {},
+    this.verified = false,
+    this.urlsByName = const {},
   });
 }
 
@@ -63,7 +77,169 @@ class UpdateService {
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
+  /// Where the signed update manifest (`app-update.json` and its `.sig`) is
+  /// published. Each host is asked, and the newest verified answer wins, so one
+  /// host serving an old manifest cannot hold users back.
+  static const List<String> manifestBases = [
+    'https://github.com/Boci0/Pear-Music/releases/latest/download',
+    'https://github.com/Boci0/pm-resolver-mirror/releases/download/app-update',
+  ];
+
   static Future<UpdateInfo?> checkLatestRelease() async {
+    final signed = await _checkSignedManifest();
+    if (signed != null) {
+      updateAvailable.value = signed.hasUpdate;
+      return signed;
+    }
+    return _checkLegacyRelease();
+  }
+
+  /// Fetches and verifies the manifest from one host, or null.
+  static Future<AppUpdateManifest?> _fetchManifest(String base) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8);
+    try {
+      client.userAgent = 'PearMusicApp/$currentVersion';
+      Future<Uint8List?> get(String url) async {
+        final request = await client.getUrl(Uri.parse(url));
+        final response =
+            await request.close().timeout(const Duration(seconds: 8));
+        if (response.statusCode != 200) {
+          await response.drain<void>();
+          return null;
+        }
+        final out = BytesBuilder(copy: false);
+        await for (final chunk
+            in response.timeout(const Duration(seconds: 15))) {
+          out.add(chunk);
+          if (out.length > (1 << 20)) return null;
+        }
+        return out.takeBytes();
+      }
+
+      final manifest = await get('$base/app-update.json');
+      final sig = await get('$base/app-update.json.sig');
+      if (manifest == null || sig == null) return null;
+      return AppUpdateManifest.parseVerified(
+        manifest,
+        Uint8List.fromList(base64.decode(utf8.decode(sig).trim())),
+      );
+    } catch (e) {
+      debugPrint('[UpdateService] Manifest from $base unavailable: $e');
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<UpdateInfo?> _checkSignedManifest() async {
+    final results = await Future.wait(manifestBases.map(_fetchManifest));
+    AppUpdateManifest? best;
+    for (final m in results) {
+      if (m == null) continue;
+      if (best == null || _isNewerVersion(best.version, m.version)) best = m;
+    }
+    if (best == null) return null;
+    return buildInfoFromManifest(
+      best,
+      currentVersion: currentVersion,
+      abis: await _androidAbis(),
+    );
+  }
+
+  /// Turns a verified manifest into what the dialog and installers use.
+  /// [abis] are the device's supported ABIs, most preferred first (Android).
+  @visibleForTesting
+  static UpdateInfo buildInfoFromManifest(
+    AppUpdateManifest manifest, {
+    required String currentVersion,
+    List<String> abis = const [],
+  }) {
+    String? apkArm64, apkArmv7, apkX86, apkUniversal, setup, zip;
+    final sha256ByName = <String, String>{};
+    final urlsByName = <String, List<String>>{};
+    for (final entry in manifest.assets.entries) {
+      final name = entry.key;
+      final lower = name.toLowerCase();
+      final url = entry.value.urls.first;
+      sha256ByName[name] = entry.value.sha256;
+      urlsByName[name] = entry.value.urls;
+      if (lower.endsWith('.apk')) {
+        if (lower.contains('arm64')) {
+          apkArm64 = url;
+        } else if (lower.contains('armv7') || lower.contains('armeabi')) {
+          apkArmv7 = url;
+        } else if (lower.contains('x86_64')) {
+          apkX86 = url;
+        } else {
+          apkUniversal = url;
+        }
+      } else if (lower.endsWith('.exe')) {
+        setup = url;
+      } else if (lower.endsWith('.zip')) {
+        zip = url;
+      }
+    }
+    return UpdateInfo(
+      hasUpdate: _isNewerVersion(currentVersion, manifest.version),
+      currentVersion: currentVersion,
+      latestVersion: manifest.version,
+      releaseNotes: manifest.notes,
+      htmlUrl: manifest.page,
+      apkUrl: selectApkUrl(
+        abis: abis,
+        arm64: apkArm64,
+        armv7: apkArmv7,
+        x86: apkX86,
+        universal: apkUniversal,
+      ),
+      setupUrl: setup,
+      zipUrl: zip,
+      sha256ByName: sha256ByName,
+      verified: true,
+      urlsByName: urlsByName,
+    );
+  }
+
+  /// Picks the APK that suits the device's ABIs, falling back to whatever the
+  /// release has.
+  @visibleForTesting
+  static String? selectApkUrl({
+    required List<String> abis,
+    String? arm64,
+    String? armv7,
+    String? x86,
+    String? universal,
+  }) {
+    final lower = abis.map((e) => e.toLowerCase()).toList();
+    if (lower.any((a) => a.contains('arm64')) && arm64 != null) return arm64;
+    if (lower.any((a) => a.contains('v7') || a.contains('arm')) &&
+        armv7 != null) {
+      return armv7;
+    }
+    if (lower.any((a) => a.contains('x86_64')) && x86 != null) return x86;
+    return arm64 ?? armv7 ?? universal ?? x86;
+  }
+
+  /// The device's supported ABIs on Android, otherwise empty.
+  static Future<List<String>> _androidAbis() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return const [];
+    try {
+      const channel = MethodChannel('peerm/ytdlp');
+      final abis = await channel
+          .invokeMethod<List<dynamic>>('getSupportedAbis')
+          .timeout(const Duration(milliseconds: 600));
+      return abis?.map((e) => e.toString()).toList() ?? const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// The old, unsigned path: GitHub's releases API. Its answer is only used to
+  /// tell the user an update exists and to link the release page. Nothing it
+  /// serves is installed in place, because its checksums come from the same
+  /// host as the files.
+  static Future<UpdateInfo?> _checkLegacyRelease() async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8);
     try {
@@ -120,36 +296,13 @@ class UpdateService {
           }
         }
 
-        // Select the best matching APK for this Android device architecture
-        if (defaultTargetPlatform == TargetPlatform.android) {
-          try {
-            const channel = MethodChannel('peerm/ytdlp');
-            final abis = await channel
-                .invokeMethod<List<dynamic>>('getSupportedAbis')
-                .timeout(const Duration(milliseconds: 600));
-            final abisList =
-                abis?.map((e) => e.toString().toLowerCase()).toList() ?? [];
-            if (abisList.any((a) => a.contains('arm64')) &&
-                apkArm64Url != null) {
-              apkUrl = apkArm64Url;
-            } else if (abisList.any(
-                  (a) => a.contains('v7') || a.contains('arm'),
-                ) &&
-                apkArmv7Url != null) {
-              apkUrl = apkArmv7Url;
-            } else if (abisList.any((a) => a.contains('x86_64')) &&
-                apkX86Url != null) {
-              apkUrl = apkX86Url;
-            } else {
-              apkUrl =
-                  apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
-            }
-          } catch (_) {
-            apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
-          }
-        } else {
-          apkUrl = apkArm64Url ?? apkArmv7Url ?? apkUniversalUrl ?? apkX86Url;
-        }
+        apkUrl = selectApkUrl(
+          abis: await _androidAbis(),
+          arm64: apkArm64Url,
+          armv7: apkArmv7Url,
+          x86: apkX86Url,
+          universal: apkUniversalUrl,
+        );
 
         // Resolve expected SHA-256 digests so downloads can be verified
         // before install. Prefer the checksums asset; fall back to lines in
@@ -367,6 +520,43 @@ class UpdateService {
     );
   }
 
+  /// Shown when an update exists but its signature could not be checked (no
+  /// signed manifest was reachable). Nothing is installed in place.
+  static Future<void> _showUnverifiedDialog(
+    BuildContext context,
+    UpdateInfo info,
+  ) async {
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cannot verify update'),
+        content: const Text(
+          'This update could not be checked against its signature, so it '
+          'will not be installed automatically. You can still get it from the '
+          'release page.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              launchUrl(
+                Uri.parse(info.htmlUrl),
+                mode: LaunchMode.externalApplication,
+              );
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open release page'),
+          ),
+        ],
+      ),
+    );
+  }
+
   static Future<void> _safeDeleteFile(File? file) async {
     if (file == null) return;
     try {
@@ -545,12 +735,74 @@ class UpdateService {
     );
   }
 
+  /// Downloads from each of [urls] in turn into [file] until one gives a file
+  /// whose SHA-256 is [expected]. Returns null on success, otherwise the
+  /// message to show the user.
+  static Future<String?> _downloadVerifiedZip(
+    List<String> urls,
+    File file,
+    String expected,
+  ) async {
+    var error = 'Download failed.';
+    for (final url in urls) {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 15);
+      try {
+        client.userAgent = 'PearMusicApp/$currentVersion';
+        final request = await client.getUrl(Uri.parse(url));
+        final response = await request.close().timeout(
+          const Duration(seconds: 20),
+        );
+        if (response.statusCode != 200) {
+          await response.drain<void>();
+          error = 'Download failed (HTTP ${response.statusCode})';
+          continue;
+        }
+        final sink = file.openWrite();
+        try {
+          // Abort if the transfer stalls: no data for 30 seconds is a
+          // dead connection, not a slow one.
+          await for (final chunk
+              in response.timeout(const Duration(seconds: 30))) {
+            sink.add(chunk);
+          }
+          await sink.flush();
+          await sink.close();
+        } catch (e) {
+          try {
+            await sink.close();
+          } catch (_) {}
+          await _safeDeleteFile(file);
+          error = 'Update download stalled or failed. Please try again.';
+          continue;
+        }
+        final actual = await computeFileSha256(file);
+        if (actual.toLowerCase() == expected.trim().toLowerCase()) return null;
+        debugPrint('[UpdateService] Checksum mismatch: $actual != $expected');
+        await _safeDeleteFile(file);
+        error = 'Checksum mismatch: the downloaded update failed verification '
+            'and was deleted.';
+      } catch (e) {
+        debugPrint('[UpdateService] Download from $url failed: $e');
+        await _safeDeleteFile(file);
+        error = 'Update download failed. Please try again.';
+      } finally {
+        client.close(force: true);
+      }
+    }
+    return error;
+  }
+
   static Future<void> downloadAndApplyWindowsZip(
     BuildContext context,
     UpdateInfo info,
   ) async {
     final zipUrl = info.zipUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    if (!info.verified) {
+      await _showUnverifiedDialog(context, info);
+      return;
+    }
 
     try {
       final tempDir = await getTemporaryDirectory();
@@ -599,65 +851,16 @@ class UpdateService {
         // per-attempt name in that case.
         zipFile = await _resolveDownloadTarget(tempDir);
 
-        final client = HttpClient();
-        client.userAgent = 'PearMusicApp/$currentVersion';
-        final request = await client.getUrl(Uri.parse(zipUrl));
-        final response = await request.close().timeout(
-          const Duration(seconds: 20),
+        final failure = await _downloadVerifiedZip(
+          info.urlsByName[p.basename(zipUrl)] ?? [zipUrl],
+          zipFile,
+          expected,
         );
-
-        if (response.statusCode == 200) {
-          final sink = zipFile.openWrite();
-          try {
-            // Abort if the transfer stalls: no data for 30 seconds is a
-            // dead connection, not a slow one.
-            await for (final chunk
-                in response.timeout(const Duration(seconds: 30))) {
-              sink.add(chunk);
-            }
-            await sink.flush();
-            await sink.close();
-          } catch (e) {
-            try {
-              await sink.close();
-            } catch (_) {}
-            try {
-              await zipFile.delete();
-            } catch (_) {}
-            scaffoldMessenger.showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Update download stalled or failed. Please try again.',
-                ),
-                duration: Duration(seconds: 6),
-              ),
-            );
-            return;
-          }
-
-          final actual = await computeFileSha256(zipFile);
-          if (actual.toLowerCase() != expected.trim().toLowerCase()) {
-            debugPrint(
-              '[UpdateService] Checksum mismatch: $actual != $expected',
-            );
-            try {
-              await zipFile.delete();
-            } catch (_) {}
-            scaffoldMessenger.showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Checksum mismatch: the downloaded update failed verification '
-                  'and was deleted.',
-                ),
-                duration: Duration(seconds: 6),
-              ),
-            );
-            return;
-          }
-        } else {
+        if (failure != null) {
           scaffoldMessenger.showSnackBar(
             SnackBar(
-              content: Text('Download failed (HTTP ${response.statusCode})'),
+              content: Text(failure),
+              duration: const Duration(seconds: 6),
             ),
           );
           return;
@@ -763,6 +966,10 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
   ) async {
     final apkUrl = info.apkUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    if (!info.verified) {
+      await _showUnverifiedDialog(context, info);
+      return;
+    }
 
     // Integrity gate: refuse to download/install without expected SHA-256.
     final expected = _findExpectedHash(info, p.basename(apkUrl));
@@ -793,36 +1000,43 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
         duration: Duration(seconds: 3),
       ),
     );
-    try {
-      const channel = MethodChannel('peerm/ytdlp');
-      await channel.invokeMethod('downloadApkWithNotification', {
-        'url': apkUrl,
-        'fileName': 'PearMusic-update.apk',
-        'expectedSha256': expected,
-      });
-    } on PlatformException catch (e) {
-      debugPrint('[UpdateService] Android in-app update failed: $e');
-      if (e.code == 'hash_missing') {
-        if (context.mounted) await _showMissingHashDialog(context, info);
-      } else if (e.code == 'hash_mismatch') {
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Checksum mismatch: the downloaded APK failed verification '
-              'and was deleted.',
-            ),
-            duration: Duration(seconds: 6),
-          ),
-        );
-      } else {
-        scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text('In-app update error: $e')),
-        );
+    const channel = MethodChannel('peerm/ytdlp');
+    Object? lastError;
+    // Try each host in turn: the native side checks the SHA-256 itself, so a
+    // mirror serving the wrong bytes just fails over to the next one.
+    for (final url in info.urlsByName[p.basename(apkUrl)] ?? [apkUrl]) {
+      try {
+        await channel.invokeMethod('downloadApkWithNotification', {
+          'url': url,
+          'fileName': 'PearMusic-update.apk',
+          'expectedSha256': expected,
+        });
+        return;
+      } on PlatformException catch (e) {
+        debugPrint('[UpdateService] Android in-app update from $url failed: $e');
+        if (e.code == 'hash_missing') {
+          if (context.mounted) await _showMissingHashDialog(context, info);
+          return;
+        }
+        lastError = e;
+      } catch (e) {
+        debugPrint('[UpdateService] Android in-app update from $url failed: $e');
+        lastError = e;
       }
-    } catch (e) {
-      debugPrint('[UpdateService] Android in-app update failed: $e');
+    }
+    if (lastError is PlatformException && lastError.code == 'hash_mismatch') {
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('In-app update error: $e')),
+        const SnackBar(
+          content: Text(
+            'Checksum mismatch: the downloaded APK failed verification '
+            'and was deleted.',
+          ),
+          duration: Duration(seconds: 6),
+        ),
+      );
+    } else {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('In-app update error: $lastError')),
       );
     }
   }
@@ -856,14 +1070,16 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 
   Future<void> _handleUpdate(BuildContext context) async {
     if (defaultTargetPlatform == TargetPlatform.windows &&
-        widget.info.zipUrl != null) {
+        widget.info.zipUrl != null &&
+        widget.info.verified) {
       Navigator.pop(context);
       await UpdateService.downloadAndApplyWindowsZip(context, widget.info);
       return;
     }
 
     if (defaultTargetPlatform == TargetPlatform.android &&
-        widget.info.apkUrl != null) {
+        widget.info.apkUrl != null &&
+        widget.info.verified) {
       if (_cachedFile != null) {
         final canInstall = await UpdateService.canRequestPackageInstalls();
         if (!canInstall) {
@@ -887,7 +1103,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     }
 
     String targetUrl = widget.info.htmlUrl;
-    if (defaultTargetPlatform == TargetPlatform.windows) {
+    if (defaultTargetPlatform == TargetPlatform.windows && widget.info.verified) {
       if (widget.info.setupUrl != null) {
         targetUrl = widget.info.setupUrl!;
       }
@@ -917,10 +1133,12 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   Widget build(BuildContext context) {
     final isAndroidWithApk =
         defaultTargetPlatform == TargetPlatform.android &&
-        widget.info.apkUrl != null;
+        widget.info.apkUrl != null &&
+        widget.info.verified;
     final isWindowsWithZip =
         defaultTargetPlatform == TargetPlatform.windows &&
-        widget.info.zipUrl != null;
+        widget.info.zipUrl != null &&
+        widget.info.verified;
     final isReadyToInstall = _cachedFile != null;
 
     String buttonLabel = 'Get Update';
@@ -953,6 +1171,14 @@ class _UpdateDialogState extends State<_UpdateDialog> {
               'Current: v${widget.info.currentVersion}  ->  Latest: v${widget.info.latestVersion}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
+            if (!widget.info.verified) ...[
+              const SizedBox(height: 10),
+              Text(
+                'This update could not be checked against its signature, so '
+                'it opens the release page instead of installing here.',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
             if (isReadyToInstall) ...[
               const SizedBox(height: 10),
               Container(
