@@ -710,8 +710,10 @@ class YoutubeService {
         final latest = resolved?.version;
         if (resolved == null || latest == null) continue;
 
-        final current = await installedYtDlpVersion() ?? '';
-        if (!YtDlpManifest.isNewerVersion(latest, current)) {
+        // A binary that will not run reports no version and must be replaced,
+        // not mistaken for a current one.
+        final current = await installedYtDlpVersion();
+        if (current != null && !YtDlpManifest.isNewerVersion(latest, current)) {
           debugPrint('[pearmusic] yt-dlp $current is current (latest $latest)');
           return YtDlpUpdateResult(YtDlpUpdateStatus.upToDate, current);
         }
@@ -761,8 +763,10 @@ class YoutubeService {
       final existing = await ytDlpPath(refresh: true);
       final managed = existing != null && await _isAppManagedBinary(existing);
       if (existing != null && managed) {
-        final current = await installedYtDlpVersion() ?? '';
-        if (!YtDlpManifest.isNewerVersion(bundle.ytDlpVersion, current)) {
+        // A binary that will not run reports no version and is replaced.
+        final current = await installedYtDlpVersion();
+        if (current != null &&
+            !YtDlpManifest.isNewerVersion(bundle.ytDlpVersion, current)) {
           return YtDlpUpdateResult(YtDlpUpdateStatus.upToDate, current);
         }
       }

@@ -79,6 +79,15 @@ void main() {
     expect(File('${localBin.path}.new').existsSync(), isFalse);
   });
 
+  test('an installed binary that will not run is replaced, not kept', () async {
+    // The fake binary from the previous test cannot report a version.
+    localBin.writeAsBytesSync(List.filled(64, 1));
+    final file = writeBundle('replace.pmyd');
+    final result = await YoutubeService.importYtDlpBundle(file, trustedKeys: keys);
+    expect(result.status, YtDlpUpdateStatus.updated);
+    expect(localBin.readAsBytesSync(), binary);
+  });
+
   test('garbage is rejected without touching the installed binary', () async {
     final junk = File(p.join(sandbox.path, 'junk.pmyd'))
       ..writeAsBytesSync([1, 2, 3, 4]);
