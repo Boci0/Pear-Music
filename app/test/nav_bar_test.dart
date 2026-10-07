@@ -20,7 +20,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// tabs the slots are narrow, and an earlier pill that filled its slot left only
 /// a few pixels around "Playlists".
 const double _minLabelPadding = 9;
-const double _minVerticalPadding = 6;
+
+/// The pill is meant to be clearly wider than tall; a squarer one reads as a
+/// blob and a flatter one as a stripe.
+const double _minAspect = 1.35;
+const double _maxAspect = 2.0;
+const double _minVerticalPadding = 4;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -126,12 +131,52 @@ void main() {
             reason: '$label at ${width}dp: room below the label');
         expect(pill.center.dx, closeTo(iconRect.center.dx, 1.0),
             reason: '$label at ${width}dp: pill is centred on the tab');
+        expect(pill.width / pill.height, inInclusiveRange(_minAspect, _maxAspect),
+            reason: '$label at ${width}dp: pill proportions (${pill.width} x ${pill.height})');
         expect(pill.left, greaterThanOrEqualTo(barRect.left),
             reason: '$label at ${width}dp: pill stays inside the bar');
         expect(pill.right, lessThanOrEqualTo(barRect.right));
       }
     });
   }
+
+  testWidgets('the side rail pill wraps the icon and the label with room to spare',
+      (tester) async {
+    await useSize(tester, const Size(1280, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    final rail = find.byKey(const ValueKey('side_rail'));
+    final indicator = find.byKey(const ValueKey('side_rail_indicator'));
+
+    for (final (label, icon) in tabs) {
+      await tester.tap(find.descendant(of: rail, matching: find.text(label)));
+      await tester.pumpAndSettle();
+
+      final pill = tester.getRect(indicator);
+      final labelRect =
+          tester.getRect(find.descendant(of: rail, matching: find.text(label)));
+      final iconRect =
+          tester.getRect(find.descendant(of: rail, matching: find.byIcon(icon)));
+      final railRect = tester.getRect(rail);
+
+      expect(labelRect.left - pill.left, greaterThanOrEqualTo(_minLabelPadding),
+          reason: '$label: room left of the label');
+      expect(pill.right - labelRect.right, greaterThanOrEqualTo(_minLabelPadding),
+          reason: '$label: room right of the label');
+      expect(iconRect.top - pill.top, greaterThanOrEqualTo(_minVerticalPadding),
+          reason: '$label: room above the icon');
+      expect(pill.bottom - labelRect.bottom,
+          greaterThanOrEqualTo(_minVerticalPadding),
+          reason: '$label: room below the label');
+      expect(pill.width / pill.height, inInclusiveRange(_minAspect, _maxAspect),
+          reason: '$label: pill proportions (${pill.width} x ${pill.height})');
+      expect(pill.left, greaterThan(railRect.left),
+          reason: '$label: pill stays inside the rail');
+      expect(pill.right, lessThan(railRect.right));
+      expect(pill.center.dx, closeTo(iconRect.center.dx, 1.0));
+    }
+  });
 
   testWidgets('the pill glides to the tapped tab and resizes to its label',
       (tester) async {

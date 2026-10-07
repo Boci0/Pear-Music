@@ -8,7 +8,9 @@ import 'tactile_button.dart';
 /// replaces the bottom navigation bar on wide windows (>= 900 logical px).
 ///
 /// A frosted glass panel, like the bottom bar and the mini player card, so
-/// all three read as the same family of shapes.
+/// all three read as the same family of shapes. The selected destination sits
+/// in the same pill the bottom bar uses: icon and label together, soft corners,
+/// the accent at one strength, the glass hairline for an edge.
 class SideRail extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -48,13 +50,18 @@ class SideRail extends StatelessWidget {
     ),
   ];
 
+  /// Width of the rail panel. Wide enough that the pill keeps the phone bar's
+  /// proportions with air around it, instead of filling the panel edge to edge.
+  static const double railWidth = 100;
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
       child: SizedBox(
         key: const ValueKey('side_rail'),
-        width: 86,
+        width: railWidth,
         child: PearGlass(
           borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
           child: Column(
@@ -75,15 +82,15 @@ class SideRail extends StatelessWidget {
               ),
               Stack(
                 children: [
-                  // Gliding selection capsule, shared by all items so it
-                  // slides between them (with a slight overshoot) like the
-                  // phone nav bar's indicator instead of fading in place.
+                  // Gliding selection pill, shared by all items so it slides
+                  // between them (with a slight overshoot) like the phone nav
+                  // bar's pill instead of fading in place.
                   AnimatedPositioned(
                     duration: const Duration(milliseconds: 340),
                     curve: Curves.easeOutBack,
                     top:
                         selectedIndex * _SideRailItem.height +
-                        _SideRailItem.iconTop,
+                        _SideRailItem.pillTop,
                     left: 0,
                     right: 0,
                     height: _SideRailItem.pillHeight,
@@ -91,13 +98,9 @@ class SideRail extends StatelessWidget {
                       child: Container(
                         key: const ValueKey('side_rail_indicator'),
                         width: _SideRailItem.pillWidth,
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.24),
-                          borderRadius: BorderRadius.circular(
-                            _SideRailItem.pillHeight / 2,
-                          ),
+                        decoration: PearGlassTokens.selectionPill(
+                          scheme,
+                          radius: _SideRailItem.pillRadius,
                         ),
                       ),
                     ),
@@ -127,14 +130,24 @@ class SideRail extends StatelessWidget {
 }
 
 class _SideRailItem extends StatefulWidget {
-  /// Row geometry, fixed so the rail's shared indicator can be positioned
-  /// exactly over an item's icon without measuring anything.
-  static const double height = 64;
-  static const double pillWidth = 48;
-  static const double pillHeight = 30;
-  static const double _labelHeight = 14;
-  static const double _gap = 3;
-  static const double iconTop = (height - pillHeight - _gap - _labelHeight) / 2;
+  /// Row geometry, fixed so the rail's shared pill can be positioned exactly
+  /// over an item without measuring anything. The pill is 44 tall around a
+  /// 35px icon-and-label block, and about 1.7 times wider than tall, the same
+  /// shape as the bottom bar's. The rows leave 16px between pills.
+  static const double height = 60;
+  static const double pillHeight = 44;
+
+  /// Gap between the pill and the rail's side edges.
+  static const double pillInsetX = 12;
+  static const double pillWidth = SideRail.railWidth - pillInsetX * 2;
+
+  /// The same corner radius as the phone bar's pill.
+  static const double pillRadius = PearGlassTokens.selectionPillRadius;
+
+  static const double pillTop = (height - pillHeight) / 2;
+  static const double iconSize = 20;
+  static const double labelHeight = 12;
+  static const double gap = 3;
 
   final int index;
   final int selectedIndex;
@@ -163,6 +176,7 @@ class _SideRailItemState extends State<_SideRailItem> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isSelected = widget.index == widget.selectedIndex;
+    final color = isSelected ? scheme.primary : scheme.onSurfaceVariant;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) {
@@ -176,53 +190,54 @@ class _SideRailItemState extends State<_SideRailItem> {
         onTap: widget.onTap,
         child: SizedBox(
           height: _SideRailItem.height,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // The selected fill is the rail's gliding indicator; the item
-              // only draws its own capsule for hover.
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                curve: Curves.easeOutCubic,
-                width: _SideRailItem.pillWidth,
-                height: _SideRailItem.pillHeight,
-                decoration: BoxDecoration(
-                  color: !isSelected && _isHovered
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(
-                    _SideRailItem.pillHeight / 2,
-                  ),
-                ),
-                child: Icon(
-                  isSelected ? widget.activeIcon : widget.icon,
-                  size: 22,
-                  color: isSelected ? scheme.primary : scheme.onSurfaceVariant,
-                ),
+          child: Center(
+            // The selected fill is the rail's gliding pill; the item only
+            // draws its own pill for hover, so a hovered item previews the
+            // shape it would get.
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              width: _SideRailItem.pillWidth,
+              height: _SideRailItem.pillHeight,
+              decoration: BoxDecoration(
+                color: !isSelected && _isHovered
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(_SideRailItem.pillRadius),
               ),
-              const SizedBox(height: _SideRailItem._gap),
-              SizedBox(
-                height: _SideRailItem._labelHeight,
-                child: Center(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      height: 1.0,
-                      letterSpacing: -0.4,
-                      fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                      color: isSelected
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    isSelected ? widget.activeIcon : widget.icon,
+                    size: _SideRailItem.iconSize,
+                    color: color,
+                  ),
+                  const SizedBox(height: _SideRailItem.gap),
+                  SizedBox(
+                    height: _SideRailItem.labelHeight,
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            height: 1.0,
+                            letterSpacing: -0.4,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            color: color,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

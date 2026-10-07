@@ -408,7 +408,7 @@ class _MinimalistNavBar extends StatelessWidget {
   ];
 
   /// Bar height. It holds the pill plus [pillInsetY] above and below it.
-  static const double barHeight = 66;
+  static const double barHeight = 54;
 
   /// Corner rounding of the bar: the same radius as the mini player card
   /// directly above it, so the two read as panels of one family.
@@ -418,16 +418,23 @@ class _MinimalistNavBar extends StatelessWidget {
   static const double pillInsetY = 5;
   static const double pillHeight = barHeight - pillInsetY * 2;
 
+  /// Corner radius of the pill: the bar's radius minus the gap around the pill,
+  /// so its corners run concentric with the bar's own (the same relationship
+  /// the side rail's logo tile has with its panel). Below half the height, so
+  /// the ends read as softly rounded rather than a full capsule.
+  static const double pillRadius = PearGlassTokens.selectionPillRadius;
+
   /// Fixed row heights of an item's icon and label, so the pill can be centred
-  /// on them without measuring. With the gap they make a 41px block inside a
-  /// 56px pill, which is what keeps the label from looking squeezed.
-  static const double iconRowHeight = 24;
-  static const double labelRowHeight = 13;
-  static const double rowGap = 4;
+  /// on them without measuring. With the gap they make a 35px block inside a
+  /// 44px pill: a small icon and a label tucked close under it.
+  static const double iconSize = 20;
+  static const double iconRowHeight = 20;
+  static const double labelRowHeight = 12;
+  static const double rowGap = 3;
 
   /// Empty space the pill leaves either side of its label, and the smallest
   /// pill (an icon and a little air).
-  static const double labelPadX = 13;
+  static const double labelPadX = 15;
   static const double minPillWidth = 52;
 
   /// Room kept between the bar's ends and the items, and between the pill and
@@ -491,23 +498,22 @@ class _MinimalistNavBar extends StatelessWidget {
               return Stack(
                 children: [
                   // Gliding pill behind the selected icon and label. It resizes
-                  // as it moves, because each label has its own width.
+                  // as it moves, because each label has its own width. Same
+                  // timing and slight overshoot as the side rail's selection.
                   AnimatedPositioned(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOutCubic,
+                    duration: const Duration(milliseconds: 340),
+                    curve: Curves.easeOutBack,
                     left: selectedCenter - selectedWidth / 2,
                     top: (constraints.maxHeight - pillHeight) / 2,
                     height: pillHeight,
                     width: selectedWidth,
                     child: Container(
                       key: const ValueKey('nav_indicator'),
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.20),
-                        borderRadius: BorderRadius.circular(pillHeight / 2),
-                        border: Border.all(
-                          color: scheme.primary.withValues(alpha: 0.30),
-                          width: 1,
-                        ),
+                      // The glass family's selection pill, shared with the
+                      // side rail.
+                      decoration: PearGlassTokens.selectionPill(
+                        scheme,
+                        radius: pillRadius,
                       ),
                     ),
                   ),
@@ -656,7 +662,7 @@ class _NavBarItemState extends State<_NavBarItem> {
                         ? Colors.white.withValues(alpha: 0.08)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(
-                      _MinimalistNavBar.pillHeight / 2,
+                      _MinimalistNavBar.pillRadius,
                     ),
                   ),
                   child: Column(
@@ -670,7 +676,7 @@ class _NavBarItemState extends State<_NavBarItem> {
                             isSelected
                                 ? widget.activeIcon
                                 : widget.inactiveIcon,
-                            size: 22,
+                            size: _MinimalistNavBar.iconSize,
                             color: color,
                           ),
                         ),

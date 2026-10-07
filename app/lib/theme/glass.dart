@@ -59,6 +59,28 @@ class PearGlassTokens {
   /// Hairline rim for card rows.
   static const Color cardRim = Color(0x10FFFFFF);
 
+  /// Corner radius of the selected-tab pill, the same on the phone bar and the
+  /// side rail so the two read as one shape. On the phone bar it is also the
+  /// bar's radius minus the gap around the pill, so the corners run concentric.
+  static const double selectionPillRadius = 15;
+
+  /// The selected-tab pill, shared by the bottom nav bar and the side rail:
+  /// the accent at one strength, edged by the same hairline as the panels
+  /// rather than an accent outline. [radius] is normally
+  /// [selectionPillRadius].
+  static BoxDecoration selectionPill(
+    ColorScheme scheme, {
+    required double radius,
+  }) =>
+      BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: edge),
+          width: 1,
+        ),
+      );
+
   static final List<BoxShadow> shadow = [
     BoxShadow(
       color: Colors.black.withValues(alpha: 0.35),
