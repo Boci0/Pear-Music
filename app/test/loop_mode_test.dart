@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/loudness_meter.dart';
+import 'package:peerm_app/services/loudness_service.dart';
 import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
 
@@ -38,8 +40,15 @@ class _EndOfSongPlayer extends AudioPlayer {
   @override
   Duration get position => Duration.zero;
 
+  /// Positions the engine was asked to seek to.
+  final List<Duration?> seeks = [];
+
   @override
-  Future<void> seek(Duration? position, {int? index}) async {}
+  Duration? get duration => const Duration(minutes: 3);
+
+  @override
+  Future<void> seek(Duration? position, {int? index}) async =>
+      seeks.add(position);
 
   /// Sources loaded after the first one.
   int loads = 0;
@@ -73,8 +82,11 @@ class _EndOfSongPlayer extends AudioPlayer {
   @override
   Future<void> setVolume(double volume) async {}
 
+  /// The loop mode last handed to the engine.
+  LoopMode engineLoop = LoopMode.off;
+
   @override
-  Future<void> setLoopMode(LoopMode mode) async {}
+  Future<void> setLoopMode(LoopMode mode) async => engineLoop = mode;
 }
 
 /// Locks in the loop/shuffle behaviour the user asked for: the repeat button
@@ -161,7 +173,30 @@ void main() {
     expect(handler.playbackState.value.controls[2].androidIcon, contains('drawable/pear_pause'));
   });
 
-  test('loop one actually replays the song when it ends', () async {
+  test('repeat one loops on the engine unless the song has to end', () async {
+    final engine = _EndOfSongPlayer();
+    final looping = PlayerService(library, player: engine);
+    await looping.init();
+    expect(engine.engineLoop, LoopMode.off);
+
+    looping.toggleLoop();
+    expect(engine.engineLoop, LoopMode.off, reason: 'repeat all stays in Dart');
+    looping.toggleLoop();
+    expect(engine.engineLoop, LoopMode.one,
+        reason: 'repeat one wraps on the engine, without a gap');
+
+    looping.setSleepTimer(null, endOfSong: true);
+    expect(engine.engineLoop, LoopMode.off,
+        reason: 'the end-of-song sleep timer needs the song to end');
+    looping.cancelSleepTimer();
+    expect(engine.engineLoop, LoopMode.one);
+
+    looping.toggleLoop();
+    expect(engine.engineLoop, LoopMode.off);
+  });
+
+  test('loop one still replays the song if the engine reports an end',
+      () async {
     final engine = _EndOfSongPlayer();
     final looping = PlayerService(library, player: engine);
     await looping.init();
@@ -190,5 +225,61 @@ void main() {
     expect(engine.processingState, ProcessingState.ready);
     expect(looping.playing, isTrue,
         reason: 'the play button must show pause while the loop plays');
+  });
+
+  group('repeat one on the engine', () {
+    final song = Song(
+      id: 'stream_aaaaaaaaaaa',
+      title: 'Song a',
+      fileName: 'stream_aaaaaaaaaaa.m4a',
+      size: 0,
+      checksum: 'stream_aaaaaaaaaaa',
+      sourceDeviceId: 'stream',
+      addedAt: DateTime(2026, 1, 1),
+    );
+
+    setUp(() {
+      LoudnessService.resetForTesting();
+      // Music from 5 s to the end of a three-minute file.
+      LoudnessService.setSpanForTesting(
+        'aaaaaaaaaaa',
+        const LoudnessAnalysis(
+            lufs: -14, musicStart: 5, musicEnd: 180, length: 180),
+      );
+    });
+    tearDown(LoudnessService.resetForTesting);
+
+    Future<(_EndOfSongPlayer, PlayerService)> loopOne() async {
+      final engine = _EndOfSongPlayer();
+      final looping = PlayerService(library, player: engine);
+      await looping.init();
+      looping.currentSong = song;
+      looping.toggleLoop();
+      looping.toggleLoop();
+      return (engine, looping);
+    }
+
+    test('a wrap to the start skips the silent intro again', () async {
+      final (engine, looping) = await loopOne();
+      looping.debugCrossfadeTick(const Duration(minutes: 2, seconds: 59));
+      looping.debugCrossfadeTick(const Duration(milliseconds: 200));
+      expect(engine.seeks, [const Duration(milliseconds: 4500)]);
+    });
+
+    test('playing on through the song never seeks', () async {
+      final (engine, looping) = await loopOne();
+      for (var s = 0; s < 180; s += 10) {
+        looping.debugCrossfadeTick(Duration(seconds: s));
+      }
+      expect(engine.seeks, isEmpty);
+    });
+
+    test('a user seek back to the start is left alone', () async {
+      final (engine, looping) = await loopOne();
+      looping.debugCrossfadeTick(const Duration(minutes: 2, seconds: 59));
+      await looping.seek(Duration.zero);
+      looping.debugCrossfadeTick(const Duration(milliseconds: 200));
+      expect(engine.seeks, [Duration.zero]);
+    });
   });
 }

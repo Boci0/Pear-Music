@@ -475,6 +475,7 @@ class PlayerService extends ChangeNotifier {
     _sleepTimerEndTime = null;
     _sleepTimerEndOfSong = endOfSong;
     _sleepTimerEndOfQueue = endOfQueue;
+    _syncEngineLoop();
 
     if (endOfSong || endOfQueue) {
       notifyListeners();
@@ -496,8 +497,22 @@ class PlayerService extends ChangeNotifier {
     _sleepTimerEndTime = null;
     _sleepTimerEndOfSong = false;
     _sleepTimerEndOfQueue = false;
+    _syncEngineLoop();
     notifyListeners();
   }
+
+  /// Repeat one runs on the engine's own single-file loop (mpv loop-file,
+  /// ExoPlayer repeat one), which wraps around without a gap. Replaying from
+  /// Dart after the completed event means a pause, a reload and a cold start,
+  /// which is audible and briefly resets the seek bar. Every other mode stays
+  /// in Dart, and so does repeat one while the end-of-song sleep timer is set,
+  /// since that needs the song to actually end.
+  LoopMode get _engineLoopMode =>
+      _loopMode == LoopSetting.one && !_sleepTimerEndOfSong
+          ? LoopMode.one
+          : LoopMode.off;
+
+  void _syncEngineLoop() => unawaited(_player.setLoopMode(_engineLoopMode));
 
   Future<void> setSpeed(double speed) async {
     final clamped = speed.clamp(0.25, 3.0);
@@ -639,8 +654,38 @@ class PlayerService extends ChangeNotifier {
   void debugCrossfadeTick(Duration position) => _onPosition(position);
 
   void _onPosition(Duration position) {
+    _skipSilentIntroOnLoop(position);
+    _lastPosition = position;
     _onPositionForCrossfade(position);
     _skipSilentOutro(position);
+  }
+
+  /// Last position seen by [_onPosition] (or asked for by [seek]), to tell
+  /// the engine's repeat-one wrap from playback moving forward.
+  Duration _lastPosition = Duration.zero;
+
+  /// The engine's own repeat-one loop (see [_engineLoopMode]) wraps to 0,
+  /// past the silent-intro skip a fresh start gets. When playback jumps from
+  /// the last seconds of the song back to before its music starts, skip the
+  /// intro again.
+  void _skipSilentIntroOnLoop(Duration position) {
+    final previous = _lastPosition;
+    if (_engineLoopMode != LoopMode.one || _isLoadingTrack || _isAdvancing) {
+      return;
+    }
+    final duration = _player.duration;
+    if (duration == null ||
+        previous < duration - const Duration(seconds: 3) ||
+        position > const Duration(seconds: 2)) {
+      return;
+    }
+    final song = currentSong;
+    if (song == null) return;
+    final start = _musicStartFor(song);
+    if (start <= position) return;
+    _outroSkippedToken = -1;
+    _lastPosition = start;
+    unawaited(_player.seek(start));
   }
 
   void _onPositionForCrossfade(Duration position) {
@@ -983,13 +1028,13 @@ class PlayerService extends ChangeNotifier {
     unawaited(StreamCacheManager.warmUp());
     unawaited(_requestNotificationPermissionIfNeeded());
 
-    // Never let the underlying player loop by itself: loop modes are
-    // implemented in Dart (single-source loads). This is also what fixes the
-    // "loops on 1 song" issue on backends that don't advance playlists.
+    // Loop modes are implemented in Dart (single-source loads), which is also
+    // what fixes the "loops on 1 song" issue on backends that don't advance
+    // playlists. The one exception is repeat one: see [_engineLoopMode].
     _userVolume = identity?.playbackVolume ?? 0.75;
     volumeNotifier.value = _userVolume;
     unawaited(_player.setVolume(_effectiveVolume));
-    unawaited(_player.setLoopMode(LoopMode.off));
+    _syncEngineLoop();
 
     // NOTE: `positionStream` is deliberately NOT forwarded through
     // notifyListeners(). It fires many times per second while playing and
@@ -1066,6 +1111,7 @@ class PlayerService extends ChangeNotifier {
         AudioServiceRepeatMode.all => LoopSetting.all,
         _ => LoopSetting.off,
       };
+      _syncEngineLoop();
       _publishNotificationState();
       notifyListeners();
     };
@@ -1677,7 +1723,7 @@ class PlayerService extends ChangeNotifier {
     _growingSource = null;
     if (previousGrowing != null) unawaited(previousGrowing.close());
     try {
-      await _player.setLoopMode(LoopMode.off);
+      await _player.setLoopMode(_engineLoopMode);
       if (token != _playRequestToken) return;
 
       if (song.sourceDeviceId == 'stream') {
@@ -2533,6 +2579,7 @@ class PlayerService extends ChangeNotifier {
       LoopSetting.all => LoopSetting.one,
       LoopSetting.one => LoopSetting.off,
     };
+    _syncEngineLoop();
     _publishNotificationState();
     notifyListeners();
     return Future.value();
@@ -2654,6 +2701,8 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> seek(Duration position) async {
     _silenceTail();
+    // A seek back from the last seconds is the user's, not a loop wrap.
+    _lastPosition = position;
     final dur = _player.duration;
     if (dur != null && dur > Duration.zero && position >= dur - const Duration(milliseconds: 150)) {
       await _player.seek(dur);
