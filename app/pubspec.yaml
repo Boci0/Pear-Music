@@ -60,6 +60,7 @@ dependencies:
   synchronized: ^3.4.1+1
   ffi: ^2.2.0
   system_audio_visualizer: ^0.0.1
+  ed25519_edwards: ^0.3.2
 
 dev_dependencies:
   flutter_test:

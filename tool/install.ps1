@@ -87,26 +87,38 @@ if (-not (Test-Path $ytDlpDest)) {
   } else {
     # 4c. Automated dependency download
     if (-not $Silent) { Write-Host "[install] yt-dlp resolver not found locally. Downloading official dependency..." }
-    try {
-      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-      $dlUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-      $tempYt = "$ytDlpDest.tmp"
-      $wc = New-Object System.Net.WebClient
-      $wc.Headers.Add("User-Agent", "PearMusic-Installer")
-      $wc.DownloadFile($dlUrl, $tempYt)
-
-      if ((Test-Path $tempYt) -and ((Get-Item $tempYt).Length -gt 1000000)) {
-        Move-Item -Path $tempYt -Destination $ytDlpDest -Force
-        if (-not $Silent) {
-          $sizeMb = [math]::Round((Get-Item $ytDlpDest).Length / 1MB, 2)
-          Write-Host "[install] Successfully installed yt-dlp dependency ($sizeMb MB)"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+    $tempYt = "$ytDlpDest.tmp"
+    # Sources in order: optional override, our own mirror, then upstream.
+    $ytSources = @()
+    if ($env:PEARMUSIC_YTDLP_BASE_URL) { $ytSources += $env:PEARMUSIC_YTDLP_BASE_URL.TrimEnd('/') }
+    $ytSources += "https://github.com/Boci0/Pear-Music/releases/download/yt-dlp-mirror"
+    $ytSources += "https://codeberg.org/Boci0/Pear-Music/releases/download/yt-dlp-mirror"
+    $ytSources += "https://github.com/yt-dlp/yt-dlp/releases/latest/download"
+    $ytInstalled = $false
+    foreach ($base in $ytSources) {
+      try {
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("User-Agent", "PearMusic-Installer")
+        $wc.DownloadFile("$base/yt-dlp.exe", $tempYt)
+        if ((Test-Path $tempYt) -and ((Get-Item $tempYt).Length -gt 1000000)) {
+          Move-Item -Path $tempYt -Destination $ytDlpDest -Force
+          $ytInstalled = $true
+          if (-not $Silent) {
+            $sizeMb = [math]::Round((Get-Item $ytDlpDest).Length / 1MB, 2)
+            Write-Host "[install] Successfully installed yt-dlp dependency ($sizeMb MB) from $base"
+          }
+          break
         }
-      } else {
         Remove-Item $tempYt -Force -ErrorAction SilentlyContinue
-        if (-not $Silent) { Write-Warning "[install] Downloaded dependency was incomplete. Fallback will trigger at runtime." }
+        if (-not $Silent) { Write-Warning "[install] Download from $base was incomplete, trying next source." }
+      } catch {
+        Remove-Item $tempYt -Force -ErrorAction SilentlyContinue
+        if (-not $Silent) { Write-Warning "[install] Could not download yt-dlp from ${base}: $_" }
       }
-    } catch {
-      if (-not $Silent) { Write-Warning "[install] Could not download yt-dlp during install: $_. Fallback will trigger at runtime." }
+    }
+    if (-not $ytInstalled -and -not $Silent) {
+      Write-Warning "[install] No yt-dlp source worked. Fallback will trigger at runtime."
     }
   }
 }

@@ -1,0 +1,131 @@
+name: yt-dlp mirror
+
+# Keeps a signed, tested copy of the newest upstream yt-dlp on two hosts (GitHub
+# and Codeberg) so the app can install and update it even if upstream vanishes.
+# If upstream cannot be reached this job fails and leaves the last good mirror
+# untouched. See app/lib/services/ytdlp_manifest.dart for the client side.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1,4'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Re-publish even if the mirror already has this version'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  MIRROR_TAG: yt-dlp-mirror
+  CODEBERG_REPO: Boci0/Pear-Music
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and verify upstream yt-dlp
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir out
+          version=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name)
+          base="https://github.com/yt-dlp/yt-dlp/releases/download/$version"
+          curl -fsSL -o upstream.sums "$base/SHA2-256SUMS"
+          for asset in yt-dlp.exe yt-dlp_linux yt-dlp_macos; do
+            curl -fsSL -o "out/$asset" "$base/$asset"
+            expected=$(grep -E "^[0-9a-f]{64}  ?\*?$asset\$" upstream.sums | cut -c1-64)
+            actual=$(sha256sum "out/$asset" | cut -c1-64)
+            [ -n "$expected" ] && [ "$expected" = "$actual" ] \
+              || { echo "Checksum mismatch for $asset"; exit 1; }
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test the Linux build
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          chmod +x out/yt-dlp_linux
+          reported=$(./out/yt-dlp_linux --version)
+          [ "$reported" = "$VERSION" ] || { echo "Binary reports $reported, expected $VERSION"; exit 1; }
+          # Best effort only: hosted runner IPs are often challenged by YouTube,
+          # so a failure here warns instead of blocking the mirror.
+          ./out/yt-dlp_linux --simulate --no-warnings "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
+            || echo "::warning::yt-dlp could not extract a test video from this runner"
+
+      - name: Decide whether to publish
+        id: decide
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          current=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$MIRROR_TAG/manifest.json" 2>/dev/null \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["ytdlp_version"])' 2>/dev/null || echo "")
+          publish=$(CURRENT="$current" python3 - <<'PY'
+          import os
+          def parse(v):
+              try:
+                  return [int(x) for x in v.split(".")]
+              except ValueError:
+                  return None
+          new, cur = parse(os.environ["VERSION"]), parse(os.environ["CURRENT"])
+          print("true" if cur is None or (new is not None and new > cur) else "false")
+          PY
+          )
+          if [ "$FORCE" = "true" ]; then publish=true; fi
+          echo "Mirror has '${current:-nothing}', upstream is $VERSION, publish=$publish"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+      - name: Sign manifest
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+          SIGNING_KEY: ${{ secrets.YTDLP_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$SIGNING_KEY" ] || { echo "YTDLP_SIGNING_KEY secret is not set"; exit 1; }
+          key="$RUNNER_TEMP/ytdlp-signing.pem"
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$key")
+          export MIRROR_SOURCES="https://github.com/$GITHUB_REPOSITORY/releases/download/$MIRROR_TAG https://codeberg.org/$CODEBERG_REPO/releases/download/$MIRROR_TAG"
+          bash tool/ytdlp_sign_manifest.sh out "$VERSION" "$key"
+          rm -f "$key"
+
+      - name: Publish to GitHub
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$MIRROR_TAG" > /dev/null 2>&1; then
+            gh release create "$MIRROR_TAG" \
+              --title "yt-dlp mirror" \
+              --notes "Signed yt-dlp builds used as a fallback download source. Refreshed by the yt-dlp mirror workflow." \
+              --prerelease --latest=false
+          fi
+          # Binaries first, manifest last: the manifest is what clients trust.
+          gh release upload "$MIRROR_TAG" out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos --clobber
+          gh release upload "$MIRROR_TAG" out/manifest.json out/manifest.json.sig --clobber
+
+      - name: Publish to Codeberg
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CODEBERG_TOKEN" ]; then
+            echo "::warning::CODEBERG_TOKEN is not set, skipping the Codeberg mirror"
+            exit 0
+          fi
+          bash tool/ytdlp_publish_codeberg.sh "$CODEBERG_REPO" "$MIRROR_TAG" \
+            out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos
+          bash tool/ytdlp_publish_codeberg.sh "$CODEBERG_REPO" "$MIRROR_TAG" \
+            out/manifest.json out/manifest.json.sig

@@ -104,4 +104,25 @@ void main() {
       expect(YoutubeService.parseSha256Sums('abc  yt-dlp.exe', 'yt-dlp.exe'), isNull);
     });
   });
+  group('mergeYtDlpSources', () {
+    test('puts overrides first, then defaults, without duplicates', () {
+      expect(
+        YoutubeService.mergeYtDlpSources(
+          ['https://mirror.example/ytdlp/', 'https://a.example'],
+          ['https://a.example', 'https://b.example'],
+        ),
+        ['https://mirror.example/ytdlp', 'https://a.example', 'https://b.example'],
+      );
+    });
+
+    test('drops blanks, comments and non-https entries', () {
+      expect(
+        YoutubeService.mergeYtDlpSources(
+          ['', '  ', '# note', 'http://insecure.example', 'ftp://x'],
+          ['https://b.example'],
+        ),
+        ['https://b.example'],
+      );
+    });
+  });
 }

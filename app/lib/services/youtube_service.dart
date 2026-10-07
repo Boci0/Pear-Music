@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -13,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'artwork_service.dart';
 import 'library_service.dart';
+import 'ytdlp_manifest.dart';
 
 /// Live status text for the "Add from link" dialog.
 typedef YoutubeStatusCallback = void Function(String status);
@@ -43,6 +45,21 @@ class DownloadCancellation {
 class DownloadCancelledException implements Exception {
   @override
   String toString() => 'Download cancelled.';
+}
+
+class _YtDlpSource {
+  const _YtDlpSource(this.base, {required this.requireManifest});
+  final String base;
+  final bool requireManifest;
+}
+
+class _ResolvedYtDlp {
+  const _ResolvedYtDlp(this.base, this.sha256, this.version);
+  final String base;
+  final String sha256;
+
+  /// yt-dlp version from a verified manifest; null for checksum-only sources.
+  final String? version;
 }
 
 /// Rips audio from a link using yt-dlp — the ONLY downloader.
@@ -142,8 +159,68 @@ class YoutubeService {
     return null;
   }
 
-  static const _ytDlpReleaseBase =
+  static const _ytDlpUpstreamBase =
       'https://github.com/yt-dlp/yt-dlp/releases/latest/download';
+
+  /// Our own signed copies of yt-dlp, refreshed by the `ytdlp-mirror` workflow
+  /// under a fixed release tag on two hosts. They keep installs and updates
+  /// working if upstream disappears or one host goes away.
+  static const _ytDlpMirrorBase =
+      'https://github.com/Boci0/Pear-Music/releases/download/yt-dlp-mirror';
+  static const _ytDlpCodebergBase =
+      'https://codeberg.org/Boci0/Pear-Music/releases/download/yt-dlp-mirror';
+
+  /// Ordered download sources for yt-dlp: user overrides, then our signed
+  /// mirrors (plus any extra sources a verified manifest listed), then
+  /// upstream. Overrides come from the `PEARMUSIC_YTDLP_BASE_URL` environment
+  /// variable, then one URL per line in `ytdlp_sources.txt` in the app support
+  /// folder (blank lines and `#` comments are ignored).
+  ///
+  /// A base serves the asset (`yt-dlp.exe`, `yt-dlp_linux`, `yt-dlp_macos`)
+  /// plus either a signed `manifest.json` / `manifest.json.sig` pair or a plain
+  /// `SHA2-256SUMS`. Our own mirrors must serve the signed manifest.
+  static Future<List<_YtDlpSource>> _ytDlpSources() async {
+    final overrides = <String>[];
+    final env = Platform.environment['PEARMUSIC_YTDLP_BASE_URL'];
+    if (env != null) overrides.add(env);
+    var extra = const <String>[];
+    try {
+      final supportDir = await getApplicationSupportDirectory();
+      final file = File(p.join(supportDir.path, 'ytdlp_sources.txt'));
+      if (await file.exists()) overrides.addAll(await file.readAsLines());
+      extra = (await _readCachedManifest())?.sources ?? const [];
+    } catch (_) {}
+    final custom = mergeYtDlpSources(overrides, const []);
+    final signed = mergeYtDlpSources(
+      const [],
+      [_ytDlpMirrorBase, _ytDlpCodebergBase, ...extra],
+    ).where((b) => !custom.contains(b));
+    return [
+      for (final b in custom) _YtDlpSource(b, requireManifest: false),
+      for (final b in signed) _YtDlpSource(b, requireManifest: true),
+      const _YtDlpSource(_ytDlpUpstreamBase, requireManifest: false),
+    ];
+  }
+
+  /// Cleans [overrides] (trims, drops blanks, comments and non-https entries,
+  /// strips trailing slashes) and appends [defaults], removing duplicates.
+  @visibleForTesting
+  static List<String> mergeYtDlpSources(
+    Iterable<String> overrides,
+    Iterable<String> defaults,
+  ) {
+    final out = <String>[];
+    for (final raw in [...overrides, ...defaults]) {
+      var s = raw.trim();
+      if (s.isEmpty || s.startsWith('#')) continue;
+      if (!s.startsWith('https://')) continue;
+      while (s.endsWith('/')) {
+        s = s.substring(0, s.length - 1);
+      }
+      if (!out.contains(s)) out.add(s);
+    }
+    return out;
+  }
 
   /// Finds [assetName]'s SHA-256 in the text of a release `SHA2-256SUMS` file
   /// (`<hex>  <name>` per line). Returns null when the asset is not listed.
@@ -156,33 +233,142 @@ class YoutubeService {
     return null;
   }
 
-  /// Checks a freshly downloaded yt-dlp binary against the `SHA2-256SUMS`
-  /// file published in the same release. Fails closed: if the sums cannot be
-  /// fetched or do not list the asset, the binary is not trusted.
-  static Future<bool> _verifyYtDlpChecksum(
+  static const _manifestCacheName = 'ytdlp_manifest.json';
+
+  static Future<YtDlpManifest?> _readCachedManifest() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final m = File(p.join(dir.path, _manifestCacheName));
+      final s = File(p.join(dir.path, '$_manifestCacheName.sig'));
+      if (!await m.exists() || !await s.exists()) return null;
+      return YtDlpManifest.parseVerified(
+        await m.readAsBytes(),
+        Uint8List.fromList(base64.decode((await s.readAsString()).trim())),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _cacheManifest(Uint8List manifest, String sigText) async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      await File(p.join(dir.path, _manifestCacheName)).writeAsBytes(manifest);
+      await File(p.join(dir.path, '$_manifestCacheName.sig'))
+          .writeAsString(sigText);
+    } catch (_) {}
+  }
+
+  /// GETs [url] and returns its body, or null on a non-200 or any error.
+  static Future<Uint8List?> _getBytes(
     HttpClient client,
-    File file,
+    String url, {
+    int maxBytes = 1 << 20,
+  }) async {
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      request.headers.set('User-Agent', 'PearMusic-App');
+      final response =
+          await request.close().timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) {
+        await response.drain<void>();
+        return null;
+      }
+      final out = BytesBuilder(copy: false);
+      await for (final chunk
+          in response.timeout(const Duration(seconds: 20))) {
+        out.add(chunk);
+        if (out.length > maxBytes) return null;
+      }
+      return out.takeBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Works out what to download from [source] and the hash it must have.
+  ///
+  /// A manifest, when the host serves one, must carry a valid signature: a
+  /// present-but-bad manifest rejects the source outright instead of falling
+  /// back to the unsigned checksums. Hosts without a manifest are only
+  /// accepted when the source does not require one (upstream, user overrides).
+  static Future<_ResolvedYtDlp?> _resolveYtDlp(
+    HttpClient client,
+    _YtDlpSource source,
     String assetName,
+  ) async {
+    final manifestBytes =
+        await _getBytes(client, '${source.base}/manifest.json');
+    if (manifestBytes != null) {
+      final sigBytes =
+          await _getBytes(client, '${source.base}/manifest.json.sig');
+      final sigText = sigBytes == null
+          ? ''
+          : utf8.decode(sigBytes, allowMalformed: true).trim();
+      YtDlpManifest? manifest;
+      try {
+        manifest = YtDlpManifest.parseVerified(
+            manifestBytes, Uint8List.fromList(base64.decode(sigText)));
+      } catch (_) {}
+      final asset = manifest?.assets[assetName];
+      if (manifest == null || asset == null) {
+        debugPrint('[pearmusic] yt-dlp manifest from ${source.base} invalid or missing $assetName');
+        return null;
+      }
+      unawaited(_cacheManifest(manifestBytes, sigText));
+      return _ResolvedYtDlp(source.base, asset.sha256, manifest.ytDlpVersion);
+    }
+    if (source.requireManifest) return null;
+    final sums = await _getBytes(client, '${source.base}/SHA2-256SUMS');
+    if (sums == null) return null;
+    final hash =
+        parseSha256Sums(utf8.decode(sums, allowMalformed: true), assetName);
+    return hash == null ? null : _ResolvedYtDlp(source.base, hash, null);
+  }
+
+  /// Downloads [assetName] from [resolved] into [tempFile] and checks size and
+  /// SHA-256. Deletes [tempFile] and returns false on any failure.
+  static Future<bool> _downloadYtDlp(
+    HttpClient client,
+    _ResolvedYtDlp resolved,
+    String assetName,
+    File tempFile,
   ) async {
     try {
       final request =
-          await client.getUrl(Uri.parse('$_ytDlpReleaseBase/SHA2-256SUMS'));
+          await client.getUrl(Uri.parse('${resolved.base}/$assetName'));
       request.headers.set('User-Agent', 'PearMusic-App');
-      final response = await request.close().timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) return false;
-      final body = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(const Duration(seconds: 20));
-      final expected = parseSha256Sums(body, assetName);
-      if (expected == null) return false;
-      final actual = (await sha256.bind(file.openRead()).first).toString();
-      return actual == expected;
+      request.headers.set('Accept', 'application/octet-stream');
+      final response =
+          await request.close().timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) {
+        await response.drain<void>();
+        debugPrint('[pearmusic] yt-dlp source ${resolved.base} answered ${response.statusCode}');
+        return false;
+      }
+      final sink = tempFile.openWrite();
+      try {
+        // No data for 30 seconds is a dead connection, not a slow one.
+        await sink.addStream(response.timeout(const Duration(seconds: 30)));
+      } finally {
+        await sink.close();
+      }
+      final len = await tempFile.length();
+      final actual = (await sha256.bind(tempFile.openRead()).first).toString();
+      if (len > 1000000 && actual == resolved.sha256) return true;
+      debugPrint('[pearmusic] yt-dlp from ${resolved.base} failed size or checksum verification ($len bytes)');
     } catch (e) {
-      debugPrint('[pearmusic] yt-dlp checksum verification failed: $e');
-      return false;
+      debugPrint('[pearmusic] yt-dlp download from ${resolved.base} failed: $e');
     }
+    try {
+      if (await tempFile.exists()) await tempFile.delete();
+    } catch (_) {}
+    return false;
   }
+
+  static String get _ytDlpAssetName => Platform.isWindows
+      ? 'yt-dlp.exe'
+      : (Platform.isMacOS ? 'yt-dlp_macos' : 'yt-dlp_linux');
 
   static bool _updateChecked = false;
   static Completer<String?>? _downloadingYtDlp;
@@ -210,48 +396,29 @@ class YoutubeService {
       final tempFile = File('${targetFile.path}.tmp');
       if (await tempFile.exists()) await tempFile.delete();
 
-      final assetName = Platform.isWindows
-          ? 'yt-dlp.exe'
-          : (Platform.isMacOS ? 'yt-dlp_macos' : 'yt-dlp_linux');
-      final downloadUrl = '$_ytDlpReleaseBase/$assetName';
+      final assetName = _ytDlpAssetName;
 
       // Every stream fetch waits on this download, so a stalled connection
       // must fail rather than leave playback spinning forever.
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 15);
       try {
-        final request = await client.getUrl(Uri.parse(downloadUrl));
-        request.headers.set('User-Agent', 'PearMusic-App');
-        request.headers.set('Accept', 'application/octet-stream');
-        final response =
-            await request.close().timeout(const Duration(seconds: 20));
-
-        if (response.statusCode == 200) {
-          final sink = tempFile.openWrite();
-          try {
-            // No data for 30 seconds is a dead connection, not a slow one.
-            await sink.addStream(
-              response.timeout(const Duration(seconds: 30)),
-            );
-          } finally {
-            await sink.close();
+        for (final source in await _ytDlpSources()) {
+          final resolved = await _resolveYtDlp(client, source, assetName);
+          if (resolved == null) {
+            debugPrint('[pearmusic] yt-dlp source ${source.base} unusable, trying next');
+            continue;
           }
-
-          final downloadedLen = await tempFile.length();
-          final verified = downloadedLen > 1000000 &&
-              await _verifyYtDlpChecksum(client, tempFile, assetName);
-          if (verified) {
-            if (!Platform.isWindows) {
-              await Process.run('chmod', ['+x', tempFile.path]);
-            }
-            if (await targetFile.exists()) await targetFile.delete();
-            await tempFile.rename(targetFile.path);
-            _downloadingYtDlp!.complete(targetFile.path);
-            return targetFile.path;
-          } else {
-            debugPrint('[pearmusic] Downloaded yt-dlp failed size or checksum verification ($downloadedLen bytes), dropping');
-            if (await tempFile.exists()) await tempFile.delete();
+          if (!await _downloadYtDlp(client, resolved, assetName, tempFile)) {
+            continue;
           }
+          if (!Platform.isWindows) {
+            await Process.run('chmod', ['+x', tempFile.path]);
+          }
+          if (await targetFile.exists()) await targetFile.delete();
+          await tempFile.rename(targetFile.path);
+          _downloadingYtDlp!.complete(targetFile.path);
+          return targetFile.path;
         }
       } finally {
         client.close(force: true);
@@ -301,27 +468,87 @@ class YoutubeService {
     } catch (_) {}
   }
 
-  /// Runs a once-per-session `yt-dlp -U` on Windows so the desktop binary
-  /// stays updated against YouTube cipher changes.
+  /// Runs a once-per-session update of the desktop yt-dlp on Windows so it
+  /// keeps up with YouTube changes.
+  ///
+  /// The primary path reads the signed manifest from our mirrors and swaps in
+  /// a newer, signature-verified binary. Only when no signed manifest can be
+  /// reached does it fall back to upstream's own `yt-dlp -U`.
   ///
   /// The returned future completes when the update attempt is over (or after
-  /// 15 s), which matters for callers that must not touch the binary while the
+  /// 60 s), which matters for callers that must not touch the binary while the
   /// updater is replacing it, such as the pre-booted spare.
   static Future<void> checkDesktopYtDlpUpdate() async {
     if (kIsWeb || !Platform.isWindows || _updateChecked) return;
     _updateChecked = true;
     try {
       final bin = await ytDlpPath();
-      if (bin != null) {
-        try {
-          final r = await Process.run(bin, ['-U'])
-              .timeout(const Duration(seconds: 15));
-          debugPrint('[pearmusic] Desktop yt-dlp -U exit code: ${r.exitCode}');
-        } catch (e) {
-          debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
-        }
+      if (bin == null) return;
+      var manifestSeen = false;
+      try {
+        manifestSeen = await _updateFromManifest(bin)
+            .timeout(const Duration(seconds: 60));
+      } catch (e) {
+        debugPrint('[pearmusic] Desktop yt-dlp manifest update error: $e');
+      }
+      if (manifestSeen) return;
+      try {
+        final r = await Process.run(bin, ['-U'])
+            .timeout(const Duration(seconds: 15));
+        debugPrint('[pearmusic] Desktop yt-dlp -U exit code: ${r.exitCode}');
+      } catch (e) {
+        debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
       }
     } catch (_) {}
+  }
+
+  /// Updates [bin] from the first source that serves a verified manifest.
+  /// Returns true when such a manifest was reached (whether or not a newer
+  /// build existed), false when none could be, so the caller can fall back.
+  static Future<bool> _updateFromManifest(String bin) async {
+    final assetName = _ytDlpAssetName;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    try {
+      for (final source in await _ytDlpSources()) {
+        final resolved = await _resolveYtDlp(client, source, assetName);
+        final latest = resolved?.version;
+        if (resolved == null || latest == null) continue;
+
+        final current = (await Process.run(bin, ['--version'])
+                .timeout(const Duration(seconds: 10)))
+            .stdout
+            .toString()
+            .trim();
+        if (!YtDlpManifest.isNewerVersion(latest, current)) {
+          debugPrint('[pearmusic] yt-dlp $current is current (latest $latest)');
+          return true;
+        }
+
+        final fresh = File('$bin.new');
+        if (await fresh.exists()) await fresh.delete();
+        if (!await _downloadYtDlp(client, resolved, assetName, fresh)) {
+          continue;
+        }
+        // A running exe can be renamed but not overwritten on Windows.
+        final old = File('$bin.old');
+        try {
+          if (await old.exists()) await old.delete();
+        } catch (_) {}
+        await File(bin).rename(old.path);
+        try {
+          await fresh.rename(bin);
+        } catch (e) {
+          await old.rename(bin);
+          rethrow;
+        }
+        debugPrint('[pearmusic] yt-dlp updated $current -> $latest from ${resolved.base}');
+        return true;
+      }
+    } finally {
+      client.close(force: true);
+    }
+    return false;
   }
 
   /// True when a yt-dlp binary is reachable on the desktop.
