@@ -14,6 +14,7 @@ void main() {
       Uint8List.fromList(utf8.encode(jsonEncode({
         'schema': schema,
         'ytdlp_version': version,
+        'build': 'pypi-rebuild', // unknown informational fields are ignored
         'assets': {
           'yt-dlp.exe': {'sha256': hash.toUpperCase(), 'size': 123},
           'bad': {'sha256': 'nothex', 'size': 1},

@@ -1,10 +1,16 @@
 name: yt-dlp mirror
 
-# Keeps a signed, tested copy of the newest upstream yt-dlp in a separate mirror
+# Keeps a signed, tested copy of the newest yt-dlp in a separate mirror
 # repository, so the app can install and update it even if upstream vanishes,
-# and so a notice against the mirror cannot touch this repo. If upstream cannot
-# be reached this job fails and leaves the last good mirror untouched. See
-# app/lib/services/ytdlp_manifest.dart for the client side.
+# and so a notice against the mirror cannot touch this repo.
+#
+# Source of the binaries, in order:
+#   1. upstream's GitHub release assets (checked against upstream's checksums)
+#   2. a fallback build of the PyPI release, made here with PyInstaller, when the
+#      GitHub assets cannot be fetched (Windows and Linux only)
+# If neither works the job fails and the last good mirror stays untouched. See
+# app/lib/services/ytdlp_manifest.dart for the client side and
+# docs/resolver-contingency.md for the runbook.
 #
 # Needs the repository secrets YTDLP_SIGNING_KEY (Ed25519 private key, PEM) and
 # MIRROR_REPO_TOKEN (a token with contents write access to the mirror repo).
@@ -18,6 +24,14 @@ on:
         description: 'Re-publish even if the mirror already has this version'
         type: boolean
         default: false
+      force_pypi:
+        description: 'Drill: build from PyPI even though upstream is reachable'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Build, test and sign, but do not publish anything'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,48 +41,69 @@ env:
   MIRROR_TAG: yt-dlp-mirror
 
 jobs:
-  mirror:
+  upstream:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    outputs:
+      ok: ${{ steps.fetch.outputs.ok }}
+      version: ${{ steps.fetch.outputs.version }}
+      publish: ${{ steps.decide.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
-
       - name: Fetch and verify upstream yt-dlp
-        id: upstream
+        id: fetch
         env:
           GH_TOKEN: ${{ github.token }}
+          FORCE_PYPI: ${{ inputs.force_pypi }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir out
-          version=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name)
-          base="https://github.com/yt-dlp/yt-dlp/releases/download/$version"
-          curl -fsSL -o upstream.sums "$base/SHA2-256SUMS"
-          for asset in yt-dlp.exe yt-dlp_linux yt-dlp_macos; do
-            curl -fsSL -o "out/$asset" "$base/$asset"
-            expected=$(grep -E "^[0-9a-f]{64}  ?\*?$asset\$" upstream.sums | cut -c1-64)
-            actual=$(sha256sum "out/$asset" | cut -c1-64)
-            [ -n "$expected" ] && [ "$expected" = "$actual" ] \
-              || { echo "Checksum mismatch for $asset"; exit 1; }
-          done
+          ok=false
+          version=""
+          if [ "$FORCE_PYPI" = "true" ]; then
+            echo "::notice::Drill: skipping upstream and building from PyPI"
+          else
+            version=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name 2>/dev/null || true)
+            if [ -n "$version" ]; then
+              ok=true
+              base="https://github.com/yt-dlp/yt-dlp/releases/download/$version"
+              curl -fsSL -o upstream.sums "$base/SHA2-256SUMS" || ok=false
+              if [ "$ok" = true ]; then
+                for asset in yt-dlp.exe yt-dlp_linux yt-dlp_macos; do
+                  curl -fsSL -o "out/$asset" "$base/$asset" || { ok=false; break; }
+                  expected=$(grep -E "^[0-9a-f]{64}  ?\*?$asset\$" upstream.sums | cut -c1-64)
+                  actual=$(sha256sum "out/$asset" | cut -c1-64)
+                  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+                    echo "::warning::Checksum mismatch for $asset, not trusting upstream's assets"
+                    ok=false
+                    break
+                  fi
+                done
+              fi
+            fi
+          fi
+          if [ "$ok" != true ]; then
+            rm -rf out; mkdir out
+            echo "::warning::Upstream release assets are unavailable, falling back to PyPI"
+            version=$(curl -fsSL https://pypi.org/pypi/yt-dlp/json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])')
+            [ -n "$version" ] || { echo "Neither upstream nor PyPI could be reached"; exit 1; }
+          fi
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Source: ok=$ok version=$version"
 
-      - name: Smoke test the Linux build
-        env:
-          VERSION: ${{ steps.upstream.outputs.version }}
-        run: |
-          set -euo pipefail
-          chmod +x out/yt-dlp_linux
-          reported=$(./out/yt-dlp_linux --version)
-          [ "$reported" = "$VERSION" ] || { echo "Binary reports $reported, expected $VERSION"; exit 1; }
-          # Best effort only: hosted runner IPs are often challenged by YouTube,
-          # so a failure here warns instead of blocking the mirror.
-          ./out/yt-dlp_linux --simulate --no-warnings "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
-            || echo "::warning::yt-dlp could not extract a test video from this runner"
+      - name: Upload upstream assets
+        if: steps.fetch.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-assets
+          path: out/*
+          retention-days: 1
 
       - name: Decide whether to publish
         id: decide
         env:
-          VERSION: ${{ steps.upstream.outputs.version }}
+          VERSION: ${{ steps.fetch.outputs.version }}
           FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
@@ -86,14 +121,91 @@ jobs:
           PY
           )
           if [ "$FORCE" = "true" ]; then publish=true; fi
-          echo "Mirror has '${current:-nothing}', upstream is $VERSION, publish=$publish"
+          echo "Mirror has '${current:-nothing}', source version is $VERSION, publish=$publish"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-      - name: Sign manifest and build bundles
-        if: steps.decide.outputs.publish == 'true'
+  fallback-build:
+    needs: upstream
+    if: needs.upstream.outputs.ok != 'true' && needs.upstream.outputs.publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build yt-dlp from PyPI
+        shell: bash
         env:
-          VERSION: ${{ steps.upstream.outputs.version }}
+          VERSION: ${{ needs.upstream.outputs.version }}
+        run: bash tool/ytdlp_build_from_pypi.sh out "$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-build-${{ matrix.os }}
+          path: out/*
+          retention-days: 1
+
+  publish:
+    needs: [upstream, fallback-build]
+    if: >-
+      always() &&
+      needs.upstream.outputs.publish == 'true' &&
+      (needs.upstream.outputs.ok == 'true' ||
+       needs.fallback-build.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download upstream assets
+        if: needs.upstream.outputs.ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: upstream-assets
+          path: out
+
+      - name: Download fallback builds
+        if: needs.upstream.outputs.ok != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pypi-build-*
+          merge-multiple: true
+          path: out
+
+      - name: Smoke test the Linux build
+        id: smoke
+        env:
+          EXPECTED: ${{ needs.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -la out
+          chmod +x out/yt-dlp_linux
+          reported=$(./out/yt-dlp_linux --version)
+          # PyPI normalises 2026.08.19 to 2026.8.19, so compare as numbers.
+          GOT="$reported" WANT="$EXPECTED" python3 - <<'PY'
+          import os, sys
+          g = [int(x) for x in os.environ["GOT"].split(".")]
+          w = [int(x) for x in os.environ["WANT"].split(".")]
+          sys.exit(0 if g == w else "binary reports %s, expected %s" % (os.environ["GOT"], os.environ["WANT"]))
+          PY
+          echo "version=$reported" >> "$GITHUB_OUTPUT"
+          # Best effort only: hosted runner IPs are often challenged by YouTube,
+          # so a failure here warns instead of blocking the mirror.
+          ./out/yt-dlp_linux --simulate --no-warnings "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
+            || echo "::warning::yt-dlp could not extract a test video from this runner"
+
+      - name: Sign manifest and build bundles
+        env:
+          VERSION: ${{ steps.smoke.outputs.version }}
           SIGNING_KEY: ${{ secrets.YTDLP_SIGNING_KEY }}
+          BUILD_SOURCE: ${{ needs.upstream.outputs.ok == 'true' && 'upstream' || 'pypi-rebuild' }}
         run: |
           set -euo pipefail
           [ -n "$SIGNING_KEY" ] || { echo "YTDLP_SIGNING_KEY secret is not set"; exit 1; }
@@ -104,9 +216,10 @@ jobs:
           export MIRROR_SOURCES="https://github.com/$MIRROR_REPO/releases/download/$MIRROR_TAG"
           bash tool/ytdlp_sign_manifest.sh out "$VERSION" "$key"
           rm -f "$key"
+          echo "Built from: $BUILD_SOURCE"
 
       - name: Publish to the mirror repository
-        if: steps.decide.outputs.publish == 'true'
+        if: inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
         run: |
@@ -119,7 +232,17 @@ jobs:
               --prerelease --latest=false
           fi
           # Binaries and bundles first, manifest last: the manifest is what clients trust.
-          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
-            out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos out/pearmusic-resolver-*.pmyd
+          files=()
+          for f in out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos out/pearmusic-resolver-*.pmyd; do
+            [ -f "$f" ] && files+=("$f")
+          done
+          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber "${files[@]}"
           gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
             out/manifest.json out/manifest.json.sig
+
+      - name: Dry run summary
+        if: inputs.dry_run == true
+        run: |
+          echo "Dry run: nothing was published. Files that would go to the mirror:"
+          ls -la out
+          cat out/manifest.json

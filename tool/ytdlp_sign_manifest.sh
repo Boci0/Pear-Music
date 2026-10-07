@@ -8,7 +8,8 @@
 # signature over the exact manifest bytes) next to them, plus one self-verifying
 # pearmusic-resolver-<platform>.pmyd bundle per asset (layout documented in
 # app/lib/services/ytdlp_bundle.dart). MIRROR_SOURCES is an optional
-# space-separated list of https base URLs to embed as extra sources.
+# space-separated list of https base URLs to embed as extra sources, and
+# BUILD_SOURCE (upstream or pypi-rebuild) is recorded in the manifest.
 # The app verifies signatures against the public keys in
 # app/lib/services/ytdlp_manifest.dart.
 set -euo pipefail
@@ -33,6 +34,8 @@ manifest = {
     "issued": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "assets": assets,
     "sources": os.environ.get("MIRROR_SOURCES", "").split(),
+    # Where the binaries came from: "upstream" or "pypi-rebuild". Informational.
+    "build": os.environ.get("BUILD_SOURCE", "unknown"),
 }
 with open(os.path.join(d, "manifest.json"), "w", newline="\n") as f:
     json.dump(manifest, f, indent=2, sort_keys=True)
