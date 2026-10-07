@@ -11,6 +11,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
+import '../theme/tokens.dart';
 import '../widgets/filter_pill.dart';
 import '../widgets/import_export_sheet.dart';
 import '../widgets/pear_app_bar.dart';
@@ -342,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (columns <= 1) {
           return SliverFixedExtentList.builder(
-            itemExtent: 61.0,
+            itemExtent: PearRow.extent,
             itemCount: songs.length,
             findChildIndexCallback: findIndex,
             itemBuilder: (context, i) => _tileFor(
@@ -358,7 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return SliverGrid.builder(
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            mainAxisExtent: 61.0,
+            mainAxisExtent: PearRow.extent,
             crossAxisSpacing: 10,
           ),
           itemCount: songs.length,

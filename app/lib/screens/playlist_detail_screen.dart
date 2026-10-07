@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
+import '../theme/tokens.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
 
@@ -199,7 +200,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 ? const _EmptyPlaylist()
                 : ReorderableListView.builder(
                     padding: const EdgeInsets.only(bottom: 140),
-                    itemExtent: 61.0,
+                    itemExtent: PearRow.extent,
                     buildDefaultDragHandles: false,
                     itemCount: songs.length,
                     onReorderItem: (oldIndex, newIndex) => _reorder(
@@ -460,7 +461,10 @@ class _SongRow extends StatelessWidget {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: PearRow.gap,
+        ),
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
@@ -499,7 +503,7 @@ class _SongRow extends StatelessWidget {
                   border: Border.all(color: PearGlassTokens.cardRim),
                 ),
                 child: SizedBox(
-                  height: 64,
+                  height: PearRow.content,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [

@@ -143,3 +143,27 @@ class PearOverlay {
   /// Hover fill on list and queue rows (white over the surface).
   static const double hover = 0.055;
 }
+
+/// Song card rows (`SongTile`, `YouTubeSongTile`, the playlist reorder row):
+/// the card, the gap above and below it, and the pitch every fixed-extent
+/// list or grid of them must use. A fixed extent hands each row tight
+/// constraints, so a pitch smaller than [extent] squeezes the card itself.
+class PearRow {
+  PearRow._();
+
+  /// Card height, rim included.
+  static const double card = 64;
+
+  /// Card rim width (the 1 px `Border.all` on the card decoration), which
+  /// the decoration adds as padding around the content.
+  static const double rim = 1;
+
+  /// Height of the content inside the rim.
+  static const double content = card - 2 * rim;
+
+  /// Vertical padding above and below the card.
+  static const double gap = 4;
+
+  /// Row pitch: `itemExtent` / `mainAxisExtent` for song lists and grids.
+  static const double extent = card + 2 * gap;
+}

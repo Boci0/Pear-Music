@@ -418,7 +418,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: PearRow.gap,
+        ),
         child: Material(
           color: Colors.transparent,
           child: GestureDetector(
@@ -461,7 +464,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                   border: Border.all(color: PearGlassTokens.cardRim),
                 ),
                 child: SizedBox(
-                  height: 64,
+                  height: PearRow.content,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [

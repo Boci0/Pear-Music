@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../theme/tokens.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/tactile_button.dart';
@@ -148,7 +149,7 @@ class HistoryScreen extends StatelessWidget {
 
                       if (columns <= 1) {
                         return SliverFixedExtentList.builder(
-                          itemExtent: 61.0,
+                          itemExtent: PearRow.extent,
                           itemCount: songs.length,
                           findChildIndexCallback: findIndex,
                           itemBuilder: (context, i) => tileAt(i),
@@ -158,7 +159,7 @@ class HistoryScreen extends StatelessWidget {
                       return SliverGrid.builder(
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: columns,
-                          mainAxisExtent: 61.0,
+                          mainAxisExtent: PearRow.extent,
                           crossAxisSpacing: 10,
                         ),
                         itemCount: songs.length,

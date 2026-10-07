@@ -7,6 +7,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
+import '../theme/tokens.dart';
 import 'pear_popup.dart';
 import 'playlist_actions.dart';
 import 'tactile_button.dart';
@@ -29,6 +30,7 @@ class SongTile extends StatelessWidget {
   /// Extra text appended to the meta line, e.g. "2 h ago" on the History tab.
   /// Null keeps the plain source/size label.
   final String? metaSuffix;
+
 
   const SongTile({
     super.key,
@@ -296,7 +298,10 @@ class SongTile extends StatelessWidget {
 
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: PearRow.gap,
+        ),
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
@@ -372,7 +377,7 @@ class SongTile extends StatelessWidget {
                   border: Border.all(color: PearGlassTokens.cardRim),
                 ),
                 child: SizedBox(
-                  height: 64,
+                  height: PearRow.content,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [

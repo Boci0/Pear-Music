@@ -11,6 +11,7 @@ import '../services/debug_log.dart';
 import '../services/player_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_search_service.dart';
+import '../theme/tokens.dart';
 import '../widgets/filter_pill.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/tactile_button.dart';
@@ -554,7 +555,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             return ListView.builder(
                               // Same row inset as the library (tile padding only).
                               padding: const EdgeInsets.fromLTRB(0, 4, 0, 140),
-                              itemExtent: 61.0,
+                              itemExtent: PearRow.extent,
                               itemCount: _results.length,
                               itemBuilder: (context, index) => tileFor(index),
                             );
@@ -565,7 +566,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: columns,
-                                  mainAxisExtent: 61.0,
+                                  mainAxisExtent: PearRow.extent,
                                   crossAxisSpacing: 10,
                                 ),
                             itemCount: _results.length,
@@ -812,7 +813,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
                           if (columns <= 1) {
                             return SliverFixedExtentList(
-                              itemExtent: 61.0,
+                              itemExtent: PearRow.extent,
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) => tileFor(index),
                                 childCount: _recommendedResults.length,
@@ -825,7 +826,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: columns,
-                                  mainAxisExtent: 61.0,
+                                  mainAxisExtent: PearRow.extent,
                                   crossAxisSpacing: 10,
                                 ),
                             itemCount: _recommendedResults.length,
