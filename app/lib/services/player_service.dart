@@ -2606,15 +2606,23 @@ class PlayerService extends ChangeNotifier {
   Future<void> _replayCurrent() async {
     _outroSkippedToken = -1;
     try {
-      // After a natural end just_audio still reports playing, so play() would
-      // be a no-op and the engine would stay parked in the completed state
-      // (shown as paused; the next tap then reloads from 0). Pause first so
-      // play() sends a real play request.
-      if (_player.processingState == ProcessingState.completed) {
-        await _player.pause();
-      }
       final song = currentSong;
-      await _player.seek(song == null ? Duration.zero : _musicStartFor(song));
+      final start = song == null ? Duration.zero : _musicStartFor(song);
+      final source = _player.audioSource;
+      if (_player.processingState == ProcessingState.completed &&
+          source != null) {
+        // After a natural end just_audio still reports playing, so play()
+        // alone is a no-op, and the media_kit backend only leaves the
+        // completed state on a load or a buffering event (a seek within a
+        // file on disk gives neither). The song would sit at its start
+        // showing a play button, and the next tap reloads it from 0. Pause
+        // so play() sends a real request, and reload the same source so the
+        // state goes back to ready.
+        await _player.pause();
+        await _player.setAudioSource(source, initialPosition: start);
+      } else {
+        await _player.seek(start);
+      }
       final targetVol = _effectiveVolume;
       await _player.setVolume(targetVol);
       await _player.play();

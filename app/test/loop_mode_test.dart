@@ -7,9 +7,10 @@ import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/pear_audio_handler.dart';
 import 'package:peerm_app/services/player_service.dart';
 
-/// Behaves like just_audio at the end of a song: `playing` stays true once
-/// the song completes, `play()` does nothing while `playing` is true, and a
-/// seek alone does not take the engine out of the completed state.
+/// Behaves like just_audio on the media_kit backend at the end of a song:
+/// `playing` stays true once the song completes, `play()` does nothing while
+/// `playing` is true, and only a load takes the engine out of the completed
+/// state (a seek or play within a file on disk does not).
 class _EndOfSongPlayer extends AudioPlayer {
   _EndOfSongPlayer() : super(handleAudioSessionActivation: false);
 
@@ -40,15 +41,30 @@ class _EndOfSongPlayer extends AudioPlayer {
   @override
   Future<void> seek(Duration? position, {int? index}) async {}
 
+  /// Sources loaded after the first one.
+  int loads = 0;
+
+  @override
+  AudioSource? get audioSource => AudioSource.uri(Uri.file('/song.mp3'));
+
+  @override
+  Future<Duration?> setAudioSource(
+    AudioSource source, {
+    bool preload = true,
+    int? initialIndex,
+    Duration? initialPosition,
+  }) async {
+    loads++;
+    _state = ProcessingState.ready;
+    _states.add(_state);
+    return const Duration(minutes: 3);
+  }
+
   @override
   Future<void> play() async {
     if (_playing) return;
     _playing = true;
     playRequests++;
-    if (_state == ProcessingState.completed) {
-      _state = ProcessingState.ready;
-      _states.add(_state);
-    }
   }
 
   @override
@@ -169,6 +185,8 @@ void main() {
     expect(engine.playRequests, 1,
         reason: 'the replay must reach the engine, not be swallowed as a '
             'no-op play while just_audio still reports playing');
+    expect(engine.loads, 1,
+        reason: 'only a reload takes the engine out of the completed state');
     expect(engine.processingState, ProcessingState.ready);
     expect(looping.playing, isTrue,
         reason: 'the play button must show pause while the loop plays');
