@@ -644,6 +644,26 @@ class YoutubeService {
     }
   }
 
+  /// Version of the Deno on PATH, or null. Deno is the JavaScript runtime
+  /// yt-dlp enables by default; YouTube is moving towards requiring one.
+  static Future<String?> installedDenoVersion() async {
+    if (kIsWeb) return null;
+    try {
+      // No .timeout() on purpose: it arms a timer straight away, which widget
+      // tests that build the settings screen would leave pending. `deno
+      // --version` does not hang, and only a settings label waits on it.
+      final r = await Process.run('deno', ['--version']);
+      return r.exitCode == 0 ? parseDenoVersion(r.stdout.toString()) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Pulls the version out of `deno --version` output (`deno 2.9.5 (stable...`).
+  @visibleForTesting
+  static String? parseDenoVersion(String output) =>
+      RegExp(r'^deno\s+(\S+)', multiLine: true).firstMatch(output)?.group(1);
+
   /// Version string of the yt-dlp in use (`yt-dlp --version`), or null.
   static Future<String?> installedYtDlpVersion() async {
     final bin = await ytDlpPath();

@@ -10,6 +10,20 @@ void main() {
     }
   });
 
+  test('the runtime row explains a missing Deno and shows a found one', () {
+    expect(jsRuntimeSubtitle(null), contains('winget install DenoLand.Deno'));
+    expect(jsRuntimeSubtitle('2.9.5'), 'Deno 2.9.5 found');
+  });
+
+  test('deno --version output is parsed', () {
+    expect(
+      YoutubeService.parseDenoVersion(
+          'deno 2.9.5 (stable, release, x86_64-pc-windows-msvc)\nv8 14.0\ntypescript 5.9'),
+      '2.9.5',
+    );
+    expect(YoutubeService.parseDenoVersion('not deno'), isNull);
+  });
+
   test('messages carry the version where it helps', () {
     expect(
       audioEngineResultMessage(

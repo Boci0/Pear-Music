@@ -34,6 +34,10 @@ enum StreamFetchFailureKind {
   /// out-of-date extractor. Fixed by updating yt-dlp, not by retrying.
   outdated,
 
+  /// yt-dlp needs a JavaScript runtime (Deno) for this video and none is
+  /// installed. Fixed by installing one, not by retrying.
+  runtime,
+
   /// Anything not covered above.
   unknown,
 }
@@ -172,6 +176,11 @@ class StreamCacheManager {
         s.contains('cannot find') ||
         s.contains('yt-dlp is missing')) {
       return StreamFetchFailureKind.engine;
+    }
+    if (s.contains('javascript runtime') ||
+        s.contains('challenge solving failed') ||
+        s.contains('signature solving failed')) {
+      return StreamFetchFailureKind.runtime;
     }
     if (s.contains('unable to extract') ||
         s.contains('please report this issue') ||
@@ -634,7 +643,7 @@ class StreamCacheManager {
       '--no-playlist',
       '--no-part',
       '--no-mtime',
-      '--no-warnings',
+      // Warnings stay on: a missing JavaScript runtime only shows up there.
       '--no-check-certificates',
       '--quiet',
       '--force-ipv4',
@@ -696,7 +705,6 @@ class StreamCacheManager {
       '--extractor-args',
       'youtube:skip=webpage,authcheck,translated_subs,hls;player_skip=js',
       '--no-playlist',
-      '--no-warnings',
       '--quiet',
       '--force-ipv4',
       '--socket-timeout',

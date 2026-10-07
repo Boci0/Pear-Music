@@ -34,6 +34,13 @@ String audioEngineResultMessage(YtDlpUpdateResult result) {
   }
 }
 
+/// Subtitle for the JavaScript runtime row, given the Deno version found (or
+/// null when there is none).
+String jsRuntimeSubtitle(String? denoVersion) => denoVersion == null
+    ? 'Deno not found. Playback works without it today, but YouTube may '
+        'require one later. Install it with: winget install DenoLand.Deno'
+    : 'Deno $denoVersion found';
+
 /// Settings card for the desktop yt-dlp: shows which one is in use and offers
 /// the ways to keep it working if the usual download sources are unavailable.
 class AudioEngineCard extends StatefulWidget {
@@ -45,9 +52,13 @@ class AudioEngineCard extends StatefulWidget {
 
 class _AudioEngineCardState extends State<AudioEngineCard> {
   late Future<YtDlpInUse> _inUse = YoutubeService.describeYtDlpInUse();
+  late Future<String?> _deno = YoutubeService.installedDenoVersion();
   bool _busy = false;
 
-  void _refresh() => setState(() => _inUse = YoutubeService.describeYtDlpInUse());
+  void _refresh() => setState(() {
+        _inUse = YoutubeService.describeYtDlpInUse();
+        _deno = YoutubeService.installedDenoVersion();
+      });
 
   void _say(String text) {
     if (!mounted) return;
@@ -150,6 +161,19 @@ class _AudioEngineCardState extends State<AudioEngineCard> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : null,
+              ),
+              const Divider(height: 1),
+              FutureBuilder<String?>(
+                future: _deno,
+                builder: (context, deno) => ListTile(
+                  leading: const Icon(Icons.terminal_rounded),
+                  title: const Text('JavaScript runtime'),
+                  subtitle: Text(
+                    deno.connectionState == ConnectionState.done
+                        ? jsRuntimeSubtitle(deno.data)
+                        : 'Checking…',
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(

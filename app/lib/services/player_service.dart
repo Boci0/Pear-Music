@@ -341,6 +341,16 @@ class PlayerService extends ChangeNotifier {
               'on this device. On the PC install it with: winget install '
               'yt-dlp.yt-dlp (the phone has it built in).',
         );
+      case StreamFetchFailureKind.runtime:
+        return PlaybackError(
+          song: song,
+          kind: StreamFetchFailureKind.runtime,
+          label: 'yt-dlp needs Deno to play this. See Settings.',
+          message: 'Couldn\'t play "${song.title}": YouTube now needs a '
+              'JavaScript runtime for this video and none is installed. '
+              'Install Deno with: winget install DenoLand.Deno, then tap '
+              'play to retry. Settings > Audio engine shows its status.',
+        );
       case StreamFetchFailureKind.outdated:
         final onPhone = !kIsWeb && Platform.isAndroid;
         return PlaybackError(

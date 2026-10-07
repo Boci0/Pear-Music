@@ -118,6 +118,40 @@ void main() {
       }
     });
 
+    test('a missing JavaScript runtime is reported as such, not as a bad format', () {
+      // The real yt-dlp output when the web client needs a runtime and none exists.
+      const raw =
+          'WARNING: [youtube] abc: n challenge solving failed: Some formats may be '
+          'missing. Ensure you have a supported JavaScript runtime and challenge '
+          'solver script distribution installed.\n'
+          'WARNING: Only images are available for download.\n'
+          'ERROR: [youtube] abc: Requested format is not available.';
+      expect(
+        StreamCacheManager.classifyFetchFailure(raw),
+        StreamFetchFailureKind.runtime,
+      );
+      // The bare error alone stays ambiguous and is not blamed on the runtime.
+      expect(
+        StreamCacheManager.classifyFetchFailure(
+            'ERROR: [youtube] abc: Requested format is not available.'),
+        StreamFetchFailureKind.unknown,
+      );
+    });
+
+    test('a runtime failure tells the user how to fix it', () {
+      final song = _streamSong('abc', 'Test Song');
+      final described = PlayerService.describeStreamFailure(
+        const StreamFetchFailure(
+          videoId: 'abc',
+          kind: StreamFetchFailureKind.runtime,
+          detail: 'x',
+        ),
+        song,
+      );
+      expect(described.kind, StreamFetchFailureKind.runtime);
+      expect(described.message, contains('Deno'));
+    });
+
     test('a bot check that mentions extraction still counts as blocked', () {
       expect(
         StreamCacheManager.classifyFetchFailure(
