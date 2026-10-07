@@ -288,7 +288,7 @@ class PlayerTheme extends ChangeNotifier {
         hintStyle: WidgetStatePropertyAll(
           TextStyle(
             fontSize: 14,
-            color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
           ),
         ),
       ),

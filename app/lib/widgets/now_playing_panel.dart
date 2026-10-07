@@ -946,6 +946,9 @@ class _QueueThumb extends StatelessWidget {
     } else {
       final cached = ArtworkPalette.cachedBytes(song);
       image = FutureBuilder<Uint8List?>(
+        // A reused row keeps its old snapshot when only the future changes,
+        // so key by song to start fresh from this song's cached bytes.
+        key: ValueKey(song.id),
         initialData: cached,
         future: ArtworkPalette.bytesAsync(song),
         builder: (context, snapshot) {

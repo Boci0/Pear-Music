@@ -391,7 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
           hintText: 'Search library...',
           hintStyle: theme.textTheme.bodyMedium?.copyWith(
             fontSize: 14,
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
           ),
           prefixIcon: const Icon(Icons.search, size: 18),
           suffixIcon: _searchQuery.isNotEmpty

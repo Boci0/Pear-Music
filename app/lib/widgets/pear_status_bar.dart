@@ -33,7 +33,7 @@ class PearStatusBar extends StatelessWidget {
             const SizedBox(width: 20),
             Text(
               'Pear Music v${UpdateService.displayVersion}',
-              style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+              style: const TextStyle(fontSize: 11.5, color: Colors.white54),
             ),
           ],
         ),
@@ -63,7 +63,7 @@ class _PlaybackStatus extends StatelessWidget {
     if (song == null) {
       return const Text(
         'Stopped',
-        style: TextStyle(fontSize: 11.5, color: Colors.white38),
+        style: TextStyle(fontSize: 11.5, color: Colors.white54),
       );
     }
 

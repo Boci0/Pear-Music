@@ -281,8 +281,9 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
 
       if (index < 0 || index >= queue.length) return;
 
-      final maxScroll = _scrollController.position.maxScrollExtent;
-      if (maxScroll == 0.0 && index > 2) {
+      // Wait for the list to be laid out. A queue that simply fits on screen
+      // also has a zero max extent, so that alone must not re-arm the retry.
+      if (!_scrollController.position.hasContentDimensions) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _scrollController.hasClients) {
             _scrollToCurrentSong(animate: animate);
@@ -290,6 +291,7 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
         });
         return;
       }
+      final maxScroll = _scrollController.position.maxScrollExtent;
 
       final double targetOffset;
       if (_scrollController.position.hasViewportDimension) {

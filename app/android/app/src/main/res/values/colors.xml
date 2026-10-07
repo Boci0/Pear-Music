@@ -4,5 +4,5 @@
     <!-- The app is always dark: the launch window and the window behind the
          Flutter UI use the same near-black as the scaffold, so there is no
          white flash on light-mode devices. -->
-    <color name="pear_background">#0C0C0E</color>
+    <color name="pear_background">#0A0A0C</color>
 </resources>
