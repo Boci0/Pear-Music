@@ -15,11 +15,12 @@ import 'package:peerm_app/services/youtube_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Guards the navigation indicator geometry. The indicator used to be sized
-/// from the widest label, which made it hug "Playlists" and read as a skinny
-/// capsule at five tabs; it is now a fixed capsule behind the icon, with the
-/// label below it. These are the numbers that keep it that way.
-const Size _indicatorSize = Size(48, 30);
+/// Guards the shape of the selected-tab pill. It wraps the icon and the label,
+/// and it is sized from the label so the letters never look squeezed: at five
+/// tabs the slots are narrow, and an earlier pill that filled its slot left only
+/// a few pixels around "Playlists".
+const double _minLabelPadding = 9;
+const double _minVerticalPadding = 6;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,59 +57,99 @@ void main() {
         ChangeNotifierProvider<HistoryService>.value(value: history),
         ChangeNotifierProvider<PlayerTheme>.value(value: playerTheme),
       ],
-      child: const MaterialApp(home: HomeShell()),
+      // Flutter tests draw every glyph as a full-em square (the Ahem font), twice
+      // as wide as a real label. Halving the text scale gives widths close to
+      // what a phone shows, so the room around the letters is measured fairly.
+      child: MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(0.5)),
+          child: child!,
+        ),
+        home: const HomeShell(),
+      ),
     );
   }
 
-  testWidgets('selected indicator is a fixed capsule centred on the tab icon',
-      (tester) async {
-    tester.view.physicalSize = const Size(360, 720);
+  Future<void> useSize(WidgetTester tester, Size size) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
+  }
 
+  const tabs = <(String, IconData)>[
+    ('Library', Icons.library_music_rounded),
+    ('Playlists', Icons.queue_music_rounded),
+    ('Explore', Icons.explore_rounded),
+    ('History', Icons.history_rounded),
+    ('Settings', Icons.settings_rounded),
+  ];
+
+  for (final width in [320.0, 360.0, 412.0]) {
+    testWidgets(
+        'the selected pill wraps the icon and the label with room to spare at ${width.toInt()}dp',
+        (tester) async {
+      await useSize(tester, Size(width, 720));
+      await tester.pumpWidget(await buildShell());
+      await tester.pumpAndSettle();
+
+      final bar = find.byKey(const ValueKey('nav_bar'));
+      final indicator = find.byKey(const ValueKey('nav_indicator'));
+
+      for (final (label, icon) in tabs) {
+        await tester.tap(find.descendant(of: bar, matching: find.text(label)));
+        await tester.pumpAndSettle();
+
+        final pill = tester.getRect(indicator);
+        final labelRect =
+            tester.getRect(find.descendant(of: bar, matching: find.text(label)));
+        final iconRect =
+            tester.getRect(find.descendant(of: bar, matching: find.byIcon(icon)));
+        final barRect = tester.getRect(bar);
+
+        expect(pill.left - labelRect.left, lessThanOrEqualTo(-_minLabelPadding),
+            reason: '$label at ${width}dp: room left of the label');
+        expect(pill.right - labelRect.right, greaterThanOrEqualTo(_minLabelPadding),
+            reason: '$label at ${width}dp: room right of the label');
+        expect(
+          (labelRect.left - pill.left) - (pill.right - labelRect.right),
+          closeTo(0, 1.0),
+          reason: '$label at ${width}dp: the label sits in the middle of the pill',
+        );
+        expect(iconRect.top - pill.top, greaterThanOrEqualTo(_minVerticalPadding),
+            reason: '$label at ${width}dp: room above the icon');
+        expect(pill.bottom - labelRect.bottom,
+            greaterThanOrEqualTo(_minVerticalPadding),
+            reason: '$label at ${width}dp: room below the label');
+        expect(pill.center.dx, closeTo(iconRect.center.dx, 1.0),
+            reason: '$label at ${width}dp: pill is centred on the tab');
+        expect(pill.left, greaterThanOrEqualTo(barRect.left),
+            reason: '$label at ${width}dp: pill stays inside the bar');
+        expect(pill.right, lessThanOrEqualTo(barRect.right));
+      }
+    });
+  }
+
+  testWidgets('the pill glides to the tapped tab and resizes to its label',
+      (tester) async {
+    await useSize(tester, const Size(360, 720));
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
 
     final bar = find.byKey(const ValueKey('nav_bar'));
     final indicator = find.byKey(const ValueKey('nav_indicator'));
-    expect(tester.getSize(indicator).width, closeTo(_indicatorSize.width, 0.1));
-    expect(tester.getSize(indicator).height, closeTo(_indicatorSize.height, 0.1));
+    final library = tester.getRect(indicator);
 
-    Rect rectOf(Finder f) => tester.getRect(f);
-    Finder navIcon(IconData icon) =>
-        find.descendant(of: bar, matching: find.byIcon(icon));
-
-    final libraryIndicator = rectOf(indicator);
-    final libraryIcon = rectOf(navIcon(Icons.library_music_rounded));
-    expect(
-      libraryIndicator.center.dx,
-      closeTo(libraryIcon.center.dx, 0.5),
-      reason: 'indicator is centred on its icon',
-    );
-    expect(
-      libraryIndicator.center.dy,
-      closeTo(libraryIcon.center.dy, 0.5),
-      reason: 'icon sits inside the indicator, not beside it',
-    );
-
-    // Switching tabs moves the same capsule onto the new icon.
     await tester.tap(find.descendant(of: bar, matching: find.text('Playlists')));
     await tester.pumpAndSettle();
-    final playlistsIndicator = rectOf(indicator);
-    final playlistsIcon = rectOf(navIcon(Icons.queue_music_rounded));
-    expect(playlistsIndicator.size.width, closeTo(_indicatorSize.width, 0.1));
-    expect(playlistsIndicator.size.height, closeTo(_indicatorSize.height, 0.1));
-    expect(
-      playlistsIndicator.center.dx,
-      closeTo(playlistsIcon.center.dx, 0.5),
-    );
-    expect(
-      playlistsIndicator.center.dx,
-      greaterThan(libraryIndicator.center.dx),
-    );
+    final playlists = tester.getRect(indicator);
+
+    expect(playlists.center.dx, greaterThan(library.center.dx));
+    expect(playlists.width, greaterThan(library.width),
+        reason: '"Playlists" is the longer label, so its pill is wider');
   });
 
   testWidgets('touch interaction does not leave hover highlight stuck',

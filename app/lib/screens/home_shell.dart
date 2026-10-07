@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -377,34 +378,90 @@ class _MinimalistNavBar extends StatelessWidget {
     required this.onDestinationSelected,
   });
 
-  /// Bar height. The icon row and label row are fixed heights, so this only
-  /// has to hold them plus the bar's own border.
-  static const double barHeight = 64;
+  static const List<({String label, IconData inactive, IconData active})>
+      _destinations = [
+    (
+      label: 'Library',
+      inactive: Icons.library_music_outlined,
+      active: Icons.library_music_rounded,
+    ),
+    (
+      label: 'Playlists',
+      inactive: Icons.queue_music_outlined,
+      active: Icons.queue_music_rounded,
+    ),
+    (
+      label: 'Explore',
+      inactive: Icons.explore_outlined,
+      active: Icons.explore_rounded,
+    ),
+    (
+      label: 'History',
+      inactive: Icons.history_outlined,
+      active: Icons.history_rounded,
+    ),
+    (
+      label: 'Settings',
+      inactive: Icons.settings_outlined,
+      active: Icons.settings_rounded,
+    ),
+  ];
+
+  /// Bar height. It holds the pill plus [pillInsetY] above and below it.
+  static const double barHeight = 66;
 
   /// Corner rounding of the bar: the same radius as the mini player card
   /// directly above it, so the two read as panels of one family.
   static const double barRadius = PearGlassTokens.floatingRadius;
 
-  /// Selected indicator: a capsule behind the icon alone. Sizing it from the
-  /// icon instead of the label is what keeps the shape stable at any tab count,
-  /// where a pill that had to wrap "Playlists" could only ever be as wide as a
-  /// narrow item allows.
-  static const double indicatorWidth = 48;
-  static const double indicatorHeight = 30;
+  /// Gap between the pill and the top and bottom of the bar.
+  static const double pillInsetY = 5;
+  static const double pillHeight = barHeight - pillInsetY * 2;
 
-  /// Fixed row heights, so the indicator can be positioned exactly over the icon
-  /// row without measuring text. Items apply no vertical margin of their own,
-  /// so the content block is simply centred in the bar.
-  static const double _iconRowHeight = indicatorHeight;
-  static const double _labelRowHeight = 13;
-  static const double _rowGap = 3;
-  static const double _contentHeight =
-      _iconRowHeight + _rowGap + _labelRowHeight;
+  /// Fixed row heights of an item's icon and label, so the pill can be centred
+  /// on them without measuring. With the gap they make a 41px block inside a
+  /// 56px pill, which is what keeps the label from looking squeezed.
+  static const double iconRowHeight = 24;
+  static const double labelRowHeight = 13;
+  static const double rowGap = 4;
 
-  /// Top of the icon row inside the bar's inner box, derived from the very same
-  /// numbers the item lays its content out with, so the two cannot drift apart.
-  static double _indicatorTopFor(double barInnerHeight) =>
-      (barInnerHeight - _contentHeight) / 2;
+  /// Empty space the pill leaves either side of its label, and the smallest
+  /// pill (an icon and a little air).
+  static const double labelPadX = 13;
+  static const double minPillWidth = 52;
+
+  /// Room kept between the bar's ends and the items, and between the pill and
+  /// the bar's edge. The inner padding is what lets the first and last tabs
+  /// grow a full-size pill instead of being cut short by the bar's end.
+  static const double edgePad = 6;
+  static const double edgeInset = 4;
+
+  /// Width of the pill for tab [index]: its label plus [labelPadX] each side,
+  /// kept symmetric and inside the bar. Sized from the label rather than from
+  /// the slot, so every tab gets the same breathing room however narrow the
+  /// slots are; it may be wider than its slot, because only one pill shows.
+  @visibleForTesting
+  static double pillWidthFor(
+    BuildContext context,
+    int index,
+    double barWidth,
+  ) {
+    final slot = (barWidth - edgePad * 2) / _destinations.length;
+    final center = edgePad + slot * (index + 0.5);
+    final painter = TextPainter(
+      text: TextSpan(
+        text: _destinations[index].label,
+        style: navLabelStyle(context, selected: true, color: Colors.white),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final natural = painter.width / 2 + labelPadX;
+    final room = math.min(center, barWidth - center) - edgeInset;
+    final half = math.min(math.max(natural, minPillWidth / 2), room);
+    return half * 2;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -423,91 +480,84 @@ class _MinimalistNavBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(barRadius),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final itemWidth = constraints.maxWidth / 5;
-              final indicatorWidthForItem = indicatorWidth.clamp(
-                0.0,
-                itemWidth - 16,
-              );
+              final barWidth = constraints.maxWidth;
+              final slot = (barWidth - edgePad * 2) / _destinations.length;
+              final widths = [
+                for (var i = 0; i < _destinations.length; i++)
+                  pillWidthFor(context, i, barWidth),
+              ];
+              final selectedWidth = widths[selectedIndex];
+              final selectedCenter = edgePad + slot * (selectedIndex + 0.5);
               return Stack(
                 children: [
-                  // Gliding indicator, centred on the selected item's icon.
-                  // easeOutBack lets it overshoot a touch and settle back.
+                  // Gliding pill behind the selected icon and label. It resizes
+                  // as it moves, because each label has its own width.
                   AnimatedPositioned(
-                    duration: const Duration(milliseconds: 340),
-                    curve: Curves.easeOutBack,
-                    left:
-                        selectedIndex * itemWidth +
-                        (itemWidth - indicatorWidthForItem) / 2,
-                    top: _indicatorTopFor(constraints.maxHeight),
-                    height: indicatorHeight,
-                    width: indicatorWidthForItem,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                    left: selectedCenter - selectedWidth / 2,
+                    top: (constraints.maxHeight - pillHeight) / 2,
+                    height: pillHeight,
+                    width: selectedWidth,
                     child: Container(
                       key: const ValueKey('nav_indicator'),
                       decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.24),
-                        borderRadius: BorderRadius.circular(indicatorHeight / 2),
+                        color: scheme.primary.withValues(alpha: 0.20),
+                        borderRadius: BorderRadius.circular(pillHeight / 2),
+                        border: Border.all(
+                          color: scheme.primary.withValues(alpha: 0.30),
+                          width: 1,
+                        ),
                       ),
                     ),
                   ),
-                  // Navigation items. Filling the bar (rather than sitting at its
-                  // top with their intrinsic height) is what keeps each item's
-                  // icon row exactly where the indicator expects it.
+                  // Navigation items. Filling the bar keeps each item's content
+                  // centred where the pill expects it.
                   Positioned.fill(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _NavBarItem(
-                          index: 0,
-                          selectedIndex: selectedIndex,
-                          label: 'Library',
-                          inactiveIcon: Icons.library_music_outlined,
-                          activeIcon: Icons.library_music_rounded,
-                          onTap: () => onDestinationSelected(0),
-                        ),
-                        _NavBarItem(
-                          index: 1,
-                          selectedIndex: selectedIndex,
-                          label: 'Playlists',
-                          inactiveIcon: Icons.queue_music_outlined,
-                          activeIcon: Icons.queue_music_rounded,
-                          onTap: () => onDestinationSelected(1),
-                        ),
-                        _NavBarItem(
-                          index: 2,
-                          selectedIndex: selectedIndex,
-                          label: 'Explore',
-                          inactiveIcon: Icons.explore_outlined,
-                          activeIcon: Icons.explore_rounded,
-                          onTap: () => onDestinationSelected(2),
-                        ),
-                        _NavBarItem(
-                          index: 3,
-                          selectedIndex: selectedIndex,
-                          label: 'History',
-                          inactiveIcon: Icons.history_outlined,
-                          activeIcon: Icons.history_rounded,
-                          onTap: () => onDestinationSelected(3),
-                        ),
-                        _NavBarItem(
-                          index: 4,
-                          selectedIndex: selectedIndex,
-                          label: 'Settings',
-                          inactiveIcon: Icons.settings_outlined,
-                          activeIcon: Icons.settings_rounded,
-                          onTap: () => onDestinationSelected(4),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: edgePad),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var i = 0; i < _destinations.length; i++)
+                            _NavBarItem(
+                              index: i,
+                              selectedIndex: selectedIndex,
+                              label: _destinations[i].label,
+                              inactiveIcon: _destinations[i].inactive,
+                              activeIcon: _destinations[i].active,
+                              pillWidth: widths[i],
+                              onTap: () => onDestinationSelected(i),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               );
             },
-        ),
+          ),
         ),
       ),
     );
   }
 }
+
+/// Text style of a tab label. Shared by the item and by the pill's width
+/// measurement, so the pill is sized from exactly what is drawn.
+@visibleForTesting
+TextStyle navLabelStyle(
+  BuildContext context, {
+  required bool selected,
+  required Color color,
+}) =>
+    (Theme.of(context).textTheme.labelSmall ?? const TextStyle()).copyWith(
+      fontSize: 10.5,
+      height: 1.0,
+      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+      color: color,
+      letterSpacing: -0.2,
+    );
 
 class _NavBarItem extends StatefulWidget {
   final int index;
@@ -515,6 +565,10 @@ class _NavBarItem extends StatefulWidget {
   final String label;
   final IconData inactiveIcon;
   final IconData activeIcon;
+
+  /// Width of this tab's pill, used for its hover fill so a hovered tab shows
+  /// the same shape the selected one does.
+  final double pillWidth;
   final VoidCallback onTap;
 
   const _NavBarItem({
@@ -523,6 +577,7 @@ class _NavBarItem extends StatefulWidget {
     required this.label,
     required this.inactiveIcon,
     required this.activeIcon,
+    required this.pillWidth,
     required this.onTap,
   });
 
@@ -546,6 +601,11 @@ class _NavBarItemState extends State<_NavBarItem> {
   Widget build(BuildContext context) {
     final isSelected = widget.index == widget.selectedIndex;
     final scheme = Theme.of(context).colorScheme;
+    final color = isSelected
+        ? scheme.primary
+        : _isHovered
+            ? Colors.white.withValues(alpha: 0.85)
+            : Colors.white.withValues(alpha: 0.45);
 
     return Expanded(
       child: MouseRegion(
@@ -579,72 +639,64 @@ class _NavBarItemState extends State<_NavBarItem> {
             scale: _isPressed ? 0.90 : 1.0,
             duration: const Duration(milliseconds: 140),
             curve: Curves.easeOutCubic,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Fixed-height icon row that the selected indicator is
-                // positioned over, so the two cannot drift apart. The hover
-                // fill is the same capsule as the indicator: a rectangle
-                // around the whole item competed with the selected shape and
-                // read as a second, rougher pill.
-                SizedBox(
-                  height: _MinimalistNavBar.indicatorHeight,
-                  child: Center(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      curve: Curves.easeOutCubic,
-                      width: _MinimalistNavBar.indicatorWidth,
-                      height: _MinimalistNavBar.indicatorHeight,
-                      decoration: BoxDecoration(
-                        color: (!isSelected && _isHovered)
-                            ? Colors.white.withValues(alpha: 0.08)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(
-                          _MinimalistNavBar.indicatorHeight / 2,
-                        ),
-                      ),
-                      child: Center(
-                        child: Icon(
-                          isSelected ? widget.activeIcon : widget.inactiveIcon,
-                          size: 22,
-                          color: isSelected
-                              ? scheme.primary
-                              : _isHovered
-                              ? Colors.white.withValues(alpha: 0.85)
-                              : Colors.white.withValues(alpha: 0.45),
-                        ),
-                      ),
+            // The hover fill is the pill itself, so a hovered tab previews the
+            // shape it would get when selected. It may be wider than the tab's
+            // slot, hence the overflow box.
+            child: Center(
+              child: OverflowBox(
+                minWidth: 0,
+                maxWidth: widget.pillWidth,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOutCubic,
+                  width: widget.pillWidth,
+                  height: _MinimalistNavBar.pillHeight,
+                  decoration: BoxDecoration(
+                    color: (!isSelected && _isHovered)
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(
+                      _MinimalistNavBar.pillHeight / 2,
                     ),
                   ),
-                ),
-                const SizedBox(height: _MinimalistNavBar._rowGap),
-                SizedBox(
-                  height: _MinimalistNavBar._labelRowHeight,
-                  child: Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        widget.label,
-                        maxLines: 1,
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontSize: 10.5,
-                          height: 1.0,
-                          fontWeight: isSelected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                          color: isSelected
-                              ? scheme.primary
-                              : _isHovered
-                              ? Colors.white.withValues(alpha: 0.85)
-                              : Colors.white.withValues(alpha: 0.45),
-                          letterSpacing: -0.2,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        height: _MinimalistNavBar.iconRowHeight,
+                        child: Center(
+                          child: Icon(
+                            isSelected
+                                ? widget.activeIcon
+                                : widget.inactiveIcon,
+                            size: 22,
+                            color: color,
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: _MinimalistNavBar.rowGap),
+                      SizedBox(
+                        height: _MinimalistNavBar.labelRowHeight,
+                        child: Center(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              widget.label,
+                              maxLines: 1,
+                              style: navLabelStyle(
+                                context,
+                                selected: isSelected,
+                                color: color,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
