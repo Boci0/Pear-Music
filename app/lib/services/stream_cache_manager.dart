@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
+import 'backup_audio_engine.dart';
 import 'debug_log.dart';
 import 'library_service.dart';
 import 'resolved_link_cache.dart';
@@ -320,6 +321,53 @@ class StreamCacheManager {
     }
     _ytdlpCacheDir = ytdlpCache;
     return ytdlpCache;
+  }
+
+  /// Whether a song yt-dlp could not fetch is tried once more with the backup
+  /// engine (see [BackupAudioEngine]). Set from the Settings switch.
+  static bool backupEngineEnabled = true;
+
+  /// Which failures are worth a second engine. A video that is gone or a dead
+  /// network would fail the same way again; a missing, out-of-date, blocked or
+  /// unexplained yt-dlp failure might not.
+  @visibleForTesting
+  static bool backupEngineShouldRetry(StreamFetchFailureKind? kind) =>
+      kind != StreamFetchFailureKind.unavailable &&
+      kind != StreamFetchFailureKind.network;
+
+  /// Fetches [videoId] with the backup engine after yt-dlp failed. Returns the
+  /// cached file, or null when the backup is off, not worth trying, or failed
+  /// too (in which case yt-dlp's explanation of the failure is kept).
+  static Future<File?> _fetchWithBackupEngine(
+    String videoId,
+    Directory dir, {
+    required int token,
+    required bool isPreload,
+    required int preloadSeq,
+  }) async {
+    if (!backupEngineEnabled) return null;
+    if (!backupEngineShouldRetry(_lastFetchFailures[videoId]?.kind)) return null;
+    if (token != _downloadInvocationToken) return null;
+    DebugLog.write('[cache] yt-dlp could not fetch $videoId, trying the backup engine');
+    final result = await BackupAudioEngine.fetch(
+      videoId,
+      dir: dir,
+      preferAac: !_isDesktopEngine,
+      shouldAbort: () =>
+          token != _downloadInvocationToken ||
+          _activeDownloadingVideoId != videoId ||
+          (isPreload && preloadSeq != _slidingWindowSequence),
+    );
+    final file = result.file;
+    if (file == null) {
+      DebugLog.write('[cache] Backup engine failed for $videoId: ${result.error}');
+      return null;
+    }
+    _lastFetchFailures.remove(videoId);
+    _cachedVideoIds.add(videoId);
+    _setCachedTotalBytes(_cachedTotalBytes + await file.length());
+    unawaited(enforceCacheQuota());
+    return file;
   }
 
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
@@ -1171,9 +1219,21 @@ class StreamCacheManager {
             _activeProcessId = null;
           }
         }
-        // On Android, the embedded engine is the sole resolver; never fall through to desktop
+        // On Android, the embedded engine is the only yt-dlp; never fall
+        // through to the desktop one. The backup engine still gets a turn.
         if (!kIsWeb && Platform.isAndroid) {
           if (!completer.isCompleted) {
+            final backup = await _fetchWithBackupEngine(
+              videoId,
+              dir,
+              token: token,
+              isPreload: isPreload,
+              preloadSeq: preloadSeq,
+            );
+            if (backup != null) {
+              completer.complete(backup);
+              return backup;
+            }
             completer.complete(null);
           }
           return await completer.future;
@@ -1306,6 +1366,21 @@ class StreamCacheManager {
       } else if (!kIsWeb && !Platform.isAndroid) {
         DebugLog.write('[cache] yt-dlp binary not found on desktop');
         recordFailure('yt-dlp is missing on this device');
+      }
+
+      if (!completer.isCompleted) {
+        final backup = await _fetchWithBackupEngine(
+          videoId,
+          dir,
+          token: token,
+          isPreload: isPreload,
+          preloadSeq: preloadSeq,
+        );
+        if (backup != null) {
+          DebugLog.write('[cache] Backup engine cached $videoId after ${stopwatch.elapsedMilliseconds}ms');
+          completer.complete(backup);
+          return backup;
+        }
       }
 
       if (!completer.isCompleted) {

@@ -178,6 +178,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller.player.setAutoRerollSeed(val);
                   },
                 ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.safety_check_rounded),
+                  title: const Text('Backup audio engine'),
+                  subtitle: const Text(
+                    'If yt-dlp cannot fetch a song, try a built-in engine before giving up',
+                  ),
+                  value: identity.backupEngine,
+                  onChanged: (val) async {
+                    TactileFeedback.selection();
+                    await identity.setBackupEngine(val);
+                  },
+                ),
               ],
             ),
           ),

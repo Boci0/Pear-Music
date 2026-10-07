@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/song.dart';
+import 'stream_cache_manager.dart';
 import 'youtube_search_service.dart';
 
 enum SortOption {
@@ -37,6 +38,7 @@ class IdentityService extends ChangeNotifier {
   static const _playbackVolumeKey = 'peerm_playback_volume';
   static const _playbackSpeedKey = 'peerm_playback_speed';
   static const _extendedSearchKey = 'peerm_extended_search';
+  static const _backupEngineKey = 'peerm_backup_engine';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -56,6 +58,7 @@ class IdentityService extends ChangeNotifier {
   late double _playbackVolume;
   late double _playbackSpeed;
   late bool _extendedSearch;
+  late bool _backupEngine;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -108,6 +111,8 @@ class IdentityService extends ChangeNotifier {
     _playbackSpeed = _prefs.getDouble(_playbackSpeedKey) ?? 1.0;
     _extendedSearch = _prefs.getBool(_extendedSearchKey) ?? false;
     YouTubeSearchService.allowVideoResults = _extendedSearch;
+    _backupEngine = _prefs.getBool(_backupEngineKey) ?? true;
+    StreamCacheManager.backupEngineEnabled = _backupEngine;
     _prefs.remove('peerm_online_lyrics');
     _prefs.remove('peerm_streaming_quality');
     _prefs.remove('peerm_preload_upcoming');
@@ -365,6 +370,18 @@ class IdentityService extends ChangeNotifier {
     if ((_playbackSpeed - clamped).abs() < 0.01) return;
     _playbackSpeed = clamped;
     await _prefs.setDouble(_playbackSpeedKey, clamped);
+    notifyListeners();
+  }
+
+  /// Whether a song yt-dlp could not fetch is tried with the built-in backup
+  /// engine. On by default.
+  bool get backupEngine => _backupEngine;
+
+  Future<void> setBackupEngine(bool value) async {
+    if (_backupEngine == value) return;
+    _backupEngine = value;
+    StreamCacheManager.backupEngineEnabled = value;
+    await _prefs.setBool(_backupEngineKey, value);
     notifyListeners();
   }
 
