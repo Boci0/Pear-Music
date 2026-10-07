@@ -1,9 +1,13 @@
 name: yt-dlp mirror
 
-# Keeps a signed, tested copy of the newest upstream yt-dlp on two hosts (GitHub
-# and Codeberg) so the app can install and update it even if upstream vanishes.
-# If upstream cannot be reached this job fails and leaves the last good mirror
-# untouched. See app/lib/services/ytdlp_manifest.dart for the client side.
+# Keeps a signed, tested copy of the newest upstream yt-dlp in a separate mirror
+# repository, so the app can install and update it even if upstream vanishes,
+# and so a notice against the mirror cannot touch this repo. If upstream cannot
+# be reached this job fails and leaves the last good mirror untouched. See
+# app/lib/services/ytdlp_manifest.dart for the client side.
+#
+# Needs the repository secrets YTDLP_SIGNING_KEY (Ed25519 private key, PEM) and
+# MIRROR_REPO_TOKEN (a token with contents write access to the mirror repo).
 
 on:
   schedule:
@@ -16,11 +20,11 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
+  MIRROR_REPO: Boci0/pm-resolver-mirror
   MIRROR_TAG: yt-dlp-mirror
-  CODEBERG_REPO: Boci0/Pear-Music
 
 jobs:
   mirror:
@@ -68,7 +72,7 @@ jobs:
           FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
-          current=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$MIRROR_TAG/manifest.json" 2>/dev/null \
+          current=$(curl -fsSL "https://github.com/$MIRROR_REPO/releases/download/$MIRROR_TAG/manifest.json" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["ytdlp_version"])' 2>/dev/null || echo "")
           publish=$(CURRENT="$current" python3 - <<'PY'
           import os
@@ -85,7 +89,7 @@ jobs:
           echo "Mirror has '${current:-nothing}', upstream is $VERSION, publish=$publish"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-      - name: Sign manifest
+      - name: Sign manifest and build bundles
         if: steps.decide.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.upstream.outputs.version }}
@@ -95,37 +99,27 @@ jobs:
           [ -n "$SIGNING_KEY" ] || { echo "YTDLP_SIGNING_KEY secret is not set"; exit 1; }
           key="$RUNNER_TEMP/ytdlp-signing.pem"
           (umask 077; printf '%s\n' "$SIGNING_KEY" > "$key")
-          export MIRROR_SOURCES="https://github.com/$GITHUB_REPOSITORY/releases/download/$MIRROR_TAG https://codeberg.org/$CODEBERG_REPO/releases/download/$MIRROR_TAG"
+          # More hosts can be listed here (space separated https base URLs); clients
+          # try them after the built-in mirror.
+          export MIRROR_SOURCES="https://github.com/$MIRROR_REPO/releases/download/$MIRROR_TAG"
           bash tool/ytdlp_sign_manifest.sh out "$VERSION" "$key"
           rm -f "$key"
 
-      - name: Publish to GitHub
+      - name: Publish to the mirror repository
         if: steps.decide.outputs.publish == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
         run: |
           set -euo pipefail
-          if ! gh release view "$MIRROR_TAG" > /dev/null 2>&1; then
-            gh release create "$MIRROR_TAG" \
-              --title "yt-dlp mirror" \
-              --notes "Signed yt-dlp builds used as a fallback download source. Refreshed by the yt-dlp mirror workflow." \
+          [ -n "$GH_TOKEN" ] || { echo "MIRROR_REPO_TOKEN secret is not set"; exit 1; }
+          if ! gh release view "$MIRROR_TAG" --repo "$MIRROR_REPO" > /dev/null 2>&1; then
+            gh release create "$MIRROR_TAG" --repo "$MIRROR_REPO" \
+              --title "Resolver mirror" \
+              --notes "Signed builds used as a fallback download source. Refreshed automatically." \
               --prerelease --latest=false
           fi
-          # Binaries first, manifest last: the manifest is what clients trust.
-          gh release upload "$MIRROR_TAG" out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos --clobber
-          gh release upload "$MIRROR_TAG" out/manifest.json out/manifest.json.sig --clobber
-
-      - name: Publish to Codeberg
-        if: steps.decide.outputs.publish == 'true'
-        env:
-          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "$CODEBERG_TOKEN" ]; then
-            echo "::warning::CODEBERG_TOKEN is not set, skipping the Codeberg mirror"
-            exit 0
-          fi
-          bash tool/ytdlp_publish_codeberg.sh "$CODEBERG_REPO" "$MIRROR_TAG" \
-            out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos
-          bash tool/ytdlp_publish_codeberg.sh "$CODEBERG_REPO" "$MIRROR_TAG" \
+          # Binaries and bundles first, manifest last: the manifest is what clients trust.
+          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
+            out/yt-dlp.exe out/yt-dlp_linux out/yt-dlp_macos out/pearmusic-resolver-*.pmyd
+          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
             out/manifest.json out/manifest.json.sig

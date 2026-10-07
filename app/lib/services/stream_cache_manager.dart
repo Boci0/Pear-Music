@@ -30,6 +30,10 @@ enum StreamFetchFailureKind {
   /// yt-dlp is missing or broken on this device.
   engine,
 
+  /// yt-dlp ran but could not read YouTube's pages, the signature of an
+  /// out-of-date extractor. Fixed by updating yt-dlp, not by retrying.
+  outdated,
+
   /// Anything not covered above.
   unknown,
 }
@@ -169,6 +173,13 @@ class StreamCacheManager {
         s.contains('yt-dlp is missing')) {
       return StreamFetchFailureKind.engine;
     }
+    if (s.contains('unable to extract') ||
+        s.contains('please report this issue') ||
+        s.contains('nsig extraction failed') ||
+        s.contains('signature extraction failed') ||
+        s.contains('latest version using yt-dlp')) {
+      return StreamFetchFailureKind.outdated;
+    }
     if (s.contains('timed out') ||
         s.contains('timeout') ||
         s.contains('socket') ||
@@ -185,11 +196,17 @@ class StreamCacheManager {
   /// Records why the last fetch of [videoId] failed, so the playback layer can
   /// explain it instead of silently moving on.
   static void recordFetchFailure(String videoId, String raw) {
+    final kind = classifyFetchFailure(raw);
     _lastFetchFailures[videoId] = StreamFetchFailure(
       videoId: videoId,
-      kind: classifyFetchFailure(raw),
+      kind: kind,
       detail: raw.trim(),
     );
+    // An out-of-date yt-dlp is fixed by a signed update, so start one now
+    // (rate limited inside) instead of waiting for the next app launch.
+    if (kind == StreamFetchFailureKind.outdated) {
+      YoutubeService.noteResolverMayBeOutdated();
+    }
     // The map only exists to carry one explanation to the caller; keep it tiny
     // so a long session of preload failures cannot grow it without bound.
     while (_lastFetchFailures.length > 40) {
@@ -1259,6 +1276,7 @@ class StreamCacheManager {
             stillWanted &&
             (failureKind == null ||
                 failureKind == StreamFetchFailureKind.unknown ||
+                failureKind == StreamFetchFailureKind.outdated ||
                 failureKind == StreamFetchFailureKind.blocked)) {
           DebugLog.write('[cache] No link without the player code for $videoId, retrying with it');
           fetched = await fetchWithYtDlp(_desktopStreamArgs(ytdlpCache.path, skipPlayerJs: false));

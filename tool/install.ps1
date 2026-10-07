@@ -92,8 +92,7 @@ if (-not (Test-Path $ytDlpDest)) {
     # Sources in order: optional override, our own mirror, then upstream.
     $ytSources = @()
     if ($env:PEARMUSIC_YTDLP_BASE_URL) { $ytSources += $env:PEARMUSIC_YTDLP_BASE_URL.TrimEnd('/') }
-    $ytSources += "https://github.com/Boci0/Pear-Music/releases/download/yt-dlp-mirror"
-    $ytSources += "https://codeberg.org/Boci0/Pear-Music/releases/download/yt-dlp-mirror"
+    $ytSources += "https://github.com/Boci0/pm-resolver-mirror/releases/download/yt-dlp-mirror"
     $ytSources += "https://github.com/yt-dlp/yt-dlp/releases/latest/download"
     $ytInstalled = $false
     foreach ($base in $ytSources) {

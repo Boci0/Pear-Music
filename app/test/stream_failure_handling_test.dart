@@ -104,6 +104,28 @@ void main() {
       );
     });
 
+    test('extractor breakage is reported as an outdated yt-dlp', () {
+      for (final raw in [
+        'ERROR: [youtube] abc: Unable to extract initial player response',
+        'nsig extraction failed: Some formats may be missing',
+        'please report this issue on https://github.com/yt-dlp/yt-dlp/issues',
+      ]) {
+        expect(
+          StreamCacheManager.classifyFetchFailure(raw),
+          StreamFetchFailureKind.outdated,
+          reason: raw,
+        );
+      }
+    });
+
+    test('a bot check that mentions extraction still counts as blocked', () {
+      expect(
+        StreamCacheManager.classifyFetchFailure(
+            "Sign in to confirm you're not a bot"),
+        StreamFetchFailureKind.blocked,
+      );
+    });
+
     test('recorded failures are consumed once', () {
       StreamCacheManager.recordFetchFailure(
           'vid_release_once', 'HTTP Error 403: Forbidden');

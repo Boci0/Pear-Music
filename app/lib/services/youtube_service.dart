@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'artwork_service.dart';
 import 'library_service.dart';
+import 'ytdlp_bundle.dart';
 import 'ytdlp_manifest.dart';
 
 /// Live status text for the "Add from link" dialog.
@@ -47,6 +48,52 @@ class DownloadCancelledException implements Exception {
   String toString() => 'Download cancelled.';
 }
 
+/// What an update or import attempt ended with.
+enum YtDlpUpdateStatus {
+  /// A newer, verified build was installed.
+  updated,
+
+  /// The installed build is already the newest known one.
+  upToDate,
+
+  /// No source served a verified manifest (all mirrors unreachable or empty).
+  noSource,
+
+  /// The binary in use belongs to the user (PATH, winget, a custom path), so
+  /// the app leaves it alone.
+  notManaged,
+
+  /// There is no yt-dlp on this device.
+  noBinary,
+
+  /// Something went wrong; see the debug log.
+  failed,
+
+  /// The bundle's signature or hash did not check out.
+  invalid,
+
+  /// The bundle is for another platform.
+  wrongPlatform,
+}
+
+/// Where the yt-dlp in use came from.
+enum YtDlpOrigin { none, custom, appManaged, system }
+
+class YtDlpInUse {
+  const YtDlpInUse(this.origin, {this.path, this.version});
+  final YtDlpOrigin origin;
+  final String? path;
+  final String? version;
+}
+
+class YtDlpUpdateResult {
+  const YtDlpUpdateResult(this.status, [this.version]);
+  final YtDlpUpdateStatus status;
+
+  /// The version now installed (or the newest known), when known.
+  final String? version;
+}
+
 class _YtDlpSource {
   const _YtDlpSource(this.base, {required this.requireManifest});
   final String base;
@@ -54,9 +101,20 @@ class _YtDlpSource {
 }
 
 class _ResolvedYtDlp {
-  const _ResolvedYtDlp(this.base, this.sha256, this.version);
+  const _ResolvedYtDlp(
+    this.base,
+    this.sha256,
+    this.version, {
+    this.manifestBytes,
+    this.signatureText,
+  });
   final String base;
   final String sha256;
+
+  /// The verified manifest this came from, kept so the installed build can be
+  /// exported later as a bundle. Null for checksum-only sources.
+  final Uint8List? manifestBytes;
+  final String? signatureText;
 
   /// yt-dlp version from a verified manifest; null for checksum-only sources.
   final String? version;
@@ -113,10 +171,19 @@ class YoutubeService {
   static Future<String?> _detectYtDlpPath() async {
     if (kIsWeb) return null;
     try {
+      // A binary the user picked explicitly always wins.
+      final custom = await customYtDlpPath();
+      if (custom != null && File(custom).existsSync()) return custom;
+
       // Bundled binary directly alongside the executable (e.g. deployed standalone package)
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       final bundledBin = File(p.join(exeDir, Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp'));
       if (bundledBin.existsSync()) return bundledBin.path;
+
+      // The app's own copy (downloaded, updated or imported by the app) beats
+      // system installs, which the app cannot keep current.
+      final ownBin = await _getLocalYtDlpFile();
+      if (await ownBin.exists() && await ownBin.length() > 0) return ownBin.path;
 
       if (Platform.isWindows) {
         final r = await Process.run('where.exe', ['yt-dlp']);
@@ -162,13 +229,13 @@ class YoutubeService {
   static const _ytDlpUpstreamBase =
       'https://github.com/yt-dlp/yt-dlp/releases/latest/download';
 
-  /// Our own signed copies of yt-dlp, refreshed by the `ytdlp-mirror` workflow
-  /// under a fixed release tag on two hosts. They keep installs and updates
-  /// working if upstream disappears or one host goes away.
+  /// Our own signed copy of yt-dlp, refreshed by the `ytdlp-mirror` workflow
+  /// under a fixed release tag. It lives in a repository separate from the app
+  /// so a notice against the mirror cannot touch the app's own repo. More hosts
+  /// can be added without an app update through the signed manifest's
+  /// `sources` list.
   static const _ytDlpMirrorBase =
-      'https://github.com/Boci0/Pear-Music/releases/download/yt-dlp-mirror';
-  static const _ytDlpCodebergBase =
-      'https://codeberg.org/Boci0/Pear-Music/releases/download/yt-dlp-mirror';
+      'https://github.com/Boci0/pm-resolver-mirror/releases/download/yt-dlp-mirror';
 
   /// Ordered download sources for yt-dlp: user overrides, then our signed
   /// mirrors (plus any extra sources a verified manifest listed), then
@@ -193,7 +260,7 @@ class YoutubeService {
     final custom = mergeYtDlpSources(overrides, const []);
     final signed = mergeYtDlpSources(
       const [],
-      [_ytDlpMirrorBase, _ytDlpCodebergBase, ...extra],
+      [_ytDlpMirrorBase, ...extra],
     ).where((b) => !custom.contains(b));
     return [
       for (final b in custom) _YtDlpSource(b, requireManifest: false),
@@ -245,6 +312,45 @@ class YoutubeService {
         await m.readAsBytes(),
         Uint8List.fromList(base64.decode((await s.readAsString()).trim())),
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static const _installedManifestName = 'ytdlp_installed_manifest.json';
+
+  /// Remembers the signed manifest of the build the app just installed, so
+  /// that exact build can be exported as a bundle later.
+  static Future<void> _saveInstalledManifest(
+    Uint8List? manifest,
+    String? sigText,
+  ) async {
+    if (manifest == null || sigText == null) return;
+    try {
+      final dir = await getApplicationSupportDirectory();
+      await File(p.join(dir.path, _installedManifestName))
+          .writeAsBytes(manifest);
+      await File(p.join(dir.path, '$_installedManifestName.sig'))
+          .writeAsString(sigText);
+    } catch (_) {}
+  }
+
+  static Future<({Uint8List bytes, String sig, YtDlpManifest manifest})?>
+      _readInstalledManifest() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final m = File(p.join(dir.path, _installedManifestName));
+      final s = File(p.join(dir.path, '$_installedManifestName.sig'));
+      if (!await m.exists() || !await s.exists()) return null;
+      final bytes = await m.readAsBytes();
+      final sig = (await s.readAsString()).trim();
+      final manifest = YtDlpManifest.parseVerified(
+        bytes,
+        Uint8List.fromList(base64.decode(sig)),
+      );
+      return manifest == null
+          ? null
+          : (bytes: bytes, sig: sig, manifest: manifest);
     } catch (_) {
       return null;
     }
@@ -316,7 +422,13 @@ class YoutubeService {
         return null;
       }
       unawaited(_cacheManifest(manifestBytes, sigText));
-      return _ResolvedYtDlp(source.base, asset.sha256, manifest.ytDlpVersion);
+      return _ResolvedYtDlp(
+        source.base,
+        asset.sha256,
+        manifest.ytDlpVersion,
+        manifestBytes: manifestBytes,
+        signatureText: sigText,
+      );
     }
     if (source.requireManifest) return null;
     final sums = await _getBytes(client, '${source.base}/SHA2-256SUMS');
@@ -417,6 +529,8 @@ class YoutubeService {
           }
           if (await targetFile.exists()) await targetFile.delete();
           await tempFile.rename(targetFile.path);
+          await _saveInstalledManifest(
+              resolved.manifestBytes, resolved.signatureText);
           _downloadingYtDlp!.complete(targetFile.path);
           return targetFile.path;
         }
@@ -472,8 +586,9 @@ class YoutubeService {
   /// keeps up with YouTube changes.
   ///
   /// The primary path reads the signed manifest from our mirrors and swaps in
-  /// a newer, signature-verified binary. Only when no signed manifest can be
-  /// reached does it fall back to upstream's own `yt-dlp -U`.
+  /// a newer, signature-verified binary. When no signed manifest can be
+  /// reached, or the binary is not one the app manages, it falls back to
+  /// upstream's own `yt-dlp -U`.
   ///
   /// The returned future completes when the update attempt is over (or after
   /// 60 s), which matters for callers that must not touch the binary while the
@@ -484,14 +599,14 @@ class YoutubeService {
     try {
       final bin = await ytDlpPath();
       if (bin == null) return;
-      var manifestSeen = false;
-      try {
-        manifestSeen = await _updateFromManifest(bin)
-            .timeout(const Duration(seconds: 60));
-      } catch (e) {
-        debugPrint('[pearmusic] Desktop yt-dlp manifest update error: $e');
+      if (await _isAppManagedBinary(bin)) {
+        final result = await updateYtDlp();
+        if (result.status == YtDlpUpdateStatus.updated ||
+            result.status == YtDlpUpdateStatus.upToDate) {
+          return;
+        }
       }
-      if (manifestSeen) return;
+      if (await customYtDlpPath() == bin) return;
       try {
         final r = await Process.run(bin, ['-U'])
             .timeout(const Duration(seconds: 15));
@@ -502,10 +617,90 @@ class YoutubeService {
     } catch (_) {}
   }
 
+  static DateTime? _lastResolverFailureUpdate;
+
+  /// Called when fetches fail in a way that points at an out-of-date yt-dlp.
+  /// Tries a signed update in the background, at most once every six hours.
+  static void noteResolverMayBeOutdated() {
+    if (kIsWeb || !Platform.isWindows) return;
+    final last = _lastResolverFailureUpdate;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < const Duration(hours: 6)) return;
+    _lastResolverFailureUpdate = now;
+    unawaited(updateYtDlp());
+  }
+
+  /// The binary the app owns and may replace: the copy next to the executable
+  /// or the app's own downloaded copy. System installs and a user-chosen path
+  /// are never touched.
+  static Future<bool> _isAppManagedBinary(String bin) async {
+    try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final name = Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp';
+      if (p.equals(bin, p.join(exeDir, name))) return true;
+      return p.equals(bin, (await _getLocalYtDlpFile()).path);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Version string of the yt-dlp in use (`yt-dlp --version`), or null.
+  static Future<String?> installedYtDlpVersion() async {
+    final bin = await ytDlpPath();
+    if (bin == null) return null;
+    try {
+      final r = await Process.run(bin, ['--version'])
+          .timeout(const Duration(seconds: 10));
+      final v = r.stdout.toString().trim();
+      return r.exitCode == 0 && v.isNotEmpty ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Checks the signed mirrors and installs a newer yt-dlp when there is one.
+  static Future<YtDlpUpdateResult> updateYtDlp() async {
+    if (kIsWeb || !(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      return const YtDlpUpdateResult(YtDlpUpdateStatus.noBinary);
+    }
+    final bin = await ytDlpPath(refresh: true);
+    if (bin == null) return const YtDlpUpdateResult(YtDlpUpdateStatus.noBinary);
+    if (!await _isAppManagedBinary(bin)) {
+      return const YtDlpUpdateResult(YtDlpUpdateStatus.notManaged);
+    }
+    try {
+      return await _updateFromManifest(bin)
+          .timeout(const Duration(seconds: 60));
+    } catch (e) {
+      debugPrint('[pearmusic] Desktop yt-dlp manifest update error: $e');
+      return const YtDlpUpdateResult(YtDlpUpdateStatus.failed);
+    }
+  }
+
+  /// Puts [fresh] in place of [bin]. A running exe can be renamed but not
+  /// overwritten on Windows, so the old file is moved aside first and moved
+  /// back if the swap fails.
+  static Future<void> _swapInBinary(String bin, File fresh) async {
+    final target = File(bin);
+    if (!await target.exists()) {
+      await fresh.rename(bin);
+      return;
+    }
+    final old = File('$bin.old');
+    try {
+      if (await old.exists()) await old.delete();
+    } catch (_) {}
+    await target.rename(old.path);
+    try {
+      await fresh.rename(bin);
+    } catch (_) {
+      await old.rename(bin);
+      rethrow;
+    }
+  }
+
   /// Updates [bin] from the first source that serves a verified manifest.
-  /// Returns true when such a manifest was reached (whether or not a newer
-  /// build existed), false when none could be, so the caller can fall back.
-  static Future<bool> _updateFromManifest(String bin) async {
+  static Future<YtDlpUpdateResult> _updateFromManifest(String bin) async {
     final assetName = _ytDlpAssetName;
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
@@ -515,14 +710,10 @@ class YoutubeService {
         final latest = resolved?.version;
         if (resolved == null || latest == null) continue;
 
-        final current = (await Process.run(bin, ['--version'])
-                .timeout(const Duration(seconds: 10)))
-            .stdout
-            .toString()
-            .trim();
+        final current = await installedYtDlpVersion() ?? '';
         if (!YtDlpManifest.isNewerVersion(latest, current)) {
           debugPrint('[pearmusic] yt-dlp $current is current (latest $latest)');
-          return true;
+          return YtDlpUpdateResult(YtDlpUpdateStatus.upToDate, current);
         }
 
         final fresh = File('$bin.new');
@@ -530,25 +721,162 @@ class YoutubeService {
         if (!await _downloadYtDlp(client, resolved, assetName, fresh)) {
           continue;
         }
-        // A running exe can be renamed but not overwritten on Windows.
-        final old = File('$bin.old');
-        try {
-          if (await old.exists()) await old.delete();
-        } catch (_) {}
-        await File(bin).rename(old.path);
-        try {
-          await fresh.rename(bin);
-        } catch (e) {
-          await old.rename(bin);
-          rethrow;
-        }
+        await _swapInBinary(bin, fresh);
+        await _saveInstalledManifest(
+            resolved.manifestBytes, resolved.signatureText);
         debugPrint('[pearmusic] yt-dlp updated $current -> $latest from ${resolved.base}');
-        return true;
+        return YtDlpUpdateResult(YtDlpUpdateStatus.updated, latest);
       }
     } finally {
       client.close(force: true);
     }
-    return false;
+    return const YtDlpUpdateResult(YtDlpUpdateStatus.noSource);
+  }
+
+  /// Installs the yt-dlp inside a signed bundle file. The bundle must verify,
+  /// be for this platform and be newer than what is installed.
+  ///
+  /// [trustedKeys] replaces the built-in signing keys and exists for tests.
+  static Future<YtDlpUpdateResult> importYtDlpBundle(
+    File file, {
+    @visibleForTesting List<String>? trustedKeys,
+  }) async {
+    try {
+      // A real bundle is a yt-dlp binary (tens of MB); refuse anything absurd
+      // before reading it into memory.
+      if (await file.length() > 200 * 1024 * 1024) {
+        return const YtDlpUpdateResult(YtDlpUpdateStatus.invalid);
+      }
+      final bundle = YtDlpBundle.parse(
+        await file.readAsBytes(),
+        publicKeysBase64: trustedKeys ?? kYtDlpManifestPublicKeys,
+      );
+      if (bundle == null) {
+        return const YtDlpUpdateResult(YtDlpUpdateStatus.invalid);
+      }
+      if (bundle.assetName != _ytDlpAssetName) {
+        return const YtDlpUpdateResult(YtDlpUpdateStatus.wrongPlatform);
+      }
+
+      final existing = await ytDlpPath(refresh: true);
+      final managed = existing != null && await _isAppManagedBinary(existing);
+      if (existing != null && managed) {
+        final current = await installedYtDlpVersion() ?? '';
+        if (!YtDlpManifest.isNewerVersion(bundle.ytDlpVersion, current)) {
+          return YtDlpUpdateResult(YtDlpUpdateStatus.upToDate, current);
+        }
+      }
+      // Replace the app's own binary when there is one; otherwise (nothing
+      // installed, or only a system install) use the app's local copy, which
+      // takes priority over system installs.
+      final target = managed ? existing : (await _getLocalYtDlpFile()).path;
+      final fresh = File('$target.new');
+      await fresh.writeAsBytes(bundle.payload, flush: true);
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['+x', fresh.path]);
+      }
+      await _swapInBinary(target, fresh);
+      await _saveInstalledManifest(bundle.manifestBytes, bundle.signatureText);
+      _cachedYtDlpPath = null;
+      return YtDlpUpdateResult(YtDlpUpdateStatus.updated, bundle.ytDlpVersion);
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp bundle import failed: $e');
+      return const YtDlpUpdateResult(YtDlpUpdateStatus.failed);
+    }
+  }
+
+  /// Packs the installed yt-dlp into a signed bundle. Returns the bytes, or an
+  /// explanation of why it cannot be exported (only builds that came from a
+  /// signed manifest or bundle can be).
+  static Future<({Uint8List? bytes, String? error})> buildYtDlpBundle() async {
+    try {
+      final bin = await ytDlpPath(refresh: true);
+      if (bin == null) {
+        return (bytes: null, error: 'There is no yt-dlp on this device.');
+      }
+      final installed = await _readInstalledManifest();
+      if (installed == null) {
+        return (
+          bytes: null,
+          error: 'This yt-dlp did not come from a signed build, so it cannot '
+              'be exported. Update it first.',
+        );
+      }
+      final binary = await File(bin).readAsBytes();
+      final asset = installed.manifest.assets[_ytDlpAssetName];
+      if (asset == null || sha256.convert(binary).toString() != asset.sha256) {
+        return (
+          bytes: null,
+          error: 'The yt-dlp in use is not the signed build on record, so it '
+              'cannot be exported. Update it first.',
+        );
+      }
+      return (
+        bytes: YtDlpBundle.pack(
+          manifestBytes: installed.bytes,
+          signatureText: installed.sig,
+          assetName: _ytDlpAssetName,
+          payload: binary,
+        ),
+        error: null,
+      );
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp bundle export failed: $e');
+      return (bytes: null, error: 'Could not build the bundle: $e');
+    }
+  }
+
+  /// Which yt-dlp is in use and where it came from, for the settings screen.
+  static Future<YtDlpInUse> describeYtDlpInUse() async {
+    final bin = await ytDlpPath(refresh: true);
+    if (bin == null) return const YtDlpInUse(YtDlpOrigin.none);
+    final custom = await customYtDlpPath();
+    final origin = custom != null && p.equals(custom, bin)
+        ? YtDlpOrigin.custom
+        : (await _isAppManagedBinary(bin)
+            ? YtDlpOrigin.appManaged
+            : YtDlpOrigin.system);
+    return YtDlpInUse(origin, path: bin, version: await installedYtDlpVersion());
+  }
+
+  static const _customPathFileName = 'ytdlp_custom_path.txt';
+
+  /// A yt-dlp the user picked in settings, or null.
+  static Future<String?> customYtDlpPath() async {
+    if (kIsWeb) return null;
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final f = File(p.join(dir.path, _customPathFileName));
+      if (!await f.exists()) return null;
+      final v = (await f.readAsString()).trim();
+      return v.isEmpty ? null : v;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Uses [path] as the yt-dlp, or goes back to automatic detection when null.
+  /// A path is only accepted if it runs and reports a version; returns that
+  /// version, or null when the path was rejected or cleared.
+  static Future<String?> setCustomYtDlpPath(String? path) async {
+    final dir = await getApplicationSupportDirectory();
+    final f = File(p.join(dir.path, _customPathFileName));
+    if (path == null) {
+      if (await f.exists()) await f.delete();
+      _cachedYtDlpPath = null;
+      return null;
+    }
+    try {
+      final r = await Process.run(path, ['--version'])
+          .timeout(const Duration(seconds: 10));
+      final v = r.stdout.toString().trim();
+      if (r.exitCode != 0 || v.isEmpty) return null;
+      await f.writeAsString(path);
+      _cachedYtDlpPath = null;
+      return v;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// True when a yt-dlp binary is reachable on the desktop.

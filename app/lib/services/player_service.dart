@@ -341,6 +341,23 @@ class PlayerService extends ChangeNotifier {
               'on this device. On the PC install it with: winget install '
               'yt-dlp.yt-dlp (the phone has it built in).',
         );
+      case StreamFetchFailureKind.outdated:
+        final onPhone = !kIsWeb && Platform.isAndroid;
+        return PlaybackError(
+          song: song,
+          kind: StreamFetchFailureKind.outdated,
+          label: onPhone
+              ? 'The audio engine is out of date. Update Pear Music.'
+              : 'yt-dlp is out of date. Tap play to retry.',
+          message: onPhone
+              ? 'Couldn\'t play "${song.title}": the built-in audio engine no '
+                  'longer understands YouTube. Updating Pear Music brings a '
+                  'newer one.'
+              : 'Couldn\'t play "${song.title}": yt-dlp no longer understands '
+                  'YouTube. The app is checking for a newer signed copy. If '
+                  'that does not fix it, open Settings > Audio engine to '
+                  'update, import a bundle, or choose your own yt-dlp.',
+        );
       case StreamFetchFailureKind.unavailable:
         return PlaybackError(
           song: song,

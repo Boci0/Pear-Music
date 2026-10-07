@@ -27,7 +27,7 @@ void main() {
     test('accepts a correctly signed manifest', () {
       final m = manifest();
       final parsed =
-          YtDlpManifest.parseVerified(m, sign(m), publicKeyBase64: pub);
+          YtDlpManifest.parseVerified(m, sign(m), publicKeysBase64: [pub]);
       expect(parsed, isNotNull);
       expect(parsed!.ytDlpVersion, '2026.08.19');
       expect(parsed.assets.keys, ['yt-dlp.exe']);
@@ -40,7 +40,7 @@ void main() {
       final sig = sign(m);
       final tampered = manifest(version: '2099.01.01');
       expect(
-        YtDlpManifest.parseVerified(tampered, sig, publicKeyBase64: pub),
+        YtDlpManifest.parseVerified(tampered, sig, publicKeysBase64: [pub]),
         isNull,
       );
     });
@@ -49,23 +49,49 @@ void main() {
       final other = ed.generateKey();
       final m = manifest();
       final sig = ed.sign(other.privateKey, m);
-      expect(YtDlpManifest.parseVerified(m, sig, publicKeyBase64: pub), isNull);
+      expect(YtDlpManifest.parseVerified(m, sig, publicKeysBase64: [pub]), isNull);
     });
 
-    test('rejects the embedded key when signed by a test key', () {
+    test('rejects the embedded keys when signed by a test key', () {
       final m = manifest();
       expect(YtDlpManifest.parseVerified(m, sign(m)), isNull);
+    });
+
+    test('accepts a signature from either listed key', () {
+      final recovery = ed.generateKey();
+      final keys = [pub, base64.encode(recovery.publicKey.bytes)];
+      final m = manifest();
+      expect(
+        YtDlpManifest.parseVerified(m, sign(m), publicKeysBase64: keys),
+        isNotNull,
+      );
+      expect(
+        YtDlpManifest.parseVerified(
+          m,
+          ed.sign(recovery.privateKey, m),
+          publicKeysBase64: keys,
+        ),
+        isNotNull,
+      );
+    });
+
+    test('the shipped key list has a primary and a recovery key', () {
+      expect(kYtDlpManifestPublicKeys.length, 2);
+      expect(kYtDlpManifestPublicKeys.toSet().length, 2);
+      for (final k in kYtDlpManifestPublicKeys) {
+        expect(base64.decode(k).length, 32);
+      }
     });
 
     test('rejects an unknown schema and malformed signatures', () {
       final m = manifest(schema: 2);
       expect(
-        YtDlpManifest.parseVerified(m, sign(m), publicKeyBase64: pub),
+        YtDlpManifest.parseVerified(m, sign(m), publicKeysBase64: [pub]),
         isNull,
       );
       final ok = manifest();
       expect(
-        YtDlpManifest.parseVerified(ok, Uint8List(10), publicKeyBase64: pub),
+        YtDlpManifest.parseVerified(ok, Uint8List(10), publicKeysBase64: [pub]),
         isNull,
       );
     });

@@ -5,9 +5,11 @@
 #
 # Reads whichever of yt-dlp.exe, yt-dlp_linux and yt-dlp_macos exist in
 # <asset-dir>, then writes manifest.json and manifest.json.sig (base64 Ed25519
-# signature over the exact manifest bytes) next to them. MIRROR_SOURCES is an
-# optional space-separated list of https base URLs to embed as extra sources.
-# The app verifies the signature against the public key in
+# signature over the exact manifest bytes) next to them, plus one self-verifying
+# pearmusic-resolver-<platform>.pmyd bundle per asset (layout documented in
+# app/lib/services/ytdlp_bundle.dart). MIRROR_SOURCES is an optional
+# space-separated list of https base URLs to embed as extra sources.
+# The app verifies signatures against the public keys in
 # app/lib/services/ytdlp_manifest.dart.
 set -euo pipefail
 
@@ -40,4 +42,24 @@ PY
 openssl pkeyutl -sign -rawin -inkey "$key" -in "$dir/manifest.json" -out "$dir/manifest.json.sigraw"
 base64 -w0 "$dir/manifest.json.sigraw" > "$dir/manifest.json.sig"
 rm -f "$dir/manifest.json.sigraw"
+
+python3 - <<'PY'
+import os, struct
+d = os.environ["DIR"]
+manifest = open(os.path.join(d, "manifest.json"), "rb").read()
+sig = open(os.path.join(d, "manifest.json.sig"), "rb").read().strip()
+platforms = {"yt-dlp.exe": "windows", "yt-dlp_linux": "linux", "yt-dlp_macos": "macos"}
+for asset, platform in platforms.items():
+    path = os.path.join(d, asset)
+    if not os.path.isfile(path):
+        continue
+    name = asset.encode()
+    with open(os.path.join(d, "pearmusic-resolver-%s.pmyd" % platform), "wb") as out:
+        out.write(b"PMYD1" + bytes([10]))
+        out.write(struct.pack(">I", len(manifest)) + manifest)
+        out.write(struct.pack(">I", len(sig)) + sig)
+        out.write(struct.pack(">H", len(name)) + name)
+        out.write(open(path, "rb").read())
+PY
+
 echo "Signed $dir/manifest.json for yt-dlp $version"

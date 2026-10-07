@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,6 +10,7 @@ import '../services/identity_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
 import '../widgets/about_dialog.dart';
+import '../widgets/audio_engine_card.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/tactile_button.dart';
@@ -237,6 +240,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          if (!kIsWeb && Platform.isWindows) ...[
+            const SizedBox(height: 18),
+            _sectionTitle(context, 'Audio engine'),
+            const AudioEngineCard(),
+          ],
           const SizedBox(height: 18),
           _sectionTitle(context, 'About & Updates'),
           Card(
