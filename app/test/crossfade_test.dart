@@ -123,6 +123,10 @@ void main() {
 
   final sandbox = Directory.systemTemp.createTempSync('peerm_crossfade_');
   setUpAll(() async {
+    // A song that is not cached fails at once instead of starting a real
+    // yt-dlp, which a dev machine may have on PATH.
+    StreamCacheManager.debugEnsureStreamCachedOverride =
+        (videoId, {required isPreload}) async => null;
     const channel = MethodChannel('plugins.flutter.io/path_provider');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (_) async => sandbox.path);
