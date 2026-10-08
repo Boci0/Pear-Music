@@ -29,7 +29,7 @@ Start-Sleep -Milliseconds 400
 # 2. Build Windows release if requested
 if (-not $SkipBuild) {
   Write-Host "[deploy_beta] Building Windows release binary..."
-  . "$PSScriptRootlutter_pin.ps1"
+  . "$PSScriptRoot\flutter_pin.ps1"
   $flutter = Get-PinnedFlutter -RepoRoot $repoRoot
   Write-Host "[deploy_beta] Using $flutter"
   Push-Location (Join-Path $repoRoot 'app')

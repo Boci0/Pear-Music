@@ -39,9 +39,9 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
-# Releases must be built with the Flutter version CI pins (see toollutter_pin.ps1): a newer
+# Releases must be built with the Flutter version CI pins (see tool\flutter_pin.ps1): a newer
 # local SDK made the Windows app several times heavier on RAM, CPU and GPU.
-. "$PSScriptRootlutter_pin.ps1"
+. "$PSScriptRoot\flutter_pin.ps1"
 $flutter = Get-PinnedFlutter -RepoRoot $repoRoot
 $pubspec = Join-Path $repoRoot 'app\pubspec.yaml'
 $updateService = Join-Path $repoRoot 'app\lib\services\update_service.dart'
