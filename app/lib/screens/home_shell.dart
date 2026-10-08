@@ -499,10 +499,11 @@ class _MinimalistNavBar extends StatelessWidget {
                 children: [
                   // Gliding pill behind the selected icon and label. It resizes
                   // as it moves, because each label has its own width. Same
-                  // timing and slight overshoot as the side rail's selection.
+                  // timing as the side rail's selection, and no overshoot: it
+                  // would run past the bar's ends and be clipped there.
                   AnimatedPositioned(
-                    duration: const Duration(milliseconds: 340),
-                    curve: Curves.easeOutBack,
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeOutCubic,
                     left: selectedCenter - selectedWidth / 2,
                     top: (constraints.maxHeight - pillHeight) / 2,
                     height: pillHeight,

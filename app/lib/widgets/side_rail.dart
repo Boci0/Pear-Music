@@ -83,11 +83,13 @@ class SideRail extends StatelessWidget {
               Stack(
                 children: [
                   // Gliding selection pill, shared by all items so it slides
-                  // between them (with a slight overshoot) like the phone nav
-                  // bar's pill instead of fading in place.
+                  // between them like the phone nav bar's pill instead of
+                  // fading in place. No overshoot: on a long jump (Settings to
+                  // Library) it would run past the list, behind the logo tile
+                  // or below the last item, and be cut off by the Stack's edge.
                   AnimatedPositioned(
-                    duration: const Duration(milliseconds: 340),
-                    curve: Curves.easeOutBack,
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeOutCubic,
                     top:
                         selectedIndex * _SideRailItem.height +
                         _SideRailItem.pillTop,

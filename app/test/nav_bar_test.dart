@@ -178,6 +178,78 @@ void main() {
     }
   });
 
+  testWidgets('the rail pill never runs past the first or last tab while it travels',
+      (tester) async {
+    await useSize(tester, const Size(1280, 800));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    final rail = find.byKey(const ValueKey('side_rail'));
+    final indicator = find.byKey(const ValueKey('side_rail_indicator'));
+    Future<void> settleOn(String label) async {
+      await tester.tap(find.descendant(of: rail, matching: find.text(label)));
+      await tester.pumpAndSettle();
+    }
+
+    await settleOn('Library');
+    final topLimit = tester.getRect(indicator).top;
+    await settleOn('Settings');
+    final bottomLimit = tester.getRect(indicator).bottom;
+
+    for (final route in [
+      ['Library', 'Settings'],
+      ['Settings', 'Library'],
+    ]) {
+      await settleOn(route[0]);
+      await tester.tap(find.descendant(of: rail, matching: find.text(route[1])));
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final pill = tester.getRect(indicator);
+        expect(pill.top, greaterThanOrEqualTo(topLimit - 0.5),
+            reason: '${route[0]} to ${route[1]}, frame $i: pill above the first tab');
+        expect(pill.bottom, lessThanOrEqualTo(bottomLimit + 0.5),
+            reason: '${route[0]} to ${route[1]}, frame $i: pill below the last tab');
+      }
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('the phone bar pill never runs past the first or last tab while it travels',
+      (tester) async {
+    await useSize(tester, const Size(360, 720));
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    final bar = find.byKey(const ValueKey('nav_bar'));
+    final indicator = find.byKey(const ValueKey('nav_indicator'));
+    Future<void> settleOn(String label) async {
+      await tester.tap(find.descendant(of: bar, matching: find.text(label)));
+      await tester.pumpAndSettle();
+    }
+
+    await settleOn('Library');
+    final leftLimit = tester.getRect(indicator).left;
+    await settleOn('Settings');
+    final rightLimit = tester.getRect(indicator).right;
+
+    for (final route in [
+      ['Library', 'Settings'],
+      ['Settings', 'Library'],
+    ]) {
+      await settleOn(route[0]);
+      await tester.tap(find.descendant(of: bar, matching: find.text(route[1])));
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final pill = tester.getRect(indicator);
+        expect(pill.left, greaterThanOrEqualTo(leftLimit - 0.5),
+            reason: '${route[0]} to ${route[1]}, frame $i: pill left of the first tab');
+        expect(pill.right, lessThanOrEqualTo(rightLimit + 0.5),
+            reason: '${route[0]} to ${route[1]}, frame $i: pill right of the last tab');
+      }
+      await tester.pumpAndSettle();
+    }
+  });
+
   testWidgets('the pill glides to the tapped tab and resizes to its label',
       (tester) async {
     await useSize(tester, const Size(360, 720));
