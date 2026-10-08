@@ -19,10 +19,15 @@ $exeName    = 'peerm_app.exe'
 $installDir = Join-Path $env:LOCALAPPDATA "Programs\$appName"
 $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-# Resolve version
-$appVersion = "3.5.5"
+# Resolve version: the exe's own version resource (what ships in the zip),
+# then pubspec.yaml when run from a source checkout.
+$appVersion = "0.0.0"
 $pubspecPath = Join-Path $scriptDir "..\app\pubspec.yaml"
-if (Test-Path $pubspecPath) {
+$sourceExe = Join-Path $scriptDir $exeName
+$exeVersion = if (Test-Path $sourceExe) { (Get-Item $sourceExe).VersionInfo.ProductVersion } else { $null }
+if ($exeVersion -match '^([0-9]+(\.[0-9]+)*)') {
+  $appVersion = $Matches[1]
+} elseif (Test-Path $pubspecPath) {
   $match = Select-String -Path $pubspecPath -Pattern 'version:\s*([0-9.]+)'
   if ($match -and $match.Matches.Groups[1].Value) {
     $appVersion = $match.Matches.Groups[1].Value

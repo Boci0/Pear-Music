@@ -904,6 +904,15 @@ while (\$retries -gt 0 -and -not \$extracted) {
 }
 
 if (\$extracted) {
+    # Keep the Installed apps entry from install.ps1 in step with the new build.
+    try {
+        \$ver = (Get-Item -LiteralPath \$ExePath).VersionInfo.ProductVersion -replace '\\+.*\$', ''
+        \$reg = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PearMusic'
+        \$loc = (Get-ItemProperty -Path \$reg -Name InstallLocation -ErrorAction Stop).InstallLocation
+        if (\$ver -and \$loc.TrimEnd('\\') -ieq \$AppDir.TrimEnd('\\')) {
+            Set-ItemProperty -Path \$reg -Name DisplayVersion -Value \$ver
+        }
+    } catch {}
     Start-Process -FilePath \$ExePath
     "\$(Get-Date): Launched \$ExePath" | Out-File -FilePath \$logFile -Append -Encoding utf8
     Remove-Item -LiteralPath \$ZipPath -Force -ErrorAction SilentlyContinue
