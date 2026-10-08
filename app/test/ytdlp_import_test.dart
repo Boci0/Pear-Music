@@ -19,7 +19,11 @@ void main() {
       ? 'yt-dlp.exe'
       : (Platform.isMacOS ? 'yt-dlp_macos' : 'yt-dlp_linux');
   final binary = Uint8List.fromList(List.generate(4000, (i) => (i * 7) % 256));
-  final localBin = File(p.join(sandbox.path, 'bin', assetName));
+  // The app keeps its own copy as yt-dlp.exe on Windows and plain yt-dlp elsewhere,
+  // whatever the release asset is called (yt-dlp_linux, yt-dlp_macos).
+  final localBin = File(
+    p.join(sandbox.path, 'bin', Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp'),
+  );
 
   setUpAll(() {
     const channel = MethodChannel('plugins.flutter.io/path_provider');
