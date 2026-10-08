@@ -29,9 +29,12 @@ Start-Sleep -Milliseconds 400
 # 2. Build Windows release if requested
 if (-not $SkipBuild) {
   Write-Host "[deploy_beta] Building Windows release binary..."
+  . "$PSScriptRootlutter_pin.ps1"
+  $flutter = Get-PinnedFlutter -RepoRoot $repoRoot
+  Write-Host "[deploy_beta] Using $flutter"
   Push-Location (Join-Path $repoRoot 'app')
   try {
-    flutter build windows --release
+    & $flutter build windows --release
     if ($LASTEXITCODE -ne 0) {
       throw "Build failed with exit code $LASTEXITCODE"
     }

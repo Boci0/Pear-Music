@@ -38,6 +38,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+
+# Releases must be built with the Flutter version CI pins (see toollutter_pin.ps1): a newer
+# local SDK made the Windows app several times heavier on RAM, CPU and GPU.
+. "$PSScriptRootlutter_pin.ps1"
+$flutter = Get-PinnedFlutter -RepoRoot $repoRoot
 $pubspec = Join-Path $repoRoot 'app\pubspec.yaml'
 $updateService = Join-Path $repoRoot 'app\lib\services\update_service.dart'
 $installerIss = Join-Path $repoRoot 'tool\installer.iss'
@@ -91,7 +96,7 @@ Assert-FileContains $installerIss "MyAppVersion `"$Version`""
 Write-Step 'Running flutter test'
 Push-Location (Join-Path $repoRoot 'app')
 try {
-  flutter test
+  & $flutter test
   if ($LASTEXITCODE -ne 0) { throw "flutter test failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
@@ -111,9 +116,9 @@ if ($LocalRelease) {
     Write-Step 'Building Android APKs (split per ABI)'
     Push-Location (Join-Path $repoRoot 'app')
     try {
-      flutter build apk --split-per-abi --release
+      & $flutter build apk --split-per-abi --release
       if ($LASTEXITCODE -ne 0) { throw "Android build failed with exit code $LASTEXITCODE" }
-      flutter build windows --release
+      & $flutter build windows --release
       if ($LASTEXITCODE -ne 0) { throw "Windows build failed with exit code $LASTEXITCODE" }
     } finally {
       Pop-Location
