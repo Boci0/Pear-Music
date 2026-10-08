@@ -15,6 +15,9 @@ analyzer:
   # fixtures and would otherwise flood plain `flutter analyze` output.
   exclude:
     - third_party/**
+    - build/**
+    - android/**
+    - windows/**
 
 linter:
   # The lint rules applied to this project can be customized in the
