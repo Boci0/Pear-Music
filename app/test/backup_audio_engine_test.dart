@@ -154,14 +154,62 @@ void main() {
   });
 
   group('when the backup engine is tried', () {
-    test('a gone video or a dead network is not retried, the rest is', () {
+    test('only failures a second engine could fix are retried', () {
+      const skipped = {
+        StreamFetchFailureKind.unavailable,
+        StreamFetchFailureKind.network,
+        StreamFetchFailureKind.blocked,
+      };
       for (final kind in StreamFetchFailureKind.values) {
-        final retry = StreamCacheManager.backupEngineShouldRetry(kind);
-        final expected = kind != StreamFetchFailureKind.unavailable &&
-            kind != StreamFetchFailureKind.network;
-        expect(retry, expected, reason: '$kind');
+        expect(
+          StreamCacheManager.backupEngineShouldRetry(kind),
+          !skipped.contains(kind),
+          reason: '$kind',
+        );
       }
       expect(StreamCacheManager.backupEngineShouldRetry(null), isTrue);
+    });
+  });
+
+  group('BackupEngineGuard', () {
+    final t0 = DateTime(2026, 10, 8, 9, 0);
+
+    test('a video that just failed rests, then may be tried again', () {
+      final g = BackupEngineGuard();
+      expect(g.allow('a', t0), isTrue);
+      g.recordFailure('a', t0);
+      expect(g.allow('a', t0.add(const Duration(minutes: 1))), isFalse);
+      expect(g.allow('b', t0.add(const Duration(minutes: 1))), isTrue);
+      expect(g.allow('a', t0.add(const Duration(minutes: 5))), isTrue);
+    });
+
+    test('three failures in a row pause the engine for everything', () {
+      final g = BackupEngineGuard();
+      g.recordFailure('a', t0);
+      g.recordFailure('b', t0);
+      g.recordFailure('c', t0);
+      expect(g.allow('d', t0.add(const Duration(minutes: 9))), isFalse);
+      expect(g.allow('d', t0.add(const Duration(minutes: 11))), isTrue);
+    });
+
+    test('a success clears the count and the pause', () {
+      final g = BackupEngineGuard();
+      g.recordFailure('a', t0);
+      g.recordFailure('b', t0);
+      g.recordSuccess('c');
+      g.recordFailure('d', t0);
+      expect(g.allow('e', t0), isTrue, reason: 'only one failure since the success');
+    });
+
+    test('the pause ends with a fresh count', () {
+      final g = BackupEngineGuard();
+      for (final id in ['a', 'b', 'c']) {
+        g.recordFailure(id, t0);
+      }
+      final later = t0.add(const Duration(minutes: 11));
+      expect(g.allow('x', later), isTrue);
+      g.recordFailure('x', later);
+      expect(g.allow('y', later), isTrue, reason: 'one failure is not enough to pause again');
     });
   });
 }

@@ -43,6 +43,56 @@ class BackupFetchResult {
   final String? error;
 }
 
+/// Keeps the backup engine from piling on when it cannot help.
+///
+/// When YouTube is rejecting a connection outright (a bot check or a rate
+/// limit), the backup meets the same wall and every extra attempt adds load. So
+/// a video that just failed is left alone for [videoCooldown], and after
+/// [maxConsecutiveFailures] failures in a row the engine pauses for
+/// [pauseAfterFailures]. One success clears the count.
+class BackupEngineGuard {
+  BackupEngineGuard({
+    this.videoCooldown = const Duration(minutes: 5),
+    this.maxConsecutiveFailures = 3,
+    this.pauseAfterFailures = const Duration(minutes: 10),
+  });
+
+  final Duration videoCooldown;
+  final int maxConsecutiveFailures;
+  final Duration pauseAfterFailures;
+
+  final Map<String, DateTime> _failedAt = {};
+  int _consecutiveFailures = 0;
+  DateTime? _pausedUntil;
+
+  /// Whether the backup may be tried for [videoId] at [now].
+  bool allow(String videoId, DateTime now) {
+    final paused = _pausedUntil;
+    if (paused != null) {
+      if (now.isBefore(paused)) return false;
+      _pausedUntil = null;
+      _consecutiveFailures = 0;
+    }
+    final failed = _failedAt[videoId];
+    return failed == null || now.difference(failed) >= videoCooldown;
+  }
+
+  void recordFailure(String videoId, DateTime now) {
+    _failedAt[videoId] = now;
+    // Keep the map small: only recent failures matter.
+    _failedAt.removeWhere((_, t) => now.difference(t) > videoCooldown);
+    if (++_consecutiveFailures >= maxConsecutiveFailures) {
+      _pausedUntil = now.add(pauseAfterFailures);
+    }
+  }
+
+  void recordSuccess(String videoId) {
+    _failedAt.remove(videoId);
+    _consecutiveFailures = 0;
+    _pausedUntil = null;
+  }
+}
+
 /// A second, independent way to get a song's audio, used only when yt-dlp could
 /// not (missing, out of date, blocked). It runs `youtube_explode_dart`, which
 /// shares no code, hosting or update path with yt-dlp, so a takedown or a break

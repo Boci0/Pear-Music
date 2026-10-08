@@ -323,17 +323,30 @@ class StreamCacheManager {
     return ytdlpCache;
   }
 
+  /// Test switch: build with `--dart-define=PM_FORCE_BACKUP_ENGINE=true` and
+  /// every fetch skips yt-dlp and goes straight to the backup engine, so the
+  /// backup can be tried on a device where yt-dlp works fine. Off (and compiled
+  /// out) in normal builds.
+  static const bool forceBackupEngine =
+      bool.fromEnvironment('PM_FORCE_BACKUP_ENGINE');
+
   /// Whether a song yt-dlp could not fetch is tried once more with the backup
   /// engine (see [BackupAudioEngine]). Set from the Settings switch.
   static bool backupEngineEnabled = true;
 
-  /// Which failures are worth a second engine. A video that is gone or a dead
-  /// network would fail the same way again; a missing, out-of-date, blocked or
-  /// unexplained yt-dlp failure might not.
+  /// Which failures are worth a second engine. A video that is gone, a dead
+  /// network, or YouTube refusing the connection (a bot check or rate limit)
+  /// would fail the same way again, and trying again only adds load while the
+  /// block is on; a missing, out-of-date or unexplained yt-dlp failure might
+  /// not. (On a phone test the backup was rate limited a moment after yt-dlp
+  /// got a bot check.)
   @visibleForTesting
   static bool backupEngineShouldRetry(StreamFetchFailureKind? kind) =>
       kind != StreamFetchFailureKind.unavailable &&
-      kind != StreamFetchFailureKind.network;
+      kind != StreamFetchFailureKind.network &&
+      kind != StreamFetchFailureKind.blocked;
+
+  static final BackupEngineGuard _backupGuard = BackupEngineGuard();
 
   /// Fetches [videoId] with the backup engine after yt-dlp failed. Returns the
   /// cached file, or null when the backup is off, not worth trying, or failed
@@ -348,6 +361,10 @@ class StreamCacheManager {
     if (!backupEngineEnabled) return null;
     if (!backupEngineShouldRetry(_lastFetchFailures[videoId]?.kind)) return null;
     if (token != _downloadInvocationToken) return null;
+    if (!_backupGuard.allow(videoId, DateTime.now())) {
+      DebugLog.write('[cache] Backup engine is resting, not trying it for $videoId');
+      return null;
+    }
     DebugLog.write('[cache] yt-dlp could not fetch $videoId, trying the backup engine');
     final result = await BackupAudioEngine.fetch(
       videoId,
@@ -361,8 +378,13 @@ class StreamCacheManager {
     final file = result.file;
     if (file == null) {
       DebugLog.write('[cache] Backup engine failed for $videoId: ${result.error}');
+      // A cancelled play is not the engine's failure.
+      if (result.error != 'cancelled') {
+        _backupGuard.recordFailure(videoId, DateTime.now());
+      }
       return null;
     }
+    _backupGuard.recordSuccess(videoId);
     _lastFetchFailures.remove(videoId);
     _cachedVideoIds.add(videoId);
     _setCachedTotalBytes(_cachedTotalBytes + await file.length());
@@ -1153,8 +1175,12 @@ class StreamCacheManager {
     try {
       final dir = await getCacheDirectory();
 
+      if (forceBackupEngine) {
+        DebugLog.write('[cache] PM_FORCE_BACKUP_ENGINE is on: skipping yt-dlp for $videoId');
+      }
+
       // Android embedded yt-dlp
-      if (YoutubeService.isEmbeddedYtDlpSupported) {
+      if (YoutubeService.isEmbeddedYtDlpSupported && !forceBackupEngine) {
         final tempPart = File(p.join(dir.path, '$videoId.m4a'));
         final processId = 'peerm-fast-$videoId-${DateTime.now().millisecondsSinceEpoch}';
         _activeProcessId = processId;
@@ -1246,7 +1272,7 @@ class StreamCacheManager {
         DebugLog.write('[cache] Desktop yt-dlp not found on disk, auto-downloading dependency...');
         bin = await YoutubeService.ensureYtDlpAvailable();
       }
-      if (bin != null) {
+      if (bin != null && !forceBackupEngine) {
         final binPath = bin;
         final outputTemplate = p.join(dir.path, '%(id)s.%(ext)s');
         final ytdlpCache = await getYtDlpCacheDirectory();
