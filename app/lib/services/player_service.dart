@@ -2007,12 +2007,25 @@ class PlayerService extends ChangeNotifier {
             AudioSource.file(file.path),
           );
         } catch (e) {
-          DebugLog.write('[player] Corrupted audio file for ${song.title} ($e). Pruning corrupted entry.');
-          unawaited(library.removeSong(song.id));
+          // Never delete the song here. Failing to open a file says little about
+          // the file: the audio backend may not have started, the output device
+          // may be busy, or the file may be locked for a moment. Removing the
+          // entry also deletes the user's copy, which cannot be undone, so the
+          // song stays and the user is told, with a retry.
+          DebugLog.write('[player] Could not open ${song.title} ($e). Keeping it in the library.');
           _pendingNaturalAdvance = false;
           _isLoadingTrack = false;
           _isAdvancing = false;
-          removeSongsFromQueue({song.id});
+          final message = 'Couldn\'t play "${song.title}": the audio engine could not open the '
+              'file. It is still in your library. Tap play to retry, or remove '
+              'it yourself if it is damaged.';
+          _setPlaybackError(PlaybackError(
+            song: song,
+            label: 'Couldn\'t open this file. Tap play to retry.',
+            message: message,
+          ));
+          _notifyUser(message);
+          notifyListeners();
           return;
         }
       }
