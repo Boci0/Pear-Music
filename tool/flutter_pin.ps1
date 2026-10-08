@@ -8,7 +8,7 @@
 # Usage (dot-source it, then run the SDK it returns):
 #   . "$PSScriptRoot\flutter_pin.ps1"
 #   $flutter = Get-PinnedFlutter -RepoRoot $repoRoot
-#   & $flutter build windows --release
+#   & $flutter build windows --release --no-pub
 #
 # Looks, in order, at $env:PEARMUSIC_FLUTTER_BIN, C:\flutter-<pin>\bin\flutter.bat, and the
 # flutter on PATH. Throws when none of them is the pinned version.

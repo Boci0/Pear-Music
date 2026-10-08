@@ -34,7 +34,7 @@ if (-not $SkipBuild) {
   Write-Host "[deploy_beta] Using $flutter"
   Push-Location (Join-Path $repoRoot 'app')
   try {
-    & $flutter build windows --release
+    & $flutter build windows --release --no-pub
     if ($LASTEXITCODE -ne 0) {
       throw "Build failed with exit code $LASTEXITCODE"
     }

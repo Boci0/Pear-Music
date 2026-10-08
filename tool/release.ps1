@@ -96,7 +96,9 @@ Assert-FileContains $installerIss "MyAppVersion `"$Version`""
 Write-Step 'Running flutter test'
 Push-Location (Join-Path $repoRoot 'app')
 try {
-  & $flutter test
+  # --no-pub: an implicit pub get deletes the Windows plugin links on a machine
+  # without symlink rights (no Developer Mode), which breaks the next build.
+  & $flutter test --no-pub
   if ($LASTEXITCODE -ne 0) { throw "flutter test failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
@@ -116,9 +118,9 @@ if ($LocalRelease) {
     Write-Step 'Building Android APKs (split per ABI)'
     Push-Location (Join-Path $repoRoot 'app')
     try {
-      & $flutter build apk --split-per-abi --release
+      & $flutter build apk --split-per-abi --release --no-pub
       if ($LASTEXITCODE -ne 0) { throw "Android build failed with exit code $LASTEXITCODE" }
-      & $flutter build windows --release
+      & $flutter build windows --release --no-pub
       if ($LASTEXITCODE -ne 0) { throw "Windows build failed with exit code $LASTEXITCODE" }
     } finally {
       Pop-Location
