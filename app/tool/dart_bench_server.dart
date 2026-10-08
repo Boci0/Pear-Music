@@ -22,7 +22,7 @@ Future<void> main(List<String> argv) async {
   await for (final request in server) {
     final segments = request.uri.pathSegments;
     final name = segments.isEmpty ? '' : segments.last;
-    final file = File('${dir.path}${sep}$name');
+    final file = File('${dir.path}$sep$name');
     if (file.existsSync()) {
       request.response.headers.contentType = ContentType('audio', 'mpeg');
       request.response.add(file.readAsBytesSync());

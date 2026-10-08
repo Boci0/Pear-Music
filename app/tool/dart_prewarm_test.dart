@@ -1,5 +1,4 @@
 // Does a pre-booted yt-dlp (spawned earlier, waiting on stdin) skip the boot cost?
-import 'dart:convert';
 import 'dart:io';
 
 Future<void> main() async {
@@ -47,18 +46,18 @@ Future<void> main() async {
   var sw = Stopwatch()..start();
   await feed(fresh, 'http://127.0.0.1:8123/a.mp3');
   final freshMs = await waitForFile('a_');
-  print('fresh spawn + feed: $freshMs ms (total ${sw.elapsedMilliseconds})');
+  stdout.writeln('fresh spawn + feed: $freshMs ms (total ${sw.elapsedMilliseconds})');
   await fresh.exitCode;
 
   // Pre-warmed: spawn, let it boot while idle, then feed.
   final warm = await spawn();
   warm.stdout.drain();
   warm.stderr.drain();
-  print('pre-booting a spare, waiting 6 s ...');
+  stdout.writeln('pre-booting a spare, waiting 6 s ...');
   await Future<void>.delayed(const Duration(seconds: 6));
   sw = Stopwatch()..start();
   await feed(warm, 'http://127.0.0.1:8123/b.mp3');
   final warmMs = await waitForFile('b_');
-  print('pre-warmed fetch: $warmMs ms (total ${sw.elapsedMilliseconds})');
+  stdout.writeln('pre-warmed fetch: $warmMs ms (total ${sw.elapsedMilliseconds})');
   await warm.exitCode;
 }

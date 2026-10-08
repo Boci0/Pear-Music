@@ -5,6 +5,9 @@
 //   flutter test tool/readme_shots/readme_shots_test.dart --update-goldens
 // The PNGs land in .github/screenshots/, which the README shows.
 
+// It is a widget test, just kept outside test/, so test-only hooks are fine here.
+// ignore_for_file: invalid_use_of_visible_for_testing_member
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
