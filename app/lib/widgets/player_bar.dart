@@ -293,7 +293,7 @@ class _MiniPlayerBackgroundProgress extends StatelessWidget {
             return const SizedBox.expand();
           }
           return StreamBuilder<Duration>(
-            stream: player.positionStream,
+            stream: player.uiPositionStream,
             initialData: player.position ?? Duration.zero,
             builder: (context, posSnapshot) {
               final posMs =

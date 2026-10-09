@@ -406,7 +406,15 @@ class NowPlayingPanel extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    _ProgressLine(player: player, color: control, theme: theme),
+                    // Ticks 4 times a second while playing: its own layer,
+                    // so a tick repaints this strip, not the whole pane.
+                    RepaintBoundary(
+                      child: _ProgressLine(
+                        player: player,
+                        color: control,
+                        theme: theme,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     PlayerVolumeRow(accent: control),
                     const SizedBox(height: 16),
@@ -515,7 +523,7 @@ class _ProgressLineState extends State<_ProgressLine> {
         final total = durSnapshot.data ?? player.duration ?? Duration.zero;
         final totalMs = total.inMilliseconds.toDouble();
         return StreamBuilder<Duration>(
-          stream: player.positionStream,
+          stream: player.uiPositionStream,
           initialData: player.position ?? Duration.zero,
           builder: (context, posSnapshot) {
             final playing = posSnapshot.data ?? player.position ?? Duration.zero;

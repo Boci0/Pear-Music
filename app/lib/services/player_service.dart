@@ -20,6 +20,7 @@ import 'library_service.dart';
 import 'loudness_service.dart';
 import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
+import 'position_thinning.dart';
 import 'recommendation_service.dart';
 import 'session_diagnostics.dart';
 import 'stream_cache_manager.dart';
@@ -1188,6 +1189,15 @@ class PlayerService extends ChangeNotifier {
     minPeriod: const Duration(milliseconds: 250),
     maxPeriod: const Duration(milliseconds: 250),
   );
+
+  /// [positionStream] thinned to about four updates a second (seeks still at
+  /// once), for read-outs that only show where the song is: the status bar
+  /// time, the Now Playing pane's progress line and the mini player's fill.
+  /// The engine also reports position on every playback event, about 15 times
+  /// a second on desktop, and each report redraws the window; see
+  /// [thinPositions]. Lyrics and the visualizer, which need fine timing, keep
+  /// the full-rate [positionStream].
+  late final Stream<Duration> uiPositionStream = thinPositions(positionStream);
 
   /// Live duration stream from underlying audio player.
   Stream<Duration?> get durationStream => _player.durationStream;

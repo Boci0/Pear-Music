@@ -29,7 +29,9 @@ class PearStatusBar extends StatelessWidget {
               style: const TextStyle(fontSize: 11.5, color: Colors.white54),
             ),
             const Spacer(),
-            const _PlaybackStatus(),
+            // The time ticks 4 times a second while playing: its own layer,
+            // so a tick repaints this text, not the whole window chrome.
+            const RepaintBoundary(child: _PlaybackStatus()),
             const SizedBox(width: 20),
             Text(
               'Pear Music v${UpdateService.displayVersion}',
@@ -68,7 +70,7 @@ class _PlaybackStatus extends StatelessWidget {
     }
 
     return StreamBuilder<Duration>(
-      stream: player.positionStream,
+      stream: player.uiPositionStream,
       initialData: player.position ?? Duration.zero,
       builder: (context, snapshot) {
         final position = snapshot.data ?? Duration.zero;

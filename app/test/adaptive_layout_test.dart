@@ -196,6 +196,46 @@ void main() {
     expect(find.text('Up Song 2'), findsOneWidget);
   });
 
+  testWidgets('ticking playback widgets repaint on their own layer', (
+    tester,
+  ) async {
+    // The pane's progress line and the status bar's time update 4 times a
+    // second while a song plays. Each needs its own repaint boundary inside
+    // its panel; otherwise every tick repaints the surrounding window chrome
+    // (panel shadows included), which showed up as GPU use during playback.
+    setViewport(tester, const Size(1600, 900));
+    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    void expectOwnLayer(Finder ticking, Finder panel, String what) {
+      expect(ticking, findsOneWidget, reason: what);
+      final nearest = find
+          .ancestor(of: ticking, matching: find.byType(RepaintBoundary))
+          .first;
+      expect(
+        find.descendant(
+          of: panel,
+          matching: find.byWidget(tester.widget(nearest)),
+        ),
+        findsOneWidget,
+        reason: '$what: its nearest repaint boundary must sit inside the panel',
+      );
+    }
+
+    expectOwnLayer(
+      find.byKey(const ValueKey('pane_progress')),
+      find.byKey(const ValueKey('now_playing_panel')),
+      'pane progress line',
+    );
+    final statusBar = find.byKey(const ValueKey('pear_status_bar'));
+    expectOwnLayer(
+      find.descendant(of: statusBar, matching: find.textContaining('Up Song 0')),
+      statusBar,
+      'status bar playback time',
+    );
+  });
+
   testWidgets('the compact pane progress line seeks on click and drag', (
     tester,
   ) async {
