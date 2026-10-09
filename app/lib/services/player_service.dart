@@ -1205,6 +1205,14 @@ class PlayerService extends ChangeNotifier {
   /// Starts an infinite radio mix based on [seedSong].
   /// If [seedSong] is already playing, playback continues uninterrupted at the current position.
   Future<void> startRadio(Song seedSong) async {
+    // A second start for the song whose radio is still loading (a double
+    // click) would cancel that load and skip its own, leaving the player on
+    // "connecting" with no sound.
+    if (queueSourceId == 'radio' &&
+        currentSong?.id == seedSong.id &&
+        (_isLoadingTrack || _isBufferingNext)) {
+      return;
+    }
     _lastInteraction = DateTime.now();
     _continuationToken = null;
     _isLoadingRecommendations = false;

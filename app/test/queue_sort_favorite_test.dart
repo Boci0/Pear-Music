@@ -574,6 +574,21 @@ void main() {
       expect(player.queueIndex, 0);
     });
 
+    test('startRadio on the seed that is still loading leaves the session alone', () async {
+      library.setSongsForTesting([songA, songB, songC, songD]);
+      await player.startRadio(songA);
+      expect(await player.fetchAndAppendRecommendations(), isTrue);
+      final queueBefore = player.queue.length;
+      expect(queueBefore, greaterThan(1));
+
+      // A double click lands while the first load is still in flight.
+      player.setBufferingForTesting(true);
+      await player.startRadio(songA);
+
+      expect(player.queue.length, queueBefore);
+      expect(player.queueSourceId, 'radio');
+    });
+
     test('Song.fromJson parses null or floating point size safely and provides default checksum', () {
       final json1 = {
         'id': 'test1',
