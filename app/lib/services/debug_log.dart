@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -38,6 +40,16 @@ class DebugLog {
   /// evidence always survives.
   static const int _maxBytes = 512 * 1024;
 
+  /// The newest half of a UTF-8 log, starting at a whole line. Decoding as
+  /// UTF-8 keeps non-English titles intact across a rotation.
+  @visibleForTesting
+  static String newestHalf(List<int> bytes) {
+    final text = utf8.decode(bytes, allowMalformed: true);
+    final half = text.length ~/ 2;
+    final lineStart = text.indexOf('\n', half);
+    return text.substring(lineStart < 0 ? half : lineStart + 1);
+  }
+
   static File? get file => _file;
 
   static void _ensureInit() {
@@ -49,9 +61,7 @@ class DebugLog {
         final f = File(p.join(dir.path, 'peerm_debug.log'));
         if (await f.exists() && await f.length() > _maxBytes) {
           // Rotate: keep only the newest half.
-          final bytes = await f.readAsBytes();
-          final text = String.fromCharCodes(bytes);
-          await f.writeAsString(text.substring(text.length ~/ 2));
+          await f.writeAsString(newestHalf(await f.readAsBytes()));
         }
         _file = f;
       } catch (_) {
