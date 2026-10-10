@@ -23,8 +23,9 @@
 #   -Notes         Commit message summary appended to "release: vX.Y.Z - " (required)
 #   -SkipBuild     Reuse existing artifacts in the expected build output paths
 #   -SkipPush      Bump, test, build and package but do not commit, tag or push
-#   -AllowEarly    Release even though the last release is under 7 days old
-#                  (the project limit is one release per week; the owner decides)
+#   -AllowEarly    Release even though a release already went out this week
+#                  (the project limit is one release per calendar week, weeks
+#                  starting on Monday; the owner decides)
 #   -LocalRelease  Also create the GitHub release from local artifacts instead
 #                  of relying on the tag-triggered CI workflow
 
@@ -69,15 +70,17 @@ Set-Location $repoRoot
 
 # ---- One release per week ----
 # Releases were shipping hours apart. Refuse a tagged release when the newest
-# tag is under 7 days old, before anything is bumped. -SkipPush never tags.
+# tag was made in the current calendar week (weeks start on Monday), before
+# anything is bumped. -SkipPush never tags.
 if (-not $SkipPush -and -not $AllowEarly) {
   $lastTag = (git for-each-ref --sort=-creatordate --count=1 --format='%(refname:short)|%(creatordate:iso-strict)' 'refs/tags/v*')
   if ($lastTag) {
     $lastName, $lastDate = $lastTag -split '\|', 2
-    $age = (Get-Date) - [datetime]::Parse($lastDate)
-    if ($age.TotalDays -lt 7) {
-      $next = ([datetime]::Parse($lastDate)).AddDays(7).ToString('yyyy-MM-dd HH:mm')
-      throw "One release per week: $lastName went out $([math]::Round($age.TotalDays, 1)) days ago. Next release is allowed from $next. Pass -AllowEarly only if the owner asked for it."
+    $today = (Get-Date).Date
+    $weekStart = $today.AddDays(-(([int]$today.DayOfWeek + 6) % 7))
+    if ([datetime]::Parse($lastDate) -ge $weekStart) {
+      $next = $weekStart.AddDays(7).ToString('yyyy-MM-dd (dddd)')
+      throw "One release per week: $lastName already went out this week. Next release is allowed from $next. Pass -AllowEarly only if the owner asked for it."
     }
   }
 }
