@@ -269,6 +269,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
           : await YouTubeSearchService.search(
               trimmed,
               limit: 60,
+              // Streams that are on now are mixed in among the first results.
+              includeLive: true,
               onFirstPage: (page) {
                 if (!mounted || token != _searchToken) return;
                 setState(() {

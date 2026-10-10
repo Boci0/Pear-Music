@@ -197,9 +197,51 @@ class YouTubeSearchService {
 
   /// Search YouTube for songs/videos matching [query].
   ///
+  /// With [includeLive], a few streams that are live right now are mixed in
+  /// among the first results: the Songs filter leaves them out entirely, so
+  /// they could not be found by a plain search. Only the search box asks for
+  /// this; the recommendation and radio lookups that share this method stay
+  /// songs only.
+  static Future<List<YouTubeSearchResult>> search(
+    String query, {
+    int limit = 20,
+    bool? allowVideoResults,
+    bool includeLive = false,
+    void Function(List<YouTubeSearchResult> firstPage)? onFirstPage,
+  }) async {
+    // Started first so it runs alongside the songs lookup. It never throws.
+    final live = includeLive ? searchLive(query, limit: 3) : null;
+    final songs = await _searchSongs(
+      query,
+      limit: limit,
+      allowVideoResults: allowVideoResults,
+      onFirstPage: onFirstPage,
+    );
+    if (live == null) return songs;
+    return mixLive(songs, await live);
+  }
+
+  /// Puts [live] among [songs], from [at] on, and drops a song row that is
+  /// the same video as a live one so it appears once, as live.
+  @visibleForTesting
+  static List<YouTubeSearchResult> mixLive(
+    List<YouTubeSearchResult> songs,
+    List<YouTubeSearchResult> live, {
+    int at = 3,
+  }) {
+    if (live.isEmpty) return songs;
+    final liveIds = {for (final l in live) l.videoId};
+    final rest = [
+      for (final s in songs)
+        if (!liveIds.contains(s.videoId)) s,
+    ];
+    final index = at < rest.length ? at : rest.length;
+    return [...rest.take(index), ...live, ...rest.skip(index)];
+  }
+
   /// When the expanded scope (video results) finds nothing, the search is
   /// repeated with it off so a query never comes back empty because of it.
-  static Future<List<YouTubeSearchResult>> search(
+  static Future<List<YouTubeSearchResult>> _searchSongs(
     String query, {
     int limit = 20,
     bool? allowVideoResults,

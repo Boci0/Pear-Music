@@ -152,4 +152,31 @@ void main() {
     expect(items.first.thumbnailUrl, 'https://i/a1.jpg');
     expect(YouTubeSearchService.parseLiveResults(null), isEmpty);
   });
+
+  test('live streams are mixed in after the first songs, once each', () {
+    YouTubeSearchResult song(String id) =>
+        YouTubeSearchResult(videoId: id, title: id, author: 'a');
+    YouTubeSearchResult live(String id) =>
+        YouTubeSearchResult(videoId: id, title: id, author: 'a', isLive: true);
+
+    final mixed = YouTubeSearchService.mixLive(
+      [song('s1'), song('s2'), song('s3'), song('s4'), song('dup')],
+      [live('l1'), live('dup')],
+    );
+    expect(
+      mixed.map((r) => r.videoId),
+      ['s1', 's2', 's3', 'l1', 'dup', 's4'],
+    );
+    expect(mixed.firstWhere((r) => r.videoId == 'dup').isLive, isTrue);
+
+    // Few songs: the streams go at the end rather than being dropped.
+    expect(
+      YouTubeSearchService.mixLive([song('s1')], [live('l1')])
+          .map((r) => r.videoId),
+      ['s1', 'l1'],
+    );
+    // Nothing live: the songs come back unchanged.
+    final only = [song('s1')];
+    expect(identical(YouTubeSearchService.mixLive(only, const []), only), isTrue);
+  });
 }
