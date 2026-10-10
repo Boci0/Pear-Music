@@ -236,6 +236,16 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       imageWidget = _placeholder(scheme);
     }
 
+    // The same provider (so the same cached decode) the card's image uses.
+    final ImageProvider? coverProvider = effectiveNetworkUrl != null &&
+            effectiveNetworkUrl.isNotEmpty
+        ? ResizeImage.resizeIfNeeded(
+            targetPx, null, NetworkImage(effectiveNetworkUrl))
+        : (initialBytes != null && initialBytes.isNotEmpty
+            ? ResizeImage.resizeIfNeeded(
+                targetPx, null, MemoryImage(initialBytes))
+            : null);
+
     final currentArtKey = effectiveNetworkUrl ??
         (song?.id ?? (initialBytes != null ? '${initialBytes.hashCode}' : 'placeholder'));
 
@@ -353,6 +363,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           player: playerService,
                           accentColor: baseShadowColor,
                           onBrightArt: darkText,
+                          cover: coverProvider,
                         );
 
                   return Stack(

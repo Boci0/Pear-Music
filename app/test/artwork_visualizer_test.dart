@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -173,46 +175,56 @@ void main() {
   });
 
 
-  testWidgets('on a phone the bars are driven by a timer and still grow and park',
+  testWidgets('a cover bakes into the band behind the wave and is optional',
       (tester) async {
-    ArtworkVisualizer.debugPhoneRate = true;
-    addTearDown(() => ArtworkVisualizer.debugPhoneRate = null);
     final player = _FakePlayerService();
+    late final Uint8List png;
+    await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawRect(
+        const Rect.fromLTWH(0, 0, 40, 40),
+        Paint()..color = const Color(0xFF3366CC),
+      );
+      final image = await recorder.endRecording().toImage(40, 40);
+      png = (await image.toByteData(format: ui.ImageByteFormat.png))!
+          .buffer
+          .asUint8List();
+    });
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SizedBox(
-            width: 300,
-            height: 150,
-            child: ArtworkVisualizer(
-              player: player,
-              accentColor: Colors.teal,
+    Widget host({ImageProvider? cover, bool bright = false}) => MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 150,
+              child: ArtworkVisualizer(
+                player: player,
+                accentColor: Colors.teal,
+                onBrightArt: bright,
+                cover: cover,
+              ),
             ),
           ),
-        ),
-      ),
-    );
+        );
+
+    await tester.pumpWidget(host());
     final state = tester.state(find.byType(ArtworkVisualizer)) as dynamic;
-    expect(state.debugActivity as double, 0.0);
+    expect(state.debugHasBand as bool, isFalse);
 
-    player.setPlaying(true);
+    await tester.pumpWidget(host(cover: MemoryImage(png)));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)));
     await tester.pump();
-    // The timer runs on fake time and the physics read the real clock.
-    for (var i = 0; i < 14; i++) {
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 25)));
-      await tester.pump(const Duration(milliseconds: 40));
-    }
-    expect(state.debugActivity as double, greaterThan(0.5));
+    expect(state.debugHasBand as bool, isTrue);
 
-    player.setPlaying(false);
-    for (var i = 0; i < 40; i++) {
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 25)));
-      await tester.pump(const Duration(milliseconds: 40));
-    }
-    expect(state.debugActivity as double, 0.0);
+    // A change of polarity re-bakes from the kept cover.
+    await tester.pumpWidget(host(cover: MemoryImage(png), bright: true));
+    await tester.pump();
+    expect(state.debugHasBand as bool, isTrue);
+
+    // Losing the cover falls back to the plain shade.
+    await tester.pumpWidget(host());
+    await tester.pump();
+    expect(state.debugHasBand as bool, isFalse);
 
     await tester.pumpWidget(const SizedBox.shrink());
     player.dispose();

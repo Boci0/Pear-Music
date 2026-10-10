@@ -1,11 +1,10 @@
-import 'dart:io';
+import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
-import '../../services/ambient_ticker.dart';
 import '../../services/player_service.dart';
 import '../../services/visualizer_feed.dart';
+import 'cover_band.dart';
 import 'ribbon_paths.dart';
 import 'visualizer_permission.dart';
 
@@ -24,16 +23,18 @@ class ArtworkVisualizer extends StatefulWidget {
   /// disappear into the artwork (the same call the lyrics make for dark text).
   final bool onBrightArt;
 
+  /// The cover the wave sits on, the same provider the card shows so its
+  /// decode is shared. A soft band of it is baked behind the wave; without
+  /// one (no cover yet) the wave sits on a plain shade of the accent.
+  final ImageProvider? cover;
+
   const ArtworkVisualizer({
     super.key,
     required this.player,
     required this.accentColor,
     this.onBrightArt = false,
+    this.cover,
   });
-
-  /// Test seam: forces the phone (timer) or the desktop (ticker) driver.
-  @visibleForTesting
-  static bool? debugPhoneRate;
 
   /// The tallest crest, as a share of the card's height.
   static const double maxBarFraction = 0.36;
@@ -57,55 +58,34 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   final SpectrumPhysics _physics = SpectrumPhysics();
   late final AnimationController _tickerController;
 
-  /// Phones update the bars on the player's shared 30 Hz [AmbientTicker]
-  /// instead of a vsync ticker. A ticker wakes the UI thread and re-draws the
-  /// whole player scene (blurred artwork, glow) at the display's rate, which
-  /// was about 80% of a core on a test phone. It has to be that shared clock,
-  /// not a timer of its own: two unaligned 30 Hz timers are still two frames
-  /// per 33 ms, so the glows and the bars share ticks and their frames
-  /// coalesce. Desktop keeps the ticker, where the extra frames are cheap.
-  bool _ambientAttached = false;
+  bool get _driverRunning => _tickerController.isAnimating;
 
-  bool get _timerDriven =>
-      ArtworkVisualizer.debugPhoneRate ??
-      (!kIsWeb && (Platform.isAndroid || Platform.isIOS));
+  void _startDriver() => _tickerController.repeat();
 
-  bool get _driverRunning =>
-      _timerDriven ? _ambientAttached : _tickerController.isAnimating;
-
-  void _onAmbientTick(Duration _) => _onTick();
-
-  void _startDriver() {
-    if (_timerDriven) {
-      if (!_ambientAttached) {
-        _ambientAttached = true;
-        AmbientTicker.instance.addListener(_onAmbientTick);
-      }
-    } else {
-      _tickerController.repeat();
-    }
-  }
-
-  void _stopDriver() {
-    if (_ambientAttached) {
-      _ambientAttached = false;
-      AmbientTicker.instance.removeListener(_onAmbientTick);
-    }
-    _tickerController.stop();
-  }
-
-  /// How many "60 fps frames" one step may cover: a 30 Hz step is two.
-  double get _maxFrames => _timerDriven ? 3.0 : 1.0;
+  void _stopDriver() => _tickerController.stop();
 
   /// For tests: how far the bars have grown in, 0..1.
   @visibleForTesting
   double get debugActivity => _physics.activity;
 
+  /// For tests: whether the cover band is baked and behind the wave.
+  @visibleForTesting
+  bool get debugHasBand => _band != null;
+
   /// Repaint gate: the canvas repaints on every tick, so the bars move at the
-  /// display's refresh rate instead of a stepped 30 fps. Repaints stay cheap
-  /// because the painter shares one gradient shader across all bars per frame,
-  /// and the whole ticker parks whenever the window is unfocused or paused.
+  /// display's refresh rate instead of a stepped 30 fps. On a phone each
+  /// presented frame costs about half a CPU point per frame a second, the
+  /// whole scene's, not the wave's; the ticker parks whenever the window is
+  /// unfocused or the song is paused, so nothing runs while nothing moves.
   final ValueNotifier<int> _paintTick = ValueNotifier<int>(0);
+
+  /// The baked band behind the wave and what it is baked from, kept so a
+  /// change of polarity (bright or dark cover text) re-bakes without
+  /// resolving the cover again.
+  ImageStream? _coverStream;
+  ImageStreamListener? _coverListener;
+  ImageInfo? _coverInfo;
+  ui.Image? _band;
 
   /// Slightly under one 60 Hz frame, so a steady 60 Hz display is never
   /// skipped by timer jitter. Repainting at most about 60 times a second is
@@ -129,6 +109,50 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     _feed.changes.addListener(_onFeedChanged);
     _syncTicker();
     VisualizerPermission.askOnce(context);
+    _resolveCover();
+  }
+
+  void _resolveCover() {
+    final old = _coverListener;
+    if (old != null) _coverStream?.removeListener(old);
+    _coverStream = null;
+    final provider = widget.cover;
+    if (provider == null) {
+      _setCover(null);
+      return;
+    }
+    final listener = ImageStreamListener(
+      (info, _) {
+        if (mounted) {
+          _setCover(info.clone());
+        }
+      },
+      onError: (_, _) {
+        if (mounted) _setCover(null);
+      },
+    );
+    _coverListener = listener;
+    _coverStream = provider.resolve(ImageConfiguration.empty)
+      ..addListener(listener);
+  }
+
+  void _setCover(ImageInfo? info) {
+    _coverInfo?.dispose();
+    _coverInfo = info;
+    _bake();
+  }
+
+  void _bake() {
+    final info = _coverInfo;
+    final band = info == null
+        ? null
+        : CoverBand.bake(info.image, onBrightArt: widget.onBrightArt);
+    _band?.dispose();
+    if (mounted) {
+      setState(() => _band = band);
+    } else {
+      _band = band;
+    }
   }
 
   @override
@@ -138,6 +162,12 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
       _feed.release();
       _feed.acquire(widget.player);
       _syncTicker();
+    }
+    if (oldWidget.cover != widget.cover) {
+      _resolveCover();
+    } else if (oldWidget.onBrightArt != widget.onBrightArt &&
+        _coverInfo != null) {
+      _bake();
     }
   }
 
@@ -165,7 +195,6 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     final settled = _physics.step(
       playing: playing,
       targets: _feed.targetBins,
-      maxFrames: _maxFrames,
     );
     if (settled) {
       // Stop the driver whenever rendering is inactive (paused, backgrounded
@@ -187,6 +216,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
   @override
   void dispose() {
+    final listener = _coverListener;
+    if (listener != null) _coverStream?.removeListener(listener);
+    _coverInfo?.dispose();
+    _band?.dispose();
     _stopDriver();
     _feed.changes.removeListener(_onFeedChanged);
     _feed.release();
@@ -202,13 +235,15 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
         fit: StackFit.expand,
         children: [
           // Static backdrop layer: rendered once and cached, so the per-frame
-          // spectrum repaint never rebuilds the vignette gradient.
+          // spectrum repaint never rebuilds it.
           RepaintBoundary(
             child: CustomPaint(
-              painter: _VignettePainter(
-                widget.accentColor,
-                onBrightArt: widget.onBrightArt,
-              ),
+              painter: _band != null
+                  ? _BandPainter(_band!)
+                  : _VignettePainter(
+                      widget.accentColor,
+                      onBrightArt: widget.onBrightArt,
+                    ),
             ),
           ),
           // No AnimatedBuilder here: repaints are driven by [_paintTick]
@@ -272,6 +307,29 @@ class _VignettePainter extends CustomPainter {
       oldDelegate.onBrightArt != onBrightArt;
 }
 
+/// Draws the baked [CoverBand] over the bottom of the card.
+class _BandPainter extends CustomPainter {
+  const _BandPainter(this.band);
+
+  final ui.Image band;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final top = size.height * CoverBand.top;
+    canvas.drawImageRect(
+      band,
+      Rect.fromLTWH(0, 0, band.width.toDouble(), band.height.toDouble()),
+      Rect.fromLTRB(0, top, size.width, size.height),
+      Paint()..filterQuality = FilterQuality.low,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BandPainter oldDelegate) =>
+      oldDelegate.band != band;
+}
+
 class _ArtworkVisualizerPainter extends CustomPainter {
   final Color accentColor;
   final bool onBrightArt;
@@ -332,20 +390,18 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     // turns into a deep shade of the accent with a light edge instead.
     final ink = _deepInk(accentColor);
     final light = Color.lerp(accentColor, Colors.white, 0.6)!;
-    final fillTop = onBrightArt
-        ? ink.withValues(alpha: 0.30 * fade)
-        : light.withValues(alpha: 0.58 * fade);
+    final fillTop = (onBrightArt ? ink : light).withValues(alpha: 0.30 * fade);
     final fillBottom = onBrightArt
         ? Color.lerp(accentColor, ink, 0.5)!.withValues(alpha: 0.10 * fade)
-        : accentColor.withValues(alpha: 0.22 * fade);
-    final ghostColor = (onBrightArt ? ink : light)
-        .withValues(alpha: (onBrightArt ? 0.16 : 0.18) * fade);
+        : accentColor.withValues(alpha: 0.10 * fade);
+    final ghostColor =
+        (onBrightArt ? ink : light).withValues(alpha: 0.12 * fade);
     final crestColor = onBrightArt ? ink : Colors.white;
     // A thin opposite-tone edge keeps the crest readable on any cover: which
     // polarity a cover wants is guessed from its middle, but the wave sits
     // along the bottom, where it can be brighter or darker than that.
     final edgeColor = (onBrightArt ? Colors.white : Colors.black)
-        .withValues(alpha: (onBrightArt ? 0.46 : 0.28) * fade);
+        .withValues(alpha: (onBrightArt ? 0.30 : 0.14) * fade);
 
     // The fill runs down to the card's bottom edge so the wave sits in the
     // cover rather than on a stripe of bare art; the crest keeps its floor.
@@ -369,7 +425,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
       crest,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4.4
+        ..strokeWidth = 3.4
         ..strokeJoin = StrokeJoin.round
         ..color = edgeColor,
     );
@@ -377,9 +433,18 @@ class _ArtworkVisualizerPainter extends CustomPainter {
       crest,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
+        ..strokeWidth = 1.8
         ..strokeJoin = StrokeJoin.round
-        ..color = crestColor.withValues(alpha: 0.95 * fade),
+        // Quieter at the peaks, firmer where the wave is low, so the crest
+        // reads as the edge of the fill rather than a wire laid over it.
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            crestColor.withValues(alpha: 0.55 * fade),
+            crestColor.withValues(alpha: 0.85 * fade),
+          ],
+        ).createShader(Rect.fromLTRB(0, bandTop, size.width, baseY)),
     );
   }
 

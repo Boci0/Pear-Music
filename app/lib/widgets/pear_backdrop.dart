@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -28,6 +29,11 @@ class PearBackdrop extends StatefulWidget {
   @visibleForTesting
   static Future<ui.Image> renderTile(double dpr) =>
       _PearBackdropState._render(dpr);
+
+  /// Test seam: forces the one-image draw on or off (on by default on
+  /// phones only).
+  @visibleForTesting
+  static bool? debugBake;
 
   @override
   State<PearBackdrop> createState() => _PearBackdropState();
@@ -67,6 +73,19 @@ class _PearBackdropState extends State<PearBackdrop> {
 
   int _generation = 0;
 
+  /// The finished backdrop as one image. Impeller on a phone re-rasterises
+  /// the whole scene every frame, so the five full-screen passes the backdrop
+  /// is made of (canvas, three glows, watermark) were being paid for on every
+  /// frame the player drew; measured at about 5 CPU points at 60 frames a
+  /// second. Desktop GPUs do not notice them.
+  final _BackdropBake _bake = _BackdropBake();
+
+  bool get _bakes =>
+      PearBackdrop.debugBake ??
+      (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS));
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -87,6 +106,7 @@ class _PearBackdropState extends State<PearBackdrop> {
   @override
   void dispose() {
     _generation++;
+    _bake.dispose();
     super.dispose();
   }
 
@@ -166,10 +186,41 @@ class _PearBackdropState extends State<PearBackdrop> {
           scheme: Theme.of(context).colorScheme,
           tile: _tileImage,
           tileDpr: _tileDpr,
+          bake: _bakes ? _bake : null,
         ),
         size: Size.infinite,
       ),
     );
+  }
+}
+
+/// Holds the backdrop drawn once into an image, redrawn only when its
+/// inputs (size, colours, watermark tile, pixel ratio) change.
+class _BackdropBake {
+  ui.Image? _image;
+  Object? _key;
+
+  ui.Image get(Size size, double ratio, Object key, void Function(Canvas) draw) {
+    final image = _image;
+    if (image != null && _key == key) return image;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(ratio);
+    draw(canvas);
+    final picture = recorder.endRecording();
+    final baked = picture.toImageSync(
+      (size.width * ratio).ceil(),
+      (size.height * ratio).ceil(),
+    );
+    picture.dispose();
+    // A frame already recorded keeps its own reference to the old image.
+    image?.dispose();
+    _key = key;
+    return _image = baked;
+  }
+
+  void dispose() {
+    _image?.dispose();
+    _image = null;
   }
 }
 
@@ -178,7 +229,10 @@ class _BackdropPainter extends CustomPainter {
     required this.scheme,
     required this.tile,
     required this.tileDpr,
+    this.bake,
   });
+
+  final _BackdropBake? bake;
 
   final ColorScheme scheme;
   final ui.Image? tile;
@@ -198,6 +252,33 @@ class _BackdropPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final bake = this.bake;
+    if (bake == null || size.isEmpty) {
+      _draw(canvas, size);
+      return;
+    }
+    final image = bake.get(
+      size,
+      tileDpr,
+      (
+        size,
+        scheme.surface,
+        scheme.primary,
+        scheme.secondary,
+        scheme.tertiary,
+        tile,
+        tileDpr,
+      ),
+      (c) => _draw(c, size),
+    );
+    canvas
+      ..save()
+      ..scale(1 / tileDpr)
+      ..drawImage(image, Offset.zero, Paint())
+      ..restore();
+  }
+
+  void _draw(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     canvas.drawRect(rect, Paint()..color = scheme.surface);
 

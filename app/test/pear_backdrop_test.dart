@@ -97,4 +97,63 @@ void main() {
     // Drawn 2x too large, the 2x capture would have about half the edges.
     expect(atTwo, closeTo(atOne, atOne * 0.2));
   });
+
+  testWidgets('the one-image draw matches the live draw', (tester) async {
+    final boundary = GlobalKey();
+
+    Future<List<int>> sample(bool bake) async {
+      PearBackdrop.debugBake = bake;
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(devicePixelRatio: 2.0),
+          child: Theme(
+            data: ThemeData(
+              colorScheme: const ColorScheme.dark(
+                surface: Color(0xFF101014),
+                primary: Color(0xFFE0568E),
+                secondary: Color(0xFF2AA3B8),
+                tertiary: Color(0xFFFFB27A),
+              ),
+            ),
+            child: Center(
+              child: RepaintBoundary(
+                key: boundary,
+                child: const SizedBox(
+                  width: 300,
+                  height: 500,
+                  child: PearBackdrop(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      final render =
+          boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      return (await tester.runAsync(() async {
+        final image = await render.toImage();
+        final data = (await image.toByteData())!;
+        final out = <int>[];
+        for (final (x, y) in [(5, 5), (150, 250), (290, 490), (40, 400)]) {
+          final i = (y * image.width + x) * 4;
+          out.addAll([for (var k = 0; k < 4; k++) data.getUint8(i + k)]);
+        }
+        return out;
+      }))!;
+    }
+
+    addTearDown(() => PearBackdrop.debugBake = null);
+    final live = await sample(false);
+    final baked = await sample(true);
+    expect(baked.length, live.length);
+    for (var i = 0; i < live.length; i++) {
+      expect((baked[i] - live[i]).abs(), lessThanOrEqualTo(2), reason: 'byte $i');
+    }
+  });
 }
