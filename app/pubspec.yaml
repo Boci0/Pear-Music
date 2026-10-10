@@ -79,6 +79,12 @@ dev_dependencies:
 dependency_overrides:
   audio_service:
     path: third_party/audio_service
+  # Patched copy: the upstream FFT scaled every frame by its own loudest bin,
+  # which pinned the visualizer's peak at 1.0 and flattened it (see
+  # third_party/system_audio_visualizer/windows/fft_processor.cpp). GPL-3.0,
+  # license file kept in that folder.
+  system_audio_visualizer:
+    path: third_party/system_audio_visualizer
 
 
 # For information on the generic Dart part of this file, see the

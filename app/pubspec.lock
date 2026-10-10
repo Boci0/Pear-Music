@@ -877,10 +877,9 @@ packages:
   system_audio_visualizer:
     dependency: "direct main"
     description:
-      name: system_audio_visualizer
-      sha256: adf8ef4f277a5386c8f9aa6d42afc32fddb866ac14bc4a38740f5fde87da41d2
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/system_audio_visualizer"
+      relative: true
+    source: path
     version: "0.0.1"
   term_glyph:
     dependency: transitive
