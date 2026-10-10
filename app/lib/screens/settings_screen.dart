@@ -235,6 +235,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
+                  secondary: const Icon(Icons.view_headline_rounded),
+                  title: const Text('Bars on the mini player'),
+                  subtitle: const Text('Uses more battery'),
+                  value: identity.miniVisualizer,
+                  // The bars come from the visualizer, so they need it on.
+                  onChanged: identity.synthesizerBar
+                      ? (val) async {
+                          TactileFeedback.selection();
+                          await controller.updateMiniVisualizer(val);
+                        }
+                      : null,
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
                   secondary: const Icon(Icons.battery_saver_rounded),
                   title: const Text('Reduced Effects'),
                   subtitle: const Text(

@@ -1355,6 +1355,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> updateMiniVisualizer(bool val) async {
+    if (identity.miniVisualizer == val) return;
+    await identity.setMiniVisualizer(val);
+    notifyListeners();
+  }
+
   Future<void> updateVisualizerGlow(bool val) async {
     await identity.setVisualizerGlow(val);
     notifyListeners();

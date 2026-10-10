@@ -41,11 +41,13 @@ class PlayerBar extends StatelessWidget {
 
     final screenWidth = MediaQuery.sizeOf(context).width;
     final hMargin = screenWidth < 380 ? 10.0 : 16.0;
-    // The visualizer setting also draws soft bars behind the mini player,
-    // unless Reduced Effects is on (it exists to cut repainting).
+    // Soft bars behind the mini player are their own opt-in setting, on top
+    // of the visualizer itself, and never while Reduced Effects is on (it
+    // exists to cut repainting).
     final showVisualizer = context.select<AppController?, bool>(
       (c) =>
           (c?.identity.synthesizerBar ?? false) &&
+          (c?.identity.miniVisualizer ?? false) &&
           !(c?.identity.reducedEffects ?? false),
     );
 

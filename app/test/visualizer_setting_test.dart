@@ -27,6 +27,19 @@ void main() {
         reason: 'the audio access is explained the first time it is shown');
   });
 
+  test('bars on the mini player are opt-in and the choice is kept', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final identity = await load();
+    expect(identity.miniVisualizer, isFalse);
+
+    await identity.setMiniVisualizer(true);
+    final prefs = await SharedPreferences.getInstance();
+    expect(IdentityService(prefs).miniVisualizer, isTrue);
+
+    await identity.setMiniVisualizer(false);
+    expect(IdentityService(prefs).miniVisualizer, isFalse);
+  });
+
   test('having been told what the audio access is for is remembered', () async {
     final identity = await load();
     await identity.setVisualizerAudioExplained(true);

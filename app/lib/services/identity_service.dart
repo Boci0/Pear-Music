@@ -41,6 +41,7 @@ class IdentityService extends ChangeNotifier {
   static const _backupEngineKey = 'peerm_backup_engine';
   static const _fastEngineKey = 'peerm_fast_engine';
   static const _visualizerAudioExplainedKey = 'peerm_visualizer_audio_explained';
+  static const _miniVisualizerKey = 'peerm_mini_visualizer';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -63,6 +64,7 @@ class IdentityService extends ChangeNotifier {
   late bool _backupEngine;
   late bool _fastEngine;
   late bool _visualizerAudioExplained;
+  late bool _miniVisualizer;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -109,6 +111,9 @@ class IdentityService extends ChangeNotifier {
     _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
     _visualizerAudioExplained =
         _prefs.getBool(_visualizerAudioExplainedKey) ?? false;
+    // Off by default: bars behind the mini player redraw the blurred glass
+    // under them all through playback, which is the costly part.
+    _miniVisualizer = _prefs.getBool(_miniVisualizerKey) ?? false;
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
@@ -304,6 +309,18 @@ class IdentityService extends ChangeNotifier {
     if (_synthesizerBar == value) return;
     _synthesizerBar = value;
     await _prefs.setBool(_synthesizerBarKey, value);
+    notifyListeners();
+  }
+
+  /// Whether soft bars also play behind the mini player. Needs [synthesizerBar]
+  /// as well. Opt-in because it costs noticeably more processing than the
+  /// visualizer on the player screen alone.
+  bool get miniVisualizer => _miniVisualizer;
+
+  Future<void> setMiniVisualizer(bool value) async {
+    if (_miniVisualizer == value) return;
+    _miniVisualizer = value;
+    await _prefs.setBool(_miniVisualizerKey, value);
     notifyListeners();
   }
 
