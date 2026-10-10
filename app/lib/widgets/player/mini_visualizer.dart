@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
 import '../../services/visualizer_feed.dart';
+import 'ribbon_paths.dart';
 
-/// The visualizer as a quiet backdrop for the mini player: soft bars rising
-/// from its bottom edge behind the title and controls, so the music is visible
+/// The visualizer as a quiet edge for the mini player: a thin wave along its
+/// bottom edge, under the thumbnail and controls, so the music is visible
 /// outside the full player too.
 ///
 /// It reads the same [VisualizerFeed] as the artwork visualizer and has its own
@@ -157,39 +158,60 @@ class _MiniVisualizerPainter extends CustomPainter {
     final act = physics.activity;
     if (act <= 0.003 || size.width <= 0 || size.height <= 0) return;
 
-    const int bars = VisualizerFeed.barCount;
-    const double gap = 3.0;
-    final barWidth = ((size.width - gap * (bars - 1)) / bars).clamp(2.0, 9.0);
-    final span = bars * barWidth + gap * (bars - 1);
-    final startX = (size.width - span) / 2.0;
-    final maxHeight = size.height * 0.78;
-    final radius = Radius.circular(barWidth / 2.0);
+    // A thin wave along the pill's bottom edge, the same shape as the one on
+    // the player card: low enough to sit under the thumbnail and controls and
+    // clear of the title, so it is a texture on the edge, not a second layer
+    // of content to read.
+    final baseY = size.height - 3;
+    final maxH = (size.height * 0.34).clamp(10.0, 22.0);
+    final live = ribbonPoints(
+      physics.display,
+      width: size.width,
+      baseY: baseY,
+      maxHeight: maxH,
+      padding: 0,
+      floor: 1.5,
+      scale: act,
+    );
+    if (live.length < 2) return;
+    final ghost = ribbonPoints(
+      physics.trail,
+      width: size.width,
+      baseY: baseY,
+      maxHeight: maxH,
+      padding: 0,
+      floor: 1.5,
+      scale: act,
+    );
+    final light = Color.lerp(color, Colors.white, 0.6)!;
 
-    // Faint at the base and fainter at the tips: a texture behind the text,
-    // not a second layer of content to read.
-    final paint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: [
-          color.withValues(alpha: 0.26 * act),
-          color.withValues(alpha: 0.10 * act),
-        ],
-      ).createShader(Rect.fromLTWH(0, size.height - maxHeight, size.width, maxHeight));
-
-    for (var i = 0; i < bars; i++) {
-      final amp = physics.display[i].clamp(0.0, 1.0);
-      // A bar never quite disappears while playing, so the row reads as a row.
-      final h = 3.0 + (maxHeight - 3.0) * amp * act;
-      final x = startX + i * (barWidth + gap);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, size.height - h, barWidth, h),
-          radius,
-        ),
-        paint,
-      );
-    }
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(0, baseY - maxH - 4, size.width, size.height));
+    canvas.drawPath(
+      ribbonCurve(ghost, closeAtY: baseY),
+      Paint()..color = light.withValues(alpha: 0.10 * act),
+    );
+    canvas.drawPath(
+      ribbonCurve(live, closeAtY: baseY),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            light.withValues(alpha: 0.50 * act),
+            color.withValues(alpha: 0.18 * act),
+          ],
+        ).createShader(Rect.fromLTWH(0, baseY - maxH, size.width, maxH)),
+    );
+    canvas.drawPath(
+      ribbonCurve(live),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..strokeJoin = StrokeJoin.round
+        ..color = Colors.white.withValues(alpha: 0.85 * act),
+    );
+    canvas.restore();
   }
 
   @override

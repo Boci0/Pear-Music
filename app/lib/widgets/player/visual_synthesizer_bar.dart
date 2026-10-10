@@ -6,13 +6,15 @@ import 'package:flutter/material.dart';
 import '../../services/ambient_ticker.dart';
 import '../../services/player_service.dart';
 import '../../services/visualizer_feed.dart';
+import 'ribbon_paths.dart';
 import 'visualizer_permission.dart';
 
-/// An audio-reactive "butterfly" spectrum visualizer taking the full space of the album artwork.
-/// Bars are mirrored around the centre: the bass bulges from the middle and the
-/// treble flutters on both outer edges, so the spectrum always looks balanced
-/// (no more left-heavy bias). Physics are time-based (frame-rate independent)
-/// with a snappy rise, altitude gravity, a soft ceiling and ghost peak trails.
+/// An audio-reactive "butterfly" spectrum visualizer along the bottom of the
+/// album artwork, drawn as one soft wave with a bright crest.
+/// The wave is mirrored around the centre: the bass swells in the middle and
+/// the treble flutters at both ends, so the spectrum always looks balanced.
+/// Physics are time-based (frame-rate independent) with a snappy rise,
+/// altitude gravity, a soft ceiling and a ghost of the recent peaks behind it.
 /// Native FFT on Windows/Android, harmonic modeling fallback.
 class ArtworkVisualizer extends StatefulWidget {
   final PlayerService player;
@@ -33,8 +35,8 @@ class ArtworkVisualizer extends StatefulWidget {
   @visibleForTesting
   static bool? debugPhoneRate;
 
-  /// The tallest bar, as a share of the card's height.
-  static const double maxBarFraction = 0.38;
+  /// The tallest crest, as a share of the card's height.
+  static const double maxBarFraction = 0.36;
 
   /// Gap between the bars and the card's bottom edge.
   static const double bottomPadding = 12.0;
@@ -292,123 +294,90 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0) return;
     final act = activity();
 
-    // Mirrored "butterfly" spectrum bars across the full card width
-    const int totalBars = 24;
-    const double spacing = 4.0;
-    const double horizontalPadding = 16.0;
-    final availableWidth = size.width - (horizontalPadding * 2.0);
-    final barWidth = ((availableWidth - (spacing * (totalBars - 1))) / totalBars).clamp(3.0, 9.5);
-    final totalSpan = (totalBars * barWidth) + (spacing * (totalBars - 1));
-    final startX = (size.width - totalSpan) / 2.0;
+    // One soft wave across the card, mirrored about the centre so the bass
+    // swells in the middle and the treble flutters at both ends. A filled
+    // shape with a bright crest, and behind it a slower "ghost" of the recent
+    // peaks, instead of a row of separate bars.
+    final baseY = size.height - ArtworkVisualizer.bottomPadding;
+    final maxH = size.height * ArtworkVisualizer.maxBarFraction;
+    final bandTop = baseY - maxH;
+    final fade = 0.45 + 0.55 * act;
 
-    const double bottomPadding = ArtworkVisualizer.bottomPadding;
-    final maxBarHeight = size.height * ArtworkVisualizer.maxBarFraction;
-    const double minBarHeight = 4.0;
+    // Edge to edge: the card's rounded corners trim it, so it never ends in
+    // a vertical side.
+    final live = ribbonPoints(
+      liveBins,
+      width: size.width,
+      baseY: baseY,
+      maxHeight: maxH,
+      padding: 0,
+      scale: act,
+    );
+    final ghost = ribbonPoints(
+      trailBins,
+      width: size.width,
+      baseY: baseY,
+      maxHeight: maxH,
+      padding: 0,
+      scale: act,
+    );
+    if (live.length < 2) return;
 
-    final radius = Radius.circular(barWidth / 2.0);
-    // Translucent at the base so the artwork shows through, brighter at the
-    // tip: the bars read as light on the art, not solid blocks over it.
-    //
-    // On a bright cover that light-on-light all but vanishes, so the bars turn
-    // into a deep shade of the accent instead, darkest (and most opaque) at
-    // the tip where they stand against the most artwork.
+    // Translucent at the base so the artwork shows through, brightest at the
+    // crest. On a bright cover light-on-light all but vanishes, so the wave
+    // turns into a deep shade of the accent with a light edge instead.
     final ink = _deepInk(accentColor);
-    final barBottomColor = onBrightArt
-        ? Color.lerp(accentColor, ink, 0.55)!.withValues(alpha: 0.55 + (0.25 * act))
-        : accentColor.withValues(alpha: 0.55 + (0.25 * act));
-    final barTopColor = onBrightArt
-        ? ink.withValues(alpha: 0.92)
-        : Color.lerp(accentColor, Colors.white, 0.55)!.withValues(alpha: 0.95);
+    final light = Color.lerp(accentColor, Colors.white, 0.6)!;
+    final fillTop = onBrightArt
+        ? ink.withValues(alpha: 0.62 * fade)
+        : light.withValues(alpha: 0.80 * fade);
+    final fillBottom = onBrightArt
+        ? Color.lerp(accentColor, ink, 0.5)!.withValues(alpha: 0.30 * fade)
+        : accentColor.withValues(alpha: 0.35 * fade);
+    final ghostColor = (onBrightArt ? ink : light)
+        .withValues(alpha: (onBrightArt ? 0.16 : 0.18) * fade);
+    final crestColor = onBrightArt ? ink : Colors.white;
+    // A thin opposite-tone edge keeps the crest readable on any cover: which
+    // polarity a cover wants is guessed from its middle, but the wave sits
+    // along the bottom, where it can be brighter or darker than that.
+    final edgeColor = (onBrightArt ? Colors.white : Colors.black)
+        .withValues(alpha: (onBrightArt ? 0.38 : 0.28) * fade);
 
-    // A thin halo of the opposite tone under every bar. Which polarity a cover
-    // wants is guessed from its middle (the lyrics need that), but the bars
-    // sit along the bottom edge, where a cover can be far brighter or darker
-    // than its middle; the halo keeps them readable whichever way it falls.
-    final haloPaint = Paint()
-      ..color = (onBrightArt ? Colors.white : Colors.black)
-          .withValues(alpha: (onBrightArt ? 0.30 : 0.24) * act);
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(0, bandTop - 8, size.width, baseY + 1));
 
-    // One shader per frame for the whole bar band instead of one per bar:
-    // every bar is anchored at the band's bottom, so a shared vertical
-    // gradient still runs from the accent base up to the white tip, and tall
-    // bars reach further into the light. This drops ~48 createShader calls per
-    // frame down to two, which is what makes full-rate repaints affordable.
-    final bandRect = Rect.fromLTWH(
-      0,
-      size.height - bottomPadding - maxBarHeight,
-      size.width,
-      maxBarHeight,
+    canvas.drawPath(
+      ribbonCurve(ghost, closeAtY: baseY),
+      Paint()..color = ghostColor,
     );
-    final barGradient = LinearGradient(
-      begin: Alignment.bottomCenter,
-      end: Alignment.topCenter,
-      colors: [barBottomColor, barTopColor],
+    canvas.drawPath(
+      ribbonCurve(live, closeAtY: baseY),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [fillTop, fillBottom],
+        ).createShader(Rect.fromLTWH(0, bandTop, size.width, maxH)),
     );
-    final trailGradient = LinearGradient(
-      begin: Alignment.bottomCenter,
-      end: Alignment.topCenter,
-      colors: onBrightArt
-          ? [
-              Color.lerp(accentColor, ink, 0.45)!.withValues(alpha: 0.25 * act),
-              ink.withValues(alpha: 0.40 * act),
-            ]
-          : [
-              Color.lerp(accentColor, Colors.white, 0.45)!.withValues(alpha: 0.35 * act),
-              Colors.white.withValues(alpha: 0.55 * act),
-            ],
+    final crest = ribbonCurve(live);
+    canvas.drawPath(
+      crest,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.4
+        ..strokeJoin = StrokeJoin.round
+        ..color = edgeColor,
     );
-
-    // Two reusable paints, each with a shared shader, for all bars per frame.
-    final trailPaint = Paint()..shader = trailGradient.createShader(bandRect);
-    final barPaint = Paint()..shader = barGradient.createShader(bandRect);
-
-    for (int i = 0; i < totalBars; i++) {
-      double amp = 0.0;
-      double trailAmp = 0.0;
-
-      if (i < liveBins.length) {
-        amp = liveBins[i].clamp(0.0, 1.0);
-        trailAmp = (i < trailBins.length ? trailBins[i] : amp).clamp(0.0, 1.0);
-      }
-
-      final barX = startX + i * (barWidth + spacing);
-
-      // Trailing buffer ghost bar (lighter tint, slow descent). Skip ghosts
-      // that barely peek above the live bar; they only cost a draw.
-      if (trailAmp > amp) {
-        final trailH = minBarHeight + (maxBarHeight - minBarHeight) * trailAmp * act;
-        if (trailH > minBarHeight + 2.0) {
-          final trailY = size.height - bottomPadding - trailH;
-          final trailRect = RRect.fromRectAndRadius(
-            Rect.fromLTWH(barX, trailY, barWidth, trailH),
-            radius,
-          );
-          canvas.drawRRect(trailRect, trailPaint);
-        }
-      }
-
-      // Foreground active bar
-      final barH = minBarHeight + (maxBarHeight - minBarHeight) * amp * act;
-      final barY = size.height - bottomPadding - barH;
-
-      final barRect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(barX, barY, barWidth, barH),
-        radius,
-      );
-
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          barRect.outerRect.inflate(_haloPad),
-          Radius.circular(barWidth / 2.0 + _haloPad),
-        ),
-        haloPaint,
-      );
-      canvas.drawRRect(barRect, barPaint);
-    }
+    canvas.drawPath(
+      crest,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeJoin = StrokeJoin.round
+        ..color = crestColor.withValues(alpha: 0.95 * fade),
+    );
+    canvas.restore();
   }
-
-  /// How far the halo reaches past a bar's edge.
-  static const double _haloPad = 1.0;
 
   /// A very dark shade of [accent] when it has real colour, otherwise a
   /// near-black: a pale or grey accent only darkened a little stays close to

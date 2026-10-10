@@ -100,7 +100,7 @@ class _ExplainDialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'The visualizer draws its bars from the music Pear Music is '
+            'The visualizer draws its wave from the music Pear Music is '
             'playing. Android files this under the microphone permission, so '
             'the next prompt will ask for microphone access.',
           ),
@@ -108,7 +108,7 @@ class _ExplainDialog extends StatelessWidget {
           Text(
             'The microphone is never used. Nothing is recorded, saved or sent '
             'anywhere: the sound is analysed on your phone only to move the '
-            'bars.',
+            'wave.',
           ),
         ],
       ),

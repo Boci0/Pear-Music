@@ -219,8 +219,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Visualizer'),
                   subtitle: Text(
                     !kIsWeb && Platform.isAndroid
-                        ? 'Bars that move with the music. Needs audio access'
-                        : 'Bars that move with the music',
+                        ? 'A wave that moves with the music. Needs audio access'
+                        : 'A wave that moves with the music',
                   ),
                   value: identity.synthesizerBar,
                   onChanged: (val) async {
@@ -236,7 +236,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.view_headline_rounded),
-                  title: const Text('Bars on the mini player'),
+                  title: const Text('Wave on the mini player'),
                   subtitle: const Text('Uses more battery'),
                   value: identity.miniVisualizer,
                   // The bars come from the visualizer, so they need it on.
