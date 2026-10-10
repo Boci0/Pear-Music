@@ -10,6 +10,7 @@ import '../services/player_service.dart';
 import '../services/player_theme.dart';
 import '../theme/glass.dart';
 import 'pear_page_route.dart';
+import 'player/mini_visualizer.dart';
 import 'tactile_button.dart';
 
 /// Compact now-playing bar shown above the navigation bar.
@@ -40,6 +41,13 @@ class PlayerBar extends StatelessWidget {
 
     final screenWidth = MediaQuery.sizeOf(context).width;
     final hMargin = screenWidth < 380 ? 10.0 : 16.0;
+    // The visualizer setting also draws soft bars behind the mini player,
+    // unless Reduced Effects is on (it exists to cut repainting).
+    final showVisualizer = context.select<AppController?, bool>(
+      (c) =>
+          (c?.identity.synthesizerBar ?? false) &&
+          !(c?.identity.reducedEffects ?? false),
+    );
 
     return Padding(
       padding: EdgeInsets.fromLTRB(hMargin, 0, hMargin, 6),
@@ -74,6 +82,12 @@ class PlayerBar extends StatelessWidget {
                       color: control,
                     ),
                   ),
+                  if (showVisualizer)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: MiniVisualizer(player: player, color: control),
+                      ),
+                    ),
                   Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

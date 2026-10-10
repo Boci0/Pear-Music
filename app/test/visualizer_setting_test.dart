@@ -19,10 +19,19 @@ void main() {
     expect((await load()).synthesizerBar, isTrue);
   });
 
-  test('on Android it waits for the switch, which asks for the microphone',
-      () async {
+  test('the visualizer is on by default on Android too', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    expect((await load()).synthesizerBar, isFalse);
+    final identity = await load();
+    expect(identity.synthesizerBar, isTrue);
+    expect(identity.visualizerAudioExplained, isFalse,
+        reason: 'the audio access is explained the first time it is shown');
+  });
+
+  test('having been told what the audio access is for is remembered', () async {
+    final identity = await load();
+    await identity.setVisualizerAudioExplained(true);
+    final prefs = await SharedPreferences.getInstance();
+    expect(IdentityService(prefs).visualizerAudioExplained, isTrue);
   });
 
   test('the visualizer setting survives a restart, off as well as on', () async {

@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -14,6 +13,7 @@ import '../widgets/about_dialog.dart';
 import '../widgets/audio_engine_card.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_controls.dart';
+import '../widgets/player/visualizer_permission.dart';
 import '../widgets/tactile_button.dart';
 
 /// Clean, decluttered settings screen organized by functional sections.
@@ -219,14 +219,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Visualizer'),
                   subtitle: Text(
                     !kIsWeb && Platform.isAndroid
-                        ? 'Spectrum bars on the artwork. Needs the microphone'
-                        : 'Spectrum bars on the player artwork',
+                        ? 'Bars that move with the music. Needs audio access'
+                        : 'Bars that move with the music',
                   ),
                   value: identity.synthesizerBar,
                   onChanged: (val) async {
                     TactileFeedback.selection();
-                    if (val && !kIsWeb && Platform.isAndroid) {
-                      await Permission.microphone.request();
+                    // Explains the audio access before asking. Declining
+                    // leaves the switch off.
+                    if (val && !await VisualizerPermission.request(context)) {
+                      return;
                     }
                     await controller.updateSynthesizerBar(val);
                   },

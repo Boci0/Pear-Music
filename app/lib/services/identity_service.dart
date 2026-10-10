@@ -40,6 +40,7 @@ class IdentityService extends ChangeNotifier {
   static const _extendedSearchKey = 'peerm_extended_search';
   static const _backupEngineKey = 'peerm_backup_engine';
   static const _fastEngineKey = 'peerm_fast_engine';
+  static const _visualizerAudioExplainedKey = 'peerm_visualizer_audio_explained';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -61,6 +62,7 @@ class IdentityService extends ChangeNotifier {
   late bool _extendedSearch;
   late bool _backupEngine;
   late bool _fastEngine;
+  late bool _visualizerAudioExplained;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -101,10 +103,12 @@ class IdentityService extends ChangeNotifier {
       orElse: () => SortOption.dateAdded,
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
-    // On by default, except on Android where the real spectrum needs the
-    // microphone permission, which is asked for when the switch is turned on.
-    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ??
-        defaultTargetPlatform != TargetPlatform.android;
+    // On by default everywhere. On Android the real spectrum needs the audio
+    // permission, which is explained and asked for the first time the
+    // visualizer is shown (see VisualizerPermission).
+    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ?? true;
+    _visualizerAudioExplained =
+        _prefs.getBool(_visualizerAudioExplainedKey) ?? false;
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
@@ -301,6 +305,16 @@ class IdentityService extends ChangeNotifier {
     _synthesizerBar = value;
     await _prefs.setBool(_synthesizerBarKey, value);
     notifyListeners();
+  }
+
+  /// Whether the person has been told what the visualizer's audio access is
+  /// for, so the explanation is not shown again.
+  bool get visualizerAudioExplained => _visualizerAudioExplained;
+
+  Future<void> setVisualizerAudioExplained(bool value) async {
+    if (_visualizerAudioExplained == value) return;
+    _visualizerAudioExplained = value;
+    await _prefs.setBool(_visualizerAudioExplainedKey, value);
   }
 
   bool get visualizerGlow => _visualizerGlow;
