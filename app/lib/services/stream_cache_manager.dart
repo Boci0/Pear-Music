@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'backup_audio_engine.dart';
 import 'debug_log.dart';
+import 'innertube_audio_engine.dart';
 import 'library_service.dart';
 import 'resolved_link_cache.dart';
 import 'youtube_service.dart';
@@ -348,6 +349,67 @@ class StreamCacheManager {
 
   static final BackupEngineGuard _backupGuard = BackupEngineGuard();
 
+  /// Whether a song is tried with the fast engine ([InnerTubeAudioEngine])
+  /// before yt-dlp. Set from the Settings switch.
+  static bool fastEngineEnabled = true;
+
+  /// A test run never sends the fast engine's requests to YouTube; a test that
+  /// feeds it through its own seams turns this on.
+  @visibleForTesting
+  static bool debugAllowFastEngineInTests = false;
+
+  static final bool _underFlutterTest =
+      !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+
+  /// Records a file an engine just finished writing as a cache entry.
+  static Future<void> _adoptFetchedFile(String videoId, File file) async {
+    _lastFetchFailures.remove(videoId);
+    _cachedVideoIds.add(videoId);
+    _setCachedTotalBytes(_cachedTotalBytes + await file.length());
+    unawaited(enforceCacheQuota());
+  }
+
+  /// Tries the fast engine for [videoId]. Returns the cached file, or null
+  /// when it is off, backing off, or could not fetch it, in which case yt-dlp
+  /// goes on to do it exactly as before and nothing is recorded as a failure.
+  static Future<File?> _fetchWithFastEngine(
+    String videoId,
+    Directory dir, {
+    required int token,
+    required bool isPreload,
+    required int preloadSeq,
+  }) async {
+    if (!fastEngineEnabled) return null;
+    if (_underFlutterTest && !debugAllowFastEngineInTests) return null;
+    if (token != _downloadInvocationToken) return null;
+    final stopwatch = Stopwatch()..start();
+    final result = await InnerTubeAudioEngine.fetch(
+      videoId,
+      dir: dir,
+      preferAac: !_isDesktopEngine,
+      shouldAbort: () =>
+          token != _downloadInvocationToken ||
+          _activeDownloadingVideoId != videoId ||
+          (isPreload && preloadSeq != _slidingWindowSequence),
+    );
+    final file = result.file;
+    if (file == null) {
+      if (result.error != 'cancelled') {
+        DebugLog.write(
+          '[cache] Fast engine could not fetch $videoId after '
+          '${stopwatch.elapsedMilliseconds}ms (${result.error}), using yt-dlp',
+        );
+      }
+      return null;
+    }
+    await _adoptFetchedFile(videoId, file);
+    DebugLog.write(
+      '[cache] Fast engine cached $videoId in ${stopwatch.elapsedMilliseconds}ms '
+      '(${((await file.length()) / 1024).round()} KB)',
+    );
+    return file;
+  }
+
   /// Fetches [videoId] with the backup engine after yt-dlp failed. Returns the
   /// cached file, or null when the backup is off, not worth trying, or failed
   /// too (in which case yt-dlp's explanation of the failure is kept).
@@ -385,10 +447,7 @@ class StreamCacheManager {
       return null;
     }
     _backupGuard.recordSuccess(videoId);
-    _lastFetchFailures.remove(videoId);
-    _cachedVideoIds.add(videoId);
-    _setCachedTotalBytes(_cachedTotalBytes + await file.length());
-    unawaited(enforceCacheQuota());
+    await _adoptFetchedFile(videoId, file);
     return file;
   }
 
@@ -990,9 +1049,10 @@ class StreamCacheManager {
             DebugLog.write('[preload] Buffering upcoming track: $id');
             var file = await ensureStreamCached(id, isPreload: true);
             if (seq != _slidingWindowSequence) break;
-            // A 403 or bot check is usually temporary. Retry once with a
-            // clean yt-dlp cache, the same as the manual Retry does, so the
-            // next track does not start cold (or fail) when it comes up.
+            // A 403 or bot check is usually temporary, so retry once. The
+            // yt-dlp cache is left alone: the song being played shares it,
+            // and wiping it made that song re-solve YouTube's player code
+            // (about 8 s on a phone). Only the manual Retry clears it.
             if (file == null && _lastFetchFailures[id]?.kind == StreamFetchFailureKind.blocked) {
               DebugLog.write('[preload] $id was blocked, retrying once');
               if (seq != _slidingWindowSequence) break;
@@ -1176,6 +1236,18 @@ class StreamCacheManager {
 
       if (forceBackupEngine) {
         DebugLog.write('[cache] PM_FORCE_BACKUP_ENGINE is on: skipping yt-dlp for $videoId');
+      } else {
+        final fast = await _fetchWithFastEngine(
+          videoId,
+          dir,
+          token: token,
+          isPreload: isPreload,
+          preloadSeq: preloadSeq,
+        );
+        if (fast != null) {
+          completer.complete(fast);
+          return fast;
+        }
       }
 
       // Android embedded yt-dlp

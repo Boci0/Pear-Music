@@ -156,14 +156,14 @@ class BackupAudioEngine {
 
   static YoutubeExplode? _yt;
   static YoutubeExplode get _client => _yt ??= YoutubeExplode(
-        httpClient: YoutubeHttpClient(_ipv4Client()),
+        httpClient: YoutubeHttpClient(ipv4Client()),
       );
 
   /// An HTTP client that connects over IPv4 first. On a network with a broken
   /// IPv6 route the stock client stalls on the first address it tries, which
   /// is exactly when a backup is needed; yt-dlp is run with `--force-ipv4` for
   /// the same reason.
-  static http.Client _ipv4Client() {
+  static http.Client ipv4Client() {
     final inner = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15)
       ..connectionFactory = (uri, proxyHost, proxyPort) async {
@@ -274,10 +274,15 @@ class BackupAudioEngine {
     Duration lookupTimeout = const Duration(seconds: 25),
     Duration idleTimeout = const Duration(seconds: 20),
     Duration totalTimeout = const Duration(seconds: 150),
+    // Another engine's lookup and byte source (see InnerTubeAudioEngine);
+    // the download, size check and file handling stay the same.
+    Future<List<BackupAudioCandidate>> Function(String videoId)? load,
+    Stream<List<int>> Function(BackupAudioCandidate stream)? open,
+    String label = 'backup-engine',
   }) async {
     File? temp;
     try {
-      final candidates = await _load(videoId).timeout(lookupTimeout);
+      final candidates = await (load ?? _load)(videoId).timeout(lookupTimeout);
       final pick = pickStream(candidates, preferAac: preferAac);
       if (pick == null) {
         return const BackupFetchResult.failed('no audio streams offered');
@@ -290,7 +295,7 @@ class BackupAudioEngine {
 
       final sink = temp.openWrite();
       final copied = await _copy(
-        _open(pick),
+        (open ?? _open)(pick),
         sink,
         shouldAbort: shouldAbort,
         idleTimeout: idleTimeout,
@@ -313,7 +318,7 @@ class BackupAudioEngine {
       await temp.rename(finalFile.path);
       temp = null;
       DebugLog.write(
-        '[backup-engine] $videoId ${pick.container}/${pick.codec} '
+        '[$label] $videoId ${pick.container}/${pick.codec} '
         '${pick.kbps.round()}k, ${(written / 1024).round()} KB',
       );
       return BackupFetchResult.ok(finalFile);

@@ -180,6 +180,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
+                  secondary: const Icon(Icons.bolt_rounded),
+                  title: const Text('Fast audio engine'),
+                  subtitle: const Text(
+                    'Fetch songs with a built-in engine first, which starts sooner and avoids most blocked requests. yt-dlp still handles anything it cannot',
+                  ),
+                  value: identity.fastEngine,
+                  onChanged: (val) async {
+                    TactileFeedback.selection();
+                    await identity.setFastEngine(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
                   secondary: const Icon(Icons.safety_check_rounded),
                   title: const Text('Backup audio engine'),
                   subtitle: const Text(

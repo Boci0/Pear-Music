@@ -39,6 +39,7 @@ class IdentityService extends ChangeNotifier {
   static const _playbackSpeedKey = 'peerm_playback_speed';
   static const _extendedSearchKey = 'peerm_extended_search';
   static const _backupEngineKey = 'peerm_backup_engine';
+  static const _fastEngineKey = 'peerm_fast_engine';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -59,6 +60,7 @@ class IdentityService extends ChangeNotifier {
   late double _playbackSpeed;
   late bool _extendedSearch;
   late bool _backupEngine;
+  late bool _fastEngine;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -113,6 +115,8 @@ class IdentityService extends ChangeNotifier {
     YouTubeSearchService.allowVideoResults = _extendedSearch;
     _backupEngine = _prefs.getBool(_backupEngineKey) ?? true;
     StreamCacheManager.backupEngineEnabled = _backupEngine;
+    _fastEngine = _prefs.getBool(_fastEngineKey) ?? true;
+    StreamCacheManager.fastEngineEnabled = _fastEngine;
     _prefs.remove('peerm_online_lyrics');
     _prefs.remove('peerm_streaming_quality');
     _prefs.remove('peerm_preload_upcoming');
@@ -382,6 +386,18 @@ class IdentityService extends ChangeNotifier {
     _backupEngine = value;
     StreamCacheManager.backupEngineEnabled = value;
     await _prefs.setBool(_backupEngineKey, value);
+    notifyListeners();
+  }
+
+  /// Whether songs are fetched with the built-in fast engine before yt-dlp is
+  /// started. On by default; yt-dlp still handles anything it cannot.
+  bool get fastEngine => _fastEngine;
+
+  Future<void> setFastEngine(bool value) async {
+    if (_fastEngine == value) return;
+    _fastEngine = value;
+    StreamCacheManager.fastEngineEnabled = value;
+    await _prefs.setBool(_fastEngineKey, value);
     notifyListeners();
   }
 
