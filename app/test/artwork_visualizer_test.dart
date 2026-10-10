@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/window_focus.dart';
@@ -42,6 +43,18 @@ class _FakePlayerService extends ChangeNotifier implements PlayerService {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    // The Windows capture plugin does not exist under test: answer its
+    // channels instead of letting the missing plugin raise.
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final name in ['system_audio_visualizer', 'system_audio_visualizer/fft']) {
+      messenger.setMockMethodCallHandler(MethodChannel(name), (_) async => null);
+    }
+  });
+
   testWidgets('ArtworkVisualizer mounts cleanly and responds to playback',
       (tester) async {
     final player = _FakePlayerService();
@@ -159,5 +172,49 @@ void main() {
     player.dispose();
   });
 
-}
 
+  testWidgets('on a phone the bars are driven by a timer and still grow and park',
+      (tester) async {
+    ArtworkVisualizer.debugPhoneRate = true;
+    addTearDown(() => ArtworkVisualizer.debugPhoneRate = null);
+    final player = _FakePlayerService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 150,
+            child: ArtworkVisualizer(
+              player: player,
+              accentColor: Colors.teal,
+            ),
+          ),
+        ),
+      ),
+    );
+    final state = tester.state(find.byType(ArtworkVisualizer)) as dynamic;
+    expect(state.debugActivity as double, 0.0);
+
+    player.setPlaying(true);
+    await tester.pump();
+    // The timer runs on fake time and the physics read the real clock.
+    for (var i = 0; i < 14; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 25)));
+      await tester.pump(const Duration(milliseconds: 40));
+    }
+    expect(state.debugActivity as double, greaterThan(0.5));
+
+    player.setPlaying(false);
+    for (var i = 0; i < 40; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 25)));
+      await tester.pump(const Duration(milliseconds: 40));
+    }
+    expect(state.debugActivity as double, 0.0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    player.dispose();
+  });
+}

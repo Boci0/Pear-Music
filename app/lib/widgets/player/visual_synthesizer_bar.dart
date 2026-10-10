@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../../services/ambient_ticker.dart';
 import '../../services/player_service.dart';
 import '../../services/visualizer_feed.dart';
 import 'visualizer_permission.dart';
@@ -25,6 +29,10 @@ class ArtworkVisualizer extends StatefulWidget {
     this.onBrightArt = false,
   });
 
+  /// Test seam: forces the phone (timer) or the desktop (ticker) driver.
+  @visibleForTesting
+  static bool? debugPhoneRate;
+
   /// The tallest bar, as a share of the card's height.
   static const double maxBarFraction = 0.38;
 
@@ -45,6 +53,50 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   final VisualizerFeed _feed = VisualizerFeed.instance;
   final SpectrumPhysics _physics = SpectrumPhysics();
   late final AnimationController _tickerController;
+
+  /// Phones update the bars on the player's shared 30 Hz [AmbientTicker]
+  /// instead of a vsync ticker. A ticker wakes the UI thread and re-draws the
+  /// whole player scene (blurred artwork, glow) at the display's rate, which
+  /// was about 80% of a core on a test phone. It has to be that shared clock,
+  /// not a timer of its own: two unaligned 30 Hz timers are still two frames
+  /// per 33 ms, so the glows and the bars share ticks and their frames
+  /// coalesce. Desktop keeps the ticker, where the extra frames are cheap.
+  bool _ambientAttached = false;
+
+  bool get _timerDriven =>
+      ArtworkVisualizer.debugPhoneRate ??
+      (!kIsWeb && (Platform.isAndroid || Platform.isIOS));
+
+  bool get _driverRunning =>
+      _timerDriven ? _ambientAttached : _tickerController.isAnimating;
+
+  void _onAmbientTick(Duration _) => _onTick();
+
+  void _startDriver() {
+    if (_timerDriven) {
+      if (!_ambientAttached) {
+        _ambientAttached = true;
+        AmbientTicker.instance.addListener(_onAmbientTick);
+      }
+    } else {
+      _tickerController.repeat();
+    }
+  }
+
+  void _stopDriver() {
+    if (_ambientAttached) {
+      _ambientAttached = false;
+      AmbientTicker.instance.removeListener(_onAmbientTick);
+    }
+    _tickerController.stop();
+  }
+
+  /// How many "60 fps frames" one step may cover: a 30 Hz step is two.
+  double get _maxFrames => _timerDriven ? 3.0 : 1.0;
+
+  /// For tests: how far the bars have grown in, 0..1.
+  @visibleForTesting
+  double get debugActivity => _physics.activity;
 
   /// Repaint gate: the canvas repaints on every tick, so the bars move at the
   /// display's refresh rate instead of a stepped 30 fps. Repaints stay cheap
@@ -93,12 +145,12 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
   void _syncTicker() {
     if ((widget.player.playing || _physics.activity > 0.0) && _feed.renderActive) {
-      if (!_tickerController.isAnimating) {
+      if (!_driverRunning) {
         _physics.resetClock();
-        _tickerController.repeat();
+        _startDriver();
       }
-    } else if (_physics.activity <= 0.0 && _tickerController.isAnimating) {
-      _tickerController.stop();
+    } else if (_physics.activity <= 0.0 && _driverRunning) {
+      _stopDriver();
       _requestPaint();
     }
   }
@@ -107,11 +159,15 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     if (!mounted) return;
     final playing = widget.player.playing && _feed.renderActive;
     _feed.refresh();
-    final settled = _physics.step(playing: playing, targets: _feed.targetBins);
+    final settled = _physics.step(
+      playing: playing,
+      targets: _feed.targetBins,
+      maxFrames: _maxFrames,
+    );
     if (settled) {
-      // Stop the ticker whenever rendering is inactive (paused, backgrounded
+      // Stop the driver whenever rendering is inactive (paused, backgrounded
       // or unfocused), not only when playback itself stopped.
-      _tickerController.stop();
+      _stopDriver();
       _requestPaint();
       return;
     }
@@ -128,6 +184,7 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
 
   @override
   void dispose() {
+    _stopDriver();
     _feed.changes.removeListener(_onFeedChanged);
     _feed.release();
     _paintTick.dispose();
