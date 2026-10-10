@@ -52,7 +52,12 @@ class InnerTubeAudioEngine {
   );
 
   static http.Client? _client;
-  static http.Client get _http => _client ??= BackupAudioEngine.ipv4Client();
+  static http.Client get _http =>
+      debugHttpClient ?? (_client ??= BackupAudioEngine.ipv4Client());
+
+  /// Test seam: replaces the HTTP client.
+  @visibleForTesting
+  static http.Client? debugHttpClient;
 
   /// Backs the engine off when YouTube is turning this connection away (a bot
   /// check, a rate limit, a server error), so a bad spell is not made worse by
@@ -87,6 +92,7 @@ class InnerTubeAudioEngine {
   @visibleForTesting
   static void debugReset() {
     _visitorData = null;
+    debugHttpClient = null;
     _guard = BackupEngineGuard(
       videoCooldown: const Duration(seconds: 30),
       pauseAfterFailures: const Duration(minutes: 10),
@@ -232,11 +238,20 @@ class InnerTubeAudioEngine {
             ? _systemic(videoId, 'media HTTP ${res.statusCode}')
             : InnerTubeFailure('media HTTP ${res.statusCode}');
       }
+      // A server that ignores Range answers 200 with the whole file; taken as
+      // a later chunk it would be appended to what is already written.
+      if (res.statusCode == 200 && pos > 0) {
+        await res.stream.drain<void>();
+        throw InnerTubeFailure('range ignored');
+      }
+      final before = pos;
       await for (final b in res.stream) {
         pos += b.length;
         yield b;
       }
       if (end == null) break;
+      // An empty answer would otherwise be asked for again without end.
+      if (pos == before) throw InnerTubeFailure('empty range at byte $pos');
     } while (pos < total);
   }
 

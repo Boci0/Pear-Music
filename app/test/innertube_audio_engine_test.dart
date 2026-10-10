@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:peerm_app/services/backup_audio_engine.dart';
 import 'package:peerm_app/services/innertube_audio_engine.dart';
@@ -132,6 +134,78 @@ void main() {
     };
     expect(await InnerTubeAudioEngine.lookup('abc'), isNotEmpty);
     expect(calls, 2);
+  });
+
+  group('open', () {
+    BackupAudioCandidate stream(int bytes) => BackupAudioCandidate(
+          container: 'webm',
+          codec: 'opus',
+          kbps: 126,
+          bytes: bytes,
+          handle: 'https://v/251',
+        );
+
+    test('an empty answer stops the reader instead of asking again forever',
+        () async {
+      var calls = 0;
+      InnerTubeAudioEngine.debugHttpClient = MockClient((_) async {
+        calls++;
+        return http.Response.bytes(const [], 206);
+      });
+      await expectLater(
+        InnerTubeAudioEngine.open(stream(9000000), 'abc').toList(),
+        throwsA(isA<InnerTubeFailure>()),
+      );
+      expect(calls, 1);
+    });
+
+    test('a server that ignores Range is caught on the second chunk',
+        () async {
+      var calls = 0;
+      InnerTubeAudioEngine.debugHttpClient = MockClient((req) async {
+        calls++;
+        // Asked for 5 MB ranges of a 7 MB file; always answers 200, whole file.
+        return http.Response.bytes(List.filled(5 * 1024 * 1024, 1), 200);
+      });
+      await expectLater(
+        InnerTubeAudioEngine.open(stream(7 * 1024 * 1024), 'abc').toList(),
+        throwsA(isA<InnerTubeFailure>()
+            .having((e) => e.message, 'message', contains('range ignored'))),
+      );
+      expect(calls, 2);
+    });
+
+    test('ranges are requested in order and joined', () async {
+      final asked = <String>[];
+      InnerTubeAudioEngine.debugHttpClient = MockClient((req) async {
+        asked.add(req.headers['Range']!);
+        final from = int.parse(req.headers['Range']!.split('=')[1].split('-')[0]);
+        final to = int.parse(req.headers['Range']!.split('-')[1]);
+        return http.Response.bytes(List.filled(to - from + 1, 2), 206);
+      });
+      final total = 5 * 1024 * 1024 + 1000;
+      final chunks = await InnerTubeAudioEngine.open(stream(total), 'abc').toList();
+      expect(chunks.fold<int>(0, (n, c) => n + c.length), total);
+      expect(asked, [
+        'bytes=0-${5 * 1024 * 1024 - 1}',
+        'bytes=${5 * 1024 * 1024}-${total - 1}',
+      ]);
+    });
+  });
+
+  test('a file larger than announced is not kept as a cache hit', () async {
+    InnerTubeAudioEngine.debugPlayerOverride = (_, _) async => _ok(size: 120000);
+    InnerTubeAudioEngine.debugOpenOverride =
+        (url, bytes) => Stream.value(List.filled(bytes * 2, 7));
+    final r = await InnerTubeAudioEngine.fetch(
+      'abc',
+      dir: dir,
+      preferAac: false,
+      shouldAbort: () => false,
+    );
+    expect(r.file, isNull);
+    expect(r.error, contains('larger than expected'));
+    expect(dir.listSync(), isEmpty);
   });
 
   test('fetch writes the cache file under the name the cache looks for',

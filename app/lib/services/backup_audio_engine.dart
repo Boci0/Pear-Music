@@ -314,6 +314,13 @@ class BackupAudioEngine {
           'incomplete download ($written of ${pick.bytes} bytes)',
         );
       }
+      // More than was announced means the same bytes arrived twice or a
+      // different file did; a cache hit has to be the song, exactly.
+      if (pick.bytes > 0 && written > pick.bytes * 1.01) {
+        return BackupFetchResult.failed(
+          'larger than expected ($written of ${pick.bytes} bytes)',
+        );
+      }
       if (await finalFile.exists()) await finalFile.delete();
       await temp.rename(finalFile.path);
       temp = null;
