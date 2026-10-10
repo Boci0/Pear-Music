@@ -345,7 +345,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     // polarity a cover wants is guessed from its middle, but the wave sits
     // along the bottom, where it can be brighter or darker than that.
     final edgeColor = (onBrightArt ? Colors.white : Colors.black)
-        .withValues(alpha: (onBrightArt ? 0.38 : 0.28) * fade);
+        .withValues(alpha: (onBrightArt ? 0.46 : 0.28) * fade);
 
     // The fill runs down to the card's bottom edge so the wave sits in the
     // cover rather than on a stripe of bare art; the crest keeps its floor.
