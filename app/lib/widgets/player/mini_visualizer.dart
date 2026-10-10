@@ -163,7 +163,9 @@ class _MiniVisualizerPainter extends CustomPainter {
     // clear of the title, so it is a texture on the edge, not a second layer
     // of content to read.
     final baseY = size.height - 3;
-    final maxH = (size.height * 0.34).clamp(10.0, 22.0);
+    // Low enough that a loud crest stays under the title in a pill about 56 dp
+    // tall (title bottom near 37 dp from the top).
+    final maxH = (size.height * 0.24).clamp(8.0, 14.0);
     final live = ribbonPoints(
       physics.display,
       width: size.width,
@@ -185,23 +187,23 @@ class _MiniVisualizerPainter extends CustomPainter {
     );
     final light = Color.lerp(color, Colors.white, 0.6)!;
 
-    canvas.save();
-    canvas.clipRect(Rect.fromLTRB(0, baseY - maxH - 4, size.width, size.height));
     canvas.drawPath(
-      ribbonCurve(ghost, closeAtY: baseY),
+      ribbonCurve(ghost, closeAtY: size.height),
       Paint()..color = light.withValues(alpha: 0.10 * act),
     );
     canvas.drawPath(
-      ribbonCurve(live, closeAtY: baseY),
+      ribbonCurve(live, closeAtY: size.height),
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            light.withValues(alpha: 0.50 * act),
-            color.withValues(alpha: 0.18 * act),
+            light.withValues(alpha: 0.32 * act),
+            color.withValues(alpha: 0.14 * act),
           ],
-        ).createShader(Rect.fromLTWH(0, baseY - maxH, size.width, maxH)),
+        ).createShader(
+          Rect.fromLTRB(0, baseY - maxH, size.width, size.height),
+        ),
     );
     canvas.drawPath(
       ribbonCurve(live),
@@ -209,9 +211,8 @@ class _MiniVisualizerPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6
         ..strokeJoin = StrokeJoin.round
-        ..color = Colors.white.withValues(alpha: 0.85 * act),
+        ..color = Colors.white.withValues(alpha: 0.60 * act),
     );
-    canvas.restore();
   }
 
   @override

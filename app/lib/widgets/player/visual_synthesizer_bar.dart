@@ -38,7 +38,8 @@ class ArtworkVisualizer extends StatefulWidget {
   /// The tallest crest, as a share of the card's height.
   static const double maxBarFraction = 0.36;
 
-  /// Gap between the bars and the card's bottom edge.
+  /// Gap between the wave's baseline (where its crest bottoms out) and the
+  /// card's bottom edge.
   static const double bottomPadding = 12.0;
 
   /// Height of the band at the bottom of a [cardHeight] card the bars can
@@ -293,6 +294,9 @@ class _ArtworkVisualizerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
     final act = activity();
+    // Nothing playing: nothing drawn (the wave fades in and out with
+    // [activity]); a flat line left over the cover read as a stray seek bar.
+    if (act <= 0.003) return;
 
     // One soft wave across the card, mirrored about the centre so the bass
     // swells in the middle and the treble flutters at both ends. A filled
@@ -301,7 +305,7 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final baseY = size.height - ArtworkVisualizer.bottomPadding;
     final maxH = size.height * ArtworkVisualizer.maxBarFraction;
     final bandTop = baseY - maxH;
-    final fade = 0.45 + 0.55 * act;
+    final fade = act;
 
     // Edge to edge: the card's rounded corners trim it, so it never ends in
     // a vertical side.
@@ -329,11 +333,11 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final ink = _deepInk(accentColor);
     final light = Color.lerp(accentColor, Colors.white, 0.6)!;
     final fillTop = onBrightArt
-        ? ink.withValues(alpha: 0.62 * fade)
-        : light.withValues(alpha: 0.80 * fade);
+        ? ink.withValues(alpha: 0.30 * fade)
+        : light.withValues(alpha: 0.58 * fade);
     final fillBottom = onBrightArt
-        ? Color.lerp(accentColor, ink, 0.5)!.withValues(alpha: 0.30 * fade)
-        : accentColor.withValues(alpha: 0.35 * fade);
+        ? Color.lerp(accentColor, ink, 0.5)!.withValues(alpha: 0.10 * fade)
+        : accentColor.withValues(alpha: 0.22 * fade);
     final ghostColor = (onBrightArt ? ink : light)
         .withValues(alpha: (onBrightArt ? 0.16 : 0.18) * fade);
     final crestColor = onBrightArt ? ink : Colors.white;
@@ -343,21 +347,22 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final edgeColor = (onBrightArt ? Colors.white : Colors.black)
         .withValues(alpha: (onBrightArt ? 0.38 : 0.28) * fade);
 
-    canvas.save();
-    canvas.clipRect(Rect.fromLTRB(0, bandTop - 8, size.width, baseY + 1));
-
+    // The fill runs down to the card's bottom edge so the wave sits in the
+    // cover rather than on a stripe of bare art; the crest keeps its floor.
     canvas.drawPath(
-      ribbonCurve(ghost, closeAtY: baseY),
+      ribbonCurve(ghost, closeAtY: size.height),
       Paint()..color = ghostColor,
     );
     canvas.drawPath(
-      ribbonCurve(live, closeAtY: baseY),
+      ribbonCurve(live, closeAtY: size.height),
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [fillTop, fillBottom],
-        ).createShader(Rect.fromLTWH(0, bandTop, size.width, maxH)),
+        ).createShader(
+          Rect.fromLTRB(0, bandTop, size.width, size.height),
+        ),
     );
     final crest = ribbonCurve(live);
     canvas.drawPath(
@@ -376,7 +381,6 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round
         ..color = crestColor.withValues(alpha: 0.95 * fade),
     );
-    canvas.restore();
   }
 
   /// A very dark shade of [accent] when it has real colour, otherwise a

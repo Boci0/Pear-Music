@@ -77,6 +77,23 @@ void main() {
       expect(b.bottom, lessThan(maxY + 6));
     });
 
+    test('the curve never dips below a quiet bin or rises above a loud one', () {
+      // Alternating floor and full levels is the worst case for overshoot.
+      final spiky = ribbonPoints(
+        [for (var i = 0; i < 24; i++) i.isEven ? 0.0 : 1.0],
+        width: 240,
+        baseY: 100,
+        maxHeight: 60,
+        padding: 0,
+        floor: 2,
+      );
+      final b = ribbonCurve(spiky).getBounds();
+      expect(b.bottom, lessThanOrEqualTo(100 - 2 + 1e-9),
+          reason: 'not below the floor');
+      expect(b.top, greaterThanOrEqualTo(100 - 60 - 1e-9),
+          reason: 'not above the full-height line');
+    });
+
     test('an empty or single point list gives an empty path without throwing', () {
       expect(ribbonCurve(const []).getBounds(), Rect.zero);
       expect(() => ribbonCurve(const [Offset(1, 2)]), returnsNormally);

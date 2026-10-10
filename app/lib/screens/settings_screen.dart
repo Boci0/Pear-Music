@@ -239,7 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Wave on the mini player'),
                   subtitle: const Text('Uses more battery'),
                   value: identity.miniVisualizer,
-                  // The bars come from the visualizer, so they need it on.
+                  // The wave comes from the visualizer, so it needs it on.
                   onChanged: identity.synthesizerBar
                       ? (val) async {
                           TactileFeedback.selection();

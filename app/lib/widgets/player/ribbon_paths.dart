@@ -1,7 +1,8 @@
 import 'dart:ui';
 
 /// A smooth curve through [points], left to right (Catmull-Rom segments written
-/// as cubic Beziers, so it passes through every point without kinks).
+/// as cubic Beziers, with the vertical control points held inside each
+/// segment's range so it never overshoots its own points).
 ///
 /// With [closeAtY] the curve is closed down to that baseline, giving the
 /// filled shape under it; without, it is the open crest line.
@@ -20,8 +21,20 @@ Path ribbonCurve(List<Offset> points, {double? closeAtY}) {
     final p1 = points[i];
     final p2 = points[i + 1];
     final p3 = i + 2 < points.length ? points[i + 2] : points[i + 1];
-    final c1 = p1 + (p2 - p0) / 6;
-    final c2 = p2 - (p3 - p1) / 6;
+    // Control points are held to the vertical range of their segment so the
+    // curve never dips below a quiet bin or rises above a loud one: plain
+    // Catmull-Rom overshoots there, which sliced the crest flat against the
+    // baseline and poked above the band on transients.
+    final lo = p1.dy < p2.dy ? p1.dy : p2.dy;
+    final hi = p1.dy < p2.dy ? p2.dy : p1.dy;
+    final c1 = Offset(
+      p1.dx + (p2.dx - p0.dx) / 6,
+      (p1.dy + (p2.dy - p0.dy) / 6).clamp(lo, hi).toDouble(),
+    );
+    final c2 = Offset(
+      p2.dx - (p3.dx - p1.dx) / 6,
+      (p2.dy - (p3.dy - p1.dy) / 6).clamp(lo, hi).toDouble(),
+    );
     path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
   }
   if (closeAtY != null) {
