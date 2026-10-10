@@ -103,7 +103,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
     _basePositionMs = widget.player.position?.inMilliseconds ?? 0;
     _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
     _lastTickMs = DateTime.now().millisecondsSinceEpoch;
-    _decayActivity = widget.player.playing ? 1.0 : 0.0;
+    // Bars grow in from nothing when the player opens (the setting keeps the
+    // visualizer on, so it is mounted with the card rather than switched on
+    // while the card is already showing) instead of appearing at full height.
+    _decayActivity = 0.0;
     _positionSub = widget.player.positionStream.listen((pos) {
       _basePositionMs = pos.inMilliseconds;
       _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
@@ -142,10 +145,10 @@ class _ArtworkVisualizerState extends State<ArtworkVisualizer>
   Future<void> _startAndroidCapture() async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
-      var status = await Permission.microphone.status;
-      if (!status.isGranted) {
-        status = await Permission.microphone.request();
-      }
+      // Asked for when the Settings switch is turned on, not here: the
+      // visualizer starts by itself when the player opens, and a permission
+      // prompt at that moment would come out of nowhere.
+      final status = await Permission.microphone.status;
       if (!status.isGranted) {
         _hasNativeFft = false;
         return;
@@ -649,8 +652,8 @@ class _VignettePainter extends CustomPainter {
         begin: Alignment.bottomCenter,
         end: Alignment.topCenter,
         colors: [
-          shade.withValues(alpha: 0.38),
-          shade.withValues(alpha: 0.12),
+          shade.withValues(alpha: 0.46),
+          shade.withValues(alpha: 0.14),
           shade.withValues(alpha: 0),
         ],
         stops: const [0.0, 0.55, 1.0],
@@ -710,10 +713,18 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     final ink = _deepInk(accentColor);
     final barBottomColor = onBrightArt
         ? Color.lerp(accentColor, ink, 0.55)!.withValues(alpha: 0.55 + (0.25 * act))
-        : accentColor.withValues(alpha: 0.35 + (0.20 * act));
+        : accentColor.withValues(alpha: 0.55 + (0.25 * act));
     final barTopColor = onBrightArt
         ? ink.withValues(alpha: 0.92)
-        : Color.lerp(accentColor, Colors.white, 0.55)!.withValues(alpha: 0.85);
+        : Color.lerp(accentColor, Colors.white, 0.55)!.withValues(alpha: 0.95);
+
+    // A thin halo of the opposite tone under every bar. Which polarity a cover
+    // wants is guessed from its middle (the lyrics need that), but the bars
+    // sit along the bottom edge, where a cover can be far brighter or darker
+    // than its middle; the halo keeps them readable whichever way it falls.
+    final haloPaint = Paint()
+      ..color = (onBrightArt ? Colors.white : Colors.black)
+          .withValues(alpha: (onBrightArt ? 0.30 : 0.24) * act);
 
     // One shader per frame for the whole bar band instead of one per bar:
     // every bar is anchored at the band's bottom, so a shared vertical
@@ -783,9 +794,19 @@ class _ArtworkVisualizerPainter extends CustomPainter {
         radius,
       );
 
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          barRect.outerRect.inflate(_haloPad),
+          Radius.circular(barWidth / 2.0 + _haloPad),
+        ),
+        haloPaint,
+      );
       canvas.drawRRect(barRect, barPaint);
     }
   }
+
+  /// How far the halo reaches past a bar's edge.
+  static const double _haloPad = 1.0;
 
   /// A very dark shade of [accent] when it has real colour, otherwise a
   /// near-black: a pale or grey accent only darkened a little stays close to

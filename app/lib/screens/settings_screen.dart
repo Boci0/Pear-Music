@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -211,16 +212,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionTitle(context, 'Performance'),
           Card(
             clipBehavior: Clip.antiAlias,
-            child: SwitchListTile(
-              secondary: const Icon(Icons.battery_saver_rounded),
-              title: const Text('Reduced Effects'),
-              subtitle: const Text(
-                  'Static glow, no seek ripple, no glass blur and no button bounce. With the visualizer off the player scene stops repainting, which cuts battery use.'),
-              value: identity.reducedEffects,
-              onChanged: (val) async {
-                TactileFeedback.selection();
-                await controller.updateReducedEffects(val);
-              },
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.graphic_eq_rounded),
+                  title: const Text('Visualizer'),
+                  subtitle: Text(
+                    !kIsWeb && Platform.isAndroid
+                        ? 'Spectrum bars on the player artwork. Needs microphone access for the real spectrum, and pauses while the app is in the background'
+                        : 'Spectrum bars on the player artwork. Pauses while the window is in the background',
+                  ),
+                  value: identity.synthesizerBar,
+                  onChanged: (val) async {
+                    TactileFeedback.selection();
+                    if (val && !kIsWeb && Platform.isAndroid) {
+                      await Permission.microphone.request();
+                    }
+                    await controller.updateSynthesizerBar(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.battery_saver_rounded),
+                  title: const Text('Reduced Effects'),
+                  subtitle: const Text(
+                      'Static glow, no seek ripple, no glass blur and no button bounce. With the visualizer off the player scene stops repainting, which cuts battery use.'),
+                  value: identity.reducedEffects,
+                  onChanged: (val) async {
+                    TactileFeedback.selection();
+                    await controller.updateReducedEffects(val);
+                  },
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 18),

@@ -103,7 +103,8 @@ void main() {
     await tester.pump();
 
     expect(find.byType(PlayerScreen), findsNothing);
-    expect(identity.synthesizerBar, isFalse);
+    // The visualizer is a setting: closing the player does not switch it off.
+    expect(identity.synthesizerBar, isTrue);
     expect(PlayerArtwork.isLyricsShowing, isFalse);
   });
 }

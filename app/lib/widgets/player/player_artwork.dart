@@ -524,26 +524,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             children: [
                               PlayerPillButton(
                                 isCircle: true,
-                                isActive: useSynthesizer,
-                                tooltip: useSynthesizer
-                                    ? 'Hide visualizer'
-                                    : 'Show visualizer',
-                                activeColor: baseShadowColor,
-                                onTap: () {
-                                  final willEnable = !useSynthesizer;
-                                  context.read<AppController?>()?.updateSynthesizerBar(willEnable);
-                                },
-                                child: Icon(
-                                  useSynthesizer ? Icons.graphic_eq_rounded : Icons.equalizer_rounded,
-                                  size: 16,
-                                  color: useSynthesizer
-                                      ? (isAccentDark ? Colors.white : const Color(0xFF141416))
-                                      : Colors.white.withValues(alpha: 0.90),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              PlayerPillButton(
-                                isCircle: true,
                                 isActive: isLyricsFullyOpen,
                                 tooltip: isLyricsFullyOpen ? 'Show album artwork' : 'Show lyrics',
                                 activeColor: baseShadowColor,

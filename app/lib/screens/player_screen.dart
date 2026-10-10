@@ -45,7 +45,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Color? _accentColor;
   String? _resolvedSongId;
-  late final AppController _appController;
   bool _handingOffToPane = false;
 
   /// When the window grows wide enough for the Now Playing pane (for example
@@ -70,7 +69,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _appController = context.read<AppController>();
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
   }
 
@@ -132,9 +130,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (_sheetController.progress > 0.001) {
             _sheetController.collapse();
           } else {
-            // The visualizer and lyrics are parked in dispose(), after the
-            // close animation: switching them off here would swap the
-            // artwork and rebuild the app in the middle of the transition.
+            // The lyrics are parked in dispose(), after the close
+            // animation: switching them off here would swap the artwork in
+            // the middle of the transition.
             Navigator.of(context).pop();
           }
         },
@@ -181,7 +179,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return PopScope(
           canPop: isCollapsed,
           onPopInvokedWithResult: (didPop, result) {
-            // A completed pop parks the visualizer and lyrics in dispose().
+            // A completed pop parks the lyrics in dispose().
             if (didPop) return;
             if (_sheetController.progress > 0.001) {
               _sheetController.collapse();
@@ -342,15 +340,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     _sheetController.dispose();
-    // Park the visualizer and lyrics now that the close animation is over.
-    // Deferred to a microtask: the widget tree is locked during dispose, and
-    // the Now Playing pane (after a hand-off to a wide window) listens to the
-    // lyrics switch.
-    final appController = _appController;
-    Future.microtask(() {
-      PlayerArtwork.closeLyrics();
-      appController.updateSynthesizerBar(false);
-    });
+    // Park the lyrics now that the close animation is over. Deferred to a
+    // microtask: the widget tree is locked during dispose, and the Now
+    // Playing pane (after a hand-off to a wide window) listens to the lyrics
+    // switch. The visualizer is a setting and stays on.
+    Future.microtask(PlayerArtwork.closeLyrics);
     super.dispose();
   }
 }

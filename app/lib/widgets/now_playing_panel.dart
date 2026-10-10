@@ -128,10 +128,8 @@ class NowPlayingPanel extends StatelessWidget {
   }
 
   void _collapsePlayer(BuildContext context) {
-    // Mirror what leaving the full-screen player used to do: park the
-    // window-level effects so the visualizer and lyrics do not keep running
-    // once the pane is compact again.
-    context.read<AppController?>()?.updateSynthesizerBar(false);
+    // Park the lyrics so they do not keep running once the pane is compact
+    // again. The visualizer is a setting and stays on.
     PlayerArtwork.closeLyrics();
     onToggleExpanded?.call();
   }

@@ -101,8 +101,10 @@ class IdentityService extends ChangeNotifier {
       orElse: () => SortOption.dateAdded,
     );
     _loudnessNormalization = _prefs.getBool(_loudnessNormKey) ?? true;
-    _synthesizerBar = false;
-    _prefs.remove(_synthesizerBarKey);
+    // On by default, except on Android where the real spectrum needs the
+    // microphone permission, which is asked for when the switch is turned on.
+    _synthesizerBar = _prefs.getBool(_synthesizerBarKey) ??
+        defaultTargetPlatform != TargetPlatform.android;
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
@@ -297,6 +299,7 @@ class IdentityService extends ChangeNotifier {
   Future<void> setSynthesizerBar(bool value) async {
     if (_synthesizerBar == value) return;
     _synthesizerBar = value;
+    await _prefs.setBool(_synthesizerBarKey, value);
     notifyListeners();
   }
 
