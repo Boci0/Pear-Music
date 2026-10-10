@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -19,28 +20,40 @@ import 'debug_log.dart';
 /// the playlist ends or stops answering, which the player treats as the
 /// stream's end, like a song.
 ///
+/// The audio is handed over at the speed it plays, not in segment-sized
+/// bursts: the player's network timeout is five seconds and a live segment
+/// only exists every five, so a burst-then-silence feed was cut off as a dead
+/// connection after about half a minute.
+///
 /// Phones play the playlist natively and do not use this.
 class LiveHlsProxy {
   LiveHlsProxy._(this._server, this._playlistUrl, this._poll, this._startBack,
-      this._client);
+      this._client, this._tick);
 
   final HttpServer _server;
   final String _playlistUrl;
   final Duration _poll;
   final int _startBack;
   final http.Client _client;
+  final Duration _tick;
   bool _stopped = false;
 
   static LiveHlsProxy? _current;
 
+  /// Segments held for sending; the oldest is dropped past this so a paused
+  /// player cannot make the relay grow without bound.
+  static const int _maxQueued = 12;
+
   /// Starts relaying [playlistUrl] and returns the local address to play.
   /// A relay that is already running is stopped first. [poll] is how often the
   /// playlist is read again, [startBack] how many segments behind the live
-  /// edge playback starts (a few seconds of lead so it does not stall).
+  /// edge playback starts (a few seconds of lead so it does not stall), and
+  /// [tick] the spacing of the pieces the audio is handed over in.
   static Future<Uri> serve(
     String playlistUrl, {
     Duration poll = const Duration(seconds: 4),
     int startBack = 2,
+    Duration tick = const Duration(milliseconds: 100),
     http.Client? client,
   }) async {
     stop();
@@ -51,6 +64,7 @@ class LiveHlsProxy {
       poll,
       startBack,
       client ?? BackupAudioEngine.ipv4Client(),
+      tick,
     );
     _current = proxy;
     unawaited(proxy._listen());
@@ -92,16 +106,91 @@ class LiveHlsProxy {
 
     var gone = false;
     unawaited(response.done.then((_) => gone = true, onError: (_) => gone = true));
+    bool halted() => gone || _stopped;
 
-    int? next; // The next media sequence number to send.
+    final queue = Queue<_Piece>();
+    var producing = true;
+    final producer = _collect(queue, halted).whenComplete(() => producing = false);
+
+    // The first piece goes out at once so the player can start and becomes
+    // its lead; after that the audio is kept exactly that far ahead of the
+    // clock, so the player's buffer neither drains nor grows.
+    final pace = _Pace();
+    final started = Stopwatch()..start();
+    var sent = 0;
+    while (!halted()) {
+      if (queue.isEmpty) {
+        if (!producing) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        continue;
+      }
+      final piece = queue.removeFirst();
+      if (!await _send(response, piece, pace, halted)) {
+        gone = true;
+        break;
+      }
+      sent += piece.bytes.length;
+    }
+    DebugLog.write(
+      '[live] Relay finished after ${started.elapsed.inSeconds}s, '
+      '$sent bytes sent, player gone: $gone',
+    );
+    try {
+      await response.close();
+    } catch (_) {}
+    await producer;
+  }
+
+  /// Hands [piece] to the player in [_tick]-sized slices, each held back
+  /// until the audio sent is no more than [pace]'s lead ahead of the clock.
+  /// False when the player has gone.
+  Future<bool> _send(
+    HttpResponse response,
+    _Piece piece,
+    _Pace pace,
+    bool Function() halted,
+  ) async {
+    final bytes = piece.bytes;
+    final slices =
+        math.max(1, (piece.seconds * 1000 / _tick.inMilliseconds).round());
+    final size = (bytes.length / slices).ceil();
+    final seconds = piece.seconds / slices;
+    if (pace.sent == 0) {
+      // The clock starts with the first audio, not with the playlist reads.
+      pace.lead = piece.seconds;
+      pace.clock
+        ..reset()
+        ..start();
+    }
+    try {
+      for (var i = 0; i < slices && !halted(); i++) {
+        final from = i * size;
+        if (from >= bytes.length) break;
+        while (!halted() &&
+            pace.sent > pace.lead + pace.clock.elapsedMilliseconds / 1000) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        response.add(bytes.sublist(from, math.min(bytes.length, from + size)));
+        await response.flush();
+        pace.sent += seconds;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Follows the playlist and queues each new segment. Ends with the
+  /// playlist, when it stops answering, or when the relay is [halted].
+  Future<void> _collect(Queue<_Piece> queue, bool Function() halted) async {
+    int? next; // The next media sequence number to fetch.
     var failures = 0;
-    var ended = false;
-    while (!gone && !_stopped && !ended) {
+    while (!halted()) {
       final list = await _fetchPlaylist();
       if (list == null) {
         if (++failures >= 6) {
           DebugLog.write('[live] Playlist stopped answering, ending the stream');
-          break;
+          return;
         }
         await Future<void>.delayed(_poll);
         continue;
@@ -114,23 +203,18 @@ class LiveHlsProxy {
         // live edge.
         next = math.max(first, first + count - _startBack);
       }
-      for (var i = next - first; i < count && !gone && !_stopped; i++) {
+      for (var i = next - first; i < count && !halted(); i++) {
         final bytes = await _fetchSegment(list.segments[i]);
         next = first + i + 1;
-        if (bytes == null || gone || _stopped) continue;
-        try {
-          response.add(bytes);
-          await response.flush();
-        } catch (_) {
-          gone = true;
+        if (bytes == null || halted()) continue;
+        queue.add(_Piece(bytes, list.seconds[i]));
+        while (queue.length > _maxQueued) {
+          queue.removeFirst();
         }
       }
-      ended = list.ended;
-      if (!ended) await Future<void>.delayed(_poll);
+      if (list.ended) return;
+      await Future<void>.delayed(_poll);
     }
-    try {
-      await response.close();
-    } catch (_) {}
   }
 
   Future<_Playlist?> _fetchPlaylist() async {
@@ -155,29 +239,57 @@ class LiveHlsProxy {
   }
 }
 
+/// How far audio has been handed over against the wall clock.
+class _Pace {
+  final Stopwatch clock = Stopwatch()..start();
+
+  /// Seconds of audio sent ahead of the clock, set by the first piece.
+  double lead = 0;
+
+  /// Seconds of audio handed over so far.
+  double sent = 0;
+}
+
+/// One fetched segment and how long it plays for.
+class _Piece {
+  _Piece(this.bytes, this.seconds);
+
+  final List<int> bytes;
+  final double seconds;
+}
+
 class _Playlist {
-  _Playlist(this.firstSequence, this.segments, this.ended);
+  _Playlist(this.firstSequence, this.segments, this.seconds, this.ended);
 
   final int firstSequence;
   final List<Uri> segments;
+
+  /// The play length of each of [segments].
+  final List<double> seconds;
   final bool ended;
 
   /// Reads a media playlist. Segment lines may be relative to [base].
   static _Playlist parse(String text, Uri base) {
     var sequence = 0;
     var ended = false;
+    var pending = 5.0;
     final segments = <Uri>[];
+    final seconds = <double>[];
     for (final raw in text.split('\n')) {
       final line = raw.trim();
       if (line.isEmpty) continue;
       if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
         sequence = int.tryParse(line.substring(22)) ?? 0;
+      } else if (line.startsWith('#EXTINF:')) {
+        final value = line.substring(8).split(',').first;
+        pending = double.tryParse(value) ?? 5.0;
       } else if (line.startsWith('#EXT-X-ENDLIST')) {
         ended = true;
       } else if (!line.startsWith('#')) {
         segments.add(base.resolve(line));
+        seconds.add(pending);
       }
     }
-    return _Playlist(sequence, segments, ended);
+    return _Playlist(sequence, segments, seconds, ended);
   }
 }

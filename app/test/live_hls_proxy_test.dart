@@ -37,7 +37,7 @@ class _Origin {
           ..write('#EXT-X-TARGETDURATION:5\n')
           ..write('#EXT-X-MEDIA-SEQUENCE:$first\n');
         for (var n = first; n < head; n++) {
-          buf.write('#EXTINF:5.0,\nseg/$n\n');
+          buf.write('#EXTINF:0.2,\nseg/$n\n');
         }
         if (head >= total) buf.write('#EXT-X-ENDLIST\n');
         req.response
@@ -87,6 +87,33 @@ void main() {
     // Starts two segments behind the first live edge (segments 0..3 present,
     // so 2 and 3), then follows without repeating or skipping.
     expect(text, '[2][3][4][5][6][7]');
+  });
+
+  test('audio is handed over at playing speed, not in segment bursts',
+      () async {
+    // Segments 2 and 3 only; each plays for 0.2 s. The first goes out at
+    // once, the second is spread over its own 0.2 s in 100 ms pieces.
+    final origin = _Origin(total: 4);
+    await origin.start();
+    addTearDown(origin.stop);
+    final uri = await LiveHlsProxy.serve(
+      origin.playlistUrl,
+      poll: const Duration(milliseconds: 20),
+      startBack: 2,
+    );
+    final client = HttpClient();
+    final res = await (await client.getUrl(uri)).close();
+    final arrivals = <int>[];
+    final text = StringBuffer();
+    final clock = Stopwatch()..start();
+    await for (final chunk in res) {
+      arrivals.add(clock.elapsedMilliseconds);
+      text.write(utf8.decode(chunk));
+    }
+    client.close(force: true);
+    expect(text.toString(), '[2][3]');
+    expect(arrivals.length, greaterThanOrEqualTo(3));
+    expect(arrivals.last - arrivals.first, greaterThanOrEqualTo(80));
   });
 
   test('a stalled playlist ends the stream instead of hanging', () async {
