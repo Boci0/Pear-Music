@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:system_audio_visualizer/system_audio_visualizer.dart';
 
+import 'debug_log.dart';
 import 'player_service.dart';
 import 'window_focus.dart';
 
@@ -53,6 +54,14 @@ class VisualizerFeed with WidgetsBindingObserver {
   StreamSubscription<int?>? _sessionIdSub;
   bool _hasNativeFft = false;
   bool _wasapiRunning = false;
+
+  /// After a Windows capture starts, how long to wait for the first frame
+  /// before saying so in the debug log. The capture can start without error
+  /// and still deliver nothing (no output device, a driver that refuses
+  /// loopback), and then the bars quietly fall back to a made-up pattern.
+  static const Duration _firstFrameTimeout = Duration(seconds: 4);
+  Timer? _frameWatchdog;
+  bool _loggedFirstFrame = false;
   bool _androidRunning = false;
   int? _currentBoundSessionId;
 
@@ -278,21 +287,44 @@ class VisualizerFeed with WidgetsBindingObserver {
   void _startWasapiCapture() {
     if (kIsWeb || !Platform.isWindows || _wasapiRunning) return;
     _wasapiRunning = true;
+    _loggedFirstFrame = false;
     try {
-      SystemAudioVisualizer.start(fftSize: 2048, bins: 64).catchError((_) {});
+      SystemAudioVisualizer.start(fftSize: 2048, bins: 64).catchError((Object e) {
+        DebugLog.write('[visualizer] Windows capture could not start: $e');
+      });
       _fftSub?.cancel();
       _fftSub = SystemAudioVisualizer.fftStream.listen(
         (raw) {
           if (raw.isNotEmpty) {
+            if (!_loggedFirstFrame) {
+              // Once per start, not per frame: confirms the capture works.
+              _loggedFirstFrame = true;
+              _frameWatchdog?.cancel();
+              DebugLog.write(
+                '[visualizer] Windows capture is delivering a spectrum '
+                '(${raw.length} bins)',
+              );
+            }
             _setNativeFft(true);
             _processFft(raw);
           }
         },
-        onError: (_) {
+        onError: (Object e) {
+          DebugLog.write('[visualizer] Windows capture stream error: $e');
           _setNativeFft(false);
         },
       );
-    } catch (_) {
+      _frameWatchdog?.cancel();
+      _frameWatchdog = Timer(_firstFrameTimeout, () {
+        if (_wasapiRunning && !_loggedFirstFrame) {
+          DebugLog.write(
+            '[visualizer] no spectrum frames ${_firstFrameTimeout.inSeconds} s '
+            'after the Windows capture started; the stand-in pattern is showing',
+          );
+        }
+      });
+    } catch (e) {
+      DebugLog.write('[visualizer] Windows capture failed to start: $e');
       _setNativeFft(false);
     }
   }
@@ -300,6 +332,8 @@ class VisualizerFeed with WidgetsBindingObserver {
   void _stopWasapiCapture() {
     if (kIsWeb || !Platform.isWindows || !_wasapiRunning) return;
     _wasapiRunning = false;
+    _frameWatchdog?.cancel();
+    _frameWatchdog = null;
     _fftSub?.cancel();
     _fftSub = null;
     try {
