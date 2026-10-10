@@ -285,9 +285,9 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   bool _isHovered = false;
   bool _isDragging = false;
 
-  /// Phase of the 3.2 s cursor-bloom loop, advanced by the shared 30 Hz
-  /// [AmbientTicker]. Parked (no ticks, no repaints) whenever playback or the
-  /// window is idle.
+  /// Phase of the 3.2 s cursor-bloom loop, advanced by the shared
+  /// [AmbientTicker] at about 15 Hz. Parked (no ticks, no repaints) whenever
+  /// playback or the window is idle.
   double _wavePhase = 0.0;
   bool _waveTicking = false;
   bool _glowRunning = false;
@@ -310,7 +310,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   void _startWaveTicker() {
     if (_waveTicking) return;
     _waveTicking = true;
-    AmbientTicker.instance.addListener(_onAmbientTick);
+    AmbientTicker.instance.addListener(_onAmbientTick, every: 2);
   }
 
   void _stopWaveTicker() {
@@ -885,25 +885,59 @@ class _PlayheadNub extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fill = Color.lerp(accent, Colors.white, 0.35)!;
+    final pillW = active ? _pillWidth + 1 : _pillWidth;
+    final pillH = active ? _pillHeightActive : _pillHeight;
+    const motion = Duration(milliseconds: 120);
     return SizedBox(
       width: width,
       height: height,
       child: Center(
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOutCubic,
-          width: active ? _pillWidth + 1 : _pillWidth,
-          height: active ? _pillHeightActive : _pillHeight,
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: BorderRadius.circular(_pillWidth),
-            boxShadow: [
-              BoxShadow(
-                color: accent.withValues(alpha: 0.40 + pulse * 0.20),
-                blurRadius: 8 + pulse * 4,
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            // The glow. Its blur is fixed and sits on its own layer, so a
+            // pulse only changes that layer's opacity and scale (compositing,
+            // no re-blur). Changing the shadow's own blur and alpha instead,
+            // through an implicit animation, retargeted a 120 ms animation on
+            // every pulse and kept the whole scene redrawing every vsync.
+            IgnorePointer(
+              child: RepaintBoundary(
+                child: Opacity(
+                  opacity: 0.67 + 0.33 * pulse,
+                  child: Transform.scale(
+                    scale: 1.0 + 0.10 * pulse,
+                    child: AnimatedContainer(
+                      duration: motion,
+                      curve: Curves.easeOutCubic,
+                      width: pillW,
+                      height: pillH,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(_pillWidth),
+                        boxShadow: [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.60),
+                            blurRadius: 10,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ],
-          ),
+            ),
+            // The pill only moves when hovered or dragged.
+            AnimatedContainer(
+              duration: motion,
+              curve: Curves.easeOutCubic,
+              width: pillW,
+              height: pillH,
+              decoration: BoxDecoration(
+                color: fill,
+                borderRadius: BorderRadius.circular(_pillWidth),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -61,7 +61,7 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
   void _startTicking() {
     if (_ticking) return;
     _ticking = true;
-    AmbientTicker.instance.addListener(_onAmbientTick);
+    AmbientTicker.instance.addListener(_onAmbientTick, every: 2);
   }
 
   void _stopTicking() {
@@ -70,9 +70,9 @@ class _RhythmPulseBuilderState extends State<RhythmPulseBuilder>
     AmbientTicker.instance.removeListener(_onAmbientTick);
   }
 
-  /// Advances the breath and bloom phases. Runs at 30 Hz: the loops are slow
-  /// glows, so this looks identical to every-frame updates while leaving the
-  /// display's full frame rate to interactive motion.
+  /// Advances the breath and bloom phases. Runs at about 15 Hz: the loops are
+  /// slow glows, so this looks identical to every-frame updates while leaving
+  /// the display's full frame rate to interactive motion.
   void _onAmbientTick(Duration step) {
     final dt = step.inMicroseconds / 1000000.0;
     if (_fadeDir > 0) {
