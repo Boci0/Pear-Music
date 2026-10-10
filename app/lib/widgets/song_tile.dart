@@ -8,6 +8,7 @@ import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
+import 'live_badge.dart';
 import 'pear_popup.dart';
 import 'playlist_actions.dart';
 import 'tactile_button.dart';
@@ -419,20 +420,32 @@ class SongTile extends StatelessWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        song.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.titleMedium
-                                            ?.copyWith(
-                                              fontSize: 15,
-                                              height: 1.25,
-                                              fontWeight: FontWeight.w600,
-                                              color: isCurrent
-                                                  ? theme.colorScheme.primary
-                                                  : null,
-                                              letterSpacing: -0.2,
+                                      Row(
+                                        children: [
+                                          if (isLiveSong(song)) ...const [
+                                            LiveBadge(),
+                                            SizedBox(width: 8),
+                                          ],
+                                          Expanded(
+                                            child: Text(
+                                              song.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    fontSize: 15,
+                                                    height: 1.25,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isCurrent
+                                                        ? theme
+                                                            .colorScheme
+                                                            .primary
+                                                        : null,
+                                                    letterSpacing: -0.2,
+                                                  ),
                                             ),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 3),
                                       if (!wideRow)

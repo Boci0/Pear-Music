@@ -70,6 +70,54 @@ void main() {
     );
   }
 
+  test('a live song keeps its flag through JSON and defaults to not live', () {
+    final live = Song(
+      id: 'stream_abc',
+      title: 'Lofi Radio',
+      fileName: 'x.m4a',
+      size: 0,
+      checksum: 'c',
+      sourceDeviceId: 'stream',
+      isLive: true,
+      addedAt: DateTime(2026, 1, 1),
+    );
+    expect(Song.fromJson(live.toJson()).isLive, isTrue);
+    expect(live.toJson().containsKey('isLive'), isTrue);
+    final plain = _song('a', 'A');
+    expect(plain.toJson().containsKey('isLive'), isFalse);
+    expect(Song.fromJson(plain.toJson()).isLive, isFalse);
+  });
+
+  testWidgets('a live song row is marked LIVE and a normal one is not', (
+    tester,
+  ) async {
+    final env = await createEnvironment();
+    final live = Song(
+      id: 'stream_abc',
+      title: 'Lofi Radio',
+      fileName: 'x.m4a',
+      size: 0,
+      checksum: 'c',
+      sourceDeviceId: 'stream',
+      isLive: true,
+      addedAt: DateTime(2026, 1, 1),
+    );
+    await tester.pumpWidget(
+      buildHarness(
+        controller: env.controller,
+        player: env.player,
+        child: Column(
+          children: [
+            SizedBox(height: 70, child: SongTile(song: live)),
+            SizedBox(height: 70, child: SongTile(song: _song('b', 'Plain'))),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('LIVE'), findsOneWidget);
+  });
+
   testWidgets('right click on a song row opens the desktop context menu', (
     tester,
   ) async {

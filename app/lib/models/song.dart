@@ -26,6 +26,10 @@ class Song {
   /// The artist, when known (online songs); [title] then ends with
   /// ` - artist` unless the title already named them.
   final String? artist;
+
+  /// A live stream (no length, no file): rows mark it LIVE. Kept with the
+  /// song so the queue, history and favourites show it too.
+  final bool isLive;
   final DateTime addedAt;
   late final String lowerTitle = title.toLowerCase();
   late final String lowerArtist = (artist ?? '').toLowerCase();
@@ -39,6 +43,7 @@ class Song {
     this.sourceDeviceId,
     this.artwork,
     this.artist,
+    this.isLive = false,
     required this.addedAt,
   });
 
@@ -76,6 +81,7 @@ class Song {
         'sourceDeviceId': sourceDeviceId,
         'artwork': artwork,
         if (artist != null) 'artist': artist,
+        if (isLive) 'isLive': true,
         'addedAt': addedAt.toIso8601String(),
       };
 
@@ -88,6 +94,7 @@ class Song {
         sourceDeviceId: json['sourceDeviceId'] as String?,
         artwork: json['artwork'] as String?,
         artist: json['artist'] as String?,
+        isLive: json['isLive'] == true,
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
             DateTime.now(),
       );

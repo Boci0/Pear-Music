@@ -11,6 +11,7 @@ import '../../services/player_service.dart';
 import '../../services/player_theme.dart';
 import '../../theme/glass.dart';
 import '../../theme/tokens.dart';
+import '../live_badge.dart';
 import '../tactile_button.dart';
 
 /// Height of one queue row including its vertical padding. The list's
@@ -1137,20 +1138,30 @@ class _QueueRow extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: isCurrent
-                              ? readableAccent
-                              : Colors.white.withValues(
-                                  alpha: isPlayed ? 0.42 : 0.9,
-                                ),
-                          letterSpacing: -0.2,
-                        ),
+                      Row(
+                        children: [
+                          if (isLiveSong(song)) ...const [
+                            LiveBadge(),
+                            SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Text(
+                              song.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: isCurrent
+                                    ? readableAccent
+                                    : Colors.white.withValues(
+                                        alpha: isPlayed ? 0.42 : 0.9,
+                                      ),
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(

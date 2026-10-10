@@ -54,6 +54,7 @@ class YouTubeSearchResult {
       sourceDeviceId: sourceDeviceId,
       artwork: thumbnailUrl,
       artist: author.isEmpty ? null : author,
+      isLive: isLive,
       addedAt: DateTime.now(),
     );
   }
