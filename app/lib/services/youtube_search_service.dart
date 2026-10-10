@@ -13,12 +13,16 @@ class YouTubeSearchResult {
   final Duration? duration;
   final String? thumbnailUrl;
 
+  /// Live right now: it has no length, so rows show a LIVE badge instead.
+  final bool isLive;
+
   const YouTubeSearchResult({
     required this.videoId,
     required this.title,
     required this.author,
     this.duration,
     this.thumbnailUrl,
+    this.isLive = false,
   });
 
   String get url => 'https://www.youtube.com/watch?v=$videoId';
@@ -155,6 +159,7 @@ class YouTubeSearchService {
             title: video.title,
             author: video.author,
             duration: video.duration,
+            isLive: video.isLive,
             thumbnailUrl: video.thumbnails.highResUrl.isNotEmpty
                 ? video.thumbnails.highResUrl
                 : (video.thumbnails.mediumResUrl.isNotEmpty
@@ -183,6 +188,7 @@ class YouTubeSearchService {
         author: item.artist,
         duration: item.duration,
         thumbnailUrl: item.thumbnailUrl,
+        isLive: item.isLive,
       );
 
   /// Close client resources and clear memory caches.

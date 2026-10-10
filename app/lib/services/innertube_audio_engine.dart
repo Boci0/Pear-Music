@@ -149,6 +149,9 @@ class InnerTubeAudioEngine {
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
 
+  /// The error a fetch reports for a video that is live right now.
+  static const String liveStreamError = 'live stream';
+
   static String? _status(Map<String, dynamic> j) =>
       (j['playabilityStatus'] as Map?)?['status'] as String?;
 
@@ -187,6 +190,11 @@ class InnerTubeAudioEngine {
     if (status != 'OK') {
       final reason = (json['playabilityStatus'] as Map?)?['reason'];
       throw InnerTubeFailure('not offered to this client ($status $reason)');
+    }
+    // A live stream never ends, so it has no file to fetch; playback plays
+    // its HLS link instead (see StreamCacheManager.resolveLiveLink).
+    if ((json['videoDetails'] as Map?)?['isLive'] == true) {
+      throw InnerTubeFailure(liveStreamError);
     }
     final formats =
         ((json['streamingData'] as Map?)?['adaptiveFormats'] as List?) ??

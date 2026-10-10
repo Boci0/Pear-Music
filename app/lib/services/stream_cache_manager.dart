@@ -393,6 +393,11 @@ class StreamCacheManager {
           (isPreload && preloadSeq != _slidingWindowSequence),
     );
     final file = result.file;
+    if (result.error == InnerTubeAudioEngine.liveStreamError) {
+      DebugLog.write('[cache] $videoId is a live stream, not caching it');
+      _liveVideoIds.add(videoId);
+      return null;
+    }
     if (file == null) {
       if (result.error != 'cancelled') {
         DebugLog.write(
@@ -911,6 +916,56 @@ class StreamCacheManager {
     }
   }
 
+  /// Videos the fast engine found to be live this session. The cache skips
+  /// them (a live stream never ends) and playback uses [resolveLiveLink].
+  static final Set<String> _liveVideoIds = {};
+
+  static bool isKnownLive(String videoId) => _liveVideoIds.contains(videoId);
+
+  /// Resolves the HLS link of a live stream. YouTube offers live audio only
+  /// as HLS, which the cache fetch skips for speed, so this asks yt-dlp
+  /// without that skip. Nothing is downloaded. Null when it fails.
+  static Future<ResolvedStream?> resolveLiveLink(String videoId) async {
+    final url = 'https://www.youtube.com/watch?v=$videoId';
+    try {
+      if (YoutubeService.isEmbeddedYtDlpSupported) {
+        final link = await const MethodChannel('peerm/ytdlp')
+            .invokeMethod<String>('getStreamUrl', {'url': url})
+            .timeout(_linkPrefetchTimeout);
+        return link == null ? null : ResolvedStream(url: link);
+      }
+      final bin = await YoutubeService.ytDlpPath();
+      if (bin == null) return null;
+      final ytdlpCache = await getYtDlpCacheDirectory();
+      // shortcut: a lookup that times out leaves its yt-dlp to exit on its
+      // own (--socket-timeout bounds it); track the process if that bites.
+      final result = await Process.run(bin, [
+        '--print',
+        'video:$streamLinePrefix%(.{url,http_headers,ext})j',
+        '-f',
+        'bestaudio/best',
+        '--cache-dir',
+        ytdlpCache.path,
+        '--extractor-args',
+        'youtube:skip=webpage,authcheck,translated_subs',
+        '--no-playlist',
+        '--quiet',
+        '--force-ipv4',
+        '--socket-timeout',
+        '10',
+        url,
+      ]).timeout(_linkPrefetchTimeout);
+      for (final line in LineSplitter.split('${result.stdout}')) {
+        final stream = parseStreamLine(line);
+        if (stream != null) return stream;
+      }
+      DebugLog.write('[cache] No live link for $videoId: ${'${result.stderr}'.trim()}');
+    } catch (e) {
+      DebugLog.write('[cache] Live link lookup for $videoId failed: $e');
+    }
+    return null;
+  }
+
   /// Stops a running link lookup (a real fetch is about to use the
   /// connection, or the app is closing).
   static void cancelLinkPrefetch() {
@@ -1143,6 +1198,7 @@ class StreamCacheManager {
       DebugLog.write('[cache] Disk cache HIT for $videoId (0ms)');
       return existing;
     }
+    if (_liveVideoIds.contains(videoId)) return null;
     if (token != _downloadInvocationToken) return null;
     if (isPreload && preloadSeq != _slidingWindowSequence) return null;
 
@@ -1248,6 +1304,7 @@ class StreamCacheManager {
           completer.complete(fast);
           return fast;
         }
+        if (_liveVideoIds.contains(videoId)) return null;
       }
 
       // Android embedded yt-dlp

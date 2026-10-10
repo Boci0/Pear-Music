@@ -10,6 +10,7 @@ import '../services/stream_cache_manager.dart';
 import '../services/youtube_search_service.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
+import 'live_badge.dart';
 import 'pear_popup.dart';
 import 'tactile_button.dart';
 
@@ -525,6 +526,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                               color: theme.colorScheme.tertiary,
                                             ),
                                             const SizedBox(width: 4),
+                                            if (widget.result.isLive) ...const [
+                                              LiveBadge(),
+                                              SizedBox(width: 6),
+                                            ],
                                             Expanded(
                                               child: Text(
                                                 onlineMeta,
@@ -558,6 +563,10 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                           color: theme.colorScheme.tertiary,
                                         ),
                                         const SizedBox(width: 4),
+                                        if (widget.result.isLive) ...const [
+                                          LiveBadge(),
+                                          SizedBox(width: 6),
+                                        ],
                                         Flexible(
                                           child: Text(
                                             onlineMeta,
