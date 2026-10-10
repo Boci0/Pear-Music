@@ -130,6 +130,46 @@ void main() {
     });
   });
 
+  testWidgets('the mini player shows LIVE and no progress for a live stream',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final identity = IdentityService(prefs);
+    final library = LibraryService();
+    final player = PlayerService(library);
+    final controller = AppController(
+      identity: identity,
+      library: library,
+      player: player,
+      youtube: YoutubeService(),
+    );
+    final song = _createSong('live1', 'Lofi Radio');
+    player.updateQueue([song]);
+    player.currentSong = song;
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: controller),
+          ChangeNotifierProvider.value(value: player),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(bottomNavigationBar: PlayerBar()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('LIVE'), findsNothing);
+    expect(find.text('Live stream'), findsNothing);
+
+    player.debugSetLive(true);
+    await tester.pump();
+    expect(find.text('LIVE'), findsOneWidget);
+    expect(find.text('Live stream'), findsOneWidget);
+    // Nothing fills the capsule as progress.
+    expect(find.byType(FractionallySizedBox), findsNothing);
+  });
+
   group('PlaylistsScreen bottom sheet menu', () {
     testWidgets('tapping 3-dots opens bottom sheet modal with play, shuffle, rename, and delete options', (tester) async {
       SharedPreferences.setMockInitialValues({});

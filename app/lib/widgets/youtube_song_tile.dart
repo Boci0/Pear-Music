@@ -501,20 +501,32 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        widget.result.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.titleMedium
-                                            ?.copyWith(
-                                              fontSize: 15,
-                                              height: 1.25,
-                                              fontWeight: FontWeight.w600,
-                                              color: widget.isCurrent
-                                                  ? theme.colorScheme.primary
-                                                  : null,
-                                              letterSpacing: -0.2,
+                                      Row(
+                                        children: [
+                                          if (widget.result.isLive) ...const [
+                                            LiveBadge(),
+                                            SizedBox(width: 8),
+                                          ],
+                                          Expanded(
+                                            child: Text(
+                                              widget.result.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    fontSize: 15,
+                                                    height: 1.25,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: widget.isCurrent
+                                                        ? theme
+                                                            .colorScheme
+                                                            .primary
+                                                        : null,
+                                                    letterSpacing: -0.2,
+                                                  ),
                                             ),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 3),
                                       if (!wideRow)
@@ -526,10 +538,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                               color: theme.colorScheme.tertiary,
                                             ),
                                             const SizedBox(width: 4),
-                                            if (widget.result.isLive) ...const [
-                                              LiveBadge(),
-                                              SizedBox(width: 6),
-                                            ],
                                             Expanded(
                                               child: Text(
                                                 onlineMeta,
@@ -563,10 +571,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                                           color: theme.colorScheme.tertiary,
                                         ),
                                         const SizedBox(width: 4),
-                                        if (widget.result.isLive) ...const [
-                                          LiveBadge(),
-                                          SizedBox(width: 6),
-                                        ],
                                         Flexible(
                                           child: Text(
                                             onlineMeta,

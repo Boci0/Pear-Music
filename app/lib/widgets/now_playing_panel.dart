@@ -16,6 +16,7 @@ import 'player/player_artwork.dart';
 import 'player/player_controls.dart';
 import 'player/sleep_timer_dialog.dart';
 import 'player/stream_quality_info_dialog.dart';
+import 'live_badge.dart';
 import 'tactile_button.dart';
 
 /// Old-school desktop "Now Playing" pane: big artwork, title, transport
@@ -513,6 +514,18 @@ class _ProgressLineState extends State<_ProgressLine> {
       color: Colors.white.withValues(alpha: 0.5),
       fontFeatures: const [FontFeature.tabularFigures()],
     );
+
+    // A live stream has no length to show or seek in.
+    if (player.isLive) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const LiveBadge(),
+          const SizedBox(width: 8),
+          Text('Live stream', style: timeStyle),
+        ],
+      );
+    }
 
     return StreamBuilder<Duration?>(
       stream: player.durationStream,

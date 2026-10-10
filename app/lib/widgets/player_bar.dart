@@ -9,6 +9,7 @@ import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 import '../services/player_theme.dart';
 import '../theme/glass.dart';
+import 'live_badge.dart';
 import 'pear_page_route.dart';
 import 'player/mini_visualizer.dart';
 import 'tactile_button.dart';
@@ -79,10 +80,14 @@ class PlayerBar extends StatelessWidget {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: _MiniPlayerBackgroundProgress(
-                      player: player,
-                      color: control,
-                    ),
+                    // A live stream has no length: no progress fill, or it
+                    // would look like a track that can end.
+                    child: player.isLive
+                        ? const SizedBox.expand()
+                        : _MiniPlayerBackgroundProgress(
+                            player: player,
+                            color: control,
+                          ),
                   ),
                   if (showVisualizer)
                     Positioned.fill(
@@ -122,6 +127,24 @@ class PlayerBar extends StatelessWidget {
                                     color: theme.colorScheme.error,
                                     fontWeight: FontWeight.w600,
                                   ),
+                                ),
+                              ] else if (player.isLive &&
+                                  !player.isBuffering) ...[
+                                const SizedBox(height: 3),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const LiveBadge(),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Live stream',
+                                      style:
+                                          theme.textTheme.labelSmall?.copyWith(
+                                        color: theme.colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ] else if (player.isLoadingRecommendations ||
                                   player.isBuffering) ...[

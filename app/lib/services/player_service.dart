@@ -17,6 +17,7 @@ import 'growing_file_audio_source.dart';
 import 'history_service.dart';
 import 'identity_service.dart';
 import 'library_service.dart';
+import 'live_hls_proxy.dart';
 import 'loudness_service.dart';
 import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
@@ -1669,10 +1670,14 @@ class PlayerService extends ChangeNotifier {
     if (link == null) return false;
     try {
       // No headers: the manifest needs none, and a header proxy would have
-      // to rewrite every segment link in it.
-      await _player
-          .setAudioSource(AudioSource.uri(Uri.parse(link.url)))
-          .timeout(_earlyStreamOpenTimeout);
+      // to rewrite every segment link in it. Phones play the playlist
+      // natively; the desktop engine cannot (it would end the "song" after
+      // each five-second segment), so it gets one continuous local stream.
+      final native = Platform.isAndroid || Platform.isIOS;
+      final source = native
+          ? HlsAudioSource(Uri.parse(link.url))
+          : AudioSource.uri(await LiveHlsProxy.serve(link.url));
+      await _player.setAudioSource(source).timeout(_earlyStreamOpenTimeout);
     } catch (e) {
       DebugLog.write('[player] Live stream $videoId would not play: $e');
       return token != _playRequestToken;
@@ -1809,6 +1814,7 @@ class PlayerService extends ChangeNotifier {
 
     final stopwatch = Stopwatch()..start();
     _isLive = false;
+    LiveHlsProxy.stop();
     Future<File?>? pendingDownload;
     final previousGrowing = _growingSource;
     _growingSource = null;
@@ -3079,6 +3085,7 @@ class PlayerService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    LiveHlsProxy.stop();
     _tailToken++;
     unawaited(_tailPlayer?.dispose());
     _tailPlayer = null;
