@@ -994,8 +994,7 @@ class StreamCacheManager {
             // clean yt-dlp cache, the same as the manual Retry does, so the
             // next track does not start cold (or fail) when it comes up.
             if (file == null && _lastFetchFailures[id]?.kind == StreamFetchFailureKind.blocked) {
-              DebugLog.write('[preload] $id was blocked, retrying once with a clean yt-dlp cache');
-              await refreshYtDlpCache();
+              DebugLog.write('[preload] $id was blocked, retrying once');
               if (seq != _slidingWindowSequence) break;
               file = await ensureStreamCached(id, isPreload: true);
               if (seq != _slidingWindowSequence) break;
