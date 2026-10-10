@@ -67,7 +67,7 @@ class PlaybackError {
 /// [next]/[previous] load the next song explicitly. This is reliable across
 /// backends (multi-source playlists don't advance on media_kit: the cause of
 /// "it just loops on 1 song") and gives us loop + shuffle for free. Each source
-/// carries a [MediaItem] tag so `just_audio_background` renders the
+/// carries a [MediaItem] tag so the `audio_service` handler renders the
 /// notification (play/pause, next/previous, repeat, shuffle).
 class PlayerService extends ChangeNotifier {
   final LibraryService library;
@@ -2800,7 +2800,7 @@ class PlayerService extends ChangeNotifier {
 
   /// Android 13+ (API 33+) requires the POST_NOTIFICATIONS runtime permission
   /// for app notifications to show. The media notification from
-  /// just_audio_background is affected on many devices (vivo/Oppo/Xiaomi are
+  /// audio_service is affected on many devices (vivo/Oppo/Xiaomi are
   /// strict). Request it once on the first play. No-op on other platforms.
   Future<void> _requestNotificationPermissionIfNeeded() async {
     if (!Platform.isAndroid) return;

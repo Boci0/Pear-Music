@@ -10,9 +10,9 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
-  # Vendored third-party plugin sources (flutter_local_notifications_windows)
-  # are excluded from analysis: they are upstream code with their own test
-  # fixtures and would otherwise flood plain `flutter analyze` output.
+  # Vendored third-party plugin sources (audio_service) are excluded from
+  # analysis: they are upstream code with their own example app and would
+  # otherwise flood plain `flutter analyze` output.
   exclude:
     - third_party/**
     - build/**

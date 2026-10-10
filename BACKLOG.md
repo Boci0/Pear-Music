@@ -1,7 +1,8 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v4.1.7** (all verified only by tests and the
-owner's reports; the agent cannot hear audio or run the app).
+Handover notes for the next working session. Latest release: **v4.4.3**. The lyric items below were written
+at v4.1.7 and have not been re-confirmed since (verified only by tests and the owner's reports; the agent
+cannot hear audio or run the app).
 
 ## Start here
 
