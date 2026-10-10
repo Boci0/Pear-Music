@@ -16,12 +16,16 @@ class RecommendationItem {
   final Duration? duration;
   final String? thumbnailUrl;
 
+  /// Live right now (YouTube Music marks the row with a live badge).
+  final bool isLive;
+
   const RecommendationItem({
     required this.videoId,
     required this.title,
     required this.artist,
     this.duration,
     this.thumbnailUrl,
+    this.isLive = false,
   });
 
   String get durationFormatted {
@@ -117,6 +121,13 @@ class RecommendationService {
   @visibleForTesting
   static void setSeedVideoIdForTesting(String key, String videoId) {
     _seedVideoIdCache[key] = videoId;
+  }
+
+  @visibleForTesting
+  static List<RecommendationItem> parseSongRowsForTesting(List rows) {
+    final items = <RecommendationItem>[];
+    _addSongRows(rows, items, <String>{}, rows.length);
+    return items;
   }
 
   /// Tries to extract an 11-character YouTube video ID from a song ID, fileName, or title.
@@ -645,6 +656,10 @@ class RecommendationService {
           artist: artist,
           duration: _parseDuration(lengthStr),
           thumbnailUrl: thumbUrl,
+          isLive: (renderer['badges'] as List?)?.any(
+                (b) => b is Map && b.containsKey('liveBadgeRenderer'),
+              ) ??
+              false,
         ),
       );
     }
@@ -687,6 +702,7 @@ class RecommendationService {
               artist: r.author,
               duration: r.duration,
               thumbnailUrl: r.thumbnailUrl,
+              isLive: r.isLive,
             ),
           );
         }

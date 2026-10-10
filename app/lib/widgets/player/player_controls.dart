@@ -11,6 +11,7 @@ import '../../services/player_service.dart';
 import '../../services/window_focus.dart';
 import '../../theme/glass.dart';
 import '../../theme/tokens.dart';
+import '../live_badge.dart';
 import '../tactile_button.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
@@ -402,6 +403,25 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _syncGlow();
       });
+    }
+    // A live stream has no length to seek in.
+    if (context.select<PlayerService?, bool>((p) => p?.isLive ?? false)) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const LiveBadge(),
+            const SizedBox(width: 8),
+            Text(
+              'Live stream',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
     }
     final totalMs = widget.duration.inMilliseconds.toDouble();
 

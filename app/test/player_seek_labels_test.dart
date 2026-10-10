@@ -63,5 +63,11 @@ void main() {
     // Default view is the remaining time; the elapsed side shows the position.
     expect(find.text('-3:03:36'), findsOneWidget);
     expect(find.text('00:00'), findsOneWidget);
+
+    // A live stream swaps the bar and times for a LIVE label.
+    player.debugSetLive(true);
+    await tester.pump();
+    expect(find.text('LIVE'), findsOneWidget);
+    expect(find.text('-3:03:36'), findsNothing);
   });
 }

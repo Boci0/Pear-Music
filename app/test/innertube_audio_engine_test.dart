@@ -310,6 +310,22 @@ void main() {
       expect(await StreamCacheManager.getCachedFile('fastvid1'), isNotNull);
     });
 
+    test('a live stream is flagged once and never fetched', () async {
+      StreamCacheManager.debugAllowFastEngineInTests = true;
+      var lookups = 0;
+      InnerTubeAudioEngine.debugPlayerOverride = (_, _) async {
+        lookups++;
+        return {..._ok(), 'videoDetails': {'isLive': true}};
+      };
+      InnerTubeAudioEngine.debugOpenOverride =
+          (_, _) => throw StateError('a live stream must not be downloaded');
+
+      expect(await StreamCacheManager.ensureStreamCached('livevid1'), isNull);
+      expect(StreamCacheManager.isKnownLive('livevid1'), isTrue);
+      expect(await StreamCacheManager.ensureStreamCached('livevid1'), isNull);
+      expect(lookups, 1);
+    });
+
     test('a test run never reaches YouTube unless it asks to', () async {
       var lookups = 0;
       InnerTubeAudioEngine.debugPlayerOverride = (_, _) async {

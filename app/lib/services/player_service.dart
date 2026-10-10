@@ -187,6 +187,16 @@ class PlayerService extends ChangeNotifier {
   int? get currentLoadedFileSize => _currentLoadedFileSize;
   String? get currentLoadedFormat => _currentLoadedFormat;
 
+  /// Playing a live stream: no length and no seeking.
+  bool _isLive = false;
+  bool get isLive => _isLive;
+
+  @visibleForTesting
+  void debugSetLive(bool value) {
+    _isLive = value;
+    notifyListeners();
+  }
+
   /// Inspects disk storage to ensure current loaded file metadata is resolved.
   Future<File?> resolveCurrentLoadedFile() async {
     if (_currentLoadedFile != null && await _currentLoadedFile!.exists()) {
@@ -1645,6 +1655,41 @@ class PlayerService extends ChangeNotifier {
   /// How long opening a stream's direct link may take before falling back.
   static const Duration _earlyStreamOpenTimeout = Duration(seconds: 10);
 
+  /// Plays a live stream from its HLS link; it never ends, so it is never
+  /// cached. False when no link resolved or it would not open. True when a
+  /// newer play request took over meanwhile, so the caller just stops.
+  Future<bool> _playLiveStream(
+    Song song,
+    String videoId,
+    int token,
+    Stopwatch stopwatch,
+  ) async {
+    final link = await StreamCacheManager.resolveLiveLink(videoId);
+    if (token != _playRequestToken) return true;
+    if (link == null) return false;
+    try {
+      // No headers: the manifest needs none, and a header proxy would have
+      // to rewrite every segment link in it.
+      await _player
+          .setAudioSource(AudioSource.uri(Uri.parse(link.url)))
+          .timeout(_earlyStreamOpenTimeout);
+    } catch (e) {
+      DebugLog.write('[player] Live stream $videoId would not play: $e');
+      return token != _playRequestToken;
+    }
+    if (token != _playRequestToken) return true;
+    _currentRouteType = StreamRouteType.direct;
+    _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+    _currentLoadedFile = null;
+    _currentLoadedFileSize = null;
+    _currentLoadedFormat = 'hls';
+    _isLive = true;
+    _resetStreamFailureCounters();
+    notifyListeners();
+    DebugLog.write('[player] LIVE (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]');
+    return true;
+  }
+
   /// Logs [song] as played. Stream songs are also registered as known online
   /// songs so the history row can still resolve its title/artwork later (they
   /// are not in the library until the user saves them).
@@ -1763,6 +1808,7 @@ class PlayerService extends ChangeNotifier {
     audioHandler?.updateSongMediaItem(song, artUri: effectiveArtUri);
 
     final stopwatch = Stopwatch()..start();
+    _isLive = false;
     Future<File?>? pendingDownload;
     final previousGrowing = _growingSource;
     _growingSource = null;
@@ -1925,6 +1971,7 @@ class PlayerService extends ChangeNotifier {
           // Retry once after short delay if initial resolution returned null
           if (!streaming &&
               downloadedFile == null &&
+              !StreamCacheManager.isKnownLive(videoId) &&
               token == _playRequestToken) {
             DebugLog.write('[player] Initial stream fetch for $videoId returned null, retrying once...');
             await Future.delayed(const Duration(milliseconds: 500));
@@ -1959,6 +2006,9 @@ class PlayerService extends ChangeNotifier {
               await StreamCacheManager.evictUnplayable(downloadedFile);
               rethrow;
             }
+          } else if (StreamCacheManager.isKnownLive(videoId) &&
+              await _playLiveStream(song, videoId, token, stopwatch)) {
+            if (token != _playRequestToken) return;
           } else {
             _pendingNaturalAdvance = false;
             _consecutiveStreamFailures++;
