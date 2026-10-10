@@ -395,7 +395,7 @@ class StreamCacheManager {
     final file = result.file;
     if (result.error == InnerTubeAudioEngine.liveStreamError) {
       DebugLog.write('[cache] $videoId is a live stream, not caching it');
-      _liveVideoIds.add(videoId);
+      _liveVideoIds[videoId] = DateTime.now();
       return null;
     }
     if (file == null) {
@@ -916,11 +916,27 @@ class StreamCacheManager {
     }
   }
 
-  /// Videos the fast engine found to be live this session. The cache skips
-  /// them (a live stream never ends) and playback uses [resolveLiveLink].
-  static final Set<String> _liveVideoIds = {};
+  /// Videos the fast engine found to be live, and when. The cache skips them
+  /// while they are (there is no file to fetch) and playback uses
+  /// [resolveLiveLink]. The finding expires: a broadcast ends and becomes an
+  /// ordinary video, which the next play then checks again and caches.
+  static final Map<String, DateTime> _liveVideoIds = {};
+  static const Duration _liveRecheckAfter = Duration(minutes: 30);
 
-  static bool isKnownLive(String videoId) => _liveVideoIds.contains(videoId);
+  /// Test seam: records [videoId] as found live at [since].
+  @visibleForTesting
+  static void debugMarkLive(String videoId, DateTime since) =>
+      _liveVideoIds[videoId] = since;
+
+  static bool isKnownLive(String videoId) {
+    final since = _liveVideoIds[videoId];
+    if (since == null) return false;
+    if (DateTime.now().difference(since) > _liveRecheckAfter) {
+      _liveVideoIds.remove(videoId);
+      return false;
+    }
+    return true;
+  }
 
   /// Resolves the HLS link of a live stream. YouTube offers live audio only
   /// as HLS, which the cache fetch skips for speed, so this asks yt-dlp
@@ -1198,7 +1214,7 @@ class StreamCacheManager {
       DebugLog.write('[cache] Disk cache HIT for $videoId (0ms)');
       return existing;
     }
-    if (_liveVideoIds.contains(videoId)) return null;
+    if (isKnownLive(videoId)) return null;
     if (token != _downloadInvocationToken) return null;
     if (isPreload && preloadSeq != _slidingWindowSequence) return null;
 
@@ -1304,7 +1320,7 @@ class StreamCacheManager {
           completer.complete(fast);
           return fast;
         }
-        if (_liveVideoIds.contains(videoId)) return null;
+        if (isKnownLive(videoId)) return null;
       }
 
       // Android embedded yt-dlp

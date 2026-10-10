@@ -326,6 +326,17 @@ void main() {
       expect(lookups, 1);
     });
 
+    test('a live finding expires, so an ended broadcast is fetched again',
+        () async {
+      StreamCacheManager.debugMarkLive('liveold1', DateTime.now());
+      expect(StreamCacheManager.isKnownLive('liveold1'), isTrue);
+      StreamCacheManager.debugMarkLive(
+        'liveold1',
+        DateTime.now().subtract(const Duration(minutes: 31)),
+      );
+      expect(StreamCacheManager.isKnownLive('liveold1'), isFalse);
+    });
+
     test('a test run never reaches YouTube unless it asks to', () async {
       var lookups = 0;
       InnerTubeAudioEngine.debugPlayerOverride = (_, _) async {

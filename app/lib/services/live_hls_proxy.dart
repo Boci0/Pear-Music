@@ -38,6 +38,11 @@ class LiveHlsProxy {
   final Duration _tick;
   bool _stopped = false;
 
+  /// Playlist reads so far, for the log: each is ~900 KB of text that goes
+  /// over the wire gzip-compressed (about 12 KB), which is why polling it
+  /// every few seconds costs about 3 KB/s next to the audio's 16 KB/s.
+  int _playlistReads = 0;
+
   static LiveHlsProxy? _current;
 
   /// Segments held for sending; the oldest is dropped past this so a paused
@@ -133,7 +138,8 @@ class LiveHlsProxy {
     }
     DebugLog.write(
       '[live] Relay finished after ${started.elapsed.inSeconds}s, '
-      '$sent bytes sent, player gone: $gone',
+      '${(sent / 1024).round()} KB of audio sent, $_playlistReads playlist '
+      'reads, player gone: $gone',
     );
     try {
       await response.close();
@@ -223,6 +229,7 @@ class LiveHlsProxy {
           .get(Uri.parse(_playlistUrl))
           .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return null;
+      _playlistReads++;
       return _Playlist.parse(res.body, Uri.parse(_playlistUrl));
     } catch (_) {
       return null;

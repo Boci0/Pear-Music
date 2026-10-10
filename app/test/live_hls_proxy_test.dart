@@ -17,6 +17,10 @@ class _Origin {
 
   /// Answers every playlist read with a server error.
   bool failing = false;
+
+  /// The Accept-Encoding of each playlist read: the real playlist is ~900 KB
+  /// of text that only costs ~12 KB when the relay asks for gzip.
+  final acceptEncodings = <String?>[];
   late final HttpServer server;
   String get playlistUrl => 'http://127.0.0.1:${server.port}/live.m3u8';
 
@@ -29,6 +33,7 @@ class _Origin {
           ..statusCode = 500
           ..close();
       } else if (path == '/live.m3u8') {
+        acceptEncodings.add(req.headers.value(HttpHeaders.acceptEncodingHeader));
         // The live edge moves one segment per read, starting with 4 present.
         final head = (4 + reads).clamp(0, total);
         reads++;
@@ -87,6 +92,8 @@ void main() {
     // Starts two segments behind the first live edge (segments 0..3 present,
     // so 2 and 3), then follows without repeating or skipping.
     expect(text, '[2][3][4][5][6][7]');
+    expect(origin.acceptEncodings, isNotEmpty);
+    expect(origin.acceptEncodings.every((e) => e?.contains('gzip') ?? false), isTrue);
   });
 
   test('audio is handed over at playing speed, not in segment bursts',

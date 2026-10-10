@@ -728,7 +728,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   void _onPositionForCrossfade(Duration position) {
-    if (_crossfadeSeconds <= 0 || _crossfadeStarting) return;
+    if (_crossfadeSeconds <= 0 || _crossfadeStarting || _isLive) return;
     if (_crossfadedToken == _playRequestToken) return;
     if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
       return;
@@ -1814,7 +1814,6 @@ class PlayerService extends ChangeNotifier {
 
     final stopwatch = Stopwatch()..start();
     _isLive = false;
-    LiveHlsProxy.stop();
     Future<File?>? pendingDownload;
     final previousGrowing = _growingSource;
     _growingSource = null;
@@ -2182,6 +2181,10 @@ class PlayerService extends ChangeNotifier {
         _isLoadingTrack = false;
         _isBufferingNext = false;
         _bufferingVideoId = null;
+        // The previous live stream's relay is stopped only now that this song
+        // has its own source: stopping it earlier makes the player report the
+        // old stream's end, about five seconds on, as a finished song.
+        if (!_isLive) LiveHlsProxy.stop();
         if (_pendingNaturalAdvance) {
           _pendingNaturalAdvance = false;
           DebugLog.write('[player] Song in completed state during finally; auto-advancing next');
@@ -2653,7 +2656,9 @@ class PlayerService extends ChangeNotifier {
     try {
       _syncQueueIndexWithCurrentSong();
       final pos = _player.position;
-      if (pos > const Duration(seconds: 3)) {
+      // A live stream has no start to go back to: Previous goes to the
+      // previous song.
+      if (pos > const Duration(seconds: 3) && !_isLive) {
         await seek(Duration.zero);
         return;
       }
@@ -2818,7 +2823,12 @@ class PlayerService extends ChangeNotifier {
     // A seek back from the last seconds is the user's, not a loop wrap.
     _lastPosition = position;
     final dur = _player.duration;
-    if (dur != null && dur > Duration.zero && position >= dur - const Duration(milliseconds: 150)) {
+    // A live stream's reported length is only what has been buffered, so
+    // seeking to its end must not count as the song finishing.
+    if (!_isLive &&
+        dur != null &&
+        dur > Duration.zero &&
+        position >= dur - const Duration(milliseconds: 150)) {
       await _player.seek(dur);
       if (!_isAdvancing && !_isLoadingTrack) {
         if (_sleepTimerEndOfSong) {

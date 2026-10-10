@@ -65,6 +65,10 @@ class VisualizerFeed with WidgetsBindingObserver {
   bool _androidRunning = false;
   int? _currentBoundSessionId;
 
+  /// Bumped on every stop, so a start that was still in flight can tell it
+  /// has been overtaken.
+  int _androidGeneration = 0;
+
   int _basePositionMs = 0;
   int _lastPositionUpdateEpoch = DateTime.now().millisecondsSinceEpoch;
   int _lastRefreshMs = 0;
@@ -257,10 +261,20 @@ class VisualizerFeed with WidgetsBindingObserver {
 
   Future<void> _bindAndroidSession(int sessionId) async {
     if (_currentBoundSessionId == sessionId && _androidRunning) return;
+    final generation = _androidGeneration;
     try {
       final success = await _androidChannel
               .invokeMethod<bool>('start', {'sessionId': sessionId}) ??
           false;
+      if (generation != _androidGeneration) {
+        // Stopped while starting: leave nothing running.
+        if (success) {
+          unawaited(
+            _androidChannel.invokeMethod('stop').catchError((_) => null),
+          );
+        }
+        return;
+      }
       if (success) {
         _androidRunning = true;
         _currentBoundSessionId = sessionId;
@@ -272,6 +286,7 @@ class VisualizerFeed with WidgetsBindingObserver {
 
   void _stopAndroidCapture() {
     if (kIsWeb || !Platform.isAndroid) return;
+    _androidGeneration++;
     _androidRunning = false;
     _currentBoundSessionId = null;
     _setNativeFft(false);
