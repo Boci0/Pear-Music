@@ -184,7 +184,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   secondary: const Icon(Icons.bolt_rounded),
                   title: const Text('Fast audio engine'),
                   subtitle: const Text(
-                    'Fetch songs with a built-in engine first, which starts sooner and avoids most blocked requests. yt-dlp still handles anything it cannot',
+                    'Starts songs sooner, with yt-dlp as the fallback',
                   ),
                   value: identity.fastEngine,
                   onChanged: (val) async {
@@ -219,8 +219,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Visualizer'),
                   subtitle: Text(
                     !kIsWeb && Platform.isAndroid
-                        ? 'Spectrum bars on the player artwork. Needs microphone access for the real spectrum, and pauses while the app is in the background'
-                        : 'Spectrum bars on the player artwork. Pauses while the window is in the background',
+                        ? 'Spectrum bars on the artwork. Needs the microphone'
+                        : 'Spectrum bars on the player artwork',
                   ),
                   value: identity.synthesizerBar,
                   onChanged: (val) async {
