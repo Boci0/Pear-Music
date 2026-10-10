@@ -269,6 +269,7 @@ class InnerTubeAudioEngine {
     required Directory dir,
     required bool preferAac,
     required bool Function() shouldAbort,
+    void Function(File temp, BackupAudioCandidate pick)? onReadable,
   }) async {
     if (!_guard.allow(videoId, DateTime.now())) {
       return const BackupFetchResult.failed('resting after a block');
@@ -283,6 +284,7 @@ class InnerTubeAudioEngine {
         open: (c) => open(c, videoId),
         label: 'fast-engine',
         lookupTimeout: const Duration(seconds: 15),
+        onReadable: onReadable,
       );
       if (result.file != null) _guard.recordSuccess(videoId);
       return result;

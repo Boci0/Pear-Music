@@ -222,10 +222,11 @@ class BackupAudioEngine {
   /// in the background.
   static Future<({int bytes, String? error})> _copy(
     Stream<List<int>> source,
-    IOSink sink, {
+    void Function(List<int> chunk) write, {
     required bool Function() shouldAbort,
     required Duration idleTimeout,
     required Duration totalTimeout,
+    void Function(int bytes)? onBytes,
   }) async {
     final done = Completer<String?>();
     var bytes = 0;
@@ -251,8 +252,13 @@ class BackupAudioEngine {
         if (done.isCompleted) return;
         if (shouldAbort()) return finish('cancelled');
         if (DateTime.now().isAfter(deadline)) return finish('took too long');
-        sink.add(chunk);
+        try {
+          write(chunk);
+        } catch (e) {
+          return finish('write failed: ${e.runtimeType}');
+        }
         bytes += chunk.length;
+        onBytes?.call(bytes);
         arm();
       },
       onError: (Object e) => finish(e.toString().split('\n').first),
@@ -282,6 +288,12 @@ class BackupAudioEngine {
     Future<List<BackupAudioCandidate>> Function(String videoId)? load,
     Stream<List<int>> Function(BackupAudioCandidate stream)? open,
     String label = 'backup-engine',
+    // Called once, when [readableAfter] bytes (or half the song, if that is
+    // less) are on disk and flushed, with the file still being written. A
+    // player can start from it (see GrowingFileAudioSource) instead of waiting
+    // for the whole transfer.
+    void Function(File temp, BackupAudioCandidate pick)? onReadable,
+    int readableAfter = 2 * 1024 * 1024,
   }) async {
     File? temp;
     try {
@@ -296,15 +308,30 @@ class BackupAudioEngine {
       final finalFile = File(p.join(dir.path, '$videoId.$ext'));
       if (await temp.exists()) await temp.delete();
 
-      final sink = temp.openWrite();
-      final copied = await _copy(
-        (open ?? _open)(pick),
-        sink,
-        shouldAbort: shouldAbort,
-        idleTimeout: idleTimeout,
-        totalTimeout: totalTimeout,
-      );
-      await sink.close();
+      // Written straight to the file, not through a buffered sink: a reader
+      // that is told about the file has to see every byte written so far.
+      final out = await temp.open(mode: FileMode.write);
+      var announced = onReadable == null;
+      final half = pick.bytes > 0 ? pick.bytes ~/ 2 : readableAfter;
+      final announceAt = half < readableAfter ? half : readableAfter;
+      final tempFile = temp;
+      ({int bytes, String? error}) copied;
+      try {
+        copied = await _copy(
+          (open ?? _open)(pick),
+          out.writeFromSync,
+          shouldAbort: shouldAbort,
+          idleTimeout: idleTimeout,
+          totalTimeout: totalTimeout,
+          onBytes: (bytes) {
+            if (announced || bytes < announceAt) return;
+            announced = true;
+            onReadable!(tempFile, pick);
+          },
+        );
+      } finally {
+        await out.close();
+      }
       if (copied.error != null) return BackupFetchResult.failed(copied.error!);
       final written = copied.bytes;
 
@@ -325,7 +352,20 @@ class BackupAudioEngine {
         );
       }
       if (await finalFile.exists()) await finalFile.delete();
-      await temp.rename(finalFile.path);
+      try {
+        await temp.rename(finalFile.path);
+      } on FileSystemException {
+        // Windows will not rename a file that is open for reading, and a
+        // player that started early is reading this one. The cache gets a
+        // copy and the player keeps its file; what is left of it is scrap
+        // (its name has `.tmp.`) that the start-up sweep removes.
+        final copy = File(p.join(dir.path, '$videoId.tmp.copy.$ext'));
+        await temp.copy(copy.path);
+        await copy.rename(finalFile.path);
+        try {
+          await temp.delete();
+        } catch (_) {}
+      }
       temp = null;
       DebugLog.write(
         '[$label] $videoId ${pick.container}/${pick.codec} '

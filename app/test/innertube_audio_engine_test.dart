@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -308,6 +309,53 @@ void main() {
       expect(file, isNotNull);
       expect(await file!.length(), 90000);
       expect(await StreamCacheManager.getCachedFile('fastvid1'), isNotNull);
+    });
+
+    test('playback can start a few megabytes in, from the file being written',
+        () async {
+      StreamCacheManager.debugAllowFastEngineInTests = true;
+      InnerTubeAudioEngine.debugPlayerOverride =
+          (_, _) async => _ok(size: 3000000);
+      final rest = Completer<void>();
+      InnerTubeAudioEngine.debugOpenOverride = (url, bytes) async* {
+        // 1.6 MB, past half of the 3 MB song, then the transfer stalls.
+        yield List.filled(1600000, 5);
+        await rest.future;
+        yield List.filled(bytes - 1600000, 5);
+      };
+
+      ResolvedStream? early;
+      int? onDiskWhenTold;
+      RandomAccessFile? reader;
+      final fetch = StreamCacheManager.ensureStreamCached(
+        'earlyvid1',
+        onStreamUrl: (stream) {
+          early = stream;
+          onDiskWhenTold = File(stream.localPath!).lengthSync();
+          // A player reading the file: the finished fetch must still cache
+          // it although the file cannot be renamed under an open reader.
+          reader = File(stream.localPath!).openSync();
+        },
+      );
+
+      // The callback arrives while the transfer is still going.
+      for (var i = 0; i < 200 && early == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(early, isNotNull);
+      expect(early!.localPath, endsWith('.webm'));
+      expect(early!.ext, 'webm');
+      expect(early!.filesize, 3000000);
+      expect(onDiskWhenTold, greaterThanOrEqualTo(1500000));
+      expect(await StreamCacheManager.getCachedFile('earlyvid1'), isNull);
+
+      rest.complete();
+      final file = await fetch;
+      reader?.closeSync();
+
+      expect(file, isNotNull);
+      expect(await file!.length(), 3000000);
+      expect(await StreamCacheManager.getCachedFile('earlyvid1'), isNotNull);
     });
 
     test('a live stream is flagged once and never fetched', () async {

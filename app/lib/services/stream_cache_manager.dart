@@ -391,6 +391,19 @@ class StreamCacheManager {
           token != _downloadInvocationToken ||
           _activeDownloadingVideoId != videoId ||
           (isPreload && preloadSeq != _slidingWindowSequence),
+      // A few megabytes in, playback can start from the file being written
+      // instead of waiting for all of it (the same hand-over the Android
+      // yt-dlp fetch makes); the fetch goes on and completes the cache entry.
+      onReadable: (temp, pick) => _publishResolvedStream(
+        videoId,
+        ResolvedStream(
+          url: '',
+          // The temp file's name ends with the container's extension.
+          ext: p.extension(temp.path).replaceFirst('.', ''),
+          filesize: pick.bytes > 0 ? pick.bytes : null,
+          localPath: temp.path,
+        ),
+      ),
     );
     final file = result.file;
     if (result.error == InnerTubeAudioEngine.liveStreamError) {
