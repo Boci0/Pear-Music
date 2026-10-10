@@ -13,7 +13,7 @@ import '../../services/visualizer_feed.dart';
 ///
 /// Android only lets an app read its own output spectrum with the same
 /// permission as recording from the microphone, so the system prompt reads
-/// "record audio". Nothing here records: the effect is attached to the app's
+/// for the microphone. Nothing here records: the effect is attached to the app's
 /// own playback and gives back frequency levels for drawing bars. The
 /// explanation exists so that prompt is not taken for something it is not.
 class VisualizerPermission {
@@ -102,7 +102,7 @@ class _ExplainDialog extends StatelessWidget {
           Text(
             'The visualizer draws its bars from the music Pear Music is '
             'playing. Android files this under the microphone permission, so '
-            'the next prompt will say "record audio".',
+            'the next prompt will ask for microphone access.',
           ),
           SizedBox(height: 12),
           Text(
