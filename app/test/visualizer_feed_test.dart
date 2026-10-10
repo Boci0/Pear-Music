@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:peerm_app/services/debug_log.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/visualizer_feed.dart';
 import 'package:peerm_app/widgets/player/mini_visualizer.dart';
@@ -30,7 +32,10 @@ void main() {
     // channels instead of letting the missing plugin raise.
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    for (final name in ['system_audio_visualizer', 'system_audio_visualizer/fft']) {
+    for (final name in [
+      'system_audio_visualizer/methods',
+      'system_audio_visualizer/fft',
+    ]) {
       messenger.setMockMethodCallHandler(MethodChannel(name), (_) async => null);
     }
   });
@@ -118,6 +123,100 @@ void main() {
       final edge = p.display[0];
       expect(centre, greaterThan(edge));
     });
+  });
+
+  group('Windows capture logging', () {
+    const method = MethodChannel('system_audio_visualizer/methods');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+    tearDown(() {
+      // Back to the quiet mock the other tests rely on.
+      messenger.setMockMethodCallHandler(method, (_) async => null);
+    });
+
+    testWidgets('a capture that cannot start says so in the debug log',
+        (tester) async {
+      messenger.setMockMethodCallHandler(method, (call) async {
+        if (call.method == 'start') {
+          throw PlatformException(code: 'no_device', message: 'no output device');
+        }
+        return null;
+      });
+      DebugLog.clearRecent();
+      final feed = VisualizerFeed.instance;
+      final player = _FakePlayer(isPlaying: true);
+
+      feed.acquire(player);
+      // The mocked channel answers on the real event loop, a few turns later.
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+
+      expect(
+        DebugLog.recentLogs.any((l) => l.contains('Windows capture could not start')),
+        isTrue,
+        reason: DebugLog.recentLogs.join(' | '),
+      );
+      expect(
+        DebugLog.recentLogs.any((l) => l.contains('no_device')),
+        isTrue,
+        reason: 'the cause is in the line',
+      );
+
+      feed.release();
+      player.dispose();
+    }, skip: !Platform.isWindows);
+
+    testWidgets('a capture that starts but delivers nothing is called out',
+        (tester) async {
+      messenger.setMockMethodCallHandler(method, (_) async => null);
+      DebugLog.clearRecent();
+      final feed = VisualizerFeed.instance;
+      final player = _FakePlayer(isPlaying: true);
+
+      feed.acquire(player);
+      await tester.pump(const Duration(seconds: 2));
+      expect(
+        DebugLog.recentLogs.any((l) => l.contains('no spectrum frames')),
+        isFalse,
+        reason: 'not before the timeout',
+      );
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(
+        DebugLog.recentLogs.any((l) => l.contains('no spectrum frames')),
+        isTrue,
+        reason: DebugLog.recentLogs.join(' | '),
+      );
+
+      // Said once, and stopping the capture leaves no timer behind.
+      await tester.pump(const Duration(seconds: 10));
+      expect(
+        DebugLog.recentLogs.where((l) => l.contains('no spectrum frames')).length,
+        1,
+      );
+      feed.release();
+      player.dispose();
+    }, skip: !Platform.isWindows);
+
+    testWidgets('stopping before the timeout says nothing', (tester) async {
+      messenger.setMockMethodCallHandler(method, (_) async => null);
+      DebugLog.clearRecent();
+      final feed = VisualizerFeed.instance;
+      final player = _FakePlayer(isPlaying: true);
+
+      feed.acquire(player);
+      await tester.pump(const Duration(seconds: 1));
+      feed.release();
+      await tester.pump(const Duration(seconds: 10));
+
+      expect(
+        DebugLog.recentLogs.any((l) => l.contains('no spectrum frames')),
+        isFalse,
+      );
+      player.dispose();
+    }, skip: !Platform.isWindows);
   });
 
   testWidgets(
