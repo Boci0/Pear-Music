@@ -413,8 +413,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
           children: [
             const LiveBadge(),
             const SizedBox(width: 8),
-            Text(
-              'Live stream',
+            LiveLabel(
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),

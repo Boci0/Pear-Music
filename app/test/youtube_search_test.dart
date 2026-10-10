@@ -89,4 +89,67 @@ void main() {
       expect(res2, isEmpty);
     });
   });
+
+  test('the live filter keeps only rows that are live now, once each', () {
+    Map<String, dynamic> row(String id, {bool live = true}) => {
+          'videoRenderer': {
+            'videoId': id,
+            'title': {
+              'runs': [
+                {'text': 'Lofi '},
+                {'text': 'Radio $id'},
+              ],
+            },
+            'ownerText': {
+              'runs': [
+                {'text': 'Some Channel'},
+              ],
+            },
+            'thumbnail': {
+              'thumbnails': [
+                {'url': 'https://i/small.jpg'},
+                {'url': 'https://i/$id.jpg'},
+              ],
+            },
+            'badges': [
+              if (live)
+                {
+                  'metadataBadgeRenderer': {'style': 'BADGE_STYLE_TYPE_LIVE_NOW'},
+                },
+            ],
+          },
+        };
+
+    final response = {
+      'contents': {
+        'twoColumnSearchResultsRenderer': {
+          'primaryContents': {
+            'sectionListRenderer': {
+              'contents': [
+                {
+                  'itemSectionRenderer': {
+                    'contents': [
+                      row('a1'),
+                      row('b2', live: false),
+                      row('a1'),
+                      {'channelRenderer': {}},
+                      row('c3'),
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    };
+
+    final items = YouTubeSearchService.parseLiveResults(response);
+    expect(items.map((i) => i.videoId), ['a1', 'c3']);
+    expect(items.every((i) => i.isLive), isTrue);
+    expect(items.first.title, 'Lofi Radio a1');
+    expect(items.first.author, 'Some Channel');
+    expect(items.first.thumbnailUrl, 'https://i/a1.jpg');
+    expect(YouTubeSearchService.parseLiveResults(null), isEmpty);
+  });
 }

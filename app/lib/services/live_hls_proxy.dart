@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 import 'backup_audio_engine.dart';
 import 'debug_log.dart';
@@ -34,7 +36,7 @@ class LiveHlsProxy {
   final String _playlistUrl;
   final Duration _poll;
   final int _startBack;
-  final http.Client _client;
+  final HttpClient _client;
   final Duration _tick;
   bool _stopped = false;
 
@@ -42,6 +44,11 @@ class LiveHlsProxy {
   /// over the wire gzip-compressed (about 12 KB), which is why polling it
   /// every few seconds costs about 3 KB/s next to the audio's 16 KB/s.
   int _playlistReads = 0;
+
+  /// Bytes this relay has moved over the network for the current live stream
+  /// (audio plus the compressed playlist reads), shown next to the LIVE label.
+  /// Starts again at 0 with each stream.
+  static final ValueNotifier<int> bytesUsed = ValueNotifier<int>(0);
 
   static LiveHlsProxy? _current;
 
@@ -59,16 +66,17 @@ class LiveHlsProxy {
     Duration poll = const Duration(seconds: 4),
     int startBack = 2,
     Duration tick = const Duration(milliseconds: 100),
-    http.Client? client,
+    HttpClient? client,
   }) async {
     stop();
+    bytesUsed.value = 0;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final proxy = LiveHlsProxy._(
       server,
       playlistUrl,
       poll,
       startBack,
-      client ?? BackupAudioEngine.ipv4Client(),
+      (client ?? BackupAudioEngine.ipv4HttpClient())..autoUncompress = false,
       tick,
     );
     _current = proxy;
@@ -86,7 +94,7 @@ class LiveHlsProxy {
     if (_stopped) return;
     _stopped = true;
     unawaited(_server.close(force: true));
-    _client.close();
+    _client.close(force: true);
   }
 
   Future<void> _listen() async {
@@ -139,7 +147,8 @@ class LiveHlsProxy {
     DebugLog.write(
       '[live] Relay finished after ${started.elapsed.inSeconds}s, '
       '${(sent / 1024).round()} KB of audio sent, $_playlistReads playlist '
-      'reads, player gone: $gone',
+      'reads, ${(bytesUsed.value / 1024).round()} KB over the network, '
+      'player gone: $gone',
     );
     try {
       await response.close();
@@ -224,22 +233,42 @@ class LiveHlsProxy {
   }
 
   Future<_Playlist?> _fetchPlaylist() async {
+    final uri = Uri.parse(_playlistUrl);
+    final bytes = await _get(uri);
+    if (bytes == null) return null;
+    _playlistReads++;
     try {
-      final res = await _client
-          .get(Uri.parse(_playlistUrl))
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return null;
-      _playlistReads++;
-      return _Playlist.parse(res.body, Uri.parse(_playlistUrl));
+      return _Playlist.parse(utf8.decode(bytes, allowMalformed: true), uri);
     } catch (_) {
       return null;
     }
   }
 
-  Future<List<int>?> _fetchSegment(Uri uri) async {
+  Future<List<int>?> _fetchSegment(Uri uri) => _get(uri);
+
+  /// Reads [uri] and counts what crossed the network. gzip is asked for and
+  /// undone here: the client's own decompression would hide the compressed
+  /// size, which is what a live playlist (900 KB of text) costs to read.
+  Future<List<int>?> _get(Uri uri) async {
     try {
-      final res = await _client.get(uri).timeout(const Duration(seconds: 15));
-      return res.statusCode == 200 ? res.bodyBytes : null;
+      final request =
+          await _client.getUrl(uri).timeout(const Duration(seconds: 15));
+      request.headers.set(HttpHeaders.acceptEncodingHeader, 'gzip');
+      final response =
+          await request.close().timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        await response.drain<void>();
+        return null;
+      }
+      final body = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(const Duration(seconds: 15))) {
+        body.add(chunk);
+      }
+      final wire = body.takeBytes();
+      bytesUsed.value += wire.length;
+      final gzipped =
+          response.headers.value(HttpHeaders.contentEncodingHeader) == 'gzip';
+      return gzipped ? gzip.decode(wire) : wire;
     } catch (_) {
       return null;
     }

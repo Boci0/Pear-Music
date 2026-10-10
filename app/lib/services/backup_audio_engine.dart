@@ -163,8 +163,12 @@ class BackupAudioEngine {
   /// IPv6 route the stock client stalls on the first address it tries, which
   /// is exactly when a backup is needed; yt-dlp is run with `--force-ipv4` for
   /// the same reason.
-  static http.Client ipv4Client() {
-    final inner = HttpClient()
+  static http.Client ipv4Client() => IOClient(ipv4HttpClient());
+
+  /// The [HttpClient] behind [ipv4Client], for callers that need to see the
+  /// raw response (the live relay counts bytes as they cross the wire).
+  static HttpClient ipv4HttpClient() {
+    return HttpClient()
       ..connectionTimeout = const Duration(seconds: 15)
       ..connectionFactory = (uri, proxyHost, proxyPort) async {
         final host = proxyHost ?? uri.host;
@@ -184,7 +188,6 @@ class BackupAudioEngine {
         } catch (_) {}
         return connect(host);
       };
-    return IOClient(inner);
   }
 
   static Future<List<BackupAudioCandidate>> _load(String videoId) async {

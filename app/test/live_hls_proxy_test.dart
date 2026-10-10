@@ -45,9 +45,17 @@ class _Origin {
           buf.write('#EXTINF:0.2,\nseg/$n\n');
         }
         if (head >= total) buf.write('#EXT-X-ENDLIST\n');
-        req.response
-          ..write(buf.toString())
-          ..close();
+        // Like YouTube: the playlist is compressed when the client allows it.
+        if (acceptEncodings.last?.contains('gzip') ?? false) {
+          req.response.headers.set(HttpHeaders.contentEncodingHeader, 'gzip');
+          req.response
+            ..add(gzip.encode(utf8.encode(buf.toString())))
+            ..close();
+        } else {
+          req.response
+            ..write(buf.toString())
+            ..close();
+        }
       } else if (path.startsWith('/seg/')) {
         req.response
           ..write('[${path.substring(5)}]')
@@ -93,6 +101,8 @@ void main() {
     // so 2 and 3), then follows without repeating or skipping.
     expect(text, '[2][3][4][5][6][7]');
     expect(origin.acceptEncodings, isNotEmpty);
+    // The count is what crossed the network, compressed playlists included.
+    expect(LiveHlsProxy.bytesUsed.value, greaterThan(0));
     expect(origin.acceptEncodings.every((e) => e?.contains('gzip') ?? false), isTrue);
   });
 

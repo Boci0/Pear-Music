@@ -38,6 +38,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _isLoadingRecommendations = false;
   String? _error;
   String _lastQuery = '';
+
+  /// Whether the last search was the live-streams-only one.
+  bool _lastSearchLive = false;
+
+  /// The Live pill: search for streams that are on right now.
+  bool _liveOnly = false;
   Timer? _debounceTimer;
   int _searchToken = 0;
   String? _selectedGenre;
@@ -241,8 +247,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _debounceTimer?.cancel();
     final trimmed = query.trim();
     if (trimmed.isEmpty) return;
-    if (trimmed == _lastQuery && _results.isNotEmpty) return;
+    final live = _liveOnly;
+    if (trimmed == _lastQuery &&
+        live == _lastSearchLive &&
+        _results.isNotEmpty) {
+      return;
+    }
     _lastQuery = trimmed;
+    _lastSearchLive = live;
     final token = ++_searchToken;
 
     setState(() {
@@ -252,17 +264,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     try {
       // The first 20 show as soon as they land; later pages fill in after.
-      final results = await YouTubeSearchService.search(
-        trimmed,
-        limit: 60,
-        onFirstPage: (page) {
-          if (!mounted || token != _searchToken) return;
-          setState(() {
-            _results = page;
-            _isLoading = false;
-          });
-        },
-      );
+      final results = live
+          ? await YouTubeSearchService.searchLive(trimmed)
+          : await YouTubeSearchService.search(
+              trimmed,
+              limit: 60,
+              onFirstPage: (page) {
+                if (!mounted || token != _searchToken) return;
+                setState(() {
+                  _results = page;
+                  _isLoading = false;
+                });
+              },
+            );
       if (mounted && token == _searchToken) {
         setState(() {
           _results = results;
@@ -396,11 +410,38 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             scrollDirection: Axis.horizontal,
                             physics: const BouncingScrollPhysics(),
-                            itemCount: _genres.length,
+                            itemCount: _genres.length + 1,
                             separatorBuilder: (_, index) =>
                                 const SizedBox(width: 8),
                             itemBuilder: (context, index) {
-                              final genre = _genres[index];
+                              if (index == 0) {
+                                // Streams that are on right now: the normal
+                                // search never lists them.
+                                return Center(
+                                  child: FilterPill(
+                                    label: 'Live',
+                                    icon: Icons.sensors_rounded,
+                                    isSelected: _liveOnly,
+                                    onTap: () {
+                                      if (_genreDragDistance > 8.0) return;
+                                      setState(() => _liveOnly = !_liveOnly);
+                                      final typed =
+                                          _searchController.text.trim();
+                                      if (typed.isNotEmpty) {
+                                        _performSearch(typed);
+                                      } else if (_liveOnly) {
+                                        _performSearch('live radio');
+                                      } else {
+                                        setState(() {
+                                          _results = [];
+                                          _lastQuery = '';
+                                        });
+                                      }
+                                    },
+                                  ),
+                                );
+                              }
+                              final genre = _genres[index - 1];
                               final isSelected = _selectedGenre == genre;
                               // Same pill as the Library filters, centred so it
                               // keeps its natural height in the taller row.

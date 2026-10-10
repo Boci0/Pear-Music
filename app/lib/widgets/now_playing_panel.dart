@@ -522,7 +522,7 @@ class _ProgressLineState extends State<_ProgressLine> {
         children: [
           const LiveBadge(),
           const SizedBox(width: 8),
-          Text('Live stream', style: timeStyle),
+          Flexible(child: LiveLabel(style: timeStyle)),
         ],
       );
     }

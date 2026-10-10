@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/song.dart';
+import '../services/live_hls_proxy.dart';
 import '../services/stream_cache_manager.dart';
 
 /// Whether [song] is a live stream: listed as live, or found to be live this
@@ -9,6 +10,32 @@ bool isLiveSong(Song song) =>
     song.isLive ||
     (song.id.startsWith('stream_') &&
         StreamCacheManager.isKnownLive(song.id.substring(7)));
+
+/// "Live stream" and, on the desktop, how much data it has used so far (the
+/// relay counts what crosses the network). Phones play the stream natively and
+/// have no count, so they show the plain words.
+class LiveLabel extends StatelessWidget {
+  const LiveLabel({super.key, this.style});
+
+  final TextStyle? style;
+
+  static String _size(int bytes) => bytes < 1024 * 1024
+      ? '${(bytes / 1024).round()} KB'
+      : '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: LiveHlsProxy.bytesUsed,
+      builder: (context, bytes, _) => Text(
+        bytes <= 0 ? 'Live stream' : 'Live stream · ${_size(bytes)} used',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      ),
+    );
+  }
+}
 
 /// Small solid "LIVE" tag for live streams: search rows show it in place of
 /// a length, the player shows it in place of the seek bar.

@@ -136,12 +136,13 @@ class PlayerBar extends StatelessWidget {
                                   children: [
                                     const LiveBadge(),
                                     const SizedBox(width: 6),
-                                    Text(
-                                      'Live stream',
-                                      style:
-                                          theme.textTheme.labelSmall?.copyWith(
-                                        color: theme.colorScheme
-                                            .onSurfaceVariant,
+                                    Flexible(
+                                      child: LiveLabel(
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                          color: theme
+                                              .colorScheme.onSurfaceVariant,
+                                        ),
                                       ),
                                     ),
                                   ],

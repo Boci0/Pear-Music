@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
+import 'backup_audio_engine.dart';
 import 'recommendation_service.dart';
 
 /// Representation of a YouTube search track result.
@@ -72,6 +76,123 @@ class YouTubeSearchService {
   /// Clears the in-memory search query cache.
   static void clearCache() {
     _cache.clear();
+  }
+
+  static http.Client? _liveClient;
+
+  /// Streams that are live right now and match [query], found with YouTube's
+  /// own Live filter. [search] never lists them (the Songs filter it uses
+  /// leaves out anything that is not a finished song), which is why a live
+  /// stream was so hard to come across. An empty list when the lookup fails.
+  static Future<List<YouTubeSearchResult>> searchLive(
+    String query, {
+    int limit = 30,
+  }) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return const [];
+    final key = 'live:${clean.toLowerCase()}';
+    final cached = _cache[key];
+    if (cached != null) return cached.take(limit).toList();
+    try {
+      final client = _liveClient ??= BackupAudioEngine.ipv4Client();
+      final res = await client
+          .post(
+            Uri.parse('https://www.youtube.com/youtubei/v1/search?prettyPrint=false'),
+            headers: const {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Mozilla/5.0',
+            },
+            body: jsonEncode({
+              'context': {
+                'client': {
+                  'clientName': 'WEB',
+                  'clientVersion': '2.20250101.00.00',
+                  'hl': 'en',
+                },
+              },
+              'query': clean,
+              // The "Live" filter of YouTube's search.
+              'params': 'EgJAAQ==',
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+      final list = parseLiveResults(jsonDecode(utf8.decode(res.bodyBytes)));
+      if (_cache.length >= _maxCacheEntries) {
+        _cache.remove(_cache.keys.first);
+      }
+      _cache[key] = list;
+      return list.take(limit).toList();
+    } catch (e) {
+      debugPrint('[YouTubeSearchService] Live search error: $e');
+      return const [];
+    }
+  }
+
+  /// Reads the video rows of a YouTube search response, keeping the ones that
+  /// are live now.
+  @visibleForTesting
+  static List<YouTubeSearchResult> parseLiveResults(Object? json) {
+    final out = <YouTubeSearchResult>[];
+    final seen = <String>{};
+
+    String text(Object? node) {
+      if (node is! Map) return '';
+      final simple = node['simpleText'];
+      if (simple is String) return simple;
+      final runs = node['runs'];
+      if (runs is List) {
+        return runs.map((r) => r is Map ? '${r['text'] ?? ''}' : '').join();
+      }
+      return '';
+    }
+
+    void walk(Object? node) {
+      if (node is List) {
+        for (final c in node) {
+          walk(c);
+        }
+        return;
+      }
+      if (node is! Map) return;
+      final v = node['videoRenderer'];
+      if (v is Map) {
+        final id = v['videoId'];
+        final badges = [
+          for (final b in (v['badges'] as List? ?? const []))
+            if (b is Map) (b['metadataBadgeRenderer'] as Map?)?['style'],
+        ];
+        final overlays = [
+          for (final o in (v['thumbnailOverlays'] as List? ?? const []))
+            if (o is Map)
+              (o['thumbnailOverlayTimeStatusRenderer'] as Map?)?['style'],
+        ];
+        final live = badges.contains('BADGE_STYLE_TYPE_LIVE_NOW') ||
+            overlays.contains('LIVE');
+        if (id is String && live && seen.add(id)) {
+          final thumbs = (v['thumbnail'] as Map?)?['thumbnails'];
+          final thumb = thumbs is List && thumbs.isNotEmpty && thumbs.last is Map
+              ? (thumbs.last as Map)['url'] as String?
+              : null;
+          out.add(
+            YouTubeSearchResult(
+              videoId: id,
+              title: text(v['title']),
+              author: text(v['ownerText'] ?? v['longBylineText']),
+              thumbnailUrl: thumb,
+              isLive: true,
+            ),
+          );
+        }
+        return;
+      }
+      for (final c in node.values) {
+        walk(c);
+      }
+    }
+
+    walk(json);
+    return out;
   }
 
   /// Search YouTube for songs/videos matching [query].
