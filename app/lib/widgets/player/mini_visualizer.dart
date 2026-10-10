@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
@@ -8,9 +10,10 @@ import '../../services/visualizer_feed.dart';
 /// outside the full player too.
 ///
 /// It reads the same [VisualizerFeed] as the artwork visualizer and has its own
-/// smoothing. It draws nothing at all while idle, repaints at about 30 fps (the
-/// bar sits on a blurred glass surface, where every repaint costs more), and
-/// its ticker parks whenever the app or window is not active.
+/// smoothing. It draws nothing at all while idle, updates about 20 times a
+/// second (the bar sits on a blurred glass surface, where every repaint costs
+/// more), shows only a real spectrum, and parks whenever the app or window is
+/// not active.
 class MiniVisualizer extends StatefulWidget {
   const MiniVisualizer({
     super.key,
@@ -27,26 +30,42 @@ class MiniVisualizer extends StatefulWidget {
   State<MiniVisualizer> createState() => _MiniVisualizerState();
 }
 
-class _MiniVisualizerState extends State<MiniVisualizer>
-    with SingleTickerProviderStateMixin {
+class _MiniVisualizerState extends State<MiniVisualizer> {
   final VisualizerFeed _feed = VisualizerFeed.instance;
   final SpectrumPhysics _physics = SpectrumPhysics();
-  late final AnimationController _ticker;
   final ValueNotifier<int> _paintTick = ValueNotifier<int>(0);
 
-  static const int _minPaintGapMs = 30;
-  int _lastPaintMs = 0;
+  /// A timer rather than a vsync ticker: a ticker wakes the UI thread at the
+  /// display's rate (up to 144 Hz) and every frame re-draws the blurred glass
+  /// this sits on, which on a phone cost about half a core. About 20 updates a
+  /// second is plenty for bars behind text, and nothing runs between them.
+  static const Duration _period = Duration(milliseconds: 50);
+  Timer? _timer;
+
+  /// False while a route covers this widget (the full player, a sheet): a
+  /// covered widget is not drawn, so it should not be stepped either.
+  bool _visible = true;
+
+  /// How far the bars have grown in, 0..1. For tests.
+  @visibleForTesting
+  double get debugActivity => _physics.activity;
 
   @override
   void initState() {
     super.initState();
-    _ticker = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    )..addListener(_onTick);
     _feed.acquire(widget.player);
-    _feed.changes.addListener(_syncTicker);
-    _syncTicker();
+    _feed.changes.addListener(_syncTimer);
+    _syncTimer();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.valuesOf(context).enabled;
+    if (visible != _visible) {
+      _visible = visible;
+      _syncTimer();
+    }
   }
 
   @override
@@ -55,47 +74,56 @@ class _MiniVisualizerState extends State<MiniVisualizer>
     if (oldWidget.player != widget.player) {
       _feed.release();
       _feed.acquire(widget.player);
-      _syncTicker();
+      _syncTimer();
     }
   }
 
-  void _syncTicker() {
+  void _syncTimer() {
     if (!mounted) return;
-    if ((widget.player.playing || _physics.activity > 0.0) &&
-        _feed.renderActive) {
-      if (!_ticker.isAnimating) {
-        _physics.resetClock();
-        _ticker.repeat();
-      }
-    } else if (_physics.activity <= 0.0 && _ticker.isAnimating) {
-      _ticker.stop();
-      _paintTick.value++;
+    final want = ((widget.player.playing && _feed.hasNativeFft) ||
+            _physics.activity > 0.0) &&
+        _feed.renderActive &&
+        _visible;
+    if (want && _timer == null) {
+      _physics.resetClock();
+      _timer = Timer.periodic(_period, (_) => _onTick());
+    } else if (!want && _physics.activity <= 0.0) {
+      _stop();
     }
+  }
+
+  void _stop() {
+    _timer?.cancel();
+    _timer = null;
+    _paintTick.value++;
   }
 
   void _onTick() {
     if (!mounted) return;
-    final playing = widget.player.playing && _feed.renderActive;
+    // Only the real spectrum is drawn here. The card may fall back to a made-up
+    // pattern when there is no capture; behind the mini player that would be
+    // bars dancing to nothing, so without a capture they simply fade away.
+    final playing =
+        widget.player.playing && _feed.renderActive && _feed.hasNativeFft;
     _feed.refresh();
-    final settled = _physics.step(playing: playing, targets: _feed.targetBins);
+    final settled = _physics.step(
+      playing: playing,
+      targets: _feed.targetBins,
+      maxFrames: 4.0,
+    );
     if (settled) {
-      _ticker.stop();
-      _paintTick.value++;
+      _stop();
       return;
     }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastPaintMs >= _minPaintGapMs) {
-      _lastPaintMs = now;
-      _paintTick.value++;
-    }
+    _paintTick.value++;
   }
 
   @override
   void dispose() {
-    _feed.changes.removeListener(_syncTicker);
+    _timer?.cancel();
+    _feed.changes.removeListener(_syncTimer);
     _feed.release();
     _paintTick.dispose();
-    _ticker.dispose();
     super.dispose();
   }
 

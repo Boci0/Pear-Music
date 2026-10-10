@@ -77,6 +77,19 @@ class VisualizerFeed with WidgetsBindingObserver {
 
   bool get hasNativeFft => _hasNativeFft;
 
+  /// Records whether a real spectrum is arriving, and tells the widgets when
+  /// that changes: one that parked because nothing was arriving yet has to be
+  /// woken when the first frames come in.
+  void _setNativeFft(bool value) {
+    if (_hasNativeFft == value) return;
+    _hasNativeFft = value;
+    changes.value++;
+  }
+
+  /// Test seam: pretends the native capture started or stopped delivering.
+  @visibleForTesting
+  void debugSetNativeFft(bool value) => _setNativeFft(value);
+
   bool get playing => _player?.playing ?? false;
 
   /// True when the app is in the foreground and its window is the active one.
@@ -198,7 +211,7 @@ class VisualizerFeed with WidgetsBindingObserver {
       // system prompt at that moment would come out of nowhere.
       final status = await Permission.microphone.status;
       if (!status.isGranted) {
-        _hasNativeFft = false;
+        _setNativeFft(false);
         return;
       }
       final player = _player;
@@ -207,12 +220,12 @@ class VisualizerFeed with WidgetsBindingObserver {
       _androidSub ??= _androidStream.receiveBroadcastStream().listen(
         (raw) {
           if (raw is List && raw.isNotEmpty) {
-            _hasNativeFft = true;
+            _setNativeFft(true);
             _processFft(raw.map((e) => (e as num).toDouble()).toList());
           }
         },
         onError: (_) {
-          _hasNativeFft = false;
+          _setNativeFft(false);
         },
       );
 
@@ -229,7 +242,7 @@ class VisualizerFeed with WidgetsBindingObserver {
       final initialTarget = (currentId != null && currentId > 0) ? currentId : 0;
       await _bindAndroidSession(initialTarget);
     } catch (_) {
-      _hasNativeFft = false;
+      _setNativeFft(false);
     }
   }
 
@@ -244,7 +257,7 @@ class VisualizerFeed with WidgetsBindingObserver {
         _currentBoundSessionId = sessionId;
       }
     } catch (_) {
-      _hasNativeFft = false;
+      _setNativeFft(false);
     }
   }
 
@@ -252,7 +265,7 @@ class VisualizerFeed with WidgetsBindingObserver {
     if (kIsWeb || !Platform.isAndroid) return;
     _androidRunning = false;
     _currentBoundSessionId = null;
-    _hasNativeFft = false;
+    _setNativeFft(false);
     _sessionIdSub?.cancel();
     _sessionIdSub = null;
     _androidSub?.cancel();
@@ -271,16 +284,16 @@ class VisualizerFeed with WidgetsBindingObserver {
       _fftSub = SystemAudioVisualizer.fftStream.listen(
         (raw) {
           if (raw.isNotEmpty) {
-            _hasNativeFft = true;
+            _setNativeFft(true);
             _processFft(raw);
           }
         },
         onError: (_) {
-          _hasNativeFft = false;
+          _setNativeFft(false);
         },
       );
     } catch (_) {
-      _hasNativeFft = false;
+      _setNativeFft(false);
     }
   }
 
@@ -485,12 +498,20 @@ class SpectrumPhysics {
 
   /// Advances one tick. Returns true once the bars have settled at nothing
   /// and nothing is playing, which is when the caller may stop its ticker.
-  bool step({required bool playing, required List<double> targets}) {
+  ///
+  /// [maxFrames] caps how many "60 fps frames" of time one step may cover. A
+  /// widget ticking at the display rate leaves it at 1; one that steps at a
+  /// lower rate on purpose passes more so the bars keep their real speed.
+  bool step({
+    required bool playing,
+    required List<double> targets,
+    double maxFrames = 1.0,
+  }) {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final dt = ((nowMs - _lastTickMs) / 1000.0).clamp(0.0, 0.1);
     _lastTickMs = nowMs;
-    // A "60 fps frame" worth of time.
-    final double k = (dt * 60.0).clamp(0.0, 1.0);
+    // Time since the last step, in "60 fps frames".
+    final double k = (dt * 60.0).clamp(0.0, maxFrames);
 
     final target = playing ? 1.0 : 0.0;
     if (activity != target) {

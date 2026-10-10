@@ -120,6 +120,49 @@ void main() {
     });
   });
 
+  testWidgets(
+      'MiniVisualizer wakes when the spectrum arrives after playback started',
+      (tester) async {
+    final feed = VisualizerFeed.instance;
+    final player = _FakePlayer(isPlaying: true);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 320,
+          height: 64,
+          child: MiniVisualizer(player: player, color: Colors.teal),
+        ),
+      ),
+    ));
+    double activity() =>
+        (tester.state(find.byType(MiniVisualizer)) as dynamic).debugActivity
+            as double;
+
+    // The widget's timer runs on fake time and its physics read the real
+    // clock, so a test has to move both.
+    Future<void> elapse(int times) async {
+      for (var i = 0; i < times; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 30)));
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+    }
+
+    // Playing, but the capture has not delivered a frame yet: nothing grows.
+    await elapse(5);
+    expect(activity(), 0.0);
+
+    // The first frames arrive; the bars must start without any other nudge.
+    feed.processFft(List<double>.filled(64, 0.6));
+    feed.debugSetNativeFft(true);
+    addTearDown(() => feed.debugSetNativeFft(false));
+    await elapse(10);
+    expect(activity(), greaterThan(0.2));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    player.dispose();
+  });
+
   testWidgets('MiniVisualizer mounts, plays and unmounts cleanly',
       (tester) async {
     final player = _FakePlayer(isPlaying: true);
