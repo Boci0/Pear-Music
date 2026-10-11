@@ -161,13 +161,16 @@ void main() {
 
     final mixed = YouTubeSearchService.mixLive(
       [song('s1'), song('s2'), song('s3'), song('s4'), song('dup')],
-      [live('l1'), live('dup')],
+      [live('l1'), live('dup'), live('l2'), live('l3'), live('l4')],
     );
+    // The song that is really a live stream stays where it was, now marked;
+    // the first three other streams are mixed in after the first songs.
     expect(
       mixed.map((r) => r.videoId),
-      ['s1', 's2', 's3', 'l1', 'dup', 's4'],
+      ['s1', 's2', 's3', 'l1', 'l2', 'l3', 's4', 'dup'],
     );
     expect(mixed.firstWhere((r) => r.videoId == 'dup').isLive, isTrue);
+    expect(mixed.any((r) => r.videoId == 'l4'), isFalse);
 
     // Few songs: the streams go at the end rather than being dropped.
     expect(

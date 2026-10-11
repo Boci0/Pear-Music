@@ -289,6 +289,18 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
+  if (no_focus_) {
+    // Never activated: a tool window that cannot take focus, shown without
+    // activation and put at the bottom of the z-order. It still renders, so
+    // the app behaves as it does on screen.
+    const LONG_PTR ex_style = GetWindowLongPtr(window_handle_, GWL_EXSTYLE);
+    SetWindowLongPtr(window_handle_, GWL_EXSTYLE,
+                     ex_style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+    const bool shown = ShowWindow(window_handle_, SW_SHOWNOACTIVATE) != 0;
+    SetWindowPos(window_handle_, HWND_BOTTOM, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    return shown;
+  }
   return ShowWindow(window_handle_,
                     restore_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
 }
@@ -349,7 +361,7 @@ Win32Window::MessageHandler(HWND hwnd,
   switch (message) {
     case WM_DESTROY:
       if (window_handle_) {
-        SaveWindowState(window_handle_);
+        if (!no_focus_) SaveWindowState(window_handle_);
       }
       window_handle_ = nullptr;
       Destroy();

@@ -210,7 +210,7 @@ class YouTubeSearchService {
     void Function(List<YouTubeSearchResult> firstPage)? onFirstPage,
   }) async {
     // Started first so it runs alongside the songs lookup. It never throws.
-    final live = includeLive ? searchLive(query, limit: 3) : null;
+    final live = includeLive ? searchLive(query, limit: 30) : null;
     final songs = await _searchSongs(
       query,
       limit: limit,
@@ -221,22 +221,29 @@ class YouTubeSearchService {
     return mixLive(songs, await live);
   }
 
-  /// Puts [live] among [songs], from [at] on, and drops a song row that is
-  /// the same video as a live one so it appears once, as live.
+  /// Marks the song rows that are really live streams (the Songs filter does
+  /// not always carry the live badge, so a well-known stream could sit there
+  /// unmarked) and puts the first [show] other live streams among [songs],
+  /// from [at] on.
   @visibleForTesting
   static List<YouTubeSearchResult> mixLive(
     List<YouTubeSearchResult> songs,
     List<YouTubeSearchResult> live, {
     int at = 3,
+    int show = 3,
   }) {
     if (live.isEmpty) return songs;
-    final liveIds = {for (final l in live) l.videoId};
-    final rest = [
-      for (final s in songs)
-        if (!liveIds.contains(s.videoId)) s,
+    final liveById = {for (final l in live) l.videoId: l};
+    final present = {for (final s in songs) s.videoId};
+    final marked = [
+      for (final s in songs) liveById[s.videoId] ?? s,
     ];
-    final index = at < rest.length ? at : rest.length;
-    return [...rest.take(index), ...live, ...rest.skip(index)];
+    final extra = [
+      for (final l in live)
+        if (!present.contains(l.videoId)) l,
+    ].take(show).toList();
+    final index = at < marked.length ? at : marked.length;
+    return [...marked.take(index), ...extra, ...marked.skip(index)];
   }
 
   /// When the expanded scope (video results) finds nothing, the search is

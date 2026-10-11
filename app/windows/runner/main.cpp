@@ -26,6 +26,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // close. Past the timeout, fall back to the normal hand-off.
   const bool is_relaunch =
       command_line != nullptr && ::wcsstr(command_line, L"--relaunch") != nullptr;
+  // Automated checks: never take focus (see Win32Window::SetNoFocus).
+  const bool no_focus =
+      command_line != nullptr && ::wcsstr(command_line, L"--no-focus") != nullptr;
   HANDLE mutex = ::CreateMutexW(nullptr, TRUE, mutex_name);
   bool another_instance = ::GetLastError() == ERROR_ALREADY_EXISTS;
   if (is_relaunch && mutex && another_instance) {
@@ -35,10 +38,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (another_instance) {
     HWND existing_window = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", window_title);
     if (existing_window) {
-      if (::IsIconic(existing_window)) {
-        ::ShowWindow(existing_window, SW_RESTORE);
+      if (!no_focus) {
+        if (::IsIconic(existing_window)) {
+          ::ShowWindow(existing_window, SW_RESTORE);
+        }
+        ::SetForegroundWindow(existing_window);
       }
-      ::SetForegroundWindow(existing_window);
       if (mutex) {
         ::CloseHandle(mutex);
       }
@@ -75,6 +80,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  window.SetNoFocus(no_focus);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(432, 960);
   if (!window.Create(window_title, origin, size)) {

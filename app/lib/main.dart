@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'controllers/app_controller.dart';
 import 'screens/home_shell.dart';
 import 'services/debug_control.dart';
+import 'services/test_control.dart';
 import 'services/debug_log.dart';
 import 'services/history_service.dart';
 import 'services/identity_service.dart';
@@ -83,7 +84,7 @@ Future<void> main([List<String> args = const []]) async {
     };
 
     try {
-      await _bootstrapAndRunApp();
+      await _bootstrapAndRunApp(args);
     } catch (error, stack) {
       debugPrint('[pearmusic] Bootstrap initialization error: $error');
       debugPrint('[pearmusic] $stack');
@@ -91,7 +92,7 @@ Future<void> main([List<String> args = const []]) async {
         PearMusicBootstrapErrorApp(
           error: error,
           stackTrace: stack,
-          onRetry: () => _bootstrapAndRunApp(),
+          onRetry: () => _bootstrapAndRunApp(args),
         ),
       );
     }
@@ -101,7 +102,7 @@ Future<void> main([List<String> args = const []]) async {
   });
 }
 
-Future<void> _bootstrapAndRunApp() async {
+Future<void> _bootstrapAndRunApp(List<String> args) async {
   // On Android, host the media notification (play/pause + next/previous + lock
   // screen) via PearAudioHandler and audio_service. Windows stays on media_kit
   // and gets no notification (it is a desktop app).
@@ -160,6 +161,9 @@ Future<void> _bootstrapAndRunApp() async {
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);
   unawaited(startDebugControl(controller));
+  // Only when launched with --control-port and --control-token (automated
+  // checks); a normal launch opens nothing. See test_control.dart.
+  unawaited(startTestControl(controller, args));
   runApp(PearMusicApp(
     controller: controller,
     playerTheme: playerTheme,

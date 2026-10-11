@@ -63,6 +63,11 @@ class Win32Window {
   // of the default origin/size (used to skip auto-centering).
   bool RestoredBounds() const { return restored_bounds_; }
 
+  // For automated checks (`--no-focus`): the window is shown without ever
+  // being activated, sits behind every other window, stays out of the
+  // taskbar and Alt+Tab, and does not overwrite the saved window state.
+  void SetNoFocus(bool no_focus) { no_focus_ = no_focus; }
+
  protected:
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
@@ -109,6 +114,7 @@ class Win32Window {
   // Saved window state from the previous run.
   bool restored_bounds_ = false;
   bool restore_maximized_ = false;
+  bool no_focus_ = false;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_
