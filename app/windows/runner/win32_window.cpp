@@ -275,9 +275,13 @@ bool Win32Window::Create(const std::wstring& title,
     win_h = static_cast<int>(min_win_h);
   }
 
-  HWND window = CreateWindow(window_class, title.c_str(), window_style,
-                             px, py, win_w, win_h, nullptr, nullptr,
-                             GetModuleHandle(nullptr), this);
+  // A no-focus window can never be activated from its very first moment:
+  // Windows lets a program started by the foreground app take the foreground,
+  // and SetFocus on its content (below) is enough to do it.
+  const DWORD ex_style = no_focus_ ? (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW) : 0;
+  HWND window = CreateWindowEx(ex_style, window_class, title.c_str(),
+                               window_style, px, py, win_w, win_h, nullptr,
+                               nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
     return false;
@@ -391,7 +395,7 @@ Win32Window::MessageHandler(HWND hwnd,
     }
 
     case WM_ACTIVATE:
-      if (child_content_ != nullptr) {
+      if (child_content_ != nullptr && !no_focus_) {
         SetFocus(child_content_);
       }
       return 0;
@@ -444,7 +448,9 @@ void Win32Window::SetChildContent(HWND content) {
   MoveWindow(content, frame.left, frame.top, frame.right - frame.left,
              frame.bottom - frame.top, true);
 
-  SetFocus(child_content_);
+  if (!no_focus_) {
+    SetFocus(child_content_);
+  }
 }
 
 RECT Win32Window::GetClientArea() {
