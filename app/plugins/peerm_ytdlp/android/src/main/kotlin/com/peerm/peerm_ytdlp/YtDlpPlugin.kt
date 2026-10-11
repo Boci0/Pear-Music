@@ -157,7 +157,13 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     result.error("bad_args", "url required", null)
                     return
                 }
-                getStreamUrl(ctx, url, result)
+                // A live stream has no 140 or m4a format and the android client
+                // offers it none of the audio formats asked for below, so the
+                // first attempt always failed (and cost a whole yt-dlp run)
+                // before the second found the HLS playlist. The caller says
+                // so and goes straight to that.
+                val live = call.argument<Boolean>("live") ?: false
+                getStreamUrl(ctx, url, live, result)
             }
             "canRequestPackageInstalls" -> {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -1059,6 +1065,7 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
     private fun getStreamUrl(
         ctx: Context,
         url: String,
+        live: Boolean,
         result: MethodChannel.Result,
     ) {
         val executor = Executors.newSingleThreadExecutor()
@@ -1069,7 +1076,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 fun makeUrlReq(useExtractorArgs: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
                     req.addOption("-g")
-                    req.addOption("-f", "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba")
+                    req.addOption(
+                        "-f",
+                        if (live) "bestaudio/best"
+                        else "140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/ba",
+                    )
                     req.addOption("--no-playlist")
                     req.addOption("--no-warnings")
                     req.addOption("--no-check-certificates")
@@ -1081,7 +1092,11 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     return req
                 }
 
-                val response = try {
+                val response = if (live) {
+                    // The web client, no extractor options: what the
+                    // second attempt below ends up doing for a live stream.
+                    YoutubeDL.getInstance().execute(makeUrlReq(false))
+                } else try {
                     YoutubeDL.getInstance().execute(makeUrlReq(true))
                 } catch (firstErr: Exception) {
                     android.util.Log.w(TAG, "getStreamUrl attempt 1 failed: ${firstErr.message}, trying without extra args...")

@@ -959,7 +959,7 @@ class StreamCacheManager {
     try {
       if (YoutubeService.isEmbeddedYtDlpSupported) {
         final link = await const MethodChannel('peerm/ytdlp')
-            .invokeMethod<String>('getStreamUrl', {'url': url})
+            .invokeMethod<String>('getStreamUrl', {'url': url, 'live': true})
             .timeout(_linkPrefetchTimeout);
         return link == null ? null : ResolvedStream(url: link);
       }
