@@ -105,8 +105,34 @@ class VisualizerFeed with WidgetsBindingObserver {
 
   bool get playing => _player?.playing ?? false;
 
-  /// True when the app is in the foreground and its window is the active one.
-  bool get renderActive => _isAppForeground && _windowFocused;
+  /// True when the app is in the foreground and its window is the active one,
+  /// or something on screen has asked to keep going while the window is merely
+  /// not the active one ([holdWhileUnfocused]). A minimized window is never
+  /// active: the lifecycle reports it as not in the foreground.
+  bool get renderActive =>
+      _isAppForeground && (_windowFocused || _unfocusedHolds > 0);
+
+  int _unfocusedHolds = 0;
+
+  /// Keeps capture and drawing going while the window is visible but not the
+  /// active one, for a widget meant to be watched from the side (the wave on
+  /// the mini player). Pair every call with [releaseUnfocusedHold].
+  void holdWhileUnfocused() {
+    _unfocusedHolds++;
+    if (_unfocusedHolds == 1 && !_windowFocused) {
+      _syncCapture();
+      changes.value++;
+    }
+  }
+
+  void releaseUnfocusedHold() {
+    if (_unfocusedHolds == 0) return;
+    _unfocusedHolds--;
+    if (_unfocusedHolds == 0 && !_windowFocused) {
+      _syncCapture();
+      changes.value++;
+    }
+  }
 
   int get clientCount => _clients;
 
@@ -160,7 +186,12 @@ class VisualizerFeed with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final foreground = state == AppLifecycleState.resumed;
+    // `inactive` is what a visible window that lost focus reports on desktop
+    // (and a half-covered screen on a phone): still on screen, so still
+    // foreground. Only hidden, paused or detached park the feed outright; an
+    // unfocused window is handled by [_windowFocused] and the unfocused hold.
+    final foreground = state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
     if (_isAppForeground == foreground) return;
     _isAppForeground = foreground;
     _syncCapture();
@@ -385,6 +416,38 @@ class VisualizerFeed with WidgetsBindingObserver {
   @visibleForTesting
   void processFft(List<double> raw) => _processFft(raw);
 
+  // What the frames since the last [takeStats] looked like, for the control
+  // port: how many arrived, how many the silence gate shut off, and how loud
+  // the raw spectrum was (the plugin hands over 0..1 values).
+  int _statFrames = 0;
+  int _statSilent = 0;
+  double _statMaxRawSum = 0;
+  double _statMeanRawSum = 0;
+  double _statMaxRaw = 0;
+
+  /// Returns the frame statistics since the last call and starts them again.
+  Map<String, Object> takeStats() {
+    final n = math.max(1, _statFrames);
+    final stats = <String, Object>{
+      'frames': _statFrames,
+      'silentFrames': _statSilent,
+      'avgMaxRaw': _statMaxRawSum / n,
+      'avgMeanRaw': _statMeanRawSum / n,
+      'peakRaw': _statMaxRaw,
+      'bands': [for (final b in targetBins) double.parse(b.toStringAsFixed(3))],
+      'hasNativeFft': _hasNativeFft,
+      'renderActive': renderActive,
+      'clients': _clients,
+      'windowFocused': _windowFocused,
+    };
+    _statFrames = 0;
+    _statSilent = 0;
+    _statMaxRawSum = 0;
+    _statMeanRawSum = 0;
+    _statMaxRaw = 0;
+    return stats;
+  }
+
   void _processFft(List<double> raw) {
     final rawLen = raw.length;
     if (rawLen == 0) return;
@@ -403,7 +466,13 @@ class VisualizerFeed with WidgetsBindingObserver {
     }
     final meanRaw = sumRaw / rawLen;
 
+    _statFrames++;
+    _statMaxRawSum += maxRaw;
+    _statMeanRawSum += meanRaw;
+    if (maxRaw > _statMaxRaw) _statMaxRaw = maxRaw;
+
     if (maxRaw < 0.08 || meanRaw < 0.020) {
+      _statSilent++;
       for (int i = 0; i < barCount; i++) {
         targetBins[i] = 0.0;
         _bandAvg[i] *= 0.97;

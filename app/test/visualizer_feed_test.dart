@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/debug_log.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/visualizer_feed.dart';
+import 'package:peerm_app/services/window_focus.dart';
 import 'package:peerm_app/widgets/player/mini_visualizer.dart';
 
 class _FakePlayer extends ChangeNotifier implements PlayerService {
@@ -64,6 +65,49 @@ void main() {
       feed.release(); // never goes negative
       expect(feed.clientCount, 0);
       player.dispose();
+    });
+
+    test('an unfocused window parks the feed unless a hold keeps it going', () {
+      final player = _FakePlayer(isPlaying: true);
+      feed.acquire(player);
+      addTearDown(() {
+        WindowFocus.focused.value = true;
+        feed.release();
+        player.dispose();
+      });
+      expect(feed.renderActive, isTrue);
+
+      WindowFocus.focused.value = false;
+      expect(feed.renderActive, isFalse);
+
+      feed.holdWhileUnfocused();
+      expect(feed.renderActive, isTrue);
+      feed.releaseUnfocusedHold();
+      expect(feed.renderActive, isFalse);
+      feed.releaseUnfocusedHold(); // never goes negative
+      expect(feed.renderActive, isFalse);
+    });
+
+    test('a window that lost focus (inactive) is still foreground; hidden is not',
+        () {
+      final player = _FakePlayer(isPlaying: true);
+      feed.acquire(player);
+      feed.holdWhileUnfocused();
+      addTearDown(() {
+        WindowFocus.focused.value = true;
+        feed.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        feed.releaseUnfocusedHold();
+        feed.release();
+        player.dispose();
+      });
+      WindowFocus.focused.value = false;
+
+      feed.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      expect(feed.renderActive, isTrue,
+          reason: 'visible but unfocused, and something asked to keep going');
+
+      feed.didChangeAppLifecycleState(AppLifecycleState.hidden);
+      expect(feed.renderActive, isFalse, reason: 'minimized parks it');
     });
 
     test('the made-up pattern stays off while the question is on screen',

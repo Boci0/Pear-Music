@@ -1,6 +1,5 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../services/player_service.dart';
 import '../../services/visualizer_feed.dart';
@@ -11,10 +10,9 @@ import 'ribbon_paths.dart';
 /// outside the full player too.
 ///
 /// It reads the same [VisualizerFeed] as the artwork visualizer and has its own
-/// smoothing. It draws nothing at all while idle, updates about 20 times a
-/// second (the bar sits on a blurred glass surface, where every repaint costs
-/// more), shows only a real spectrum, and parks whenever the app or window is
-/// not active.
+/// smoothing. It draws nothing at all while idle, updates at up to 60 times a
+/// second, shows only a real spectrum, and parks whenever the app is in the
+/// background or minimized. An unfocused but visible window keeps it going.
 class MiniVisualizer extends StatefulWidget {
   const MiniVisualizer({
     super.key,
@@ -31,17 +29,20 @@ class MiniVisualizer extends StatefulWidget {
   State<MiniVisualizer> createState() => _MiniVisualizerState();
 }
 
-class _MiniVisualizerState extends State<MiniVisualizer> {
+class _MiniVisualizerState extends State<MiniVisualizer>
+    with SingleTickerProviderStateMixin {
   final VisualizerFeed _feed = VisualizerFeed.instance;
   final SpectrumPhysics _physics = SpectrumPhysics();
   final ValueNotifier<int> _paintTick = ValueNotifier<int>(0);
 
-  /// A timer rather than a vsync ticker: a ticker wakes the UI thread at the
-  /// display's rate (up to 144 Hz) and every frame re-draws the blurred glass
-  /// this sits on, which on a phone cost about half a core. About 20 updates a
-  /// second is plenty for bars behind text, and nothing runs between them.
-  static const Duration _period = Duration(milliseconds: 50);
-  Timer? _timer;
+  /// A vsync ticker, so the wave moves at the display's pace like the one on
+  /// the card. Each frame re-draws the blurred glass this sits on, which is
+  /// the cost of it: it was a 20 Hz timer before for that reason. Steps are at
+  /// least [_minGapMs] apart, so a 120 or 144 Hz display is not driven faster
+  /// than 60 Hz, and nothing runs while it is parked.
+  late final Ticker _ticker = createTicker(_onFrame);
+  static const int _minGapMs = 15;
+  int _lastStepMs = 0;
 
   /// False while a route covers this widget (the full player, a sheet): a
   /// covered widget is not drawn, so it should not be stepped either.
@@ -55,6 +56,9 @@ class _MiniVisualizerState extends State<MiniVisualizer> {
   void initState() {
     super.initState();
     _feed.acquire(widget.player);
+    // The wave is there to be watched from the side while another window is
+    // in use, so an unfocused window must not freeze it.
+    _feed.holdWhileUnfocused();
     _feed.changes.addListener(_syncTimer);
     _syncTimer();
   }
@@ -85,18 +89,25 @@ class _MiniVisualizerState extends State<MiniVisualizer> {
             _physics.activity > 0.0) &&
         _feed.renderActive &&
         _visible;
-    if (want && _timer == null) {
+    if (want && !_ticker.isActive) {
       _physics.resetClock();
-      _timer = Timer.periodic(_period, (_) => _onTick());
+      _lastStepMs = 0; // A started ticker counts from zero again.
+      _ticker.start();
     } else if (!want && _physics.activity <= 0.0) {
       _stop();
     }
   }
 
   void _stop() {
-    _timer?.cancel();
-    _timer = null;
+    if (_ticker.isActive) _ticker.stop();
     _paintTick.value++;
+  }
+
+  void _onFrame(Duration elapsed) {
+    final ms = elapsed.inMilliseconds;
+    if (ms - _lastStepMs < _minGapMs) return;
+    _lastStepMs = ms;
+    _onTick();
   }
 
   void _onTick() {
@@ -121,8 +132,9 @@ class _MiniVisualizerState extends State<MiniVisualizer> {
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _ticker.dispose();
     _feed.changes.removeListener(_syncTimer);
+    _feed.releaseUnfocusedHold();
     _feed.release();
     _paintTick.dispose();
     super.dispose();
