@@ -27,7 +27,8 @@ import 'debug_log.dart';
 /// only exists every five, so a burst-then-silence feed was cut off as a dead
 /// connection after about half a minute.
 ///
-/// Phones play the playlist natively and do not use this.
+/// Phones use it too: their player would read the playlist uncompressed, which
+/// is 900 KB every few seconds, about 13 MB a minute of mobile data.
 class LiveHlsProxy {
   LiveHlsProxy._(this._server, this._playlistUrl, this._poll, this._startBack,
       this._client, this._tick);

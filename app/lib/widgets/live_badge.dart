@@ -11,13 +11,16 @@ bool isLiveSong(Song song) =>
     (song.id.startsWith('stream_') &&
         StreamCacheManager.isKnownLive(song.id.substring(7)));
 
-/// "Live stream" and, on the desktop, how much data it has used so far (the
-/// relay counts what crosses the network). Phones play the stream natively and
-/// have no count, so they show the plain words.
+/// "Live stream" and how much data it has used so far (the relay counts what
+/// crosses the network); just the plain words until the first bytes arrive.
 class LiveLabel extends StatelessWidget {
-  const LiveLabel({super.key, this.style});
+  const LiveLabel({super.key, this.style, this.compact = false});
 
   final TextStyle? style;
+
+  /// Only the amount ("1.8 MB") once there is one, for narrow places such as
+  /// the mini player, where the full words were cut off.
+  final bool compact;
 
   static String _size(int bytes) => bytes < 1024 * 1024
       ? '${(bytes / 1024).round()} KB'
@@ -28,7 +31,9 @@ class LiveLabel extends StatelessWidget {
     return ValueListenableBuilder<int>(
       valueListenable: LiveHlsProxy.bytesUsed,
       builder: (context, bytes, _) => Text(
-        bytes <= 0 ? 'Live stream' : 'Live stream · ${_size(bytes)} used',
+        bytes <= 0
+            ? 'Live stream'
+            : (compact ? _size(bytes) : 'Live stream · ${_size(bytes)} used'),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: style,

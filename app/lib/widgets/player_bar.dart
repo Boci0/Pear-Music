@@ -138,6 +138,7 @@ class PlayerBar extends StatelessWidget {
                                     const SizedBox(width: 6),
                                     Flexible(
                                       child: LiveLabel(
+                                        compact: true,
                                         style: theme.textTheme.labelSmall
                                             ?.copyWith(
                                           color: theme

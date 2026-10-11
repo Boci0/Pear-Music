@@ -1669,14 +1669,12 @@ class PlayerService extends ChangeNotifier {
     if (token != _playRequestToken) return true;
     if (link == null) return false;
     try {
-      // No headers: the manifest needs none, and a header proxy would have
-      // to rewrite every segment link in it. Phones play the playlist
-      // natively; the desktop engine cannot (it would end the "song" after
-      // each five-second segment), so it gets one continuous local stream.
-      final native = Platform.isAndroid || Platform.isIOS;
-      final source = native
-          ? HlsAudioSource(Uri.parse(link.url))
-          : AudioSource.uri(await LiveHlsProxy.serve(link.url));
+      // Every platform plays one continuous local stream, not the playlist:
+      // the desktop engine cannot play it at all (it would end the "song"
+      // after each five-second segment), and the phone's player re-reads the
+      // 900 KB playlist uncompressed every few seconds, which measured about
+      // 230 KB/s (13 MB a minute) of mobile data against about 20 KB/s here.
+      final source = AudioSource.uri(await LiveHlsProxy.serve(link.url));
       await _player.setAudioSource(source).timeout(_earlyStreamOpenTimeout);
     } catch (e) {
       DebugLog.write('[player] Live stream $videoId would not play: $e');
