@@ -188,13 +188,95 @@ class PlayerService extends ChangeNotifier {
   int? get currentLoadedFileSize => _currentLoadedFileSize;
   String? get currentLoadedFormat => _currentLoadedFormat;
 
-  /// Playing a live stream: no length and no seeking.
+  /// Playing a live stream: no length, and it is rewound with [seekLive]
+  /// rather than [seek].
   bool _isLive = false;
   bool get isLive => _isLive;
 
   @visibleForTesting
   void debugSetLive(bool value) {
     _isLive = value;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void debugSetLiveBehind(double seconds) {
+    _liveBehind = seconds;
+    notifyListeners();
+  }
+
+  /// Seconds behind live when the live stream last (re)opened. It stays true
+  /// while playing (the edge and playback both move at real time); a pause
+  /// adds to it, which [liveBehind] accounts for.
+  double _liveBehind = 0;
+  DateTime? _livePausedSince;
+  int _liveSeekToken = 0;
+
+  /// Behind this many seconds counts as live: a stream opened at the edge
+  /// already sits [LiveHlsProxy.defaultLead] seconds back, plus the player's
+  /// own buffer.
+  static const double liveCloseEnough = 15;
+
+  /// A pause longer than this reopens the stream where it was left instead of
+  /// resuming from the relay's buffer (a minute of audio; the rest is gone).
+  static const Duration _liveReopenAfter = Duration(seconds: 20);
+
+  /// How far behind the live edge playback is, in seconds. 0 when not live.
+  double get liveBehind {
+    if (!_isLive) return 0;
+    final since = _livePausedSince;
+    final paused = since == null
+        ? 0.0
+        : DateTime.now().difference(since).inMilliseconds / 1000;
+    return _liveBehind + paused;
+  }
+
+  /// How much history the stream keeps, i.e. how far back it can be rewound.
+  double get liveWindow => LiveHlsProxy.windowSeconds.value;
+
+  /// True when playback has been rewound (or paused) past live.
+  bool get isBehindLive => liveBehind > liveCloseEnough;
+
+  /// Moves a live stream to [behind] seconds behind the edge; 0 or anything
+  /// within [liveCloseEnough] returns to live. Reopens the relay's stream,
+  /// which takes a moment (a rebuffer), so a drag should call it once at the
+  /// end.
+  Future<void> seekLive(double behind) async {
+    if (!_isLive) return;
+    _lastInteraction = DateTime.now();
+    final window = liveWindow;
+    final target = behind.clamp(0.0, window > 0 ? window : behind).toDouble();
+    await _openLive(target <= liveCloseEnough ? 0 : target);
+  }
+
+  /// Back to the live edge.
+  Future<void> goLive() => seekLive(0);
+
+  Future<void> _openLive(double behind) async {
+    final uri = LiveHlsProxy.address(
+      behind: behind <= 0 ? null : LiveHlsProxy.defaultLead + behind,
+    );
+    if (uri == null) return;
+    final token = ++_liveSeekToken;
+    final paused = _isManuallyPaused || !_player.playing;
+    _liveBehind = behind;
+    _livePausedSince = paused ? DateTime.now() : null;
+    notifyListeners();
+    // A seek takes over from any fade in progress, as [seek] does.
+    _volumeFadeToken++;
+    try {
+      await _player
+          .setAudioSource(AudioSource.uri(uri))
+          .timeout(_earlyStreamOpenTimeout);
+    } catch (e) {
+      DebugLog.write('[player] Live stream would not reopen $behind s back: $e');
+      return;
+    }
+    if (token != _liveSeekToken || !_isLive) return;
+    DebugLog.write(
+      '[player] LIVE ${behind <= 0 ? 'at the edge' : '${behind.round()} s behind'}',
+    );
+    if (!paused) await _player.play();
     notifyListeners();
   }
 
@@ -1097,6 +1179,16 @@ class PlayerService extends ChangeNotifier {
       if (state.playing) {
         _isManuallyPaused = false;
       }
+      if (_isLive) {
+        // A paused live stream falls further behind the edge each second.
+        final since = _livePausedSince;
+        if (!state.playing) {
+          _livePausedSince ??= DateTime.now();
+        } else if (since != null) {
+          _liveBehind += DateTime.now().difference(since).inMilliseconds / 1000;
+          _livePausedSince = null;
+        }
+      }
       _publishNotificationState();
       notifyListeners();
     }));
@@ -1674,7 +1766,11 @@ class PlayerService extends ChangeNotifier {
       // after each five-second segment), and the phone's player re-reads the
       // 900 KB playlist uncompressed every few seconds, which measured about
       // 230 KB/s (13 MB a minute) of mobile data against about 20 KB/s here.
-      final source = AudioSource.uri(await LiveHlsProxy.serve(link.url));
+      final source = AudioSource.uri(await LiveHlsProxy.serve(
+        link.url,
+        refresh: () async =>
+            (await StreamCacheManager.resolveLiveLink(videoId))?.url,
+      ));
       await _player.setAudioSource(source).timeout(_earlyStreamOpenTimeout);
     } catch (e) {
       DebugLog.write('[player] Live stream $videoId would not play: $e');
@@ -1687,6 +1783,8 @@ class PlayerService extends ChangeNotifier {
     _currentLoadedFileSize = null;
     _currentLoadedFormat = 'hls';
     _isLive = true;
+    _liveBehind = 0;
+    _livePausedSince = null;
     _resetStreamFailureCounters();
     notifyListeners();
     DebugLog.write('[player] LIVE (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]');
@@ -2485,6 +2583,13 @@ class PlayerService extends ChangeNotifier {
       }
       await _player.seek(Duration.zero);
     }
+    final pausedSince = _livePausedSince;
+    if (_isLive &&
+        pausedSince != null &&
+        DateTime.now().difference(pausedSince) > _liveReopenAfter) {
+      final window = liveWindow;
+      await _openLive(liveBehind.clamp(0.0, window > 0 ? window : liveBehind).toDouble());
+    }
     final targetVol = _effectiveVolume;
     await _player.setVolume(targetVol);
     try {
@@ -2817,6 +2922,9 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> seek(Duration position) async {
+    // A live stream's position is only what has been buffered; it is moved
+    // with seekLive.
+    if (_isLive) return;
     _silenceTail();
     // A seek back from the last seconds is the user's, not a loop wrap.
     _lastPosition = position;
@@ -3065,6 +3173,10 @@ class PlayerService extends ChangeNotifier {
     _growingSource = null;
     if (growing != null) unawaited(growing.close());
     await _player.stop();
+    // A live stream's relay would otherwise keep its port and client until
+    // the next play; the stream is over, so is the relay.
+    _isLive = false;
+    LiveHlsProxy.stop();
     currentSong = null;
     _playbackError = null;
     _currentLoadedFile = null;

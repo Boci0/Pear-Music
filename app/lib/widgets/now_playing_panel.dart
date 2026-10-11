@@ -16,7 +16,7 @@ import 'player/player_artwork.dart';
 import 'player/player_controls.dart';
 import 'player/sleep_timer_dialog.dart';
 import 'player/stream_quality_info_dialog.dart';
-import 'live_badge.dart';
+import 'live_seek_bar.dart';
 import 'tactile_button.dart';
 
 /// Old-school desktop "Now Playing" pane: big artwork, title, transport
@@ -515,15 +515,13 @@ class _ProgressLineState extends State<_ProgressLine> {
       fontFeatures: const [FontFeature.tabularFigures()],
     );
 
-    // A live stream has no length to show or seek in.
+    // A live stream has no length: the bar spans the history YouTube keeps.
     if (player.isLive) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const LiveBadge(),
-          const SizedBox(width: 8),
-          Flexible(child: LiveLabel(style: timeStyle)),
-        ],
+      return LiveSeekBar(
+        player: player,
+        color: color,
+        style: timeStyle,
+        compact: true,
       );
     }
 

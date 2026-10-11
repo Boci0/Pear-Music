@@ -31,10 +31,19 @@ import 'debug_log.dart';
 /// is 900 KB every few seconds, about 13 MB a minute of mobile data.
 class LiveHlsProxy {
   LiveHlsProxy._(this._server, this._playlistUrl, this._poll, this._startBack,
-      this._client, this._tick);
+      this._client, this._tick, this._refresh);
 
   final HttpServer _server;
-  final String _playlistUrl;
+
+  /// Replaced when [_refresh] hands over a new link.
+  String _playlistUrl;
+  final Future<String?> Function()? _refresh;
+  int _refreshes = 0;
+  bool _relinked = false;
+
+  /// Most new links one stream may ask for, so a link YouTube keeps refusing
+  /// cannot turn into a stream of lookups against it.
+  static const int _maxRefreshes = 10;
   final Duration _poll;
   final int _startBack;
   final HttpClient _client;
@@ -51,26 +60,52 @@ class LiveHlsProxy {
   /// Starts again at 0 with each stream.
   static final ValueNotifier<int> bytesUsed = ValueNotifier<int>(0);
 
+  /// How much history the stream keeps, in seconds, as of the last playlist
+  /// read (YouTube's DVR window, an hour for most broadcasts, a minute or two
+  /// for some). 0 until the first read. This is how far back a stream can be
+  /// rewound.
+  static final ValueNotifier<double> windowSeconds = ValueNotifier<double>(0);
+
+  /// How far behind the newest audio a stream opened without a `back` starts:
+  /// [startBack] segments of five seconds.
+  static const double defaultLead = 10;
+
   static LiveHlsProxy? _current;
 
-  /// Segments held for sending; the oldest is dropped past this so a paused
-  /// player cannot make the relay grow without bound.
+  /// The running relay's address, starting [behind] seconds behind the newest
+  /// audio ([defaultLead] when null). Null when no relay is running. Opening
+  /// it again is how a stream is rewound or returned to live.
+  static Uri? address({double? behind}) => _current?._address(behind);
+
+  Uri _address(double? behind) => Uri.parse(
+        'http://127.0.0.1:${_server.port}/live.aac'
+        '${behind == null ? '' : '?back=${behind.round()}'}',
+      );
+
+  /// Segments held for sending. Fetching waits while this many are queued, so
+  /// a paused player (or a rewound start with a long backlog) neither makes
+  /// the relay grow without bound nor makes it skip audio.
   static const int _maxQueued = 12;
 
   /// Starts relaying [playlistUrl] and returns the local address to play.
   /// A relay that is already running is stopped first. [poll] is how often the
   /// playlist is read again, [startBack] how many segments behind the live
   /// edge playback starts (a few seconds of lead so it does not stall), and
-  /// [tick] the spacing of the pieces the audio is handed over in.
+  /// [tick] the spacing of the pieces the audio is handed over in. [refresh]
+  /// looks the stream's link up again: the relay asks for it when the current
+  /// one keeps being refused (it is tied to the connection it was made on, so
+  /// a phone changing between Wi-Fi and mobile data invalidates it).
   static Future<Uri> serve(
     String playlistUrl, {
     Duration poll = const Duration(seconds: 4),
     int startBack = 2,
     Duration tick = const Duration(milliseconds: 100),
     HttpClient? client,
+    Future<String?> Function()? refresh,
   }) async {
     stop();
     bytesUsed.value = 0;
+    windowSeconds.value = 0;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final proxy = LiveHlsProxy._(
       server,
@@ -79,10 +114,11 @@ class LiveHlsProxy {
       startBack,
       (client ?? BackupAudioEngine.ipv4HttpClient())..autoUncompress = false,
       tick,
+      refresh,
     );
     _current = proxy;
     unawaited(proxy._listen());
-    return Uri.parse('http://127.0.0.1:${server.port}/live.aac');
+    return proxy._address(null);
   }
 
   /// Stops the running relay, if any.
@@ -124,7 +160,9 @@ class LiveHlsProxy {
 
     final queue = Queue<_Piece>();
     var producing = true;
-    final producer = _collect(queue, halted).whenComplete(() => producing = false);
+    final back = double.tryParse(request.uri.queryParameters['back'] ?? '');
+    final producer =
+        _collect(queue, halted, back).whenComplete(() => producing = false);
 
     // The first piece goes out at once so the player can start and becomes
     // its lead; after that the audio is kept exactly that far ahead of the
@@ -198,39 +236,98 @@ class LiveHlsProxy {
 
   /// Follows the playlist and queues each new segment. Ends with the
   /// playlist, when it stops answering, or when the relay is [halted].
-  Future<void> _collect(Queue<_Piece> queue, bool Function() halted) async {
+  ///
+  /// [back] is how many seconds behind the newest audio the first segment is
+  /// taken from; null starts [_startBack] segments behind, and a value past
+  /// the window starts at its oldest segment.
+  Future<void> _collect(
+    Queue<_Piece> queue,
+    bool Function() halted,
+    double? back,
+  ) async {
     int? next; // The next media sequence number to fetch.
+    // Reads that failed in a row, playlist or segment. Three in a row ask for
+    // a new link, six end the stream.
     var failures = 0;
     while (!halted()) {
       final list = await _fetchPlaylist();
       if (list == null) {
-        if (++failures >= 6) {
-          DebugLog.write('[live] Playlist stopped answering, ending the stream');
-          return;
+        if (!await _recover(++failures)) return;
+        if (_relinked) {
+          _relinked = false;
+          next = null;
         }
         await Future<void>.delayed(_poll);
         continue;
       }
-      failures = 0;
       final first = list.firstSequence;
       final count = list.segments.length;
-      if (next == null || next < first) {
+      if (next == null && back != null) {
+        // Walk back from the newest segment until [back] seconds are covered.
+        var covered = 0.0;
+        var i = count;
+        while (i > 0 && covered < back) {
+          covered += list.seconds[--i];
+        }
+        next = first + i;
+        back = null; // Only the start is rewound; a new link rejoins the edge.
+      } else if (next == null || next < first) {
         // The first read, or playback fell behind the window: rejoin near the
         // live edge.
         next = math.max(first, first + count - _startBack);
       }
+      // A playlist that answers with nothing new is a healthy stream.
+      if (next >= first + count) failures = 0;
       for (var i = next - first; i < count && !halted(); i++) {
+        // Never fetch further ahead than the queue holds: a stream rewound by
+        // half an hour would otherwise race through the backlog and keep only
+        // the newest segments, ending up a minute behind with the data spent.
+        while (queue.length >= _maxQueued && !halted()) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        if (halted()) break;
         final bytes = await _fetchSegment(list.segments[i]);
         next = first + i + 1;
-        if (bytes == null || halted()) continue;
-        queue.add(_Piece(bytes, list.seconds[i]));
-        while (queue.length > _maxQueued) {
-          queue.removeFirst();
+        if (halted()) break;
+        if (bytes == null) {
+          if (!await _recover(++failures)) return;
+          if (_relinked) {
+            _relinked = false;
+            next = null;
+            break;
+          }
+          continue;
         }
+        failures = 0;
+        queue.add(_Piece(bytes, list.seconds[i]));
       }
       if (list.ended) return;
       await Future<void>.delayed(_poll);
     }
+  }
+
+  /// Decides what to do after the [failures]th failed read in a row: false
+  /// when the stream should end. At the third it asks for a new link, which
+  /// is what a link that was refused (expired, or made on another network)
+  /// needs; [_relinked] tells the caller to rejoin the live edge with it.
+  Future<bool> _recover(int failures) async {
+    if (failures >= 6) {
+      DebugLog.write('[live] Playlist stopped answering, ending the stream');
+      return false;
+    }
+    final refresh = _refresh;
+    if (failures == 3 && refresh != null && _refreshes < _maxRefreshes) {
+      _refreshes++;
+      final url = await refresh();
+      if (url != null) {
+        _playlistUrl = url;
+        _relinked = true;
+        DebugLog.write('[live] Link refused or silent, using a new one');
+      } else {
+        DebugLog.write('[live] Link refused or silent and no new one found');
+      }
+    }
+    return true;
   }
 
   Future<_Playlist?> _fetchPlaylist() async {
@@ -239,7 +336,10 @@ class LiveHlsProxy {
     if (bytes == null) return null;
     _playlistReads++;
     try {
-      return _Playlist.parse(utf8.decode(bytes, allowMalformed: true), uri);
+      final list =
+          _Playlist.parse(utf8.decode(bytes, allowMalformed: true), uri);
+      windowSeconds.value = list.seconds.fold(0.0, (sum, s) => sum + s);
+      return list;
     } catch (_) {
       return null;
     }
@@ -258,6 +358,8 @@ class LiveHlsProxy {
       final response =
           await request.close().timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) {
+        // Host only: the path of a YouTube link carries its signature.
+        DebugLog.write('[live] HTTP ${response.statusCode} from ${uri.host}');
         await response.drain<void>();
         return null;
       }
@@ -270,7 +372,8 @@ class LiveHlsProxy {
       final gzipped =
           response.headers.value(HttpHeaders.contentEncodingHeader) == 'gzip';
       return gzipped ? gzip.decode(wire) : wire;
-    } catch (_) {
+    } catch (e) {
+      if (!_stopped) DebugLog.write('[live] Read from ${uri.host} failed: ${e.runtimeType}');
       return null;
     }
   }

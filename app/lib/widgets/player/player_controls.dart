@@ -11,7 +11,7 @@ import '../../services/player_service.dart';
 import '../../services/window_focus.dart';
 import '../../theme/glass.dart';
 import '../../theme/tokens.dart';
-import '../live_badge.dart';
+import '../live_seek_bar.dart';
 import '../tactile_button.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
@@ -404,21 +404,17 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         if (mounted) _syncGlow();
       });
     }
-    // A live stream has no length to seek in.
+    // A live stream has no length: its bar spans the history YouTube keeps,
+    // with the live edge at the right end.
     if (context.select<PlayerService?, bool>((p) => p?.isLive ?? false)) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const LiveBadge(),
-            const SizedBox(width: 8),
-            LiveLabel(
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: LiveSeekBar(
+          player: widget.player,
+          color: effectiveAccent,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
       );
     }

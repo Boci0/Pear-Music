@@ -989,8 +989,12 @@ class StreamCacheManager {
         if (stream != null) return stream;
       }
       DebugLog.write('[cache] No live link for $videoId: ${'${result.stderr}'.trim()}');
+      // Recorded so playback says what happened (a bot check reads as
+      // "blocked, tap play to retry") instead of a bare "couldn't load".
+      recordFetchFailure(videoId, '${result.stderr}');
     } catch (e) {
       DebugLog.write('[cache] Live link lookup for $videoId failed: $e');
+      recordFetchFailure(videoId, '$e');
     }
     return null;
   }
