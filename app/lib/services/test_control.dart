@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../controllers/app_controller.dart';
 import 'debug_log.dart';
+import 'visualizer_feed.dart';
 import 'youtube_search_service.dart';
 
 /// The control port: lets an automated check drive a running build without a
@@ -22,6 +23,11 @@ import 'youtube_search_service.dart';
 ///   /toggle /pause /next /prev
 ///   /volume?v=0..1          player volume (this is the saved setting)
 ///   /seek?ms=
+///   /liveseek?behind=S      rewind a live stream S seconds; /golive returns
+///   /library                the library's songs (JSON)
+///   /playlocal?i=N          play library song N (no network)
+///   /viz?hold=1|0           what the visualizer feed saw since the last call
+///                           (hold=1 keeps a client on the feed, hold=0 drops it)
 ///   /log?n=60               the last lines of the debug log
 ///   /quit                   exit the app
 class ControlSettings {
@@ -60,6 +66,7 @@ Future<HttpServer?> startTestControl(
       settings.port,
     );
     final results = <YouTubeSearchResult>[];
+    var vizHeld = false;
     server.listen((req) async {
       final res = req.response;
       try {
@@ -88,6 +95,8 @@ Future<HttpServer?> startTestControl(
               'loadMs': player.lastTrackLoadMs,
               'queueLength': player.queue.length,
               'error': player.playbackError?.label,
+              'liveBehind': player.liveBehind,
+              'liveWindow': player.liveWindow,
             };
           case '/search':
             final query = q['q'] ?? '';
@@ -169,6 +178,45 @@ Future<HttpServer?> startTestControl(
               await player.seek(Duration(milliseconds: ms));
               body = {'ok': true};
             }
+          case '/liveseek':
+            final behind = double.tryParse(q['behind'] ?? '');
+            if (behind == null) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'behind (seconds) required'};
+            } else {
+              await player.seekLive(behind);
+              body = {'liveBehind': player.liveBehind};
+            }
+          case '/golive':
+            await player.goLive();
+            body = {'liveBehind': player.liveBehind};
+          case '/library':
+            final songs = controller.library.songs;
+            body = [
+              for (var i = 0; i < songs.length; i++)
+                {'i': i, 'title': songs[i].title, 'bytes': songs[i].size},
+            ];
+          case '/playlocal':
+            final songs = controller.library.songs;
+            final index = int.tryParse(q['i'] ?? '');
+            if (index == null || index < 0 || index >= songs.length) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no such library row'};
+            } else {
+              unawaited(player.playSong(songs[index], queue: songs));
+              body = {'playing': songs[index].title};
+            }
+          case '/viz':
+            // hold=1 stands in for a mounted visualizer widget (so capture can
+            // run with no player view open); hold=0 lets it go.
+            if (q['hold'] == '1' && !vizHeld) {
+              VisualizerFeed.instance.acquire(player);
+              vizHeld = true;
+            } else if (q['hold'] == '0' && vizHeld) {
+              VisualizerFeed.instance.release();
+              vizHeld = false;
+            }
+            body = VisualizerFeed.instance.takeStats();
           case '/log':
             final n = int.tryParse(q['n'] ?? '') ?? 60;
             body = {'lines': await _logTail(n)};
@@ -216,11 +264,8 @@ bool _allowed(HttpRequest req, String token, int port) {
 }
 
 Future<List<String>> _logTail(int n) async {
-  final file = DebugLog.file;
-  if (file == null || !await file.exists()) return DebugLog.recentLogs;
-  final length = await file.length();
-  final start = length > 96 * 1024 ? length - 96 * 1024 : 0;
-  final text = await file.openRead(start).transform(utf8.decoder).join();
-  final lines = const LineSplitter().convert(text);
+  // The in-memory ring is always current; the file is written asynchronously
+  // and can trail by a while (or be shared with another running instance).
+  final lines = DebugLog.recentLogs;
   return lines.length <= n ? lines : lines.sublist(lines.length - n);
 }
