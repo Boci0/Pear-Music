@@ -94,9 +94,6 @@ reports; the agent cannot hear audio or run the app).
 - **Silent `catch (_)` blocks.** About 125 in `lib/`, a dozen in
   `update_service.dart` alone. Log the non-trivial ones to `debug_log` so
   user reports carry the reason.
-- **Flaky `growing_file_audio_source_test`.** Failed once under a full-suite
-  run and passes alone (a timing race). Make it robust before it makes CI
-  unreliable.
 - **Android analysis priority.** The loudness and onset analysis runs in a
   normal-priority isolate (the Android decode itself is low priority). If a
   stutter a second or two into a song ever shows up, look here first.

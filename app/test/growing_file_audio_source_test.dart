@@ -18,6 +18,15 @@ void main() {
     } catch (_) {}
   });
 
+  // Waits for the reader to catch up instead of sleeping a fixed time, which
+  // is what made this flaky when the whole suite ran at once.
+  Future<void> until(bool Function() ok) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!ok() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+  }
+
   GrowingFileAudioSource source(
     String path,
     Completer<void> done, {
@@ -46,11 +55,11 @@ void main() {
     final received = <int>[];
     final finished = response.stream.forEach(received.addAll);
 
-    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await until(() => received.length >= 3);
     expect(received, [1, 2, 3], reason: 'bytes already on disk play at once');
 
     File(path).writeAsBytesSync([4, 5], mode: FileMode.append);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await until(() => received.length >= 5);
     expect(received, [1, 2, 3, 4, 5],
         reason: 'reaching the end waits for more instead of stopping');
 
