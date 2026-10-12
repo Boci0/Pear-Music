@@ -332,8 +332,14 @@ void main() {
       final sub = player.userMessages.listen(messages.add);
 
       await player.playSong(first, queue: [first, second]);
-      // Let the auto-skip chain settle (the blocked track retries once).
-      await Future<void>.delayed(const Duration(milliseconds: 800));
+      // Wait for the auto-skip chain to settle (the blocked track retries
+      // once) instead of sleeping a fixed time, which failed on a slow run.
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while ((player.currentSong?.id != second.id ||
+              player.playbackError == null) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
 
       expect(player.currentSong?.id, second.id,
           reason: 'a video that can never play must not stall the queue');
