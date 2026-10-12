@@ -2206,7 +2206,9 @@ class PlayerService extends ChangeNotifier {
       if ((_speed - 1.0).abs() > 0.01) {
         try {
           await _player.setSpeed(_speed);
-        } catch (_) {}
+        } catch (e) {
+          DebugLog.write('[player] setSpeed failed: $e');
+        }
       }
       _songGain = LoudnessService.startGainFor(song);
       final targetVol = _effectiveVolume;

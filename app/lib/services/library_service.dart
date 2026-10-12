@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import 'youtube_service.dart';
+import 'debug_log.dart';
 
 /// Owns the on-disk music library and its index.
 ///
@@ -190,7 +191,8 @@ class LibraryService extends ChangeNotifier {
         _filesOnDisk.remove(song.id);
       }
       return ok;
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[library] song file check failed: $e');
       return false;
     }
   }
@@ -259,7 +261,9 @@ class LibraryService extends ChangeNotifier {
   static Future<void> _keepCorruptCopy(File file) async {
     try {
       await file.copy('${file.path}.corrupt');
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[library] corrupt data file could not be copied aside: $e');
+    }
   }
 
   Future<void> _loadPlaylists() async {
@@ -739,13 +743,16 @@ class LibraryService extends ChangeNotifier {
         }
         await tmp.rename(targetPath);
         fileOnDisk = true;
-      } catch (_) {
+      } catch (e) {
+        DebugLog.write('[library] rename into the library failed, copying instead: $e');
         // Fallback for cross-device/partition moves (EXDEV) or Windows locks
         try {
           await tmp.copy(targetPath);
           if (await tmp.exists()) await tmp.delete();
           fileOnDisk = true;
-        } catch (_) {}
+        } catch (e) {
+          DebugLog.write('[library] copy into the library failed, file not stored: $e');
+        }
       }
     }
 

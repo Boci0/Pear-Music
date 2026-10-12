@@ -12,6 +12,7 @@ import '../models/song.dart';
 import 'lyric_timing_borrow.dart';
 import 'netease_lyrics.dart';
 import 'update_service.dart';
+import 'debug_log.dart';
 
 /// A word (or syllable) with the moment it is sung, from enhanced LRC
 /// `<mm:ss.xx>` tags.
@@ -1005,7 +1006,9 @@ class LyricsService {
         if (await lrcFile.exists()) {
           await lrcFile.writeAsString(merged, flush: true);
         }
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
+      }
     }
     await _saveToDiskCache(song.id, saved);
     return parsed;
@@ -1229,7 +1232,9 @@ class LyricsService {
           _setRawLrcCache(cacheKey, content);
           return content;
         }
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[lyrics] could not read the .lrc next to the song: $e');
+      }
     }
     // Check disk cache
     try {
@@ -1242,7 +1247,9 @@ class LyricsService {
         _setRawLrcCache(cacheKey, content);
         return content;
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[lyrics] lyrics disk cache read failed: $e');
+    }
     return null;
   }
 
@@ -1276,7 +1283,9 @@ class LyricsService {
         if (await lrcFile.exists()) {
           await lrcFile.writeAsString(updatedRaw, flush: true);
         }
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
+      }
     }
 
     // Persist to disk cache
@@ -1368,7 +1377,9 @@ class LyricsService {
         if (await lrcFile.exists()) {
           await lrcFile.writeAsString(updated, flush: true);
         }
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
+      }
     }
     await _saveToDiskCache(song.id, updated);
     return parsed;
@@ -1404,7 +1415,9 @@ class LyricsService {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
         // The file next to the music stays plain LRC, without the app's mark.
         await lrcFile.writeAsString(candidate.lyricsContent, flush: true);
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
+      }
     }
 
     await _saveToDiskCache(song.id, content);
@@ -1437,7 +1450,9 @@ class LyricsService {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[lyrics] LRCLIB request failed: $e');
+    }
     return null;
   }
 
@@ -1456,7 +1471,9 @@ class LyricsService {
           return data;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[lyrics] LRCLIB list request failed: $e');
+    }
     return null;
   }
 
@@ -1478,7 +1495,9 @@ class LyricsService {
         p.join(cacheDir.path, '${_safeFileName(songId)}.lrc'),
       );
       await cacheFile.writeAsString(lrcContent, flush: true);
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[lyrics] lyrics disk cache write failed: $e');
+    }
   }
 
   static String _safeFileName(String input) =>

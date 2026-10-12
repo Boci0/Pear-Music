@@ -165,7 +165,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 )
                 .toList();
           }
-        } catch (_) {}
+        } catch (e) {
+          DebugLog.write('[explore] recommendations failed: $e');
+        }
 
         if (items.isEmpty) {
           try {
@@ -175,7 +177,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
               limit: 30,
             );
             if (items.isNotEmpty) source = 'radio-search';
-          } catch (_) {}
+          } catch (e) {
+            DebugLog.write('[explore] radio search failed: $e');
+          }
         }
       }
 

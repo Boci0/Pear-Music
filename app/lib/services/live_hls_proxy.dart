@@ -340,7 +340,8 @@ class LiveHlsProxy {
           _Playlist.parse(utf8.decode(bytes, allowMalformed: true), uri);
       windowSeconds.value = list.seconds.fold(0.0, (sum, s) => sum + s);
       return list;
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[live] playlist could not be parsed: $e');
       return null;
     }
   }

@@ -222,7 +222,9 @@ class YoutubeService {
       if (await localBin.exists() && await localBin.length() > 0) {
         return localBin.path;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp path lookup failed: $e');
+    }
     return null;
   }
 
@@ -256,7 +258,9 @@ class YoutubeService {
       final file = File(p.join(supportDir.path, 'ytdlp_sources.txt'));
       if (await file.exists()) overrides.addAll(await file.readAsLines());
       extra = (await _readCachedManifest())?.sources ?? const [];
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp source overrides could not be read: $e');
+    }
     final custom = mergeYtDlpSources(overrides, const []);
     final signed = mergeYtDlpSources(
       const [],
@@ -312,7 +316,8 @@ class YoutubeService {
         await m.readAsBytes(),
         Uint8List.fromList(base64.decode((await s.readAsString()).trim())),
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[pearmusic] cached yt-dlp manifest could not be read or verified: $e');
       return null;
     }
   }
@@ -332,7 +337,9 @@ class YoutubeService {
           .writeAsBytes(manifest);
       await File(p.join(dir.path, '$_installedManifestName.sig'))
           .writeAsString(sigText);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[pearmusic] installed yt-dlp manifest could not be saved: $e');
+    }
   }
 
   static Future<({Uint8List bytes, String sig, YtDlpManifest manifest})?>
@@ -351,7 +358,8 @@ class YoutubeService {
       return manifest == null
           ? null
           : (bytes: bytes, sig: sig, manifest: manifest);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[pearmusic] installed yt-dlp manifest could not be read or verified: $e');
       return null;
     }
   }
@@ -362,7 +370,9 @@ class YoutubeService {
       await File(p.join(dir.path, _manifestCacheName)).writeAsBytes(manifest);
       await File(p.join(dir.path, '$_manifestCacheName.sig'))
           .writeAsString(sigText);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp manifest cache could not be saved: $e');
+    }
   }
 
   /// GETs [url] and returns its body, or null on a non-200 or any error.
@@ -387,7 +397,8 @@ class YoutubeService {
         if (out.length > maxBytes) return null;
       }
       return out.takeBytes();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[pearmusic] GET $url failed: $e');
       return null;
     }
   }
@@ -673,7 +684,8 @@ class YoutubeService {
           .timeout(const Duration(seconds: 10));
       final v = r.stdout.toString().trim();
       return r.exitCode == 0 && v.isNotEmpty ? v : null;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[pearmusic] yt-dlp --version failed: $e');
       return null;
     }
   }
@@ -898,7 +910,8 @@ class YoutubeService {
       await f.writeAsString(path);
       _cachedYtDlpPath = null;
       return v;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[pearmusic] custom yt-dlp path check failed: $e');
       return null;
     }
   }

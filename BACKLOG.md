@@ -91,9 +91,11 @@ reports; the agent cannot hear audio or run the app).
   holds the queue, stream resolution, live streams and crossfade together.
   Pulling out the stream resolution and the live stream handling would make
   regressions easier to find.
-- **Silent `catch (_)` blocks.** About 125 in `lib/`, a dozen in
-  `update_service.dart` alone. Log the non-trivial ones to `debug_log` so
-  user reports carry the reason.
+- **Silent `catch (_)` blocks.** The ones where a failure loses data or changes
+  what the user gets now write to `debug_log` (library moves, lyric writes,
+  history and favourites loading, update and yt-dlp manifest checks, network
+  fetches). About 80 remain on purpose: cleanup deletes, process kills,
+  optional channel calls and the diagnostics sampler.
 - **Android analysis priority.** The loudness and onset analysis runs in a
   normal-priority isolate (the Android decode itself is low priority). If a
   stutter a second or two into a song ever shows up, look here first.

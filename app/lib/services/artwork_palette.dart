@@ -9,6 +9,7 @@ import 'package:flutter/painting.dart' show HSLColor;
 import 'package:image/image.dart' as img;
 
 import '../models/song.dart';
+import 'debug_log.dart';
 
 /// Extracts a dominant, vibrant colour from a song's artwork and caches it per
 /// song. Used to theme the player (background tint, artwork glow, controls)
@@ -257,7 +258,8 @@ class ArtworkPalette {
       } else {
         return await compute(computePaletteData, art);
       }
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[palette] palette extraction failed: $e');
       return (null, null);
     }
   }
@@ -296,7 +298,9 @@ class ArtworkPalette {
       if (resp.statusCode == 200) {
         return await consolidateHttpClientResponseBytes(resp);
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[palette] artwork download failed: $e');
+    }
     return null;
   }
 

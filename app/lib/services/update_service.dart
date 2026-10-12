@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_update_manifest.dart';
+import 'debug_log.dart';
 
 class UpdateInfo {
   final bool hasUpdate;
@@ -230,7 +231,8 @@ class UpdateService {
           .invokeMethod<List<dynamic>>('getSupportedAbis')
           .timeout(const Duration(milliseconds: 600));
       return abis?.map((e) => e.toString()).toList() ?? const [];
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[update] supported ABI query failed: $e');
       return const [];
     }
   }
@@ -652,7 +654,9 @@ class UpdateService {
             }
             await _safeDeleteFile(zipFile);
           }
-        } catch (_) {}
+        } catch (e) {
+          DebugLog.write('[update] cached update zip check failed: $e');
+        }
 
         try {
           final entries = tempDir.listSync();
@@ -668,10 +672,14 @@ class UpdateService {
                   }
                   await _safeDeleteFile(entry);
                 }
-              } catch (_) {}
+              } catch (e) {
+                DebugLog.write('[update] cached update file check failed: $e');
+              }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          DebugLog.write('[update] cached update folder scan failed: $e');
+        }
       }
     } catch (e) {
       debugPrint('[UpdateService] Check cached update failed: $e');
@@ -685,7 +693,8 @@ class UpdateService {
       const channel = MethodChannel('peerm/ytdlp');
       final res = await channel.invokeMethod<bool>('canRequestPackageInstalls');
       return res ?? true;
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[update] install permission query failed: $e');
       return true;
     }
   }
@@ -697,7 +706,8 @@ class UpdateService {
       final res =
           await channel.invokeMethod<bool>('openInstallPermissionSettings');
       return res ?? false;
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[update] opening install permission settings failed: $e');
       return false;
     }
   }

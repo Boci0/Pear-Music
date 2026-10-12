@@ -617,7 +617,9 @@ class StreamCacheManager {
           ext: ext,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[cache] cached file lookup failed: $e');
+    }
     return (
       isCached: false,
       filePath: null,
@@ -1151,7 +1153,9 @@ class StreamCacheManager {
               DebugLog.write('[preload] Buffered upcoming track ready on disk: $id');
               onTrackCached?.call(id);
             }
-          } catch (_) {}
+          } catch (e) {
+            DebugLog.write('[preload] Buffering $id failed: $e');
+          }
         }
       } finally {
         if (seq == _slidingWindowSequence) {

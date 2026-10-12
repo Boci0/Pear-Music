@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/song.dart';
 import 'stream_cache_manager.dart';
 import 'youtube_search_service.dart';
+import 'debug_log.dart';
 
 enum SortOption {
   dateAdded('Date Added'),
@@ -83,7 +84,9 @@ class IdentityService extends ChangeNotifier {
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[identity] saved favorite songs could not be read: $e');
+      }
     }
     final knownOnlineJson = _prefs.getString(_knownOnlineSongsKey);
     if (knownOnlineJson != null && knownOnlineJson.isNotEmpty) {
@@ -97,7 +100,9 @@ class IdentityService extends ChangeNotifier {
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        DebugLog.write('[identity] known online songs could not be read: $e');
+      }
     }
     final sortStr = _prefs.getString(_sortOptionKey);
     _sortOption = SortOption.values.firstWhere(

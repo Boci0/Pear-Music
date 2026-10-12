@@ -285,7 +285,8 @@ class VisualizerFeed with WidgetsBindingObserver {
       final currentId = player.androidAudioSessionId;
       final initialTarget = (currentId != null && currentId > 0) ? currentId : 0;
       await _bindAndroidSession(initialTarget);
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[visualizer] native FFT start failed: $e');
       _setNativeFft(false);
     }
   }
@@ -310,7 +311,8 @@ class VisualizerFeed with WidgetsBindingObserver {
         _androidRunning = true;
         _currentBoundSessionId = sessionId;
       }
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[visualizer] native FFT bind failed: $e');
       _setNativeFft(false);
     }
   }

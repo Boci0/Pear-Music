@@ -221,7 +221,8 @@ class LoudnessService {
         result.add(at);
       }
       return result;
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[loudness] stored onsets could not be decoded: $e');
       return const [];
     }
   }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/song.dart';
+import 'debug_log.dart';
 
 /// One play event: which song, and when it started.
 class HistoryEntry {
@@ -60,7 +61,8 @@ class HistoryService extends ChangeNotifier {
           }
         }
       }
-    } catch (_) {
+    } catch (e) {
+      DebugLog.write('[history] history file unreadable, starting empty: $e');
       // A corrupt history is not worth failing startup over: begin empty.
       _entries.clear();
     }
