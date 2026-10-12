@@ -1,12 +1,29 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v4.4.3**. The lyric items below were written
-at v4.1.7 and have not been re-confirmed since (verified only by tests and the owner's reports; the agent
-cannot hear audio or run the app).
+Handover notes for the next working session. Latest release: **v4.6.0** (2026-10-11). The lyric items
+below were written at v4.1.7 and have not been re-confirmed since (verified only by tests and the owner's
+reports; the agent cannot hear audio or run the app).
 
 ## Start here
 
-1. **Confirm the v4.1.4 to v4.1.7 lyric changes by ear.** Nothing below was
+1. **Confirm the v4.5.0 and v4.6.0 changes on a real run.** Covered by tests
+   and the control port only, not yet confirmed by the owner:
+   - Fast engine (v4.5.0): songs are fetched by the built-in InnerTube engine
+     first (`innertube_audio_engine.dart`) and start after the first couple
+     of megabytes; yt-dlp handles whatever it can't. Check that first plays
+     are faster on a phone and that nothing falls back to yt-dlp needlessly
+     (the debug log notes `[fast-engine] ... failed` when it gives up on a song).
+   - Live streams (v4.5.0, v4.6.0): play through `live_hls_proxy.dart`, are
+     marked LIVE everywhere, have a Live pill in Explore, can be rewound by
+     as much as YouTube keeps (about an hour) and return to live with Go
+     live; a refused or expired link is replaced instead of ending the
+     stream. Check a long listen (30+ minutes) on both Windows and a phone,
+     and the mobile data figure (about 1 MB a minute expected).
+   - Visualizer wave (v4.5.0, v4.6.0): one soft wave on the player card and
+     an opt-in thin wave on the mini player (off by default, it costs
+     battery). The mini player wave should run at up to 60 fps and keep
+     moving while the window is visible but not in front.
+2. **Confirm the v4.1.4 to v4.1.7 lyric changes by ear.** Nothing below was
    heard by the agent. Ask the owner how HUMBLE. and Blinding Lights feel now:
    - v4.1.4: a line too long for its time (rap) is sung nonstop, no held last
      word, fills 95% of the time (the glow used to run ahead).
@@ -21,7 +38,7 @@ cannot hear audio or run the app).
      spaces back from NetEase's plain lyrics when the letters match exactly
      (`NeteaseLyrics.respaced`); older saved lyrics are refetched once
      (`[pear:spacing-checked]`). Not yet confirmed on the real song.
-2. **First line far off on Blinding Lights (NetEase).** The report shows the
+3. **First line far off on Blinding Lights (NetEase).** The report shows the
    line data itself is late: the "Yeah" the owner hears at 0:14 is stamped
    about 0:23 in NetEase's data (the rest of the song is mostly fine). Likely
    NetEase timed to a slightly different recording than the YouTube one (the
@@ -30,7 +47,7 @@ cannot hear audio or run the app).
    (pull the line earlier when the loudness pass sees a vocal onset far before
    its stamp; a guess, could misfire on long instrumental intros); or real
    alignment (below). Wait for more reports before building the check.
-3. **Lyric timing failures reported on v4.1.x** still need a Report timing
+4. **Lyric timing failures reported on v4.1.x** still need a Report timing
    (Lyrics Options) or at least "whole line early/late" vs "glow drifts
    within the line" (issue form: `.github/ISSUE_TEMPLATE/lyric-timing.yml`):
    - HUMBLE. (Kendrick Lamar): glow ran ahead (fixed in 4.1.4, unconfirmed).
@@ -45,7 +62,7 @@ cannot hear audio or run the app).
    The owner can't judge Japanese, Chinese or Korean lyrics, so treat those
    as unverified rather than failed. Saved lyrics record their source
    (`[pear:source:...]`); lyrics saved before 4.1.3 report it as unknown.
-4. **Idea, not built:** a "Try NetEase word timing" button in Lyrics Options
+5. **Idea, not built:** a "Try NetEase word timing" button in Lyrics Options
    so a hand-picked LRCLIB version can borrow real word timing when NetEase
    has it and fits the song length.
 
@@ -70,9 +87,16 @@ cannot hear audio or run the app).
 
 ## Smaller items
 
-- **Artist for downloaded songs.** `Song.artist` is filled for online songs
-  (v4.1.3) and shown on its own line in media controls. Songs saved to the
-  library and favorites restored from an import do not carry it yet.
+- **Split `PlayerService`.** `player_service.dart` is over 3,200 lines and
+  holds the queue, stream resolution, live streams and crossfade together.
+  Pulling out the stream resolution and the live stream handling would make
+  regressions easier to find.
+- **Silent `catch (_)` blocks.** About 125 in `lib/`, a dozen in
+  `update_service.dart` alone. Log the non-trivial ones to `debug_log` so
+  user reports carry the reason.
+- **Flaky `growing_file_audio_source_test`.** Failed once under a full-suite
+  run and passes alone (a timing race). Make it robust before it makes CI
+  unreliable.
 - **Android analysis priority.** The loudness and onset analysis runs in a
   normal-priority isolate (the Android decode itself is low priority). If a
   stutter a second or two into a song ever shows up, look here first.
@@ -112,8 +136,18 @@ cannot hear audio or run the app).
   `.github/workflows/release.yml`. Tag pushes are rejected from the cloud
   sandbox, so the owner pushes the tag. Keep tag messages free of quotes and
   apostrophes so they paste into PowerShell.
-- `growing_file_audio_source_test` failed once under a full-suite run and
-  passes alone (timing flake, unrelated to lyrics).
+- **Release notes** leave out build, ci, chore, test and docs commits. The
+  release script no longer limits how often releases are made.
+- **Driving a real run without a mouse:** the Windows app takes `--no-focus`
+  (shown behind every window, never activated) and `--control-port=<port>
+  --control-token=<16+ chars>` for a local control port (127.0.0.1 only; see
+  `lib/services/test_control.dart`). It can play a library song, seek a live
+  stream and report what the visualizer feed sees.
+- **README screenshots** are rendered offscreen with made-up songs:
+  `flutter test tool/readme_shots/readme_shots_test.dart --update-goldens` in
+  `app/`. Runs on Linux too; off Windows the desktop shot uses Roboto because
+  Segoe UI isn't there. Regenerate them after any visible change to the
+  library screen, the side pane or the status bar (which shows the version).
 - **Never print or commit real song lyrics** (in tests, renders or chat);
   use placeholder text. A real lyric line once got output blocked.
 - LRCLIB, NetEase and YouTube are unreachable from the cloud sandbox;

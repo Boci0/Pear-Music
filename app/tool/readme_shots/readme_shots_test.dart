@@ -107,10 +107,24 @@ Future<void> _loadFonts() async {
   final exe = Platform.resolvedExecutable.replaceAll('\\', '/');
   final cache = exe.substring(0, exe.indexOf('/bin/cache/') + '/bin/cache'.length);
   final fonts = '$cache/artifacts/material_fonts';
+  // The SDK ships Roboto-Regular.ttf and so on; match names ignoring case so
+  // this also runs on case-sensitive file systems (Linux, macOS).
+  String resolve(String path) {
+    final file = File(path);
+    if (file.existsSync()) return path;
+    final name = path.split('/').last.toLowerCase();
+    for (final entry in file.parent.listSync()) {
+      if (entry.path.replaceAll('\\', '/').split('/').last.toLowerCase() == name) {
+        return entry.path;
+      }
+    }
+    return path;
+  }
+
   Future<void> load(String family, List<String> paths) async {
     final loader = FontLoader(family);
     for (final path in paths) {
-      final bytes = File(path).readAsBytesSync();
+      final bytes = File(resolve(path)).readAsBytesSync();
       loader.addFont(Future.value(ByteData.sublistView(bytes)));
     }
     await loader.load();
