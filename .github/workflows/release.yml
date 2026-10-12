@@ -168,45 +168,7 @@ jobs:
       - name: Generate release notes
         env:
           TAG: ${{ github.ref_name }}
-        run: |
-          # actions/checkout leaves the pushed tag as a lightweight ref, which
-          # makes %(contents) read the tip commit's message instead of the tag's.
-          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
-          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
-          TAG_SUBJECT=$(git tag -l --format='%(contents:subject)' "$TAG")
-          TAG_BODY=$(git tag -l --format='%(contents:body)' "$TAG" | sed -E '/^(Co-Authored-By|Claude-Session|Signed-off-by):/Id')
-          CLEAN_SUBJECT=$(echo "$TAG_SUBJECT" | sed -E 's/^release:[[:space:]]*v?[0-9.]+[[:space:]]*-[[:space:]]*//I')
-
-          {
-            echo "## Overview"
-            if [ -n "$CLEAN_SUBJECT" ]; then
-              echo "$CLEAN_SUBJECT"
-            else
-              echo "Pear Music ${TAG#v} release."
-            fi
-
-            if [ -n "$TAG_BODY" ]; then
-              echo ""
-              echo "$TAG_BODY"
-            fi
-            echo ""
-
-            echo "## Key Changes"
-            if [ -n "$PREV_TAG" ]; then
-              git log "${PREV_TAG}..${TAG}" --no-merges --pretty=format:"* %s (%h)"
-              echo ""
-              echo ""
-              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
-            else
-              git log -n 15 --no-merges --pretty=format:"* %s (%h)"
-            fi
-            echo ""
-            echo ""
-            echo "## Verification (SHA-256)"
-            echo '```'
-            cat SHA256SUMS
-            echo '```'
-          } > RELEASE_NOTES.md
+        run: bash tool/release_notes.sh RELEASE_NOTES.md
 
       - name: Sign app update manifest
         env:

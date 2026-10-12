@@ -1,0 +1,97 @@
+name: Republish update notes
+
+# Re-creates the release notes of an existing release and re-signs its
+# app-update.json with them, without rebuilding anything. The app files stay as
+# they are (their hashes are taken from the release itself); only the notes and
+# the signature change. Run it by hand from the Actions tab with the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to republish, for example v4.6.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$TAG' is not a release tag like v4.6.0"
+            exit 1
+          fi
+          git rev-parse --verify "refs/tags/${TAG}" > /dev/null
+
+      - name: Download the release files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'PearMusic-*' --pattern SHA256SUMS
+
+      - name: Generate release notes
+        env:
+          TAG: ${{ inputs.tag }}
+        run: bash tool/release_notes.sh RELEASE_NOTES.md
+
+      - name: Sign app update manifest
+        env:
+          SIGNING_KEY: ${{ secrets.YTDLP_SIGNING_KEY }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+          MIRROR_BASES: https://github.com/Boci0/pm-resolver-mirror/releases/download/app-update
+          NOTES_FILE: RELEASE_NOTES.md
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::YTDLP_SIGNING_KEY is not set, cannot sign the manifest"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/app-update-signing.pem"
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$key")
+          bash tool/app_update_sign_manifest.sh . "${TAG#v}" "$key"
+          rm -f "$key"
+
+      - name: Update the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$TAG" app-update.json app-update.json.sig \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" --notes-file RELEASE_NOTES.md --repo "$GITHUB_REPOSITORY"
+
+      # The mirror's app-update release always holds the newest app, so its
+      # manifest is only replaced when this tag is the newest release.
+      - name: Update the manifest on the mirror
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
+          GITHUB_TOKEN_REPO: ${{ secrets.GITHUB_TOKEN }}
+          MIRROR_REPO: Boci0/pm-resolver-mirror
+          MIRROR_TAG: app-update
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::No mirror token, skipping the mirror"
+            exit 0
+          fi
+          latest=$(GH_TOKEN="$GITHUB_TOKEN_REPO" gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          if [ "$latest" != "$TAG" ]; then
+            echo "::warning::$TAG is not the newest release ($latest), leaving the mirror alone"
+            exit 0
+          fi
+          gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
+            app-update.json app-update.json.sig
