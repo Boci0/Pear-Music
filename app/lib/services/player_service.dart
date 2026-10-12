@@ -24,7 +24,20 @@ import 'pear_audio_handler.dart';
 import 'position_thinning.dart';
 import 'recommendation_service.dart';
 import 'session_diagnostics.dart';
+import 'sleep_timer.dart';
 import 'stream_cache_manager.dart';
+
+part 'player_service/playback.dart';
+
+part 'player_service/preload.dart';
+
+part 'player_service/queue_edit.dart';
+
+part 'player_service/recommendations.dart';
+
+part 'player_service/live.dart';
+
+part 'player_service/crossfade.dart';
 
 /// How the queue advances when a track ends or the user skips.
 enum LoopSetting { off, all, one }
@@ -70,71 +83,110 @@ class PlaybackError {
 /// "it just loops on 1 song") and gives us loop + shuffle for free. Each source
 /// carries a [MediaItem] tag so the `audio_service` handler renders the
 /// notification (play/pause, next/previous, repeat, shuffle).
-class PlayerService extends ChangeNotifier {
+class PlayerService extends ChangeNotifier with
+        _PlayerCrossfade,
+        _PlayerLive,
+        _PlayerRecommendations,
+        _PlayerPreload,
+        _PlayerQueueEdit,
+        _PlayerPlayback {
+  @override
   final LibraryService library;
+  @override
   final IdentityService? identity;
 
   /// Optional play log. Every track that starts playing is recorded here.
+  @override
   final HistoryService? history;
+  @override
   late final AudioPlayer _player;
   bool _loudnessNormalization = true;
+  @override
   final math.Random _random = math.Random();
 
+  @override
   Song? currentSong;
   static const int maxRecommendationsPerAppend = 10;
 
+  @override
   List<Song> _queue = [];
+  @override
   int _queueIndex = -1;
+  @override
   String? queueSourceId; // 'library' | 'favorites' | 'search' | 'playlist:<id>' | 'radio'
+  @override
   String? queueTitle;
+  @override
   LoopSetting _loopMode = LoopSetting.off;
+  @override
   bool _shuffle = false;
+  @override
   final Set<String> _shufflePlayedSongIds = {};
+  @override
   bool _autoplay = false;
+  @override
   final Set<String> _lockedSongIds = {};
 
   /// Songs the app added to the queue itself (radio and autoplay
   /// recommendations). Only these may be swapped by the auto reroll: a song
   /// the listener queued, such as a playlist's next song, never is.
+  @override
   final Set<String> _autoAddedSongIds = {};
+  @override
   bool _autoRerollSeed = false;
+  @override
   Timer? _autoRerollDebounceTimer;
+  @override
   String? _lastAutoRerolledSongId;
+  @override
   bool _isRerolling = false;
   bool get isRerolling => _isRerolling;
+  @override
   Timer? _saveVolumeDebounceTimer;
 
+  @override
   String? _continuationToken;
+  @override
   bool _isLoadingRecommendations = false;
+  @override
   DateTime _lastInteraction = DateTime.now();
 
   @visibleForTesting
   DateTime get debugLastInteraction => _lastInteraction;
   @visibleForTesting
   set debugLastInteraction(DateTime value) => _lastInteraction = value;
+  @override
   bool _isManuallyPaused = false;
+  @override
   bool _isAdvancing = false;
+  @override
   bool _isLoadingTrack = false;
+  @override
   bool _pendingNaturalAdvance = false;
+  @override
   bool _isBufferingNext = false; // true while resolving next track's URL
+  @override
   String? _bufferingVideoId;    // which track is being resolved
+  @override
   int _consecutiveStreamFailures = 0;
+  @override
   bool _isPreloadingUpcoming = false;
+  @override
   PlaybackError? _playbackError;
 
   /// User-facing playback messages (wired to the app's snackbar feed).
   final StreamController<String> _userMessages =
       StreamController<String>.broadcast();
 
-  Timer? _sleepTimer;
-  DateTime? _sleepTimerEndTime;
-  bool _sleepTimerEndOfSong = false;
-  bool _sleepTimerEndOfQueue = false;
+  @override
+  late final SleepTimer _sleep = SleepTimer(onExpire: _triggerSleepTimerStop);
+  @override
   double _speed = 1.0;
   double get speed => _speed;
 
   int _tracksPlayedSinceCompaction = 0;
 
+  @override
   void _maybeCompactMemory() {
     _tracksPlayedSinceCompaction++;
     if (_tracksPlayedSinceCompaction >= 8) {
@@ -146,10 +198,12 @@ class PlayerService extends ChangeNotifier {
   }
 
   final List<StreamSubscription> _subs = [];
+  @override
   final PearAudioHandler? audioHandler;
 
   /// The still-downloading file the current track plays from (Android), kept
   /// so its file handle can be released when playback moves on.
+  @override
   GrowingFileAudioSource? _growingSource;
 
   PlayerService(this.library,
@@ -175,43 +229,6 @@ class PlayerService extends ChangeNotifier {
     _initAudioHandler();
   }
 
-  StreamRouteType _currentRouteType = StreamRouteType.local;
-  StreamRouteType get currentRouteType => _currentRouteType;
-  int _lastTrackLoadMs = 0;
-  int get lastTrackLoadMs => _lastTrackLoadMs;
-
-  File? _currentLoadedFile;
-  int? _currentLoadedFileSize;
-  String? _currentLoadedFormat;
-
-  File? get currentLoadedFile => _currentLoadedFile;
-  int? get currentLoadedFileSize => _currentLoadedFileSize;
-  String? get currentLoadedFormat => _currentLoadedFormat;
-
-  /// Playing a live stream: no length, and it is rewound with [seekLive]
-  /// rather than [seek].
-  bool _isLive = false;
-  bool get isLive => _isLive;
-
-  @visibleForTesting
-  void debugSetLive(bool value) {
-    _isLive = value;
-    notifyListeners();
-  }
-
-  @visibleForTesting
-  void debugSetLiveBehind(double seconds) {
-    _liveBehind = seconds;
-    notifyListeners();
-  }
-
-  /// Seconds behind live when the live stream last (re)opened. It stays true
-  /// while playing (the edge and playback both move at real time); a pause
-  /// adds to it, which [liveBehind] accounts for.
-  double _liveBehind = 0;
-  DateTime? _livePausedSince;
-  int _liveSeekToken = 0;
-
   /// Behind this many seconds counts as live: a stream opened at the edge
   /// already sits [LiveHlsProxy.defaultLead] seconds back, plus the player's
   /// own buffer.
@@ -221,64 +238,23 @@ class PlayerService extends ChangeNotifier {
   /// resuming from the relay's buffer (a minute of audio; the rest is gone).
   static const Duration _liveReopenAfter = Duration(seconds: 20);
 
-  /// How far behind the live edge playback is, in seconds. 0 when not live.
-  double get liveBehind {
-    if (!_isLive) return 0;
-    final since = _livePausedSince;
-    final paused = since == null
-        ? 0.0
-        : DateTime.now().difference(since).inMilliseconds / 1000;
-    return _liveBehind + paused;
-  }
+  @override
+  StreamRouteType _currentRouteType = StreamRouteType.local;
+  StreamRouteType get currentRouteType => _currentRouteType;
+  @override
+  int _lastTrackLoadMs = 0;
+  int get lastTrackLoadMs => _lastTrackLoadMs;
 
-  /// How much history the stream keeps, i.e. how far back it can be rewound.
-  double get liveWindow => LiveHlsProxy.windowSeconds.value;
+  @override
+  File? _currentLoadedFile;
+  @override
+  int? _currentLoadedFileSize;
+  @override
+  String? _currentLoadedFormat;
 
-  /// True when playback has been rewound (or paused) past live.
-  bool get isBehindLive => liveBehind > liveCloseEnough;
-
-  /// Moves a live stream to [behind] seconds behind the edge; 0 or anything
-  /// within [liveCloseEnough] returns to live. Reopens the relay's stream,
-  /// which takes a moment (a rebuffer), so a drag should call it once at the
-  /// end.
-  Future<void> seekLive(double behind) async {
-    if (!_isLive) return;
-    _lastInteraction = DateTime.now();
-    final window = liveWindow;
-    final target = behind.clamp(0.0, window > 0 ? window : behind).toDouble();
-    await _openLive(target <= liveCloseEnough ? 0 : target);
-  }
-
-  /// Back to the live edge.
-  Future<void> goLive() => seekLive(0);
-
-  Future<void> _openLive(double behind) async {
-    final uri = LiveHlsProxy.address(
-      behind: behind <= 0 ? null : LiveHlsProxy.defaultLead + behind,
-    );
-    if (uri == null) return;
-    final token = ++_liveSeekToken;
-    final paused = _isManuallyPaused || !_player.playing;
-    _liveBehind = behind;
-    _livePausedSince = paused ? DateTime.now() : null;
-    notifyListeners();
-    // A seek takes over from any fade in progress, as [seek] does.
-    _volumeFadeToken++;
-    try {
-      await _player
-          .setAudioSource(AudioSource.uri(uri))
-          .timeout(_earlyStreamOpenTimeout);
-    } catch (e) {
-      DebugLog.write('[player] Live stream would not reopen $behind s back: $e');
-      return;
-    }
-    if (token != _liveSeekToken || !_isLive) return;
-    DebugLog.write(
-      '[player] LIVE ${behind <= 0 ? 'at the edge' : '${behind.round()} s behind'}',
-    );
-    if (!paused) await _player.play();
-    notifyListeners();
-  }
+  File? get currentLoadedFile => _currentLoadedFile;
+  int? get currentLoadedFileSize => _currentLoadedFileSize;
+  String? get currentLoadedFormat => _currentLoadedFormat;
 
   /// Inspects disk storage to ensure current loaded file metadata is resolved.
   Future<File?> resolveCurrentLoadedFile() async {
@@ -315,22 +291,27 @@ class PlayerService extends ChangeNotifier {
   Song? get song => currentSong;
   Duration? get position => _player.position;
   Duration? get duration => _player.duration;
+  @override
   bool get playing =>
       !_isManuallyPaused && _player.playing && _player.processingState != ProcessingState.completed;
+  @override
   double _userVolume = 0.75;
   double get volume => _userVolume;
 
   /// Volume changes ride their own notifier instead of [notifyListeners]:
   /// dragging the slider fires many updates a second, and a player-wide
   /// broadcast rebuilt the whole Now Playing pane on each one.
+  @override
   final ValueNotifier<double> volumeNotifier = ValueNotifier<double>(0.75);
 
   /// Loudness normalisation multiplier for the current song (1.0 until it
   /// has been measured, see [LoudnessService]).
+  @override
   double _songGain = 1.0;
 
   /// What the player's volume should be: the user's volume with the current
   /// song levelled. A lift for a quiet song only goes as far as full volume.
+  @override
   double get _effectiveVolume =>
       (_userVolume * _mixerGain(_loudnessNormalization ? _songGain : 1.0))
           .clamp(0.0, 1.0);
@@ -384,10 +365,12 @@ class PlayerService extends ChangeNotifier {
   /// User-facing playback messages, consumed by the app's snackbar feed.
   Stream<String> get userMessages => _userMessages.stream;
 
+  @override
   void _notifyUser(String message) {
     if (!_userMessages.isClosed) _userMessages.add(message);
   }
 
+  @override
   void _setPlaybackError(PlaybackError error) {
     _playbackError = error;
     notifyListeners();
@@ -395,6 +378,7 @@ class PlayerService extends ChangeNotifier {
 
   /// Clears the error banner. [notify] is false when the caller is already
   /// about to notify (for example when a new load starts).
+  @override
   void clearPlaybackError({bool notify = true}) {
     if (_playbackError == null) return;
     _playbackError = null;
@@ -497,12 +481,10 @@ class PlayerService extends ChangeNotifier {
   /// Stream of Android audio session ID changes.
   Stream<int?> get androidAudioSessionIdStream => _player.androidAudioSessionIdStream;
 
-  bool get isSleepTimerActive =>
-      _sleepTimer != null || _sleepTimerEndOfSong || _sleepTimerEndOfQueue;
-  Duration? get sleepTimerRemaining =>
-      _sleepTimerEndTime?.difference(DateTime.now());
-  bool get sleepTimerEndOfSong => _sleepTimerEndOfSong;
-  bool get sleepTimerEndOfQueue => _sleepTimerEndOfQueue;
+  bool get isSleepTimerActive => _sleep.isActive;
+  Duration? get sleepTimerRemaining => _sleep.remaining;
+  bool get sleepTimerEndOfSong => _sleep.endOfSong;
+  bool get sleepTimerEndOfQueue => _sleep.endOfQueue;
 
   List<Song> get queue => List.unmodifiable(_queue);
   int get queueIndex {
@@ -513,6 +495,7 @@ class PlayerService extends ChangeNotifier {
   /// Synchronizes [_queueIndex] to the exact index of [currentSong] in [_queue].
   /// If the current song cannot be found in the queue, retains the existing valid index
   /// or defaults to -1 if empty.
+  @override
   void _syncQueueIndexWithCurrentSong() {
     if (currentSong != null && _queue.isNotEmpty) {
       if (_queueIndex >= 0 &&
@@ -552,6 +535,7 @@ class PlayerService extends ChangeNotifier {
   /// picked itself (a radio queue, or recommendations added once the
   /// listener's own queue ran out). A song the listener queued, such as a
   /// playlist's next song, is never swapped.
+  @override
   bool get _nextIsAutoRerollable {
     final i = _queueIndex + 1;
     if (i <= 0 || i >= _queue.length) return false;
@@ -591,33 +575,14 @@ class PlayerService extends ChangeNotifier {
     bool endOfSong = false,
     bool endOfQueue = false,
   }) {
-    _sleepTimer?.cancel();
-    _sleepTimer = null;
-    _sleepTimerEndTime = null;
-    _sleepTimerEndOfSong = endOfSong;
-    _sleepTimerEndOfQueue = endOfQueue;
+    _sleep.set(duration, endOfSong: endOfSong, endOfQueue: endOfQueue);
     _syncEngineLoop();
-
-    if (endOfSong || endOfQueue) {
-      notifyListeners();
-      return;
-    }
-
-    if (duration != null && duration > Duration.zero) {
-      _sleepTimerEndTime = DateTime.now().add(duration);
-      _sleepTimer = Timer(duration, () async {
-        await _triggerSleepTimerStop();
-      });
-    }
     notifyListeners();
   }
 
+  @override
   void cancelSleepTimer() {
-    _sleepTimer?.cancel();
-    _sleepTimer = null;
-    _sleepTimerEndTime = null;
-    _sleepTimerEndOfSong = false;
-    _sleepTimerEndOfQueue = false;
+    _sleep.cancel();
     _syncEngineLoop();
     notifyListeners();
   }
@@ -628,11 +593,13 @@ class PlayerService extends ChangeNotifier {
   /// which is audible and briefly resets the seek bar. Every other mode stays
   /// in Dart, and so does repeat one while the end-of-song sleep timer is set,
   /// since that needs the song to actually end.
+  @override
   LoopMode get _engineLoopMode =>
-      _loopMode == LoopSetting.one && !_sleepTimerEndOfSong
+      _loopMode == LoopSetting.one && !_sleep.endOfSong
           ? LoopMode.one
           : LoopMode.off;
 
+  @override
   void _syncEngineLoop() => unawaited(_player.setLoopMode(_engineLoopMode));
 
   Future<void> setSpeed(double speed) async {
@@ -648,8 +615,10 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  @override
   int _volumeFadeToken = 0;
 
+  @override
   Future<void> _fadeVolume(
     double targetVolume, {
     Duration duration = const Duration(milliseconds: 150),
@@ -702,6 +671,7 @@ class PlayerService extends ChangeNotifier {
   /// [pendingDownload] for a song still streaming in) and then eases the
   /// volume to its level if it is still playing. Songs already measured are
   /// levelled straight away in [playSong].
+  @override
   void _levelSong(Song song, int token, Future<File?>? pendingDownload) {
     // Measured even with normalisation off: the same pass finds the silence
     // that playback skips.
@@ -733,29 +703,8 @@ class PlayerService extends ChangeNotifier {
     }());
   }
 
-  // ---------------------------------------------------------------------
-  // Crossfade
-  //
-  // The main player stays the single source of truth (queue, position,
-  // notification, visualizer). A few seconds before a song ends, a second
-  // "tail" player picks up the same file at the same position and fades it
-  // out, while the main player moves on to the next song and fades it in.
-  // Only natural song ends crossfade; skips, pauses and seeks stay instant
-  // and silence any tail still fading.
-  // ---------------------------------------------------------------------
-
-  int _crossfadeSeconds = 0;
-  int get crossfadeSeconds => _crossfadeSeconds;
+  @override
   final AudioPlayer Function() _tailPlayerFactory;
-  AudioPlayer? _tailPlayer;
-  bool _crossfadeStarting = false;
-  int _crossfadedToken = -1;
-  int _tailToken = 0;
-  Duration? _pendingFadeIn;
-
-  /// The shuffle pick a crossfade committed to, used by the next advance.
-  int? _crossfadeShuffleIndex;
-
   static AudioPlayer _defaultTailPlayer() => AudioPlayer(
         // The tail only finishes a song the main player already owns: it must
         // not take audio focus, react to interruptions or claim the session.
@@ -765,361 +714,9 @@ class PlayerService extends ChangeNotifier {
         useProxyForRequestHeaders: false,
       );
 
-  Future<void> setCrossfadeSeconds(int seconds) async {
-    _crossfadeSeconds = seconds.clamp(0, IdentityService.maxCrossfadeSeconds);
-    await identity?.setCrossfadeSeconds(_crossfadeSeconds);
-    notifyListeners();
-  }
-
-  @visibleForTesting
-  void debugCrossfadeTick(Duration position) => _onPosition(position);
-
-  void _onPosition(Duration position) {
-    _skipSilentIntroOnLoop(position);
-    _lastPosition = position;
-    _onPositionForCrossfade(position);
-    _skipSilentOutro(position);
-  }
-
-  /// Last position seen by [_onPosition] (or asked for by [seek]), to tell
-  /// the engine's repeat-one wrap from playback moving forward.
-  Duration _lastPosition = Duration.zero;
-
-  /// The engine's own repeat-one loop (see [_engineLoopMode]) wraps to 0,
-  /// past the silent-intro skip a fresh start gets. When playback jumps from
-  /// the last seconds of the song back to before its music starts, skip the
-  /// intro again.
-  void _skipSilentIntroOnLoop(Duration position) {
-    final previous = _lastPosition;
-    if (_engineLoopMode != LoopMode.one || _isLoadingTrack || _isAdvancing) {
-      return;
-    }
-    final duration = _player.duration;
-    if (duration == null ||
-        previous < duration - const Duration(seconds: 3) ||
-        position > const Duration(seconds: 2)) {
-      return;
-    }
-    final song = currentSong;
-    if (song == null) return;
-    final start = _musicStartFor(song);
-    if (start <= position) return;
-    _outroSkippedToken = -1;
-    _lastPosition = start;
-    unawaited(_player.seek(start));
-  }
-
-  void _onPositionForCrossfade(Duration position) {
-    if (_crossfadeSeconds <= 0 || _crossfadeStarting || _isLive) return;
-    if (_crossfadedToken == _playRequestToken) return;
-    if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
-      return;
-    }
-    final duration = _player.duration;
-    final fade = Duration(seconds: _crossfadeSeconds);
-    // Very short clips just play out.
-    if (duration == null || duration < fade * 3) return;
-    final remaining = (_silentOutroStart() ?? duration) - position;
-    if (remaining > fade || remaining < const Duration(milliseconds: 500)) {
-      return;
-    }
-    if (_loopMode == LoopSetting.one || _sleepTimerEndOfSong) return;
-    final atEnd = _queueIndex >= _queue.length - 1;
-    if (atEnd && (_sleepTimerEndOfQueue || _loopMode != LoopSetting.all)) {
-      // The queue ends here (or autoplay has to fetch more first): let the
-      // song finish on its own.
-      return;
-    }
-    int? shufflePick;
-    if (_shuffle) {
-      // Shuffle picks the next song now, among the ones that can start
-      // straight away, so the fade never waits on a download.
-      shufflePick = _readyShufflePick();
-      if (shufflePick == null) return;
-    } else if (!atEnd && !_isReadyToStart(_queue[_queueIndex + 1])) {
-      // The next song would still have to download, which would leave a gap
-      // in the middle of the fade. Play this one out instead.
-      return;
-    }
-    _crossfadedToken = _playRequestToken;
-    _crossfadeShuffleIndex = shufflePick;
-    unawaited(_startCrossfade(remaining));
-  }
-
-  /// The index shuffle would move to next, limited to songs that are ready
-  /// to start. Null when none is (the song then plays out on its own).
-  int? _readyShufflePick() {
-    final immediateNext = _queueIndex + 1;
-    if (immediateNext < _queue.length &&
-        _lockedSongIds.contains(_queue[immediateNext].id)) {
-      return _isReadyToStart(_queue[immediateNext]) ? immediateNext : null;
-    }
-    final ready = [
-      for (var i = 0; i < _queue.length; i++)
-        if (i != _queueIndex &&
-            !_shufflePlayedSongIds.contains(_queue[i].id) &&
-            _isReadyToStart(_queue[i]))
-          i,
-    ];
-    if (ready.isEmpty) return null;
-    return ready[_random.nextInt(ready.length)];
-  }
-
-  // ---------------------------------------------------------------------
-  // Silence skipping
-  //
-  // The loudness pass also records where each song's music starts and
-  // stops. A silent intro is skipped when the song starts (keeping a short
-  // lead-in and fading in), and a silent outro fades out and ends the song
-  // early (crossfades end where the music does). Only two seconds or more
-  // of silence is skipped; shorter gaps are part of the song.
-  // ---------------------------------------------------------------------
-
-  static const double _minSilenceSkip = 2.0;
-  static const double _introLeadIn = 0.5;
-  static const Duration _introFadeIn = Duration(milliseconds: 400);
-  static const Duration _outroFadeOut = Duration(milliseconds: 1200);
-  int _outroSkippedToken = -1;
-
-  /// Where to start [song] so its silent intro is skipped.
-  Duration _musicStartFor(Song song) {
-    final span = LoudnessService.spanFor(song);
-    if (span == null || span.musicStart < _minSilenceSkip) return Duration.zero;
-    return Duration(milliseconds: ((span.musicStart - _introLeadIn) * 1000).round());
-  }
-
-  /// Where the current song's silent outro begins, or null when it has none
-  /// worth skipping.
-  Duration? _silentOutroStart() {
-    final song = currentSong;
-    final duration = _player.duration;
-    if (song == null || duration == null) return null;
-    final span = LoudnessService.spanFor(song);
-    if (span == null) return null;
-    // The span must describe this file: the decoder stops after 20 minutes.
-    if ((span.length - duration.inMilliseconds / 1000).abs() > 1.5) return null;
-    if (span.length - span.musicEnd < _minSilenceSkip) return null;
-    return Duration(milliseconds: (span.musicEnd * 1000).round());
-  }
-
-  void _skipSilentOutro(Duration position) {
-    if (_outroSkippedToken == _playRequestToken || _crossfadeStarting) return;
-    if (_crossfadedToken == _playRequestToken) return;
-    if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
-      return;
-    }
-    final outro = _silentOutroStart();
-    if (outro == null || position < outro) return;
-    final token = _playRequestToken;
-    _outroSkippedToken = token;
-    DebugLog.write(
-      '[player] "${currentSong?.title}" skips its silent outro at '
-      '${outro.inMilliseconds}ms',
-    );
-    unawaited(() async {
-      // Ease out over what is left of the tail rather than cutting it.
-      await _fadeVolume(0.0, duration: _outroFadeOut);
-      if (token != _playRequestToken) return;
-      if (_isManuallyPaused || !_player.playing || _player.position < outro) {
-        // Paused or seeked back during the fade: stay on this song.
-        _outroSkippedToken = -1;
-        if (_player.playing) unawaited(_fadeVolume(_effectiveVolume));
-        return;
-      }
-      _onNaturalEnd();
-    }());
-  }
-
-  static String _videoIdOf(Song song) =>
-      RecommendationService.extractVideoId(song.id) ??
-      song.id.replaceFirst('stream_', '');
-
-  bool _isReadyToStart(Song song) {
-    if (song.sourceDeviceId == 'stream') {
-      return StreamCacheManager.isStreamCachedSync(_videoIdOf(song));
-    }
-    return library.hasSongFile(song);
-  }
-
-  Future<void> _startCrossfade(Duration remaining) async {
-    _crossfadeStarting = true;
-    final token = _playRequestToken;
-    final song = currentSong;
-    try {
-      if (song == null) return;
-      var file = _currentLoadedFile;
-      if (file == null && song.sourceDeviceId == 'stream') {
-        final videoId = RecommendationService.extractVideoId(song.id) ??
-            song.id.replaceFirst('stream_', '');
-        file = await StreamCacheManager.getCachedFile(videoId);
-      }
-      if (file == null || token != _playRequestToken || !_player.playing) {
-        return;
-      }
-      final tail = _tailPlayer ??= _tailPlayerFactory();
-      final tailToken = ++_tailToken;
-      final handoverVolume = _player.volume;
-      final handover = Stopwatch()..start();
-      bool stale() =>
-          token != _playRequestToken || tailToken != _tailToken || !_player.playing;
-      // The tail starts muted and only takes over once it has been playing for
-      // a moment in step with the main player. Muting the main player as soon
-      // as the tail was told to play left a gap while its output started up,
-      // then replayed that slice of the song.
-      //
-      // It starts [_tailLead] ahead so that, by the time its output is
-      // running, it has lined up with the main player. Seeking it into line
-      // afterwards is avoided: on Android a seek restarts the output, which
-      // put the gap straight back. The lead is learned from each handover.
-      final lead = _tailLead;
-      await tail.setVolume(0.0);
-      await tail.setSpeed(_speed);
-      await tail.setAudioSource(
-        AudioSource.file(file.path),
-        initialPosition: _player.position + lead,
-      );
-      if (stale()) {
-        unawaited(tail.stop());
-        return;
-      }
-      unawaited(tail.play());
-      var audible = await _waitUntilAudible(tail, stale);
-      var drift = tail.position - _player.position;
-      if (audible) {
-        final learned = lead - drift;
-        _tailLead = learned < Duration.zero
-            ? Duration.zero
-            : (learned > _maxTailLead ? _maxTailLead : learned);
-      }
-      if (audible && drift < -_handoverSeekThreshold) {
-        // Far behind (a much slower start than learned): a seek, and its own
-        // restart, is the lesser evil here.
-        await tail.seek(_player.position + (lead - drift));
-        audible = await _waitUntilAudible(tail, stale);
-        drift = tail.position - _player.position;
-      }
-      if (stale()) {
-        unawaited(tail.stop());
-        return;
-      }
-      await _blendToTail(tail, handoverVolume);
-      DebugLog.write(
-        '[crossfade] "${song.title}" hands over with ${remaining.inMilliseconds}ms left '
-        '(tail ${audible ? 'in step' : 'not confirmed'} after '
-        '${handover.elapsedMilliseconds}ms, lead ${lead.inMilliseconds}ms, '
-        'drift ${drift.inMilliseconds}ms, next lead ${_tailLead.inMilliseconds}ms)',
-      );
-      final fadeLeft = remaining - handover.elapsed;
-      unawaited(_fadeOutTail(
-        tail,
-        tailToken,
-        fadeLeft < const Duration(milliseconds: 300)
-            ? const Duration(milliseconds: 300)
-            : fadeLeft,
-      ));
-      _pendingFadeIn = Duration(seconds: _crossfadeSeconds);
-      await next(crossfade: true);
-    } catch (e) {
-      DebugLog.write('[crossfade] failed, finishing the song normally: $e');
-      _silenceTail();
-      if (token == _playRequestToken && currentSong?.id == song?.id) {
-        await _player.setVolume(_effectiveVolume);
-      }
-    } finally {
-      _crossfadeStarting = false;
-      _crossfadeShuffleIndex = null;
-    }
-  }
-
-  /// How far ahead of the main player the tail is started, so it lines up
-  /// once its output is running. Learned from each handover.
-  Duration _tailLead = const Duration(milliseconds: 150);
-  static const Duration _maxTailLead = Duration(milliseconds: 500);
-
-  /// Behind by more than this at handover, the tail is seeked into line.
-  static const Duration _handoverSeekThreshold = Duration(milliseconds: 120);
-
-  /// Waits until [tail] has been playing for a moment. The reported position
-  /// runs on from the moment playback is requested, before any sound comes
-  /// out, so it takes 250 ms of it to be fairly sure the output is running.
-  /// Gives up after a while so a slow device still hands over.
-  Future<bool> _waitUntilAudible(AudioPlayer tail, bool Function() stale) async {
-    final from = tail.position;
-    final wait = Stopwatch()..start();
-    while (wait.elapsed < const Duration(milliseconds: 1200)) {
-      if (stale()) return false;
-      if (tail.playing && tail.position - from >= const Duration(milliseconds: 250)) {
-        return true;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    return false;
-  }
-
-  /// Moves the sound from the main player to the tail over a few tens of
-  /// milliseconds (equal power), so a small leftover offset between the two
-  /// is not heard as a jump.
-  Future<void> _blendToTail(AudioPlayer tail, double volume) async {
-    const steps = 4;
-    for (var i = 1; i <= steps; i++) {
-      final t = i / steps;
-      await Future.wait([
-        tail.setVolume(volume * math.sin(t * math.pi / 2)),
-        _player.setVolume(i == steps ? 0.0 : volume * math.cos(t * math.pi / 2)),
-      ]);
-      if (i < steps) await Future<void>.delayed(const Duration(milliseconds: 15));
-    }
-  }
-
-  /// Fades the tail out along an equal-power curve (so the overlap does not
-  /// dip in the middle), then stops it.
-  Future<void> _fadeOutTail(AudioPlayer tail, int tailToken, Duration over) async {
-    final start = tail.volume;
-    final steps = (over.inMilliseconds / 50).round().clamp(1, 400);
-    final step = Duration(milliseconds: math.max(1, over.inMilliseconds ~/ steps));
-    try {
-      for (var i = 1; i <= steps; i++) {
-        await Future<void>.delayed(step);
-        if (tailToken != _tailToken) return;
-        final t = i / steps;
-        await tail.setVolume(start * _mixerGain(math.cos(t * math.pi / 2)));
-      }
-    } finally {
-      if (tailToken == _tailToken) unawaited(tail.stop());
-    }
-  }
-
-  /// Fades the next song in along the matching sine curve while the tail
-  /// fades out. Shares [_fadeVolume]'s token, so a pause or a volume change
-  /// takes over from it.
-  Future<void> _fadeInOverTail(double target, Duration over) async {
-    final fadeToken = ++_volumeFadeToken;
-    final steps = (over.inMilliseconds / 50).round().clamp(1, 400);
-    final step = Duration(milliseconds: math.max(1, over.inMilliseconds ~/ steps));
-    try {
-      for (var i = 1; i <= steps; i++) {
-        await Future<void>.delayed(step);
-        if (fadeToken != _volumeFadeToken) return;
-        final t = i / steps;
-        await _player.setVolume(target * _mixerGain(math.sin(t * math.pi / 2)));
-      }
-    } finally {
-      if (fadeToken == _volumeFadeToken && _player.playing) {
-        await _player.setVolume(target);
-      }
-    }
-  }
-
-  /// Stops a tail that is still fading (the user paused, skipped or seeked).
-  void _silenceTail() {
-    _tailToken++;
-    _pendingFadeIn = null;
-    final tail = _tailPlayer;
-    if (tail != null) unawaited(tail.stop());
-  }
-
   /// Measures the next song ahead of time when its file is already on disk,
   /// so it starts at the right level.
+  @override
   void _levelNextSong() {
     if (!LoudnessService.isSupported) return;
     final i = _queueIndex + 1;
@@ -1213,11 +810,12 @@ class PlayerService extends ChangeNotifier {
 
   /// What happens when a song finishes on its own (or reaches the silence
   /// after its music): sleep timers first, otherwise on to the next song.
+  @override
   void _onNaturalEnd() {
-    if (_sleepTimerEndOfSong) {
+    if (_sleep.endOfSong) {
       cancelSleepTimer();
       unawaited(pause(smooth: true));
-    } else if (_sleepTimerEndOfQueue &&
+    } else if (_sleep.endOfQueue &&
         (_queueIndex >= _queue.length - 1 || _queueIndex < 0)) {
       cancelSleepTimer();
       unawaited(pause(smooth: true));
@@ -1305,1855 +903,13 @@ class PlayerService extends ChangeNotifier {
   /// Live duration stream from underlying audio player.
   Stream<Duration?> get durationStream => _player.durationStream;
 
-  /// Starts an infinite radio mix based on [seedSong].
-  /// If [seedSong] is already playing, playback continues uninterrupted at the current position.
-  Future<void> startRadio(Song seedSong) async {
-    // A second start for the song whose radio is still loading (a double
-    // click) would cancel that load and skip its own, leaving the player on
-    // "connecting" with no sound.
-    if (queueSourceId == 'radio' &&
-        currentSong?.id == seedSong.id &&
-        (_isLoadingTrack || _isBufferingNext)) {
-      return;
-    }
-    _lastInteraction = DateTime.now();
-    _continuationToken = null;
-    _isLoadingRecommendations = false;
-    _recommendationsCompleter = null;
-    queueSourceId = 'radio';
-    queueTitle = 'Radio (${seedSong.title})';
-
-    final isAlreadyPlayingSeed = currentSong?.id == seedSong.id &&
-        (_player.playing || _player.processingState != ProcessingState.idle);
-
-    _queue = [seedSong];
-    _queueIndex = 0;
-    currentSong = seedSong;
-    notifyListeners();
-
-    // Allocate session token once so recommendation fetching and track playback
-    // participate in the exact same active session without invalidating each other.
-    final token = ++_playRequestToken;
-
-    // Trigger initial background fetch of recommended tracks
-    unawaited(() async {
-      final firstOk = await fetchAndAppendRecommendations();
-      if (firstOk && _queue.length < 25) {
-        await fetchAndAppendRecommendations();
-      }
-      if (!_isLoadingTrack && !_isAdvancing && !_isRerolling) {
-        _preloadUpcomingStreams();
-      }
-    }());
-
-    if (!isAlreadyPlayingSeed) {
-      await playSong(
-        seedSong,
-        sourceId: 'radio',
-        sourceTitle: queueTitle,
-        requestToken: token,
-      );
-    }
-  }
-
-  Completer<bool>? _recommendationsCompleter;
-
-  /// Fetches the next batch of recommendations and appends them to [_queue].
-  Future<bool> fetchAndAppendRecommendations() async {
-    if (_isLoadingRecommendations) {
-      if (_recommendationsCompleter != null) {
-        return await _recommendationsCompleter!.future;
-      }
-      return false;
-    }
-    if (_queue.isEmpty) return false;
-    _isLoadingRecommendations = true;
-    final completer = Completer<bool>();
-    _recommendationsCompleter = completer;
-    notifyListeners();
-
-    try {
-      final token = _playRequestToken;
-      final excludeIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
-      final seed = currentSong ?? _queue.last;
-      final seedId = seed.id;
-      DebugLog.write('[radio] Fetching recommendations for seed "${seed.title}" (${excludeIds.length} excluded)');
-
-      RecommendationBatch batch;
-      if (_continuationToken != null) {
-        batch = await RecommendationService.fetchContinuation(
-          _continuationToken!,
-          excludeVideoIds: excludeIds,
-        );
-        if (batch.items.isEmpty) {
-          _continuationToken = null;
-          batch = await RecommendationService.fetchRadio(
-            seed,
-            excludeVideoIds: excludeIds,
-          );
-        }
-      } else {
-        batch = await RecommendationService.fetchRadio(
-          seed,
-          excludeVideoIds: excludeIds,
-        );
-      }
-
-      if (token != _playRequestToken || currentSong?.id != seedId) {
-        DebugLog.write('[radio] Recommendations discarded: session changed during fetch (token=$token vs $_playRequestToken)');
-        completer.complete(false);
-        return false;
-      }
-
-      if (batch.items.isNotEmpty) {
-        _continuationToken = batch.continuationToken;
-        final existingVideoIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
-        final existingTitles = _queue.map((s) => s.title.toLowerCase().trim()).toSet();
-
-        final newSongs = <Song>[];
-        for (final item in batch.items) {
-          if (newSongs.length >= maxRecommendationsPerAppend) break;
-          if (existingVideoIds.contains(item.videoId)) continue;
-          final cleanSong = item.toSong();
-          final cleanTitle = cleanSong.title.toLowerCase().trim();
-          if (existingTitles.contains(cleanTitle)) continue;
-
-          existingVideoIds.add(item.videoId);
-          existingTitles.add(cleanTitle);
-          newSongs.add(cleanSong);
-        }
-
-        if (newSongs.isNotEmpty) {
-          _autoAddedSongIds.addAll(newSongs.map((s) => s.id));
-          _queue = [..._queue, ...newSongs];
-          _syncQueueIndexWithCurrentSong();
-          _updateActiveQueueCacheProtection();
-          if (!_isLoadingTrack && !_isAdvancing && !_isRerolling && !_isManuallyPaused && playing) {
-            _preloadUpcomingStreams();
-          }
-          DebugLog.write('[radio] Appended ${newSongs.length} unique tracks (queue size: ${_queue.length})');
-          notifyListeners();
-          completer.complete(true);
-          return true;
-        }
-      }
-
-      // Offline / Empty fallback: pull from local library
-      // Library songs are matched by their own ids, which the video-id
-      // normalisation above may have rewritten.
-      final offlineSongs = RecommendationService.getOfflineRecommendations(
-        seed,
-        library.songs,
-        excludeSongIds: {...excludeIds, ..._queue.map((s) => s.id)},
-      );
-      final boundedOffline = offlineSongs.take(maxRecommendationsPerAppend).toList();
-      if (boundedOffline.isNotEmpty) {
-        if (token != _playRequestToken || currentSong?.id != seedId) {
-          completer.complete(false);
-          return false;
-        }
-        _autoAddedSongIds.addAll(boundedOffline.map((s) => s.id));
-        _queue = [..._queue, ...boundedOffline];
-        _syncQueueIndexWithCurrentSong();
-        _updateActiveQueueCacheProtection();
-        DebugLog.write('[radio] Appended ${boundedOffline.length} offline library recommendations');
-        notifyListeners();
-        completer.complete(true);
-        return true;
-      }
-      completer.complete(false);
-      return false;
-    } catch (e) {
-      DebugLog.write('[radio] fetchAndAppendRecommendations error: $e');
-      if (!completer.isCompleted) completer.complete(false);
-      return false;
-    } finally {
-      _isLoadingRecommendations = false;
-      _recommendationsCompleter = null;
-      notifyListeners();
-    }
-  }
-
-  /// Rerolls upcoming recommendations in the queue (songs after current song).
-  /// Preserves any tracks explicitly marked as locked in the upcoming queue.
-  /// Bounded to at most [maxRecommendationsPerAppend] (10 songs) to prevent
-  /// bloating the queue.
-  Future<bool> rerollUpcomingQueue({int? maxCount}) async {
-    if (currentSong == null || _queue.isEmpty) return false;
-    if (_isLoadingRecommendations) return false;
-    _isLoadingRecommendations = true;
-    notifyListeners();
-
-    try {
-      final token = _playRequestToken;
-      _syncQueueIndexWithCurrentSong();
-      final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
-      final head = _queue.sublist(0, activeIndex + 1);
-      final upcoming = _queue.length > activeIndex + 1 ? _queue.sublist(activeIndex + 1) : <Song>[];
-      final lockedUpcoming = upcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
-      final unlockedUpcomingCount = upcoming.length - lockedUpcoming.length;
-      final targetCount = maxCount ??
-          (unlockedUpcomingCount > 0 ? unlockedUpcomingCount : maxRecommendationsPerAppend)
-              .clamp(1, maxRecommendationsPerAppend);
-
-      // Reset continuation token so we query fresh recommendations
-      _continuationToken = null;
-
-      final excludeIds = RecommendationService.normalizeVideoIds([
-        ...head.map((s) => s.id),
-        ...lockedUpcoming.map((s) => s.id),
-      ]);
-
-      final seed = currentSong ?? head.last;
-      final seedId = seed.id;
-      DebugLog.write(
-          '[radio] Rerolling seed for "${seed.title}" (target: $targetCount, preserving ${lockedUpcoming.length} locked tracks)');
-
-      RecommendationBatch batch;
-      try {
-        batch = await RecommendationService.fetchRadio(
-          seed,
-          excludeVideoIds: excludeIds,
-        );
-      } catch (e) {
-        DebugLog.write('[radio] Online reroll error ($e), falling back to offline library');
-        batch = const RecommendationBatch(items: []);
-      }
-
-      if (token != _playRequestToken || currentSong?.id != seedId) {
-        DebugLog.write('[radio] Reroll discarded: playback session changed during fetch');
-        return false;
-      }
-
-      final freshSongs = <Song>[];
-      if (batch.items.isNotEmpty) {
-        _continuationToken = batch.continuationToken;
-        final existingVideoIds = excludeIds.toSet();
-        final existingTitles = {
-          ...head.map((s) => s.title.toLowerCase().trim()),
-          ...lockedUpcoming.map((s) => s.title.toLowerCase().trim()),
-        };
-
-        for (final item in batch.items) {
-          if (freshSongs.length >= targetCount) break;
-          if (existingVideoIds.contains(item.videoId)) continue;
-          final cleanSong = item.toSong();
-          final cleanTitle = cleanSong.title.toLowerCase().trim();
-          if (existingTitles.contains(cleanTitle)) continue;
-
-          existingVideoIds.add(item.videoId);
-          existingTitles.add(cleanTitle);
-          freshSongs.add(cleanSong);
-        }
-      }
-
-      if (freshSongs.isEmpty) {
-        final offlineExcludeIds = {
-          ...head.map((s) => s.id),
-          ...upcoming.map((s) => s.id),
-        };
-        final offline = RecommendationService.getOfflineRecommendations(
-          seed,
-          library.songs,
-          excludeSongIds: offlineExcludeIds,
-        );
-        freshSongs.addAll(offline.take(targetCount));
-      }
-
-      if (token != _playRequestToken || currentSong?.id != seedId) {
-        return false;
-      }
-
-      _syncQueueIndexWithCurrentSong();
-      final currentActiveIndex = _queueIndex >= 0 ? _queueIndex : 0;
-      final currentHead = _queue.sublist(0, currentActiveIndex + 1);
-      final currentUpcoming = _queue.length > currentActiveIndex + 1 ? _queue.sublist(currentActiveIndex + 1) : <Song>[];
-      final currentLockedUpcoming = currentUpcoming.where((s) => _lockedSongIds.contains(s.id)).toList();
-
-      _autoAddedSongIds.addAll(freshSongs.map((s) => s.id));
-      _queue = [...currentHead, ...currentLockedUpcoming, ...freshSongs];
-      _syncQueueIndexWithCurrentSong();
-      _updateActiveQueueCacheProtection();
-      if (!_isLoadingTrack && !_isAdvancing && !_isManuallyPaused && playing) {
-        _preloadUpcomingStreams();
-      }
-      DebugLog.write(
-          '[radio] Reroll complete: queue now has ${_queue.length} tracks (${currentLockedUpcoming.length} locked, ${freshSongs.length} new)');
-      notifyListeners();
-      return true;
-    } catch (e) {
-      DebugLog.write('[radio] Reroll failed: $e');
-      return false;
-    } finally {
-      _isLoadingRecommendations = false;
-      notifyListeners();
-    }
-  }
-
-  /// Auto-rerolls the single next track following the current song, and immediately
-  /// caches it in the background so it is instantly ready when the current track finishes.
-  Future<bool> rerollNextTrackOnly() async {
-    if (currentSong == null || _queue.isEmpty || _isRerolling) return false;
-    _isRerolling = true;
-    if (_isLoadingRecommendations) {
-      _isRerolling = false;
-      return false;
-    }
-    _isLoadingRecommendations = true;
-    notifyListeners();
-    bool changed = false;
-
-    try {
-      final token = _playRequestToken;
-      _syncQueueIndexWithCurrentSong();
-      final activeIndex = _queueIndex >= 0 ? _queueIndex : 0;
-      final head = _queue.sublist(0, activeIndex + 1);
-      final upcoming = _queue.length > activeIndex + 1
-          ? _queue.sublist(activeIndex + 1)
-          : <Song>[];
-
-      // If upcoming is empty, there is no next track to replace.
-      // Auto-reroll does not add new tracks; expanding the queue only happens
-      // when at the end of queue and autoplay is ON.
-      if (upcoming.isEmpty) {
-        return false;
-      }
-
-      final oldNextSong = upcoming.first;
-      if (_lockedSongIds.contains(oldNextSong.id)) {
-        // The next track is locked; do not replace it.
-        return false;
-      }
-
-      final tail = upcoming.sublist(1);
-
-      final excludeIds = RecommendationService.normalizeVideoIds([
-        ...head.map((s) => s.id),
-        oldNextSong.id,
-        ...tail.map((s) => s.id),
-      ]);
-
-      final seed = currentSong ?? head.last;
-      final seedId = seed.id;
-      DebugLog.write(
-          '[radio] Auto-rerolling next track for "${seed.title}" (preserving ${tail.length} following tracks)');
-
-      RecommendationBatch batch;
-      try {
-        batch = await RecommendationService.fetchRadio(
-          seed,
-          excludeVideoIds: excludeIds,
-        );
-      } catch (e) {
-        DebugLog.write(
-            '[radio] Online reroll error ($e), falling back to offline library');
-        batch = const RecommendationBatch(items: []);
-      }
-
-      if (token != _playRequestToken || currentSong?.id != seedId) {
-        DebugLog.write('[radio] Auto-reroll discarded: playback session changed during fetch');
-        return false;
-      }
-
-      Song? nextSong;
-      if (batch.items.isNotEmpty) {
-        final existingVideoIds = excludeIds.toSet();
-        final existingTitles = {
-          ...head.map((s) => s.title.toLowerCase().trim()),
-          oldNextSong.title.toLowerCase().trim(),
-          ...tail.map((s) => s.title.toLowerCase().trim()),
-        };
-
-        for (final item in batch.items) {
-          if (existingVideoIds.contains(item.videoId)) continue;
-          final cleanSong = item.toSong();
-          final cleanTitle = cleanSong.title.toLowerCase().trim();
-          if (existingTitles.contains(cleanTitle)) continue;
-
-          nextSong = cleanSong;
-          break;
-        }
-      }
-
-      if (nextSong == null) {
-        final offlineExcludeIds = {
-          ...head.map((s) => s.id),
-          oldNextSong.id,
-          ...tail.map((s) => s.id),
-        };
-        final offline = RecommendationService.getOfflineRecommendations(
-          seed,
-          library.songs,
-          excludeSongIds: offlineExcludeIds,
-        );
-        if (offline.isNotEmpty) {
-          nextSong = offline.first;
-        }
-      }
-
-      if (token != _playRequestToken || currentSong?.id != seedId) {
-        return false;
-      }
-
-      if (nextSong != null) {
-        _syncQueueIndexWithCurrentSong();
-        final currentActiveIndex = _queueIndex >= 0 ? _queueIndex : 0;
-        final currentHead = _queue.sublist(0, currentActiveIndex + 1);
-        final currentUpcoming = _queue.length > currentActiveIndex + 1
-            ? _queue.sublist(currentActiveIndex + 1)
-            : <Song>[];
-        if (currentUpcoming.isEmpty ||
-            currentUpcoming.first.id != oldNextSong.id ||
-            _lockedSongIds.contains(currentUpcoming.first.id)) {
-          DebugLog.write(
-              '[radio] Auto-reroll discarded: next track was modified or locked during fetch');
-          return false;
-        }
-        final currentTail = currentUpcoming.sublist(1);
-
-        _autoAddedSongIds.add(nextSong.id);
-        _queue = [...currentHead, nextSong, ...currentTail];
-        _syncQueueIndexWithCurrentSong();
-        _updateActiveQueueCacheProtection();
-        DebugLog.write(
-            '[radio] Auto-reroll changed next track: "${oldNextSong.title}" -> "${nextSong.title}". Queue length remains ${_queue.length}.');
-        changed = true;
-        notifyListeners();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      DebugLog.write('[radio] rerollNextTrackOnly error: $e');
-      return false;
-    } finally {
-      _isLoadingRecommendations = false;
-      _isRerolling = false;
-      notifyListeners();
-      if (changed) {
-        final nextS =
-            _queue.length > _queueIndex + 1 ? _queue[_queueIndex + 1] : null;
-        if (nextS != null && nextS.sourceDeviceId == 'stream') {
-          final vId = RecommendationService.extractVideoId(nextS.id) ??
-              nextS.id.replaceFirst('stream_', '');
-          DebugLog.write(
-              '[radio] Scheduling preload for settled rerolled track: $vId');
-        }
-        _preloadUpcomingStreams(delay: Duration.zero);
-      }
-    }
-  }
-
+  @override
   int _playRequestToken = 0;
 
   /// How long opening a stream's direct link may take before falling back.
   static const Duration _earlyStreamOpenTimeout = Duration(seconds: 10);
 
-  /// Plays a live stream from its HLS link; it never ends, so it is never
-  /// cached. False when no link resolved or it would not open. True when a
-  /// newer play request took over meanwhile, so the caller just stops.
-  Future<bool> _playLiveStream(
-    Song song,
-    String videoId,
-    int token,
-    Stopwatch stopwatch,
-  ) async {
-    final link = await StreamCacheManager.resolveLiveLink(videoId);
-    if (token != _playRequestToken) return true;
-    if (link == null) return false;
-    try {
-      // Every platform plays one continuous local stream, not the playlist:
-      // the desktop engine cannot play it at all (it would end the "song"
-      // after each five-second segment), and the phone's player re-reads the
-      // 900 KB playlist uncompressed every few seconds, which measured about
-      // 230 KB/s (13 MB a minute) of mobile data against about 20 KB/s here.
-      final source = AudioSource.uri(await LiveHlsProxy.serve(
-        link.url,
-        refresh: () async =>
-            (await StreamCacheManager.resolveLiveLink(videoId))?.url,
-      ));
-      await _player.setAudioSource(source).timeout(_earlyStreamOpenTimeout);
-    } catch (e) {
-      DebugLog.write('[player] Live stream $videoId would not play: $e');
-      return token != _playRequestToken;
-    }
-    if (token != _playRequestToken) return true;
-    _currentRouteType = StreamRouteType.direct;
-    _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-    _currentLoadedFile = null;
-    _currentLoadedFileSize = null;
-    _currentLoadedFormat = 'hls';
-    _isLive = true;
-    _liveBehind = 0;
-    _livePausedSince = null;
-    _resetStreamFailureCounters();
-    notifyListeners();
-    DebugLog.write('[player] LIVE (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]');
-    return true;
-  }
-
-  /// Logs [song] as played. Stream songs are also registered as known online
-  /// songs so the history row can still resolve its title/artwork later (they
-  /// are not in the library until the user saves them).
-  void _recordHistory(Song song) {
-    final log = history;
-    if (log == null) return;
-    final id = identity;
-    if (id != null && song.sourceDeviceId == 'stream') {
-      unawaited(id.registerOnlineSong(song));
-    }
-    log.record(song);
-  }
-
-  /// Play [song], optionally in the context of [queue] (e.g. a playlist).
-  Future<void> playSong(
-    Song song, {
-    List<Song>? queue,
-    String? sourceId,
-    String? sourceTitle,
-    int? requestToken,
-    int? initialIndex,
-    bool userInitiated = true,
-  }) async {
-    // Songs that start on their own (autoplay, the end of a song) do not
-    // count as the listener being around, or the inactivity guard in [next]
-    // could never pause an all-night autoplay.
-    if (userInitiated) _lastInteraction = DateTime.now();
-    final crossfadeIn = _pendingFadeIn;
-    final fadeIn = crossfadeIn ?? const Duration(milliseconds: 80);
-    if (_pendingFadeIn == null) _silenceTail();
-    _pendingFadeIn = null;
-    RecommendationService.markPlayed(song.id);
-    if (identity != null && identity!.isFavorite(song.id)) {
-      unawaited(identity!.cacheFavoriteSongMetadata(song));
-    }
-    final token = requestToken ?? ++_playRequestToken;
-    _isManuallyPaused = false;
-    _pendingNaturalAdvance = false;
-    clearPlaybackError(notify: false);
-    _preloadDebounceTimer?.cancel();
-    _isAdvancing = true;
-    _isLoadingTrack = true;
-
-    // Immediately mute and pause existing playback so the previous track does not
-    // produce an audio pop, crackle, or continue playing while the new track is resolving.
-    if (_player.playing) {
-      await _player.setVolume(0.0);
-      await _player.pause();
-    }
-
-    // Android 13+ blocks the media notification unless the app holds the
-    // notification permission. Ask for it (fire-and-forget) so the first
-    // play shows the notification; the prompt does not delay playback.
-    _requestNotificationPermissionIfNeeded();
-
-    if (queue != null) {
-      // A queue the listener just picked (not this queue handed back when
-      // moving along it) starts with nothing added by the app.
-      if (!identical(queue, _queue)) _autoAddedSongIds.clear();
-      _queue = List<Song>.from(queue);
-    } else if (_queue.isEmpty) {
-      _queue = library.songs.isNotEmpty ? List<Song>.from(library.songs) : [song];
-    }
-    if (sourceId != null) {
-      queueSourceId = sourceId;
-      queueTitle = sourceTitle;
-    } else if (queue == null && queueSourceId == null) {
-      queueSourceId = 'library';
-      queueTitle = 'Library';
-    }
-    if (_queue.isEmpty) _queue = [song];
-    if (initialIndex != null &&
-        initialIndex >= 0 &&
-        initialIndex < _queue.length &&
-        _queue[initialIndex].id == song.id) {
-      _queueIndex = initialIndex;
-    } else {
-      _queueIndex = _queue.indexWhere((s) => s.id == song.id);
-    }
-    if (_queueIndex < 0) {
-      _queue = [song, ..._queue];
-      _queueIndex = 0;
-    }
-    if (_shuffle) {
-      _shufflePlayedSongIds.add(song.id);
-    }
-    currentSong = song;
-    _pendingNaturalAdvance = false;
-    _lastTrackLoadMs = -1;
-    _updateActiveQueueCacheProtection();
-    _recordHistory(song);
-    DebugLog.write(
-      '[player] === playSong START === token=$token '
-      'song="${song.title}" id=${song.id} source=${song.sourceDeviceId} '
-      'queueIdx=$_queueIndex queueLen=${_queue.length} '
-      'queueSource=$queueSourceId',
-    );
-    notifyListeners();
-
-    // Synchronously parse network artwork for streams or resolve local artwork with fast timeout
-    final Uri effectiveArtUri;
-    if (song.artwork != null && song.artwork!.startsWith('http')) {
-      final optimized = ArtworkService.optimizeArtworkUrl(song.artwork!);
-      effectiveArtUri = Uri.tryParse(optimized) ??
-          Uri.tryParse(song.artwork!) ??
-          await ArtworkService.defaultArtworkUri();
-    } else {
-      effectiveArtUri = await ArtworkService.songArtworkUri(song).timeout(
-        const Duration(milliseconds: 150),
-        onTimeout: () => ArtworkService.defaultArtworkUri(),
-      );
-    }
-    if (token != _playRequestToken) return;
-    // The player still holds the previous song here, so its length is not
-    // passed on: the new song's arrives once it has loaded.
-    audioHandler?.updateSongMediaItem(song, artUri: effectiveArtUri);
-
-    final stopwatch = Stopwatch()..start();
-    _isLive = false;
-    Future<File?>? pendingDownload;
-    final previousGrowing = _growingSource;
-    _growingSource = null;
-    if (previousGrowing != null) unawaited(previousGrowing.close());
-    try {
-      await _player.setLoopMode(_engineLoopMode);
-      if (token != _playRequestToken) return;
-
-      if (song.sourceDeviceId == 'stream') {
-        final videoId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
-        DebugLog.write('[player] Stream path: checking active preload for $videoId');
-        StreamCacheManager.cancelPreload(exceptVideoId: videoId);
-        StreamCacheManager.cancelActiveDownload(exceptVideoId: videoId);
-        DebugLog.write('[player] Resolved videoId=$videoId, checking disk cache...');
-
-        File? cachedFile = await StreamCacheManager.getCachedFile(videoId);
-        if (cachedFile != null) unawaited(StreamCacheManager.markPlayed(cachedFile));
-        if (cachedFile == null) {
-          for (final s in library.songs) {
-            if ((RecommendationService.extractVideoId(s.fileName) == videoId ||
-                 RecommendationService.extractVideoId(s.id) == videoId) &&
-                library.hasSongFile(s)) {
-              final file = library.songFile(s);
-              if (await file.exists()) {
-                cachedFile = file;
-                DebugLog.write('[player] Found local library audio for $videoId: ${file.path}');
-                break;
-              }
-            }
-          }
-        }
-        if (token != _playRequestToken) return;
-
-        if (cachedFile != null && await cachedFile.exists()) {
-          _currentRouteType = StreamRouteType.cached;
-          _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-          _currentLoadedFile = cachedFile;
-          _currentLoadedFileSize = await cachedFile.length();
-          _currentLoadedFormat = p.extension(cachedFile.path).replaceFirst('.', '');
-          _isBufferingNext = false;
-          _bufferingVideoId = null;
-          notifyListeners();
-          DebugLog.write('[player] DISK CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${cachedFile.path}');
-          try {
-            await _player.setAudioSource(
-              AudioSource.file(cachedFile.path),
-            );
-            _resetStreamFailureCounters();
-          } catch (e) {
-            DebugLog.write('[player] Cached file unplayable or corrupt: $e. Evicting from cache.');
-            await StreamCacheManager.evictUnplayable(cachedFile);
-            rethrow;
-          }
-        } else {
-          // Signal buffering state so the UI shows "Connecting to Pear Radio..."
-          _isBufferingNext = true;
-          _bufferingVideoId = videoId;
-          notifyListeners();
-
-          DebugLog.write('[player] DISK CACHE MISS for $videoId, downloading via ensureStreamCached...');
-
-          // Play while it downloads: the desktop fetch reports the direct
-          // audio link as soon as it has picked a format, so playback starts
-          // from that link instead of waiting for the whole file. The same
-          // fetch keeps filling the cache for the next play. If the link
-          // never arrives (Android, early failure) or will not play, this
-          // falls back to waiting for the cached file as before.
-          final linkReady = Completer<ResolvedStream?>();
-          final download = StreamCacheManager.ensureStreamCached(
-            videoId,
-            onStreamUrl: (stream) {
-              if (!linkReady.isCompleted) linkReady.complete(stream);
-            },
-          );
-          pendingDownload = download;
-          unawaited(download.then(
-            (_) {
-              if (!linkReady.isCompleted) linkReady.complete(null);
-            },
-            onError: (_) {
-              if (!linkReady.isCompleted) linkReady.complete(null);
-            },
-          ));
-          final link = await linkReady.future;
-          if (token != _playRequestToken) return;
-          var streaming = false;
-          if (link != null) {
-            // Android hands over the file being written (YouTube blocks the
-            // phone's player from the link itself); desktop streams the link.
-            final localPath = link.localPath;
-            final growing = localPath == null
-                ? null
-                : GrowingFileAudioSource(
-                    path: localPath,
-                    done: download.then((_) {}, onError: (_) {}),
-                    expectedLength: link.filesize,
-                    contentType: link.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
-                  );
-            try {
-              // A link that was already used up or throttled (HTTP 403) can
-              // leave the player opening it forever, which kept the song on
-              // "loading" with no error. Give up and use the cached file.
-              final opening = _player
-                  .setAudioSource(
-                    growing ??
-                        AudioSource.uri(Uri.parse(link.url),
-                            headers: link.headers),
-                  )
-                  .timeout(_earlyStreamOpenTimeout);
-              // A fetch that ends with no file (a 403, a dropped connection)
-              // leaves the engine retrying an empty source for seconds before
-              // it reports an error. Once the fetch itself is over with
-              // nothing to play, stop waiting and go straight to the retry.
-              final fetchEndedEmpty = Completer<void>();
-              unawaited(download.then(
-                (file) {
-                  if (file == null && !fetchEndedEmpty.isCompleted) {
-                    fetchEndedEmpty.complete();
-                  }
-                },
-                onError: (_) {
-                  if (!fetchEndedEmpty.isCompleted) fetchEndedEmpty.complete();
-                },
-              ));
-              await Future.any<void>([
-                opening,
-                fetchEndedEmpty.future.then(
-                  (_) => throw StateError('the fetch ended without a file'),
-                ),
-              ]);
-              if (token != _playRequestToken) {
-                if (growing != null) unawaited(growing.close());
-                return;
-              }
-              _growingSource = growing;
-              _isBufferingNext = false;
-              _bufferingVideoId = null;
-              _currentRouteType = StreamRouteType.direct;
-              _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-              _currentLoadedFile = null;
-              _currentLoadedFileSize = null;
-              _currentLoadedFormat = link.ext;
-              _resetStreamFailureCounters();
-              streaming = true;
-              notifyListeners();
-              DebugLog.write(
-                '[player] STREAMING while caching (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]',
-              );
-              // Only the success is used; the fetch keeps caching the file.
-              unawaited(download.catchError((_) => null));
-            } catch (e) {
-              if (growing != null) unawaited(growing.close());
-              DebugLog.write(
-                '[player] Early stream would not play ($e); waiting for the cached file instead',
-              );
-            }
-          }
-          File? downloadedFile = streaming ? null : await download;
-
-          // Retry once after short delay if initial resolution returned null
-          if (!streaming &&
-              downloadedFile == null &&
-              !StreamCacheManager.isKnownLive(videoId) &&
-              token == _playRequestToken) {
-            DebugLog.write('[player] Initial stream fetch for $videoId returned null, retrying once...');
-            await Future.delayed(const Duration(milliseconds: 500));
-            if (token != _playRequestToken) return;
-            downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
-          }
-
-          _isBufferingNext = false;
-          _bufferingVideoId = null;
-          if (token != _playRequestToken) {
-            DebugLog.write('[player] Token stale after download ($token != $_playRequestToken), aborting');
-            return;
-          }
-
-          if (streaming) {
-            // Already playing from the direct link; the file is still caching.
-          } else if (downloadedFile != null && await downloadedFile.exists()) {
-            _currentRouteType = StreamRouteType.direct;
-            _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-            _currentLoadedFile = downloadedFile;
-            _currentLoadedFileSize = await downloadedFile.length();
-            _currentLoadedFormat = p.extension(downloadedFile.path).replaceFirst('.', '');
-            notifyListeners();
-            DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
-            try {
-              await _player.setAudioSource(
-                AudioSource.file(downloadedFile.path),
-              );
-              _resetStreamFailureCounters();
-            } catch (e) {
-              DebugLog.write('[player] Downloaded stream unplayable or corrupt: $e. Evicting file.');
-              await StreamCacheManager.evictUnplayable(downloadedFile);
-              rethrow;
-            }
-          } else if (StreamCacheManager.isKnownLive(videoId) &&
-              await _playLiveStream(song, videoId, token, stopwatch)) {
-            if (token != _playRequestToken) return;
-          } else {
-            _pendingNaturalAdvance = false;
-            _consecutiveStreamFailures++;
-            final failure = StreamCacheManager.takeFetchFailure(videoId);
-            DebugLog.write(
-              '[player] Stream failed for ${song.title} '
-              '(failure $_consecutiveStreamFailures/3, '
-              'kind=${failure?.kind.name ?? 'unknown'}, '
-              'detail=${failure?.detail ?? 'n/a'})',
-            );
-            _isAdvancing = false;
-            _isLoadingTrack = false;
-            notifyListeners();
-
-            final described = describeStreamFailure(failure, song);
-
-            // A deleted/private video can never start playing, so skipping is
-            // the only way forward. The skip stays bounded: three dead tracks
-            // in a row stop playback instead of cascading through the queue.
-            // Everything else (403 blocks, network trouble, missing engine)
-            // stays on this track with an explanation and a retry, because it
-            // usually works again a moment later.
-            if (failure?.kind == StreamFetchFailureKind.unavailable &&
-                _consecutiveStreamFailures < 3 &&
-                _queue.length > 1) {
-              DebugLog.write(
-                '[player] Auto-advancing past unavailable stream "${song.title}"',
-              );
-              _notifyUser(described.message);
-              unawaited(next());
-              return;
-            }
-
-            _setPlaybackError(described);
-            _notifyUser(described.message);
-            await _player.pause();
-            notifyListeners();
-            return;
-          }
-        }
-      } else {
-        // Local song: play directly from local file
-        _currentRouteType = StreamRouteType.local;
-        _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
-        _isBufferingNext = false;
-        _bufferingVideoId = null;
-        DebugLog.write('[player] Playing LOCAL file (${_lastTrackLoadMs}ms): ${song.title}');
-        final file = library.songFile(song);
-        if (!await file.exists() || await file.length() == 0) {
-          DebugLog.write('[player] File missing or empty on disk for ${song.title} (${file.path}). Pruning ghost song.');
-          unawaited(library.removeSong(song.id));
-          _pendingNaturalAdvance = false;
-          _isLoadingTrack = false;
-          _isAdvancing = false;
-          removeSongsFromQueue({song.id});
-          return;
-        }
-        _currentLoadedFile = file;
-        _currentLoadedFileSize = await file.length();
-        _currentLoadedFormat = p.extension(file.path).replaceFirst('.', '');
-        notifyListeners();
-        try {
-          await _player.setAudioSource(
-            AudioSource.file(file.path),
-          );
-        } catch (e) {
-          // Never delete the song here. Failing to open a file says little about
-          // the file: the audio backend may not have started, the output device
-          // may be busy, or the file may be locked for a moment. Removing the
-          // entry also deletes the user's copy, which cannot be undone, so the
-          // song stays and the user is told, with a retry.
-          DebugLog.write('[player] Could not open ${song.title} ($e). Keeping it in the library.');
-          _pendingNaturalAdvance = false;
-          _isLoadingTrack = false;
-          _isAdvancing = false;
-          final message = 'Couldn\'t play "${song.title}": the audio engine could not open the '
-              'file. It is still in your library. Tap play to retry, or remove '
-              'it yourself if it is damaged.';
-          _setPlaybackError(PlaybackError(
-            song: song,
-            label: 'Couldn\'t open this file. Tap play to retry.',
-            message: message,
-          ));
-          _notifyUser(message);
-          notifyListeners();
-          return;
-        }
-      }
-
-      if (token != _playRequestToken) {
-        DebugLog.write('[player] Token stale before play() ($token != $_playRequestToken), aborting');
-        return;
-      }
-      if ((_speed - 1.0).abs() > 0.01) {
-        try {
-          await _player.setSpeed(_speed);
-        } catch (e) {
-          DebugLog.write('[player] setSpeed failed: $e');
-        }
-      }
-      _songGain = LoudnessService.startGainFor(song);
-      final targetVol = _effectiveVolume;
-      await _player.setVolume(0.0);
-      final musicStart = _musicStartFor(song);
-      if (musicStart > Duration.zero) {
-        try {
-          await _player.seek(musicStart);
-        } catch (e) {
-          DebugLog.write('[player] could not skip the silent intro: $e');
-        }
-      }
-      unawaited(_player.play());
-      _levelSong(song, token, pendingDownload);
-      if (LoudnessService.isMeasured(song)) _levelNextSong();
-      _maybeCompactMemory();
-      if (targetVol > 0.01) {
-        unawaited(crossfadeIn != null
-            ? _fadeInOverTail(targetVol, crossfadeIn)
-            : _fadeVolume(
-                targetVol,
-                duration: musicStart > Duration.zero ? _introFadeIn : fadeIn,
-              ));
-      }
-      _isManuallyPaused = false;
-      _isLoadingTrack = false;
-      _isAdvancing = false;
-      _consecutiveStreamFailures = 0;
-      audioHandler?.updateSongDuration(song.id, _player.duration);
-      _publishNotificationState();
-      var willAutoReroll = false;
-      if (_autoRerollSeed) {
-        final hasUpcoming = _queueIndex < _queue.length - 1;
-        // Only a next song the app picked (radio, or recommendations after
-        // the listener's own queue ran out) is rerolled; playlists and
-        // albums keep their order even when their songs stream.
-        if (!hasUpcoming || _nextIsAutoRerollable) {
-          if (song.id != _lastAutoRerolledSongId || !hasUpcoming) {
-            _lastAutoRerolledSongId = song.id;
-            willAutoReroll = true;
-            _scheduleAutoReroll(token);
-          }
-        }
-      }
-      DebugLog.write('[player] === playSong SUCCESS === "${song.title}" queueIdx=$_queueIndex${willAutoReroll ? ", waiting for auto-reroll before preload" : ", triggering preload"}');
-      if (!willAutoReroll) {
-        _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
-      }
-    } catch (e) {
-      DebugLog.write('[player] playSong ERROR: $e');
-      if (token != _playRequestToken) return;
-      _pendingNaturalAdvance = false;
-      _consecutiveStreamFailures++;
-      _isAdvancing = false;
-      _isLoadingTrack = false;
-      final described = PlaybackError(
-        song: song,
-        label: 'Couldn\'t play this track. Tap play to retry.',
-        message: 'Couldn\'t play "${song.title}". Tap play to retry.',
-      );
-      _setPlaybackError(described);
-      _notifyUser(described.message);
-      await _player.pause();
-      notifyListeners();
-    } finally {
-      if (token == _playRequestToken) {
-        _isAdvancing = false;
-        _isLoadingTrack = false;
-        _isBufferingNext = false;
-        _bufferingVideoId = null;
-        // The previous live stream's relay is stopped only now that this song
-        // has its own source: stopping it earlier makes the player report the
-        // old stream's end, about five seconds on, as a finished song.
-        if (!_isLive) LiveHlsProxy.stop();
-        if (_pendingNaturalAdvance) {
-          _pendingNaturalAdvance = false;
-          DebugLog.write('[player] Song in completed state during finally; auto-advancing next');
-          if (_sleepTimerEndOfSong) {
-            cancelSleepTimer();
-            unawaited(pause(smooth: true));
-          } else {
-            unawaited(next());
-          }
-        }
-        notifyListeners();
-      }
-    }
-  }
-
-  /// Resets the player's consecutive-failure counter. Called after any
-  /// successful playback.
-  void _resetStreamFailureCounters() {
-    if (_consecutiveStreamFailures > 0) {
-      DebugLog.write('[player] Resetting stream failure counters (was $_consecutiveStreamFailures failures)');
-    }
-    _consecutiveStreamFailures = 0;
-  }
-
-  void _scheduleAutoReroll(int token) {
-    _autoRerollDebounceTimer?.cancel();
-    _autoRerollDebounceTimer = Timer(const Duration(milliseconds: 350), () async {
-      _autoRerollDebounceTimer = null;
-      if (token != _playRequestToken || !_autoRerollSeed || currentSong == null || _isRerolling) {
-        return;
-      }
-      DebugLog.write('[radio] Auto-rerolling next track for "${currentSong!.title}"');
-      // The queue may have changed since this was scheduled.
-      final changed =
-          _nextIsAutoRerollable ? await rerollNextTrackOnly() : false;
-      if (!changed && token == _playRequestToken) {
-        _preloadUpcomingStreams(delay: Duration.zero);
-      }
-    });
-  }
-
-  Timer? _preloadDebounceTimer;
-
-  bool _isSongInLocalLibrary(String videoId) {
-    for (final s in library.songs) {
-      if ((RecommendationService.extractVideoId(s.fileName) == videoId ||
-           RecommendationService.extractVideoId(s.id) == videoId) &&
-          library.hasSongFile(s)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// Kicks off a debounced 1-track lookahead preloader for the next stream
-  /// track in the queue. Waits 2 seconds
-  /// before initiating background download so rapid song skips consume 0 KB of data.
-  void _preloadUpcomingStreams({Duration delay = const Duration(seconds: 2)}) {
-    _preloadDebounceTimer?.cancel();
-    if (_queueIndex < 0 || _queue.isEmpty) {
-      DebugLog.write('[preload] Skipping preload: queueIdx=$_queueIndex queueLen=${_queue.length}');
-      return;
-    }
-    if (_autoRerollSeed && (_isRerolling || _autoRerollDebounceTimer != null)) {
-      DebugLog.write('[preload] Auto-reroll option is ON (reroll active/pending); waiting for reroll before preloading');
-      return;
-    }
-    const maxLookahead = 3;
-    final upcomingVideoIds = <String>[];
-    if (_shuffle) {
-      for (int i = 0; i < _queue.length; i++) {
-        if (i == _queueIndex) continue;
-        final s = _queue[i];
-        if (s.sourceDeviceId == 'stream') {
-          final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-          if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
-            upcomingVideoIds.add(vId);
-            if (upcomingVideoIds.length >= maxLookahead) break;
-          }
-        }
-      }
-    } else {
-      for (int idx = _queueIndex + 1; idx < _queue.length; idx++) {
-        final s = _queue[idx];
-        if (s.sourceDeviceId == 'stream') {
-          final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-          if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
-            upcomingVideoIds.add(vId);
-            if (upcomingVideoIds.length >= maxLookahead) break;
-          }
-        }
-      }
-      if (upcomingVideoIds.length < maxLookahead && _loopMode == LoopSetting.all) {
-        for (int idx = 0; idx <= _queueIndex; idx++) {
-          final s = _queue[idx];
-          if (s.sourceDeviceId == 'stream') {
-            final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
-            if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
-              upcomingVideoIds.add(vId);
-              if (upcomingVideoIds.length >= maxLookahead) break;
-            }
-          }
-        }
-      }
-    }
-    if (upcomingVideoIds.isEmpty) {
-      if (_autoplay &&
-          currentSong != null &&
-          _queueIndex >= _queue.length - 1 &&
-          !_isLoadingRecommendations) {
-        DebugLog.write('[preload] Queue on last song with autoplay ON, pre-fetching recommendations...');
-        unawaited(fetchAndAppendRecommendations());
-      }
-      DebugLog.write('[preload] No upcoming stream tracks to preload');
-      _isPreloadingUpcoming = false;
-      notifyListeners();
-      return;
-    }
-    final uncachedTrackIds = upcomingVideoIds
-        .where((id) => !StreamCacheManager.isStreamCachedSync(id) && !_isSongInLocalLibrary(id))
-        .toList();
-    if (uncachedTrackIds.isEmpty) {
-      DebugLog.write('[preload] All upcoming stream tracks already cached on disk');
-      _isPreloadingUpcoming = false;
-      notifyListeners();
-      return;
-    }
-    final nextTrackId = uncachedTrackIds.first;
-
-    final token = _playRequestToken;
-    _preloadDebounceTimer = Timer(delay, () {
-      if (token != _playRequestToken) return;
-      if (_isManuallyPaused || (!_player.playing && !_isLoadingTrack)) {
-        DebugLog.write('[preload] Playback is paused or idle; skipping upcoming stream preload');
-        _isPreloadingUpcoming = false;
-        notifyListeners();
-        return;
-      }
-      if (_isRerolling || _isLoadingRecommendations || (_autoRerollSeed && _autoRerollDebounceTimer != null)) {
-        DebugLog.write('[preload] Reroll or recommendation in progress; deferring preload until settled');
-        _preloadDebounceTimer = Timer(const Duration(milliseconds: 500), () {
-          if (token == _playRequestToken) {
-            _preloadUpcomingStreams(delay: Duration.zero);
-          }
-        });
-        return;
-      }
-      if (_isBufferingNext || _bufferingVideoId != null || StreamCacheManager.isForegroundDownloadActive) {
-        DebugLog.write('[preload] Current track is still downloading/buffering; deferring preload until completion');
-        final activeId = StreamCacheManager.activeDownloadingVideoId;
-        final inFlight = activeId != null ? StreamCacheManager.getInFlightDownload(activeId) : null;
-        if (inFlight != null) {
-          inFlight.whenComplete(() {
-            if (token == _playRequestToken) {
-              _preloadUpcomingStreams(delay: const Duration(milliseconds: 300));
-            }
-          });
-        } else {
-          _preloadDebounceTimer = Timer(const Duration(seconds: 1), () {
-            if (token == _playRequestToken) {
-              _preloadUpcomingStreams(delay: Duration.zero);
-            }
-          });
-        }
-        return;
-      }
-      DebugLog.write(
-        '[preload] Starting 2-track sequential lookahead preloader: window=${uncachedTrackIds.take(2).toList()}',
-      );
-      _isPreloadingUpcoming = true;
-      notifyListeners();
-
-      // Sequential 2-track lookahead window: buffers upcoming tracks in the background
-      // without splitting bandwidth, guaranteeing 0ms latency even on multi-skips.
-      final nextTrackWindow = uncachedTrackIds.take(2).toList();
-      StreamCacheManager.preloadSlidingWindow(
-        nextTrackWindow,
-        onTrackCached: (cachedId) {
-          DebugLog.write('[preload] onTrackCached: $cachedId');
-          _levelNextSong();
-          if (cachedId == nextTrackId) {
-            _isPreloadingUpcoming = false;
-            notifyListeners();
-          }
-        },
-        onDone: () {
-          if (_isPreloadingUpcoming) {
-            _isPreloadingUpcoming = false;
-            notifyListeners();
-          }
-        },
-      );
-    });
-  }
-
-  /// Updates the current queue without restarting playback. Adjusts the active
-  /// index to keep tracking [currentSong] in the updated list.
-  void updateQueue(
-    List<Song> newQueue, {
-    String? sourceId,
-    String? sourceTitle,
-  }) {
-    if (newQueue.isEmpty) return;
-    _queue = List.from(newQueue);
-    if (sourceId != null) {
-      queueSourceId = sourceId;
-      queueTitle = sourceTitle;
-    }
-    if (currentSong != null) {
-      final idx = _queue.indexWhere((s) => s.id == currentSong!.id);
-      if (idx >= 0) {
-        _queueIndex = idx;
-      } else {
-        // Retain the current song at the beginning if not in the new filter.
-        _queue = [currentSong!, ..._queue];
-        _queueIndex = 0;
-      }
-    } else {
-      _queueIndex = -1;
-    }
-    _updateActiveQueueCacheProtection();
-    _preloadUpcomingStreams();
-    notifyListeners();
-  }
-
-  void _updateActiveQueueCacheProtection() {
-    final vIds = <String>{};
-    if (currentSong != null && currentSong!.sourceDeviceId == 'stream') {
-      final vId = RecommendationService.extractVideoId(currentSong!.id) ?? currentSong!.id.replaceFirst('stream_', '');
-      if (vId.isNotEmpty) vIds.add(vId);
-    }
-    for (final song in _queue) {
-      if (song.sourceDeviceId == 'stream') {
-        final vId = RecommendationService.extractVideoId(song.id) ?? song.id.replaceFirst('stream_', '');
-        if (vId.isNotEmpty) vIds.add(vId);
-      }
-    }
-    StreamCacheManager.setActiveQueueVideoIds(vIds);
-  }
-
-  Future<void> pause({bool smooth = false}) async {
-    _lastInteraction = DateTime.now();
-    _silenceTail();
-    _isManuallyPaused = true;
-    _playRequestToken++;
-    _preloadDebounceTimer?.cancel();
-    _preloadDebounceTimer = null;
-    if (_isPreloadingUpcoming || StreamCacheManager.isActiveDownloadPreload) {
-      StreamCacheManager.cancelPreload();
-      _isPreloadingUpcoming = false;
-    }
-    if (_isLoadingTrack || _isBufferingNext) {
-      _isLoadingTrack = false;
-      _isBufferingNext = false;
-      _bufferingVideoId = null;
-      _isAdvancing = false;
-      StreamCacheManager.cancelActiveDownload();
-    }
-    _publishNotificationState();
-    notifyListeners();
-    final targetVol = _effectiveVolume;
-    if (_player.playing) {
-      if (smooth && targetVol > 0.05) {
-        await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
-      }
-      await _player.pause();
-      await _player.setVolume(targetVol);
-    } else {
-      await _player.setVolume(targetVol);
-    }
-    _publishNotificationState();
-    notifyListeners();
-  }
-
-  Future<void> resume() async {
-    _lastInteraction = DateTime.now();
-    if (_isLoadingTrack || _isBufferingNext) {
-      return;
-    }
-    if (currentSong == null) {
-      if (library.songs.isNotEmpty) {
-        await playSong(library.songs.first);
-      }
-      return;
-    }
-    // A failed load never produced a playable source, so the play button
-    // doubles as "retry this track" while an error is on screen.
-    if (_playbackError != null) {
-      await retryCurrent();
-      return;
-    }
-    _isManuallyPaused = false;
-    _publishNotificationState();
-    notifyListeners();
-
-    if (_player.processingState == ProcessingState.completed) {
-      if (currentSong != null) {
-        await playSong(currentSong!, queue: _queue, sourceId: queueSourceId, sourceTitle: queueTitle);
-        return;
-      }
-      await _player.seek(Duration.zero);
-    }
-    final pausedSince = _livePausedSince;
-    if (_isLive &&
-        pausedSince != null &&
-        DateTime.now().difference(pausedSince) > _liveReopenAfter) {
-      final window = liveWindow;
-      await _openLive(liveBehind.clamp(0.0, window > 0 ? window : liveBehind).toDouble());
-    }
-    final targetVol = _effectiveVolume;
-    await _player.setVolume(targetVol);
-    try {
-      await _player.play();
-      await _player.setVolume(targetVol);
-      _resetStreamFailureCounters();
-      _preloadUpcomingStreams(delay: const Duration(milliseconds: 500));
-    } catch (e) {
-      DebugLog.write('[player] resume failed ($e), reloading track: ${currentSong?.title}');
-      if (currentSong != null) {
-        await playSong(currentSong!);
-      }
-    }
-    _publishNotificationState();
-    notifyListeners();
-  }
-
-  /// Retries the track that failed last: clears the error state and runs a
-  /// fresh load. When YouTube had blocked the request, yt-dlp's cached player
-  /// is dropped first because a stale player is a common cause of 403s.
-  Future<void> retryCurrent() async {
-    final song = currentSong;
-    if (song == null) return;
-    _lastInteraction = DateTime.now();
-    final wasBlocked = _playbackError?.kind == StreamFetchFailureKind.blocked;
-    clearPlaybackError(notify: false);
-    if (wasBlocked && song.sourceDeviceId == 'stream') {
-      DebugLog.write('[player] Retrying blocked stream "${song.title}" with a fresh yt-dlp player cache');
-      await StreamCacheManager.refreshYtDlpCache();
-    }
-    notifyListeners();
-    await playSong(
-      song,
-      queue: _queue.isEmpty ? null : _queue,
-      sourceId: queueSourceId,
-      sourceTitle: queueTitle,
-      initialIndex:
-          _queueIndex >= 0 && _queueIndex < _queue.length ? _queueIndex : null,
-    );
-  }
-
-  Future<void> toggle() async {
-    _lastInteraction = DateTime.now();
-    if (_isLoadingTrack || _isBufferingNext) {
-      DebugLog.write('[player] toggle() tapped while audio is buffering; cancelling load and pausing');
-      _playRequestToken++;
-      _isLoadingTrack = false;
-      _isBufferingNext = false;
-      _bufferingVideoId = null;
-      _isAdvancing = false;
-      _isManuallyPaused = true;
-      StreamCacheManager.cancelActiveDownload();
-      StreamCacheManager.cancelPreload();
-      await _player.pause();
-      _publishNotificationState();
-      notifyListeners();
-      return;
-    }
-    if (currentSong == null) {
-      if (library.songs.isNotEmpty) {
-        await playSong(library.songs.first);
-      }
-      return;
-    }
-    DebugLog.write('[player] toggle() called: playing=$playing, isManuallyPaused=$_isManuallyPaused');
-    if (playing) {
-      await pause(smooth: false);
-    } else {
-      await resume();
-    }
-  }
-
-  Future<void> next({bool userAction = false, bool crossfade = false}) async {
-    if (userAction) {
-      _lastInteraction = DateTime.now();
-    }
-    if (_queue.isEmpty || _isAdvancing) {
-      if (crossfade) {
-        // Nothing to hand over to: keep the song going on the main player.
-        _silenceTail();
-        unawaited(_player.setVolume(_effectiveVolume));
-      }
-      return;
-    }
-    _isAdvancing = true;
-    if (!crossfade && _player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
-    }
-    try {
-      if (_loopMode == LoopSetting.one && !userAction) {
-        await _replayCurrent();
-        return;
-      }
-      final nextIndex = _pickNextIndex();
-      if (nextIndex == null) {
-        if (_sleepTimerEndOfQueue) {
-          cancelSleepTimer();
-          await _player.pause();
-          await _player.seek(Duration.zero);
-          notifyListeners();
-          return;
-        }
-        // Check 2-hour inactivity guard
-        if (DateTime.now().difference(_lastInteraction) > const Duration(hours: 2)) {
-          debugPrint('[PlayerService] Autoplay paused due to 2-hour inactivity guard.');
-          await _player.pause();
-          await _player.seek(Duration.zero);
-          notifyListeners();
-          return;
-        }
-
-        // Autoplay: fetch next batch and continue when at the end of queue
-        if (_autoplay && currentSong != null) {
-          final token = _playRequestToken;
-          final appended = await fetchAndAppendRecommendations();
-          if (token != _playRequestToken || _isManuallyPaused) {
-            DebugLog.write('[player] Autoplay aborted because playback was manually paused or cancelled during recommendation fetch');
-            return;
-          }
-          if (appended && _queueIndex + 1 < _queue.length) {
-            final target = _queue[_queueIndex + 1];
-            _queueIndex = _queueIndex + 1;
-            currentSong = target;
-            if (_shuffle) {
-              _shufflePlayedSongIds.add(target.id);
-            }
-            notifyListeners();
-            await playSong(target, queue: _queue, userInitiated: userAction);
-            return;
-          }
-        }
-
-        // Loop off + end of queue: stop cleanly at the end.
-        await _player.pause();
-        await _player.seek(Duration.zero);
-        notifyListeners();
-        return;
-      }
-      // Optimistically update UI immediately to eliminate skip perceived delay
-      final nextTrack = _queue[nextIndex];
-      _queueIndex = nextIndex;
-      currentSong = nextTrack;
-      DebugLog.write('[player] Advancing to track ${_queueIndex + 1}/${_queue.length}: ${nextTrack.title}');
-      notifyListeners();
-
-      await playSong(
-        nextTrack,
-        queue: _queue,
-        initialIndex: nextIndex,
-        userInitiated: userAction,
-      );
-    } catch (e) {
-      DebugLog.write('[player] next error: $e');
-    } finally {
-      _isAdvancing = false;
-      // Only a hand-off that reached playSong uses the long fade-in.
-      _pendingFadeIn = null;
-    }
-  }
-
-  Future<void> previous() async {
-    if (_queue.isEmpty || _isAdvancing) return;
-    _isAdvancing = true;
-    if (_player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
-    }
-    try {
-      _syncQueueIndexWithCurrentSong();
-      final pos = _player.position;
-      // A live stream has no start to go back to: Previous goes to the
-      // previous song.
-      if (pos > const Duration(seconds: 3) && !_isLive) {
-        await seek(Duration.zero);
-        return;
-      }
-      if (_loopMode == LoopSetting.one && _queueIndex <= 0) {
-        await _replayCurrent();
-        return;
-      }
-      if (_queueIndex > 0 && _queueIndex - 1 < _queue.length) {
-        _queueIndex = _queueIndex - 1;
-        final prevTrack = _queue[_queueIndex];
-        currentSong = prevTrack;
-        notifyListeners();
-        await playSong(prevTrack, queue: _queue, initialIndex: _queueIndex);
-      } else if (_loopMode == LoopSetting.all && _queue.length > 1) {
-        _queueIndex = _queue.length - 1;
-        final prevTrack = _queue[_queueIndex];
-        currentSong = prevTrack;
-        notifyListeners();
-        await playSong(prevTrack, queue: _queue, initialIndex: _queueIndex);
-      } else if (_queue.isNotEmpty) {
-        await seek(Duration.zero);
-      }
-    } catch (e) {
-      DebugLog.write('[player] previous error: $e');
-    } finally {
-      _isAdvancing = false;
-      if (_player.playing && _player.volume < _effectiveVolume) {
-        await _player.setVolume(_effectiveVolume);
-      }
-    }
-  }
-
-
-  Future<void> toggleLoop() {
-    _loopMode = switch (_loopMode) {
-      LoopSetting.off => LoopSetting.all,
-      LoopSetting.all => LoopSetting.one,
-      LoopSetting.one => LoopSetting.off,
-    };
-    _syncEngineLoop();
-    _publishNotificationState();
-    notifyListeners();
-    return Future.value();
-  }
-
-  void toggleShuffle() {
-    _shuffle = !_shuffle;
-    _shufflePlayedSongIds.clear();
-    if (_shuffle && currentSong != null) {
-      _shufflePlayedSongIds.add(currentSong!.id);
-    }
-    _publishNotificationState();
-    notifyListeners();
-  }
-
-  /// Index of the next track, honouring shuffle + loop modes. Null means
-  /// "stop" (loop off and at the end of the queue).
-  int? _pickNextIndex() {
-    if (_queue.isEmpty) return null;
-    _syncQueueIndexWithCurrentSong();
-    if (_shuffle) {
-      final committed = _crossfadeShuffleIndex;
-      _crossfadeShuffleIndex = null;
-      if (committed != null && committed < _queue.length && committed != _queueIndex) {
-        _shufflePlayedSongIds.add(_queue[committed].id);
-        return committed;
-      }
-      if (_queue.length <= 1) {
-        // Nothing else to shuffle to: behave like the end of the queue.
-        if (_sleepTimerEndOfQueue) return null;
-        return _loopMode == LoopSetting.all ? 0 : null;
-      }
-      final immediateNext = _queueIndex + 1;
-      if (immediateNext < _queue.length &&
-          _lockedSongIds.contains(_queue[immediateNext].id)) {
-        _shufflePlayedSongIds.add(_queue[immediateNext].id);
-        return immediateNext;
-      }
-      final unplayed = [
-        for (var i = 0; i < _queue.length; i++)
-          if (!_shufflePlayedSongIds.contains(_queue[i].id) && i != _queueIndex) i,
-      ];
-      if (unplayed.isEmpty) {
-        if (_sleepTimerEndOfQueue) return null;
-        if (_loopMode == LoopSetting.all) {
-          _shufflePlayedSongIds.clear();
-          if (currentSong != null) _shufflePlayedSongIds.add(currentSong!.id);
-          final pool = [
-            for (var i = 0; i < _queue.length; i++)
-              if (i != _queueIndex) i,
-          ];
-          final r = pool.isNotEmpty
-              ? pool[_random.nextInt(pool.length)]
-              : _random.nextInt(_queue.length);
-          _shufflePlayedSongIds.add(_queue[r].id);
-          return r;
-        }
-        return null;
-      }
-      final picked = unplayed[_random.nextInt(unplayed.length)];
-      _shufflePlayedSongIds.add(_queue[picked].id);
-      return picked;
-    }
-    final next = _queueIndex + 1;
-    if (next < _queue.length) return next;
-    if (_sleepTimerEndOfQueue) return null;
-    if (_loopMode == LoopSetting.all) return 0;
-    return null;
-  }
-
-  Future<void> _replayCurrent() async {
-    _outroSkippedToken = -1;
-    try {
-      final song = currentSong;
-      final start = song == null ? Duration.zero : _musicStartFor(song);
-      final source = _player.audioSource;
-      if (_player.processingState == ProcessingState.completed &&
-          source != null) {
-        // After a natural end just_audio still reports playing, so play()
-        // alone is a no-op, and the media_kit backend only leaves the
-        // completed state on a load or a buffering event (a seek within a
-        // file on disk gives neither). The song would sit at its start
-        // showing a play button, and the next tap reloads it from 0. Pause
-        // so play() sends a real request, and reload the same source so the
-        // state goes back to ready.
-        await _player.pause();
-        await _player.setAudioSource(source, initialPosition: start);
-      } else {
-        await _player.seek(start);
-      }
-      final targetVol = _effectiveVolume;
-      await _player.setVolume(targetVol);
-      await _player.play();
-      await _player.setVolume(targetVol);
-      _isManuallyPaused = false;
-      _publishNotificationState();
-      notifyListeners();
-    } catch (e) {
-      DebugLog.write('[player] _replayCurrent error: $e; reloading current song');
-      if (currentSong != null) {
-        await playSong(currentSong!);
-      }
-    }
-  }
-
-  /// Keep the notification's repeat / shuffle icons and playback state in sync with our state.
-  void _publishNotificationState() {
-    audioHandler?.updateState(
-      playing: _player.playing,
-      processingState: _player.processingState,
-      position: _player.position,
-      bufferedPosition: _player.bufferedPosition,
-      speed: _player.speed,
-      loopMode: _loopMode,
-      shuffle: _shuffle,
-      queueIndex: _queueIndex >= 0 ? _queueIndex : null,
-    );
-  }
-
-  Future<void> seek(Duration position) async {
-    // A live stream's position is only what has been buffered; it is moved
-    // with seekLive.
-    if (_isLive) return;
-    _silenceTail();
-    // A seek back from the last seconds is the user's, not a loop wrap.
-    _lastPosition = position;
-    final dur = _player.duration;
-    // A live stream's reported length is only what has been buffered, so
-    // seeking to its end must not count as the song finishing.
-    if (!_isLive &&
-        dur != null &&
-        dur > Duration.zero &&
-        position >= dur - const Duration(milliseconds: 150)) {
-      await _player.seek(dur);
-      if (!_isAdvancing && !_isLoadingTrack) {
-        if (_sleepTimerEndOfSong) {
-          cancelSleepTimer();
-          unawaited(pause(smooth: true));
-        } else {
-          unawaited(next());
-        }
-      } else {
-        _pendingNaturalAdvance = true;
-      }
-      return;
-    }
-    // A seek takes over from any fade in progress (such as a silent outro
-    // fading out), so the song is heard at its level straight away.
-    _volumeFadeToken++;
-    await _player.seek(position);
-    if (_player.volume < _effectiveVolume && _player.playing) {
-      unawaited(_player.setVolume(_effectiveVolume));
-    }
-  }
-
-  Future<void> setVolume(double value) async {
-    final clamped = value.clamp(0.0, 1.0);
-    if ((_userVolume - clamped).abs() < 0.001) return;
-    _volumeFadeToken++;
-    _userVolume = clamped;
-    volumeNotifier.value = clamped;
-    await _player.setVolume(_effectiveVolume);
-    _saveVolumeDebounceTimer?.cancel();
-    _saveVolumeDebounceTimer = Timer(const Duration(milliseconds: 400), () {
-      identity?.setPlaybackVolume(_userVolume);
-    });
-  }
-
-  /// Android 13+ (API 33+) requires the POST_NOTIFICATIONS runtime permission
-  /// for app notifications to show. The media notification from
-  /// audio_service is affected on many devices (vivo/Oppo/Xiaomi are
-  /// strict). Request it once on the first play. No-op on other platforms.
-  Future<void> _requestNotificationPermissionIfNeeded() async {
-    if (!Platform.isAndroid) return;
-    try {
-      final status = await Permission.notification.status;
-      if (!status.isGranted) {
-        await Permission.notification.request();
-      }
-    } catch (e) {
-      debugPrint('[player] notification permission request failed: $e');
-    }
-  }
-
-  /// Inserts [song] immediately after the currently playing track.
-  /// If the queue is empty or playback has stopped, starts playback of [song].
-  void playNext(Song song) {
-    if (_queue.isEmpty || currentSong == null) {
-      unawaited(playSong(song, queue: [song]));
-      return;
-    }
-    _shufflePlayedSongIds.remove(song.id);
-    _lockedSongIds.add(song.id);
-
-    final mutableQueue = List<Song>.from(_queue);
-    mutableQueue.removeWhere((s) => s.id == song.id);
-
-    // Compute insertion position directly against mutableQueue so any prior
-    // index shift cannot cause an off-by-one or N+2 displacement.
-    final currentIdx = mutableQueue.indexWhere((s) => s.id == currentSong!.id);
-    final insertIndex = (currentIdx >= 0) ? currentIdx + 1 : 0;
-
-    mutableQueue.insert(insertIndex, song);
-    _queue = mutableQueue;
-    _queueIndex = currentIdx >= 0 ? currentIdx : _queue.indexWhere((s) => s.id == currentSong!.id);
-    _updateActiveQueueCacheProtection();
-    _preloadUpcomingStreams();
-    notifyListeners();
-  }
-
-  /// Appends [song] to the end of the active queue.
-  /// If the queue is empty or playback has stopped, starts playback of [song].
-  void addToQueue(Song song) {
-    if (_queue.isEmpty || currentSong == null) {
-      unawaited(playSong(song, queue: [song]));
-      return;
-    }
-    _shufflePlayedSongIds.remove(song.id);
-    _lockedSongIds.add(song.id);
-    _queue = [..._queue, song];
-    _syncQueueIndexWithCurrentSong();
-    _updateActiveQueueCacheProtection();
-    _preloadUpcomingStreams();
-    notifyListeners();
-  }
-
-  /// Batch inserts multiple [songs] into the active queue.
-  void addSongsToQueue(List<Song> songs, {bool playNext = false}) {
-    if (songs.isEmpty) return;
-    if (_queue.isEmpty || currentSong == null) {
-      unawaited(playSong(songs.first, queue: songs));
-      return;
-    }
-    for (final s in songs) {
-      _shufflePlayedSongIds.remove(s.id);
-      if (playNext) {
-        _lockedSongIds.add(s.id);
-      }
-    }
-    final mutableQueue = List<Song>.from(_queue);
-    if (playNext) {
-      final currentIdx = mutableQueue.indexWhere((s) => s.id == currentSong!.id);
-      final insertIndex = (currentIdx >= 0) ? currentIdx + 1 : mutableQueue.length;
-      mutableQueue.insertAll(insertIndex, songs);
-    } else {
-      mutableQueue.addAll(songs);
-    }
-    _queue = mutableQueue;
-    _syncQueueIndexWithCurrentSong();
-    _updateActiveQueueCacheProtection();
-    _preloadUpcomingStreams();
-    notifyListeners();
-  }
-
-  void reorderQueue(int oldIndex, int newIndex) {
-    if (oldIndex < 0 ||
-        oldIndex >= _queue.length ||
-        newIndex < 0 ||
-        newIndex > _queue.length) {
-      return;
-    }
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
-    }
-    final mutableQueue = List<Song>.from(_queue);
-    final item = mutableQueue.removeAt(oldIndex);
-    mutableQueue.insert(newIndex, item);
-    _queue = mutableQueue;
-    _syncQueueIndexWithCurrentSong();
-    _updateActiveQueueCacheProtection();
-    _preloadUpcomingStreams();
-    notifyListeners();
-  }
-
-  void removeFromQueue(int index) {
-    if (index < 0 || index >= _queue.length) {
-      return;
-    }
-    if (_queue.length <= 1) {
-      unawaited(stop());
-      return;
-    }
-    _syncQueueIndexWithCurrentSong();
-    final isRemovingCurrent = index == _queueIndex;
-    final removedSong = _queue[index];
-    final mutableQueue = List<Song>.from(_queue);
-    mutableQueue.removeAt(index);
-    _queue = mutableQueue;
-    _syncQueueIndexWithCurrentSong();
-    _shufflePlayedSongIds.remove(removedSong.id);
-    _lockedSongIds.remove(removedSong.id);
-    _updateActiveQueueCacheProtection();
-
-    if (isRemovingCurrent) {
-      final nextIdx = index < _queue.length ? index : 0;
-      _queueIndex = nextIdx;
-      final nextSong = _queue[_queueIndex];
-      currentSong = nextSong;
-      notifyListeners();
-      unawaited(playSong(nextSong, queue: _queue, initialIndex: nextIdx));
-    } else {
-      _syncQueueIndexWithCurrentSong();
-      _preloadUpcomingStreams();
-      notifyListeners();
-    }
-  }
-
-  void removeSongsFromQueue(Set<String> songIds) {
-    if (songIds.isEmpty || _queue.isEmpty) return;
-    final remaining = _queue.where((s) => !songIds.contains(s.id)).toList();
-    if (remaining.isEmpty) {
-      unawaited(stop());
-      return;
-    }
-    for (final id in songIds) {
-      _shufflePlayedSongIds.remove(id);
-      _lockedSongIds.remove(id);
-    }
-    final currentAffected = currentSong != null && songIds.contains(currentSong!.id);
-    _syncQueueIndexWithCurrentSong();
-    // The first surviving song after the current one (removed songs before
-    // it shift the indexes, so the old index cannot be reused as is).
-    Song? following;
-    for (var i = _queueIndex + 1; i < _queue.length; i++) {
-      if (!songIds.contains(_queue[i].id)) {
-        following = _queue[i];
-        break;
-      }
-    }
-    _queue = remaining;
-    if (currentAffected) {
-      final nextIdx = following == null
-          ? 0
-          : _queue.indexWhere((s) => identical(s, following));
-      _queueIndex = nextIdx < 0 ? 0 : nextIdx;
-      final nextSong = _queue[_queueIndex];
-      currentSong = nextSong;
-      _updateActiveQueueCacheProtection();
-      notifyListeners();
-      unawaited(playSong(nextSong, queue: _queue, initialIndex: _queueIndex));
-    } else {
-      if (currentSong != null) {
-        _queueIndex = _queue.indexWhere((s) => s.id == currentSong!.id);
-      }
-      _updateActiveQueueCacheProtection();
-      _preloadUpcomingStreams();
-      notifyListeners();
-    }
-  }
-
+  @override
   Future<void> stop() async {
     _silenceTail();
     _playRequestToken++;
@@ -3217,7 +973,7 @@ class PlayerService extends ChangeNotifier {
     _preloadDebounceTimer?.cancel();
     _autoRerollDebounceTimer?.cancel();
     _saveVolumeDebounceTimer?.cancel();
-    _sleepTimer?.cancel();
+    _sleep.cancel();
     StreamCacheManager.cancelPreload();
     StreamCacheManager.cancelActiveDownload();
     for (final s in _subs) {
