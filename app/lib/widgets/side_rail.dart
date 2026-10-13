@@ -68,16 +68,12 @@ class SideRail extends StatelessWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.only(top: 14, bottom: 10),
-                child: Container(
+                // A bare mark, not a raised tile: a tile with the buttons'
+                // sheen and rim reads as pressable, and this is not.
+                child: const SizedBox(
                   width: 44,
                   height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    gradient: PearGlassTokens.cardSheen,
-                    border: Border.all(color: PearGlassTokens.cardRim),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const PearMark(size: 26),
+                  child: Center(child: PearMark(size: 30)),
                 ),
               ),
               Stack(
