@@ -28,19 +28,28 @@ class PearGlassTokens {
   /// mini player reads as colour, not as legible letters.
   static const double blur = 20;
 
-  /// Tint laid over the blurred backdrop: a dark base so text stays readable,
-  /// with a faint white sheen that fades from top to bottom.
-  static const double baseAlpha = 0.55;
+  /// Tint laid over the backdrop. Kept thin on purpose: the glass has to let
+  /// the backdrop's glows through, or it reads as grey plastic instead of
+  /// frosted glass.
+  static const double baseAlpha = 0.38;
+
+  /// How much of the accent colour goes into the panel's base, so the body
+  /// is a tinted glass rather than the canvas's own grey laid over itself.
+  static const double accentTint = 0.20;
 
   /// Denser base for popups, menus and sheets, which open over busy content
   /// and hold small text.
   static const double popupAlpha = 0.74;
-  static const double sheenTop = 0.08;
-  static const double sheenBottom = 0.03;
+
+  /// Light catching the top edge: the highlight is brightest at the rim and
+  /// is gone by [sheenReach] of the panel's height, so the body stays clear.
+  static const double sheenTop = 0.16;
+  static const double sheenBottom = 0.02;
+  static const double sheenReach = 0.22;
 
   /// Hairline edge. Brighter on top, like light catching the rim.
-  static const double edgeTop = 0.16;
-  static const double edge = 0.07;
+  static const double edgeTop = 0.34;
+  static const double edge = 0.09;
 
   /// Corner radius of floating chrome: side rail, nav bar, mini player.
   static const double floatingRadius = 20;
@@ -145,7 +154,11 @@ class PearGlass extends StatelessWidget {
     BorderRadius? borderRadius,
     double? opacity,
   }) {
-    final base = tint ?? scheme.surface;
+    final base = tint ??
+        Color.alphaBlend(
+          scheme.primary.withValues(alpha: PearGlassTokens.accentTint),
+          scheme.surface,
+        );
     final alpha = opacity ?? PearGlassTokens.baseAlpha;
     if (reduced) {
       return BoxDecoration(
@@ -166,11 +179,13 @@ class PearGlass extends StatelessWidget {
             Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
             base.withValues(alpha: alpha),
           ),
+          base.withValues(alpha: alpha),
           Color.alphaBlend(
             Colors.white.withValues(alpha: PearGlassTokens.sheenBottom),
-            base.withValues(alpha: (alpha + 0.1).clamp(0.0, 1.0)),
+            base.withValues(alpha: (alpha + 0.08).clamp(0.0, 1.0)),
           ),
         ],
+        stops: const [0, PearGlassTokens.sheenReach, 1],
       ),
     );
   }
@@ -232,14 +247,39 @@ class PearGlass extends StatelessWidget {
     }
 
     if (!shadow) return panel;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: PearGlassTokens.shadow,
-      ),
+    return CustomPaint(
+      painter: _OutsideShadowPainter(borderRadius),
       child: panel,
     );
   }
+}
+
+/// The panel's drop shadow, drawn only outside the panel's own shape. A
+/// BoxDecoration shadow also fills the area under the box, which shows
+/// through translucent glass as a dark body with a bright strip along the top.
+class _OutsideShadowPainter extends CustomPainter {
+  final BorderRadius borderRadius;
+  const _OutsideShadowPainter(this.borderRadius);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rrect = borderRadius.toRRect(Offset.zero & size);
+    final outside = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect((Offset.zero & size).inflate(120))
+      ..addRRect(rrect);
+    canvas.save();
+    canvas.clipPath(outside);
+    for (final s in PearGlassTokens.shadow) {
+      canvas.drawRRect(rrect.shift(s.offset), s.toPaint());
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OutsideShadowPainter old) =>
+      old.borderRadius != borderRadius;
 }
 
 /// A 1px rounded rim, brighter along the top edge.

@@ -245,9 +245,9 @@ class _BackdropPainter extends CustomPainter {
   /// Soft colour glows: where they sit (as a fraction of the window), how far
   /// they reach (as a fraction of the longer side) and how strong they are.
   static const _glows = [
-    (x: 0.08, y: -0.08, reach: 0.75, alpha: 0.34),
-    (x: 1.00, y: 0.30, reach: 0.60, alpha: 0.20),
-    (x: 0.35, y: 1.10, reach: 0.70, alpha: 0.24),
+    (x: 0.08, y: -0.08, reach: 0.75, alpha: 0.52),
+    (x: 1.00, y: 0.30, reach: 0.60, alpha: 0.36),
+    (x: 0.35, y: 1.10, reach: 0.70, alpha: 0.42),
   ];
 
   @override
