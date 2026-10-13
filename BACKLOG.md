@@ -1,13 +1,18 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v4.6.0** (2026-10-11). The lyric items
-below were written at v4.1.7 and have not been re-confirmed since (verified only by tests and the owner's
-reports; the agent cannot hear audio or run the app).
+Handover notes for the next working session. Latest release: **v4.6.1** (2026-10-12, internal only:
+the player code split into files, no visible change). The lyric items below were written at v4.1.7 and
+have not been re-confirmed since (verified only by tests and the owner's reports; the agent cannot hear
+audio, but it can drive the Windows build through the control port, see Working notes).
 
 ## Start here
 
 1. **Confirm the v4.5.0 and v4.6.0 changes on a real run.** Covered by tests
-   and the control port only, not yet confirmed by the owner:
+   and the control port only, not yet confirmed by the owner. A control port
+   run of the v4.6.1 Windows build (2026-10-12) did pass: local playback,
+   pause, seek, next, previous, a song ending on its own, one cached stream,
+   and one live stream rewound 120 s and returned with Go live, with no
+   errors in the log. It cannot judge sound, the phone, or a long listen:
    - Fast engine (v4.5.0): songs are fetched by the built-in InnerTube engine
      first (`innertube_audio_engine.dart`) and start after the first couple
      of megabytes; yt-dlp handles whatever it can't. Check that first plays
@@ -87,10 +92,17 @@ reports; the agent cannot hear audio or run the app).
 
 ## Smaller items
 
-- **Split `PlayerService`.** `player_service.dart` is over 3,200 lines and
-  holds the queue, stream resolution, live streams and crossfade together.
-  Pulling out the stream resolution and the live stream handling would make
-  regressions easier to find.
+- **Finish splitting `PlayerService`.** v4.6.1 moved the sleep timer into its
+  own class (`sleep_timer.dart`) and the crossfade, live, recommendations,
+  preload, queue edit and playback code into mixins under
+  `lib/services/player_service/` (`part` files). `player_service.dart` is
+  about 990 lines. What is left: `playback.dart` is still 1,100+ lines and
+  `playSong` alone is about 400 (stream resolution, retries, cache hand-off),
+  and the mixins share one library and the player's state, so they are
+  files to read, not isolated parts. Next cut: pull stream resolution out of
+  `playSong` into its own class with a small interface. Not covered by a
+  real run, only by unit tests: sleep timer, radio and recommendations,
+  queue edits and crossfade (the control port cannot reach them).
 - **Silent `catch (_)` blocks.** The ones where a failure loses data or changes
   what the user gets now write to `debug_log` (library moves, lyric writes,
   history and favourites loading, update and yt-dlp manifest checks, network
@@ -142,6 +154,20 @@ reports; the agent cannot hear audio or run the app).
   --control-token=<16+ chars>` for a local control port (127.0.0.1 only; see
   `lib/services/test_control.dart`). It can play a library song, seek a live
   stream and report what the visualizer feed sees.
+  **Run a build from outside `Downloads`.** The exe built in
+  `app\build\windows\x64\runner\Release` gets "Access is denied" on every
+  file write when it runs from the repo under Downloads (preferences, temp
+  file, cache), so no song opens. Copy the Release folder to
+  `%LOCALAPPDATA%\Programs\<name>`, launch it from there, set `/volume?v=0`
+  first and restore the value `/state` reported, then `/quit` and delete the
+  copy. From a shell, start it detached with all handles redirected; starting
+  it through the PowerShell tool hangs the tool. The build itself needs
+  NuGet's temp and cache folders pointed into `app\build\windows\x64` or it
+  fails on a lock.
+- **Code layout of the player:** `lib/services/player_service.dart` holds the
+  state, getters, init and the audio handler; behaviour lives in the mixins
+  in `lib/services/player_service/`. A mixin lists what it needs from the
+  player at the top of its file and builds on the others with `on`.
 - **README screenshots** are rendered offscreen with made-up songs:
   `flutter test tool/readme_shots/readme_shots_test.dart --update-goldens` in
   `app/`. Runs on Linux too; off Windows the desktop shot uses Roboto because
