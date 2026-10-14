@@ -152,6 +152,19 @@ void main() {
     return (app: app, player: player);
   }
 
+  testWidgets('a side system inset does not narrow the Now Playing pane', (
+    tester,
+  ) async {
+    setViewport(tester, const Size(1400, 800));
+    tester.view.padding = const FakeViewPadding(right: 60);
+    addTearDown(tester.view.resetPadding);
+    await tester.pumpWidget(await buildShell());
+    await tester.pumpAndSettle();
+
+    final pane = tester.getSize(find.byKey(const ValueKey('now_playing_panel')));
+    expect(pane.width, NowPlayingPanel.compactPaneWidth);
+  });
+
   testWidgets('wide windows use the side rail and hide the bottom nav', (
     tester,
   ) async {

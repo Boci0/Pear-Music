@@ -39,8 +39,10 @@ class PlayerPortraitBody extends StatelessWidget {
         final peekHeight = 62.0 + bottomInset;
         // Allow artwork to sit comfortably with balanced margins
         // while bounding against available vertical space to prevent transport controls from being cramped.
-        final maxByWidth = (constraints.maxWidth - 72.0).clamp(150.0, 305.0);
-        final maxByHeight = (availableHeight - peekHeight - 250.0).clamp(120.0, 305.0);
+        // The card (and the lyrics in it) uses the page's full width less its
+        // side padding; the 480 cap only matters on a tablet held upright.
+        final maxByWidth = (constraints.maxWidth - 48.0).clamp(150.0, 480.0);
+        final maxByHeight = (availableHeight - peekHeight - 250.0).clamp(120.0, 480.0);
         final artSize = math.min(maxByWidth, maxByHeight);
 
         return RepaintBoundary(

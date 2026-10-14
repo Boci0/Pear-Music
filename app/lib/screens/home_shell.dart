@@ -203,12 +203,19 @@ class _HomeShellState extends State<HomeShell>
     final currentSong = context.select<PlayerService, Song?>(
       (p) => p.currentSong,
     );
-    final paneSlotWidth = _paneSlotWidthFor(
-      size,
-      video:
-          _playerExpanded &&
-          (context.watch<VideoService?>()?.showingFor(currentSong) ?? false),
-    );
+    // The pane sits inside a SafeArea, so a system inset at the side (a
+    // display cutout, a side navigation bar) would shave its card narrower
+    // than the width its content is laid out at and clip both edges. Give the
+    // slot the inset back; with none, as on most tablets, nothing changes.
+    final paneSlotWidth =
+        _paneSlotWidthFor(
+          size,
+          video:
+              _playerExpanded &&
+              (context.watch<VideoService?>()?.showingFor(currentSong) ??
+                  false),
+        ) +
+        MediaQuery.paddingOf(context).horizontal;
 
     return PopScope(
       canPop:

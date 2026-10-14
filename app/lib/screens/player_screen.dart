@@ -139,6 +139,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     final targetAccent = _accentColor ?? themePrimary;
 
+    final isDesktopPlatform = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    // Desktop windows keep the two-column split body once they are wide
+    // enough; phones keep using orientation so landscape phones get the split
+    // body too.
+    final landscape = isDesktopPlatform
+        ? MediaQuery.sizeOf(context).width >= 900
+        : MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Very wide desktop windows trade the pull-up queue peek for a permanent
+    // Up Next panel beside the controls.
+    final useQueuePanel =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1250;
+    // The expandable queue peek stays available on wide desktop windows even
+    // though they use the landscape body.
+    final showQueuePeek = (!landscape || isDesktopPlatform) && !useQueuePanel;
+    // A phone held sideways or a car screen or tablet (under 700 dp tall): the title and
+    // song buttons go up into the top bar and the card takes the whole height.
+    final compactLandscape =
+        landscape && !useQueuePanel && MediaQuery.sizeOf(context).height < 700;
+
     final phoneLandscape =
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS) &&
@@ -150,6 +172,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       scrolledUnderElevation: 0,
       elevation: 0,
       notificationPredicate: (_) => false,
+      titleSpacing: 0,
+      title: compactLandscape && song != null
+          ? PlayerSongInfo(song: song, compact: true)
+          : null,
       leading: BackButton(
         onPressed: () {
           TactileFeedback.click();
@@ -179,23 +205,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    final isDesktopPlatform = !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.windows ||
-            defaultTargetPlatform == TargetPlatform.linux ||
-            defaultTargetPlatform == TargetPlatform.macOS);
-    // Desktop windows keep the two-column split body once they are wide
-    // enough; phones keep using orientation so landscape phones get the split
-    // body too.
-    final landscape = isDesktopPlatform
-        ? MediaQuery.sizeOf(context).width >= 900
-        : MediaQuery.orientationOf(context) == Orientation.landscape;
-    // Very wide desktop windows trade the pull-up queue peek for a permanent
-    // Up Next panel beside the controls.
-    final useQueuePanel =
-        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1250;
-    // The expandable queue peek stays available on wide desktop windows even
-    // though they use the landscape body.
-    final showQueuePeek = (!landscape || isDesktopPlatform) && !useQueuePanel;
 
     // Theme the player around the song's artwork: extract a dominant colour
     // (async, cached per song) and smoothly animate the accent when the track
@@ -285,6 +294,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           accent: targetAccent,
                                           // A phone held sideways has neither
                                           // the pull-up sheet nor the panel.
+                                          compact: compactLandscape,
                                           onOpenQueue: phoneLandscape
                                               ? () => _openQueueSheet(
                                                   player, targetAccent)

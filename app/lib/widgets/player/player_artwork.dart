@@ -658,7 +658,11 @@ class PlayerArtworkHero extends StatelessWidget {
 /// Song title, artist/device info line, and favorite toggle button.
 class PlayerSongInfo extends StatelessWidget {
   final Song song;
-  const PlayerSongInfo({super.key, required this.song});
+
+  /// One short row (save or radio button, title over the source line, favourite)
+  /// that fits the player's top bar, for a screen with no height to spare.
+  final bool compact;
+  const PlayerSongInfo({super.key, required this.song, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -675,6 +679,74 @@ class PlayerSongInfo extends StatelessWidget {
     final isConnecting = context.select<PlayerService, bool>(
       (p) => p.isBufferingNext,
     );
+
+    if (compact) {
+      return Row(
+        children: [
+          if (isStream)
+            TactileIconButton(
+              icon: Icon(
+                Icons.download_rounded,
+                color: theme.colorScheme.primary,
+              ),
+              tooltip: 'Save to library',
+              onPressed: () => controller.saveStreamToLibrary(song),
+            )
+          else
+            TactileIconButton(
+              icon: Icon(
+                Icons.sensors_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              tooltip: 'Start Radio mix',
+              onPressed: () => controller.startRadio(song),
+            ),
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _copyTitle(context, song.title),
+              onLongPress: () => _copyTitle(context, song.title),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    song.title,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  // Just the title, level with the buttons beside it; the
+                  // source line only appears while a stream connects.
+                  if (isStream && isConnecting)
+                    _buildSourceInfo(
+                      context,
+                      isStream,
+                      route,
+                      isConnecting,
+                      scheme,
+                      theme,
+                    ),
+                ],
+              ),
+            ),
+          ),
+          TactileIconButton(
+            icon: Icon(
+              isFav ? Icons.favorite : Icons.favorite_border,
+              color: isFav
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+            tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
+            onPressed: () => controller.toggleFavorite(song.id, song: song),
+          ),
+        ],
+      );
+    }
 
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 96, maxHeight: 114),
@@ -782,7 +854,7 @@ class PlayerSongInfo extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            'Connecting to Pear Radio...',
+            'Connecting...',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: scheme.primary,
               fontWeight: FontWeight.w500,
@@ -791,26 +863,8 @@ class PlayerSongInfo extends StatelessWidget {
         ],
       );
     } else if (isStream) {
-      content = KeyedSubtree(
-        key: const ValueKey('source_stream'),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.radio_rounded,
-              size: 14,
-              color: scheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              'Pear Radio',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      );
+      // A streamed song says nothing here: the radio label is gone.
+      content = const SizedBox.shrink(key: ValueKey('source_stream'));
     } else {
       final label = song.sourceDeviceId == null ? 'Local Library' : 'Shared from peer';
       content = Row(

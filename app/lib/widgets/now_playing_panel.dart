@@ -263,7 +263,7 @@ class NowPlayingPanel extends StatelessWidget {
             // above the scroll edge.
             height: math.min(
               216.0,
-              math.max(120.0, MediaQuery.sizeOf(context).height * 0.18),
+              math.max(96.0, MediaQuery.sizeOf(context).height * 0.14),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),

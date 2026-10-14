@@ -13,6 +13,8 @@ import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/player_theme.dart';
 import 'package:peerm_app/services/youtube_service.dart';
+import 'package:peerm_app/widgets/player/player_artwork.dart';
+import 'package:peerm_app/widgets/player/player_fullscreen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -76,6 +78,7 @@ void main() {
     Size(800, 480),
     Size(667, 375),
     Size(640, 360),
+    Size(1280, 720),
     Size(800, 360),
     Size(844, 390),
     Size(915, 412),
@@ -115,6 +118,30 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 600));
           expect(find.byKey(const ValueKey('queue_panel')), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
+
+        if (entry.key == 'player') {
+          // The artwork square uses the room the title block leaves.
+          final art = tester.getSize(find.byType(PlayerArtwork).first);
+          expect(art.width, greaterThanOrEqualTo(150));
+          if (size.height >= 700) {
+            expect(art.width, greaterThan(size.height * 0.52));
+          }
+          if (size.height <= 412) {
+            // A short phone screen gives the card the whole height.
+            expect(art.width, greaterThanOrEqualTo(size.height - 120));
+          }
+          // Close the queue sheet the step above left open.
+          await tester.tapAt(const Offset(4, 4));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          // The full-screen page is for video: with none showing it closes
+          // itself again instead of showing an empty screen.
+          PlayerFullscreenPage.open(tester.element(find.byType(PlayerScreen)));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+          expect(find.byType(PlayerFullscreenPage), findsNothing);
           expect(tester.takeException(), isNull);
         }
 
