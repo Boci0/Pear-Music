@@ -22,9 +22,13 @@ Windows and Android. No account, no cloud, no ads.
 
 <br>
 
-<img src=".github/screenshots/desktop.png" alt="Pear Music on Windows: library with the Now Playing panel" width="74%">
-&nbsp;
-<img src=".github/screenshots/phone.png" alt="Pear Music on Android: library" width="21%">
+<img src=".github/screenshots/desktop.png" alt="Pear Music on Windows: the library and the expanded player with its queue" width="94%">
+
+<br><br>
+
+<img src=".github/screenshots/phone.png" alt="Pear Music on Android: the library with the mini player" width="25%">
+&nbsp;&nbsp;&nbsp;
+<img src=".github/screenshots/phone-player.png" alt="Pear Music on Android: the player with the Video and Lyrics buttons" width="25%">
 
 </div>
 
@@ -41,6 +45,7 @@ Windows and Android. No account, no cloud, no ads.
 - Plays the audio files already on your device, even with no internet
 - Full-size artwork with background colours taken from the cover
 - Waveform seek bar and an optional visualizer
+- **Video**: a button next to the lyrics shows the picture of a song (streamed songs, and video files on Windows). A quality setting keeps mobile data use low
 - Sleep timer: end of song, countdown, or end of queue
 - Speed from 0.5x to 2x, plus volume levelling between songs
 
@@ -115,6 +120,8 @@ Grab the latest build below, or browse every file on the [releases page](https:/
 | **Android** | [ARMv7 APK](https://github.com/Boci0/Pear-Music/releases/latest/download/PearMusic-Android-armv7.apk) | Older 32-bit phones only. |
 
 You only pick once. After that, in-app updates fetch the right file for your device on their own.
+
+**First install on Android:** the phone will ask you to allow installing apps from your browser or file manager, and Play Protect (or your phone's own security app) may ask you to confirm, because the app is not from the Play Store. Choose to install anyway. You can compare the file with the checksum below first.
 
 <details>
 <summary><b>Check that your download is genuine</b></summary>
