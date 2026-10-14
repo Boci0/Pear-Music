@@ -60,10 +60,15 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       MethodChannel('com.peerm.peerm_app/network');
 
   /// The tallest picture to ask for: [setting] is the saved choice (0 = let
-  /// the app decide); mobile data gets 360p, everything else 720p.
+  /// the app decide); mobile data gets 360p, everything else 720p. 1080p is
+  /// the top choice: it is the tallest YouTube publishes as H.264, which the
+  /// device's decoder handles; above it the picture is VP9 or AV1, which many
+  /// phones would decode in software.
   @visibleForTesting
   static int pickHeight({required int setting, required bool metered}) {
-    if (setting == 360 || setting == 480 || setting == 720) return setting;
+    if (setting == 360 || setting == 480 || setting == 720 || setting == 1080) {
+      return setting;
+    }
     return metered ? 360 : 720;
   }
 

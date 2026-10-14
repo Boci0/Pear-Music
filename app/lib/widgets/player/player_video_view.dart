@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../services/video_relay.dart';
 import '../../services/video_service.dart';
 import 'player_artwork.dart';
+import 'player_fullscreen.dart';
 
 /// The picture of the playing song, in the artwork's place, as large as fits
 /// [maxWidth] by [maxHeight] in its own shape (black bars the video carries
@@ -18,11 +19,16 @@ class PlayerVideoView extends StatelessWidget {
   final double maxWidth;
   final double maxHeight;
 
+  /// Shown by the full-screen page: square corners, no caption and no
+  /// buttons over the picture (the page has its own).
+  final bool fullscreen;
+
   const PlayerVideoView({
     super.key,
     required this.accent,
     required this.maxWidth,
     required this.maxHeight,
+    this.fullscreen = false,
   });
 
   static String _size(int bytes) => bytes < 1024 * 1024
@@ -48,7 +54,7 @@ class PlayerVideoView extends StatelessWidget {
           width: width,
           height: height,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(fullscreen ? 0 : 22),
             child: ColoredBox(
               color: Colors.black,
               child: Stack(
@@ -102,21 +108,38 @@ class PlayerVideoView extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: PlayerPillButton(
-                      isCircle: true,
-                      activeColor: accent,
-                      tooltip: 'Show album artwork',
-                      onTap: video.hide,
-                      child: const Icon(
-                        Icons.image_rounded,
-                        size: 16,
-                        color: Colors.white,
+                  if (!fullscreen) ...[
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: PlayerPillButton(
+                        isCircle: true,
+                        activeColor: accent,
+                        tooltip: 'Fullscreen',
+                        onTap: () => PlayerFullscreenPage.open(context),
+                        child: const Icon(
+                          Icons.fullscreen_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                  ),
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: PlayerPillButton(
+                        isCircle: true,
+                        activeColor: accent,
+                        tooltip: 'Show album artwork',
+                        onTap: video.hide,
+                        child: const Icon(
+                          Icons.image_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -126,7 +149,7 @@ class PlayerVideoView extends StatelessWidget {
           valueListenable: VideoRelay.bytesUsed,
           builder: (context, bytes, _) {
             final lines = video.streamHeight;
-            if (lines == null) return const SizedBox.shrink();
+            if (lines == null || fullscreen) return const SizedBox.shrink();
             return Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(

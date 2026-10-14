@@ -321,7 +321,7 @@ class IdentityService extends ChangeNotifier {
   }
 
   /// The tallest picture, in lines, a streamed video may be: 0 lets the app
-  /// choose (lower on mobile data), or 360, 480 or 720.
+  /// choose (lower on mobile data), or 360, 480, 720 or 1080.
   int get videoQuality => _videoQuality;
 
   Future<void> setVideoQuality(int value) async {

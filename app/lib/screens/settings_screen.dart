@@ -253,7 +253,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Video quality'),
                   subtitle: const Text(
                     'Auto uses 360p on mobile data and 720p otherwise. A '
-                    'moving 720p music video is about 30 MB a minute.',
+                    'moving 720p music video is about 30 MB a minute and 1080p '
+                    'about twice that.',
                   ),
                   trailing: DropdownButtonHideUnderline(
                     child: DropdownButton<int>(
@@ -263,6 +264,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         DropdownMenuItem(value: 360, child: Text('360p')),
                         DropdownMenuItem(value: 480, child: Text('480p')),
                         DropdownMenuItem(value: 720, child: Text('720p')),
+                        DropdownMenuItem(value: 1080, child: Text('1080p')),
                       ],
                       onChanged: (v) async {
                         if (v == null) return;

@@ -2,6 +2,7 @@ import 'dart:ui' show Rect;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:peerm_app/widgets/player/player_fullscreen.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/video_service.dart';
 
@@ -128,9 +129,22 @@ void main() {
     });
   });
 
+  group('fullscreen fit', () {
+    test('a close shape fills the screen, a very different one fits', () {
+      // 16:9 picture on a 16:10 tablet, a 4:3 window and a 16:9 monitor.
+      expect(PlayerFullscreenPage.fillsByDefault(16 / 9, 16 / 10), isTrue);
+      expect(PlayerFullscreenPage.fillsByDefault(16 / 9, 4 / 3), isTrue);
+      expect(PlayerFullscreenPage.fillsByDefault(16 / 9, 16 / 9), isTrue);
+      // The same picture on a 20:9 phone would lose a fifth of its height.
+      expect(PlayerFullscreenPage.fillsByDefault(16 / 9, 20 / 9), isTrue);
+      // A portrait window would lose most of it.
+      expect(PlayerFullscreenPage.fillsByDefault(16 / 9, 9 / 16), isFalse);
+    });
+  });
+
   group('quality', () {
     test('a chosen height is used as it is', () {
-      for (final h in [360, 480, 720]) {
+      for (final h in [360, 480, 720, 1080]) {
         expect(VideoService.pickHeight(setting: h, metered: true), h);
         expect(VideoService.pickHeight(setting: h, metered: false), h);
       }
@@ -142,7 +156,7 @@ void main() {
     });
 
     test('an unknown saved value falls back to auto', () {
-      expect(VideoService.pickHeight(setting: 1080, metered: true), 360);
+      expect(VideoService.pickHeight(setting: 2160, metered: true), 360);
       expect(VideoService.pickHeight(setting: -1, metered: false), 720);
     });
   });
