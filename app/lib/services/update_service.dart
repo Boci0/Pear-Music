@@ -219,7 +219,9 @@ class UpdateService {
       return armv7;
     }
     if (lower.any((a) => a.contains('x86_64')) && x86 != null) return x86;
-    return arm64 ?? armv7 ?? universal ?? x86;
+    // An unknown or unlisted CPU (an x86_64 head unit) can only run the
+    // universal APK; the single-ABI ones would fail to install.
+    return universal ?? x86 ?? arm64 ?? armv7;
   }
 
   /// The device's supported ABIs on Android, otherwise empty.

@@ -129,6 +129,16 @@ jobs:
           cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk PearMusic-Android-arm64.apk
           cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk PearMusic-Android-armv7.apk
 
+      # One APK holding every ABI (arm64, armv7, x86_64) for devices whose CPU
+      # is not known, such as car head units. The per-ABI APKs above stay the
+      # ones the in-app updater picks for ARM phones.
+      - name: Build universal Android APK
+        run: flutter build apk --release
+        working-directory: app
+
+      - name: Stage universal Android APK
+        run: cp app/build/app/outputs/flutter-apk/app-release.apk PearMusic-Android-universal.apk
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -136,6 +146,7 @@ jobs:
           path: |
             PearMusic-Android-arm64.apk
             PearMusic-Android-armv7.apk
+            PearMusic-Android-universal.apk
 
   publish:
     needs: [build-windows, build-android]
@@ -163,7 +174,8 @@ jobs:
           h2=$(sha256sum PearMusic-Windows-x64.zip | cut -d' ' -f1)
           h3=$(sha256sum PearMusic-Android-arm64.apk | cut -d' ' -f1)
           h4=$(sha256sum PearMusic-Android-armv7.apk | cut -d' ' -f1)
-          printf '%s *PearMusic-Windows-Setup.exe\n%s *PearMusic-Windows-x64.zip\n%s *PearMusic-Android-arm64.apk\n%s *PearMusic-Android-armv7.apk\n' "$h1" "$h2" "$h3" "$h4" > SHA256SUMS
+          h5=$(sha256sum PearMusic-Android-universal.apk | cut -d' ' -f1)
+          printf '%s *PearMusic-Windows-Setup.exe\n%s *PearMusic-Windows-x64.zip\n%s *PearMusic-Android-arm64.apk\n%s *PearMusic-Android-armv7.apk\n%s *PearMusic-Android-universal.apk\n' "$h1" "$h2" "$h3" "$h4" "$h5" > SHA256SUMS
 
       - name: Generate release notes
         env:
@@ -201,14 +213,14 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "Release $TAG already exists; uploading release assets with clobber"
             gh release upload "$TAG" \
-              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS "${EXTRA[@]}" \
+              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Android-universal.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS "${EXTRA[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
             gh release edit "$TAG" --notes-file RELEASE_NOTES.md --draft=false --latest --repo "$GITHUB_REPOSITORY"
           else
             echo "Creating release $TAG"
             gh release create "$TAG" \
-              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS "${EXTRA[@]}" \
+              PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Android-universal.apk PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip SHA256SUMS "${EXTRA[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Pear Music ${TAG#v}" \
               --notes-file RELEASE_NOTES.md
@@ -238,7 +250,7 @@ jobs:
           fi
           # Files first, manifest last: the manifest is what the app trusts.
           gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
-            PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk \
+            PearMusic-Android-arm64.apk PearMusic-Android-armv7.apk PearMusic-Android-universal.apk \
             PearMusic-Windows-Setup.exe PearMusic-Windows-x64.zip
           gh release upload "$MIRROR_TAG" --repo "$MIRROR_REPO" --clobber \
             app-update.json app-update.json.sig

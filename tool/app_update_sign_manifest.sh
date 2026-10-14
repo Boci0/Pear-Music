@@ -4,7 +4,8 @@
 # Usage: app_update_sign_manifest.sh <asset-dir> <version> <ed25519-private-key.pem>
 #
 # Reads whichever of PearMusic-Windows-x64.zip, PearMusic-Windows-Setup.exe,
-# PearMusic-Android-arm64.apk and PearMusic-Android-armv7.apk exist in
+# PearMusic-Android-arm64.apk, PearMusic-Android-armv7.apk and
+# PearMusic-Android-universal.apk exist in
 # <asset-dir>, then writes app-update.json and app-update.json.sig (base64
 # Ed25519 signature over the exact manifest bytes) next to them.
 #
@@ -37,6 +38,7 @@ for name in (
     "PearMusic-Windows-Setup.exe",
     "PearMusic-Android-arm64.apk",
     "PearMusic-Android-armv7.apk",
+    "PearMusic-Android-universal.apk",
 ):
     path = os.path.join(d, name)
     if not os.path.isfile(path):

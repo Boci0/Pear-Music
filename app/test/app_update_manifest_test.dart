@@ -213,6 +213,26 @@ void main() {
       expect(UpdateService.selectApkUrl(abis: const [], armv7: 'a32'), 'a32');
       expect(UpdateService.selectApkUrl(abis: const []), isNull);
     });
+
+    test('a CPU with no matching APK gets the universal one', () {
+      expect(
+        UpdateService.selectApkUrl(
+          abis: const ['x86_64'],
+          arm64: 'a64',
+          armv7: 'a32',
+          universal: 'uni',
+        ),
+        'uni',
+      );
+      expect(
+        UpdateService.selectApkUrl(
+          abis: const ['arm64-v8a'],
+          arm64: 'a64',
+          universal: 'uni',
+        ),
+        'a64',
+      );
+    });
   });
 
   test('the update hosts are two different repositories', () {
