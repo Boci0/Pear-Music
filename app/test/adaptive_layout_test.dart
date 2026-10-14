@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -532,6 +533,8 @@ void main() {
     tester,
   ) async {
     setViewport(tester, const Size(1500, 900));
+    // The queue panel and peek are desktop-OS behaviour; tests run as Android.
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     final env = await buildPlayerApp();
     final first = _song('s1', 'Song 1');
     env.player.updateQueue([first, _song('s2', 'Song 2')]);
@@ -540,6 +543,7 @@ void main() {
     await tester.pumpWidget(env.app);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
+    debugDefaultTargetPlatformOverride = null;
 
     expect(find.byKey(const ValueKey('queue_panel')), findsOneWidget);
     expect(find.byType(ExpandableQueueSheet), findsNothing);
@@ -550,6 +554,8 @@ void main() {
     tester,
   ) async {
     setViewport(tester, const Size(1000, 800));
+    // The queue panel and peek are desktop-OS behaviour; tests run as Android.
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     final env = await buildPlayerApp();
     final first = _song('s1', 'Song 1');
     env.player.updateQueue([first, _song('s2', 'Song 2')]);
@@ -558,6 +564,7 @@ void main() {
     await tester.pumpWidget(env.app);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
+    debugDefaultTargetPlatformOverride = null;
 
     expect(find.byKey(const ValueKey('queue_panel')), findsNothing);
     expect(find.byType(ExpandableQueueSheet), findsOneWidget);

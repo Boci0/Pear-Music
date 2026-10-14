@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -165,14 +164,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
       actions: [
-        // A phone held sideways has neither the pull-up queue sheet nor the
-        // side panel, so the queue opens from here.
-        if (phoneLandscape)
-          IconButton(
-            tooltip: 'Up Next',
-            icon: const Icon(Icons.queue_music_rounded),
-            onPressed: () => _openQueueSheet(player, targetAccent),
-          ),
         PlaybackSpeedButton(player: player),
         SleepTimerButton(player: player),
         StreamQualityInfoButton(player: player),
@@ -189,7 +180,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final isDesktopPlatform = !kIsWeb &&
-        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
     // Desktop windows keep the two-column split body once they are wide
     // enough; phones keep using orientation so landscape phones get the split
     // body too.
@@ -290,6 +283,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           song: song,
                                           duration: duration,
                                           accent: targetAccent,
+                                          // A phone held sideways has neither
+                                          // the pull-up sheet nor the panel.
+                                          onOpenQueue: phoneLandscape
+                                              ? () => _openQueueSheet(
+                                                  player, targetAccent)
+                                              : null,
                                         ),
                                 )
                               : PlayerPortraitBody(

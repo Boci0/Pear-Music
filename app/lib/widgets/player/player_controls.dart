@@ -56,7 +56,8 @@ class PlayerTransport extends StatelessWidget {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
+            LayoutBuilder(builder: (context, box) {
+              final row = Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TactileIconButton(
@@ -95,7 +96,16 @@ class PlayerTransport extends StatelessWidget {
                   onPressed: controller.toggleLoop,
                 ),
               ],
-            ),
+            );
+              // A narrow column (a small phone held sideways) scales the row
+              // down instead of overflowing.
+              return box.maxWidth < 320
+                  ? FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: SizedBox(width: 320, child: row),
+                    )
+                  : row;
+            }),
             const SizedBox(height: 2),
             if (stateLabel != null)
               Text(

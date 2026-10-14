@@ -75,6 +75,7 @@ void main() {
     Size(1024, 600),
     Size(800, 480),
     Size(667, 375),
+    Size(640, 360),
     Size(800, 360),
     Size(844, 390),
     Size(915, 412),
@@ -108,9 +109,9 @@ void main() {
         }
 
         if (entry.key == 'player') {
-          // Landscape has no pull-up queue sheet, so Up Next opens from the
-          // top bar.
-          await tester.tap(find.byTooltip('Up Next'));
+          // Landscape has no pull-up queue sheet, so Up Next is a labelled
+          // button on the player itself.
+          await tester.tap(find.byKey(const ValueKey('up_next_button')));
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 600));
           expect(find.byKey(const ValueKey('queue_panel')), findsOneWidget);

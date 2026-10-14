@@ -19,6 +19,11 @@ class PlayerLandscapeBody extends StatelessWidget {
   final Duration duration;
   final Color accent;
 
+  /// Opens the queue. Set where the screen has no pull-up queue sheet or side
+  /// panel (a phone held sideways), which shows a labelled button under the
+  /// volume row.
+  final VoidCallback? onOpenQueue;
+
   const PlayerLandscapeBody({
     super.key,
     required this.controller,
@@ -26,6 +31,7 @@ class PlayerLandscapeBody extends StatelessWidget {
     required this.song,
     required this.duration,
     required this.accent,
+    this.onOpenQueue,
   });
 
   @override
@@ -72,29 +78,42 @@ class PlayerLandscapeBody extends StatelessWidget {
                 ),
                 Expanded(
                   flex: 4,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 480),
-                        child: PlayerSeekBar(
-                          player: player,
-                          duration: duration,
-                          accent: accent,
-                        ),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 480),
+                            child: PlayerSeekBar(
+                              player: player,
+                              duration: duration,
+                              accent: accent,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          PlayerTransport(
+                            player: player,
+                            controller: controller,
+                            accent: accent,
+                          ),
+                          const SizedBox(height: 12),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 480),
+                            child: PlayerVolumeRow(accent: accent),
+                          ),
+                          if (onOpenQueue != null) ...[
+                            const SizedBox(height: 4),
+                            TextButton.icon(
+                              key: const ValueKey('up_next_button'),
+                              onPressed: onOpenQueue,
+                              icon: const Icon(Icons.queue_music_rounded),
+                              label: const Text('Up Next'),
+                            ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      PlayerTransport(
-                        player: player,
-                        controller: controller,
-                        accent: accent,
-                      ),
-                      const SizedBox(height: 12),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 480),
-                        child: PlayerVolumeRow(accent: accent),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ],
