@@ -5,7 +5,7 @@
 #
 # Run from the repository root, with SHA256SUMS next to it. The notes are the
 # tag's message plus the commit subjects since the previous tag. Commits whose
-# subject starts with build:, ci:, chore:, test: or docs: are left out: they are
+# subject starts with build:, ci:, chore:, test:, docs: or release: are left out: they are
 # about the project's tooling, and the notes also end up in the signed
 # app-update.json that the in-app update dialog shows.
 #
@@ -17,7 +17,7 @@ set -euo pipefail
 out="${1:-RELEASE_NOTES.md}"
 [ -f SHA256SUMS ] || { echo "SHA256SUMS not found in $(pwd)" >&2; exit 1; }
 
-INTERNAL='^(build|ci|chore|test|docs)(\([^)]*\))?!?:'
+INTERNAL='^(build|ci|chore|test|docs|release)(\([^)]*\))?!?:'
 
 # Subjects for the change list, internal ones dropped. A filter that matches
 # everything must not fail the pipeline.
