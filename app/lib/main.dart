@@ -25,6 +25,7 @@ import 'services/player_theme.dart';
 import 'services/self_test_service.dart';
 import 'services/session_diagnostics.dart';
 import 'services/stream_cache_manager.dart';
+import 'services/video_service.dart';
 import 'services/window_focus.dart';
 import 'services/window_title.dart';
 import 'services/youtube_service.dart';
@@ -163,11 +164,17 @@ Future<void> _bootstrapAndRunApp(List<String> args) async {
   unawaited(startDebugControl(controller));
   // Only when launched with --control-port and --control-token (automated
   // checks); a normal launch opens nothing. See test_control.dart.
-  unawaited(startTestControl(controller, args));
+  final video = VideoService(player, library, identity);
+  unawaited(
+    controlArgsWithFile(args).then(
+      (a) => startTestControl(controller, a, video: video),
+    ),
+  );
   runApp(PearMusicApp(
     controller: controller,
     playerTheme: playerTheme,
     history: history,
+    video: video,
   ));
 }
 
@@ -175,11 +182,13 @@ class PearMusicApp extends StatelessWidget {
   final AppController controller;
   final PlayerTheme playerTheme;
   final HistoryService history;
+  final VideoService? video;
   const PearMusicApp({
     super.key,
     required this.controller,
     required this.playerTheme,
     required this.history,
+    this.video,
   });
 
   @override
@@ -192,6 +201,8 @@ class PearMusicApp extends StatelessWidget {
         ChangeNotifierProvider<PlayerService>.value(value: controller.player),
         ChangeNotifierProvider<HistoryService>.value(value: history),
         ChangeNotifierProvider<PlayerTheme>.value(value: playerTheme),
+        if (video != null)
+          ChangeNotifierProvider<VideoService>.value(value: video!),
       ],
       // The whole app's theme is re-seeded from the current song's artwork
       // colour (dark mode preserved), so the colour follows the music app-wide

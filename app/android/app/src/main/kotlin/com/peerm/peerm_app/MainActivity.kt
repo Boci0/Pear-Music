@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.media.audiofx.Visualizer
 import android.os.BatteryManager
 import android.os.Build
@@ -24,6 +25,7 @@ class MainActivity : AudioServiceActivity() {
     private val BATTERY_CHANNEL = "com.peerm.peerm_app/battery"
     private val MEMORY_CHANNEL = "com.peerm.peerm_app/memory"
     private val VISUALIZER_CHANNEL = "com.peerm.peerm_app/visualizer"
+    private val NETWORK_CHANNEL = "com.peerm.peerm_app/network"
     private val VISUALIZER_STREAM_CHANNEL = "com.peerm.peerm_app/visualizer_stream"
 
     private var memoryChannel: MethodChannel? = null
@@ -105,6 +107,17 @@ class MainActivity : AudioServiceActivity() {
                     "isCharging" to isCharging,
                     "isAc" to (plugged == BatteryManager.BATTERY_PLUGGED_AC)
                 ))
+            } else {
+                result.notImplemented()
+            }
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NETWORK_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "isMetered") {
+                // Mobile data (or a hotspot marked metered): the video picks
+                // a smaller picture there.
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                result.success(cm.isActiveNetworkMetered)
             } else {
                 result.notImplemented()
             }

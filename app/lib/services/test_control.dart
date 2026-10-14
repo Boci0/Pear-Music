@@ -2,8 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../controllers/app_controller.dart';
+import '../screens/home_shell.dart';
 import 'debug_log.dart';
+import 'video_service.dart';
 import 'visualizer_feed.dart';
 import 'youtube_search_service.dart';
 
@@ -26,6 +30,10 @@ import 'youtube_search_service.dart';
 ///   /liveseek?behind=S      rewind a live stream S seconds; /golive returns
 ///   /library                the library's songs (JSON)
 ///   /playlocal?i=N          play library song N (no network)
+///   /import?path=           copy a file into the library (JSON: added)
+///   /expand                 open the Now Playing pane, as a tap on it does
+///   /remove?id=             take a song out of the library again
+///   /video?on=1|0           show or hide the picture; the reply is its state
 ///   /viz?hold=1|0           what the visualizer feed saw since the last call
 ///                           (hold=1 keeps a client on the feed, hold=0 drops it)
 ///   /log?n=60               the last lines of the debug log
@@ -52,12 +60,35 @@ ControlSettings? parseControlArgs(List<String> args) {
   return ControlSettings(port, token);
 }
 
+const bool _controlFileEnabled = bool.fromEnvironment('PEAR_CONTROL_FILE');
+
+/// The launch arguments plus the control flags from `control.txt` in the
+/// phone's external app folder (`port token` on one line, put there over adb),
+/// since intent arguments never reach `main` there.
+Future<List<String>> controlArgsWithFile(List<String> args) async {
+  // Compiled in only for check builds: on older Android another app could
+  // write that file, and the port can import and remove songs.
+  if (!_controlFileEnabled || !Platform.isAndroid) return args;
+  try {
+    final dir = await getExternalStorageDirectory();
+    if (dir == null) return args;
+    final file = File('${dir.path}/control.txt');
+    if (!await file.exists()) return args;
+    final parts = (await file.readAsString()).trim().split(RegExp(r'\s+'));
+    if (parts.length < 2) return args;
+    return [...args, '--control-port=${parts[0]}', '--control-token=${parts[1]}'];
+  } catch (_) {
+    return args;
+  }
+}
+
 /// Starts the control port when the launch arguments ask for it. Returns the
 /// server (for tests and shutdown) or null when it is not enabled.
 Future<HttpServer?> startTestControl(
   AppController controller,
-  List<String> args,
-) async {
+  List<String> args, {
+  VideoService? video,
+}) async {
   final settings = parseControlArgs(args);
   if (settings == null) return null;
   try {
@@ -97,6 +128,7 @@ Future<HttpServer?> startTestControl(
               'error': player.playbackError?.label,
               'liveBehind': player.liveBehind,
               'liveWindow': player.liveWindow,
+              if (video != null) 'video': video.status,
             };
           case '/search':
             final query = q['q'] ?? '';
@@ -205,6 +237,42 @@ Future<HttpServer?> startTestControl(
             } else {
               unawaited(player.playSong(songs[index], queue: songs));
               body = {'playing': songs[index].title};
+            }
+          case '/import':
+            final path = q['path'];
+            if (path == null || !File(path).existsSync()) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no such file'};
+            } else {
+              final added = await controller.library.addLocalFiles([File(path)]);
+              body = {
+                'added': added.length,
+                'ids': [for (final s in added) s.id],
+              };
+            }
+          case '/expand':
+            HomeShell.requestExpandedPane();
+            body = {'expanded': true};
+          case '/remove':
+            // Takes out a song a check imported, so it leaves no trace.
+            final known = controller.library.songs
+                .where((s) => s.id == q['id'])
+                .firstOrNull;
+            if (known == null) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no such song'};
+            } else {
+              await controller.library.removeSong(known.id);
+              body = {'removed': known.title};
+            }
+          case '/video':
+            if (video == null) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no video service'};
+            } else {
+              if (q['on'] == '1') video.show();
+              if (q['on'] == '0') video.hide();
+              body = video.status;
             }
           case '/viz':
             // hold=1 stands in for a mounted visualizer widget (so capture can

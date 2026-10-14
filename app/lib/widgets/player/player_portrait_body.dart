@@ -1,13 +1,16 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/player_service.dart';
+import '../../services/video_service.dart';
 import 'player_artwork.dart';
 import 'player_controls.dart';
+import 'player_video_view.dart';
 
 /// Portrait mobile body: vertically centered artwork, track details, playback
 /// controls, and bottom padding for the pull-up queue peek card.
@@ -54,12 +57,22 @@ class PlayerPortraitBody extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   Center(
-                    child: PlayerArtworkHero(
-                      song: song,
-                      size: artSize,
-                      artwork: ArtworkPalette.cachedBytes(song),
-                      accent: accent,
-                    ),
+                    child: context.watch<VideoService?>()?.showingFor(song) ??
+                            false
+                        // The picture takes the artwork's place, as wide as
+                        // the page allows in its own shape.
+                        ? PlayerVideoView(
+                            accent: accent,
+                            maxWidth: constraints.maxWidth - 48,
+                            maxHeight: math.max(artSize, 180),
+                          )
+                        : PlayerArtworkHero(
+                            song: song,
+                            size: artSize,
+                            artwork: ArtworkPalette.cachedBytes(song),
+                            accent: accent,
+                            videoEnabled: true,
+                          ),
                   ),
                   PlayerSongInfo(song: song),
                   PlayerSeekBar(

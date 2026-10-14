@@ -6,10 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/lyrics_service.dart';
+import '../services/player_service.dart';
 import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
+import '../services/video_service.dart';
 import '../theme/glass.dart';
 import '../widgets/now_playing_panel.dart';
 import '../widgets/pear_content_frame.dart';
@@ -99,10 +102,13 @@ class _HomeShellState extends State<HomeShell>
   /// width constants so the animated width and the padding cannot drift.
   static const double _paneGutter = 12;
 
-  /// Width the Now Playing pane settles at, gutter included.
-  double get _paneSlotWidth =>
+  /// Width the Now Playing pane settles at, gutter included. [video] is true
+  /// while the expanded card shows a song's picture, which widens it.
+  double _paneSlotWidthFor(Size window, {required bool video}) =>
       (_playerExpanded
-          ? NowPlayingPanel.expandedPaneWidth
+          ? (video
+                ? NowPlayingPanel.videoPaneWidthFor(window.width)
+                : NowPlayingPanel.expandedPaneWidth)
           : NowPlayingPanel.compactPaneWidth) +
       _paneGutter;
 
@@ -194,6 +200,15 @@ class _HomeShellState extends State<HomeShell>
     // Old-school desktop layout: at 1250+ a permanent Now Playing pane sits
     // on the right and replaces the floating mini player.
     final useNowPlayingPane = HomeShell.usesNowPlayingPane(size);
+    final currentSong = context.select<PlayerService, Song?>(
+      (p) => p.currentSong,
+    );
+    final paneSlotWidth = _paneSlotWidthFor(
+      size,
+      video:
+          _playerExpanded &&
+          (context.watch<VideoService?>()?.showingFor(currentSong) ?? false),
+    );
 
     return PopScope(
       canPop:
@@ -252,7 +267,7 @@ class _HomeShellState extends State<HomeShell>
                                   top: 0,
                                   bottom: 0,
                                   right: useNowPlayingPane
-                                      ? _paneSlotWidth
+                                      ? paneSlotWidth
                                       : 0,
                                   child: RepaintBoundary(
                                     child: Stack(
@@ -300,7 +315,7 @@ class _HomeShellState extends State<HomeShell>
                                       duration: NowPlayingPanel
                                           .expandTransitionDuration,
                                       curve: Curves.easeOutCubic,
-                                      width: _paneSlotWidth,
+                                      width: paneSlotWidth,
                                       child: Padding(
                                         padding: const EdgeInsets.fromLTRB(
                                           0,

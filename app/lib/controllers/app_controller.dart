@@ -21,6 +21,7 @@ import '../services/player_service.dart';
 import '../services/playlist_file.dart';
 import '../services/recommendation_service.dart';
 import '../services/stream_cache_manager.dart';
+import '../services/video_service.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 
@@ -31,6 +32,12 @@ import '../services/youtube_service.dart';
 ///   - the music library and favorites
 ///   - playlists and queue ordering
 ///   - playback state and streaming
+/// What the import picker offers for audio when it has to list extensions
+/// itself (the built-in audio filter is shorter than what the player opens).
+const List<String> _audioPickerExtensions = [
+  'mp3', 'm4a', 'aac', 'flac', 'wav', 'ogg', 'opus', 'wma', 'aiff', 'mka',
+];
+
 class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final IdentityService identity;
   final LibraryService library;
@@ -436,8 +443,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   // ---------- library ----------
 
   Future<void> addFilesFromPicker() async {
+    // Windows can show a song's picture, so video files are importable
+    // there; elsewhere the picker stays audio only.
     final files = await FilePicker.pickFiles(
-      type: FileType.audio,
+      type: VideoService.canImportVideoFiles ? FileType.custom : FileType.audio,
+      allowedExtensions: VideoService.canImportVideoFiles
+          ? [..._audioPickerExtensions, ...VideoService.videoExtensions]
+          : null,
     );
     if (files.isEmpty) return;
     final picked = files

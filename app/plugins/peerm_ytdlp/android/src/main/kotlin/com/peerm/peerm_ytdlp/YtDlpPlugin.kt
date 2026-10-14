@@ -165,6 +165,15 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                 val live = call.argument<Boolean>("live") ?: false
                 getStreamUrl(ctx, url, live, result)
             }
+            "getVideoLink" -> {
+                val url = call.argument<String>("url")
+                if (url == null) {
+                    result.error("bad_args", "url required", null)
+                    return
+                }
+                val maxHeight = call.argument<Int>("maxHeight") ?: 360
+                getVideoLink(ctx, url, maxHeight, result)
+            }
             "canRequestPackageInstalls" -> {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     result.success(ctx.packageManager.canRequestPackageInstalls())
@@ -1058,6 +1067,59 @@ class YtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel
                     currentAudioProcessId = null
                 }
                 System.gc()
+            }
+        }
+    }
+
+    /// A picture-only link for the video player: one yt-dlp run that prints
+    /// the link with the request headers YouTube expects for it, as the
+    /// desktop does. Nothing is downloaded.
+    private fun getVideoLink(
+        ctx: Context,
+        url: String,
+        maxHeight: Int,
+        result: MethodChannel.Result,
+    ) {
+        val executor = Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                ensureInit(ctx)
+                fun makeReq(useExtractorArgs: Boolean): YoutubeDLRequest {
+                    val req = YoutubeDLRequest(url)
+                    req.addOption("--print", "video:PEARSTREAM %(.{url,http_headers,ext})j")
+                    req.addOption(
+                        "-f",
+                        "bv*[height<=$maxHeight][vcodec^=avc1]/bv*[height<=$maxHeight]" +
+                            "/b[height<=$maxHeight]",
+                    )
+                    req.addOption("--no-playlist")
+                    req.addOption("--no-warnings")
+                    req.addOption("--no-check-certificates")
+                    req.addOption("--force-ipv4")
+                    req.addOption("--socket-timeout", "10")
+                    if (useExtractorArgs) {
+                        req.addOption("--extractor-args", "youtube:player_skip=configs,webpage;player_client=android,web,mweb")
+                    }
+                    return req
+                }
+                val response = try {
+                    YoutubeDL.getInstance().execute(makeReq(true))
+                } catch (firstErr: Exception) {
+                    android.util.Log.w(TAG, "getVideoLink attempt 1 failed: ${firstErr.message}, trying without extra args...")
+                    YoutubeDL.getInstance().execute(makeReq(false))
+                }
+                val line = response.out?.trim()?.split(Regex("[\r\n]+"))
+                    ?.firstOrNull { it.startsWith("PEARSTREAM ") }
+                if (line != null) {
+                    mainHandler.post { result.success(line) }
+                } else {
+                    mainHandler.post { result.error("no_url", "Could not resolve a video link", null) }
+                }
+            } catch (e: Exception) {
+                mainHandler.post { result.error("resolve_failed", e.message, null) }
+            } finally {
+                executor.shutdown()
             }
         }
     }

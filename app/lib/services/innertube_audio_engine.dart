@@ -20,6 +20,13 @@ class InnerTubeFailure implements Exception {
   String toString() => message;
 }
 
+/// A direct, picture-only stream link and the height it plays at.
+class InnerTubeVideoLink {
+  const InnerTubeVideoLink({required this.url, required this.height});
+  final String url;
+  final int height;
+}
+
 /// The fast way to a song's audio: one POST to YouTube's player endpoint as
 /// the visionOS client, which hands back plain audio links that need no player
 /// code, no JavaScript runtime and no PO token. That is what makes it quick
@@ -155,9 +162,10 @@ class InnerTubeAudioEngine {
   static String? _status(Map<String, dynamic> j) =>
       (j['playabilityStatus'] as Map?)?['status'] as String?;
 
-  /// The audio streams [videoId] offers, as candidates for
-  /// [BackupAudioEngine.pickStream]. Throws [InnerTubeFailure].
-  static Future<List<BackupAudioCandidate>> lookup(String videoId) async {
+  /// The player response for [videoId] once YouTube has agreed to play it:
+  /// the bot-check retry, the not-offered and live checks. Shared by the audio
+  /// and video lookups. Throws [InnerTubeFailure].
+  static Future<Map<String, dynamic>> _playable(String videoId) async {
     var sentWith = _visitorData;
     Map<String, dynamic> json;
     try {
@@ -196,6 +204,13 @@ class InnerTubeAudioEngine {
     if ((json['videoDetails'] as Map?)?['isLive'] == true) {
       throw InnerTubeFailure(liveStreamError);
     }
+    return json;
+  }
+
+  /// The audio streams [videoId] offers, as candidates for
+  /// [BackupAudioEngine.pickStream]. Throws [InnerTubeFailure].
+  static Future<List<BackupAudioCandidate>> lookup(String videoId) async {
+    final json = await _playable(videoId);
     final formats =
         ((json['streamingData'] as Map?)?['adaptiveFormats'] as List?) ??
             const [];
@@ -220,6 +235,51 @@ class InnerTubeAudioEngine {
     if (out.isEmpty) throw InnerTubeFailure('no audio links offered');
     return out;
   }
+
+  /// A picture-only link for [videoId], at most [maxHeight] lines tall, for
+  /// the video player to read directly. Nothing is downloaded or cached: this
+  /// is the same single lookup as the audio's, and the player streams from the
+  /// link while the video is on. Throws [InnerTubeFailure].
+  static Future<InnerTubeVideoLink> videoLink(
+    String videoId, {
+    int maxHeight = 480,
+  }) async {
+    if (!_guard.allow(videoId, DateTime.now())) {
+      throw InnerTubeFailure('resting after a block');
+    }
+    final json = await _playable(videoId);
+    final formats =
+        ((json['streamingData'] as Map?)?['adaptiveFormats'] as List?) ??
+            const [];
+    InnerTubeVideoLink? best;
+    var bestIsMp4 = false;
+    for (final f in formats.cast<Map>()) {
+      final mime = f['mimeType'] as String? ?? '';
+      final url = f['url'] as String?;
+      final height = (f['height'] as num?)?.toInt() ?? 0;
+      if (!mime.startsWith('video/') || url == null) continue;
+      if (height <= 0 || height > maxHeight) continue;
+      // MP4 (H.264) over WebM at the same height: the graphics card decodes
+      // it, where VP9 would fall to the processor on many machines.
+      final isMp4 = mime.contains('mp4');
+      final better = best == null ||
+          height > best.height ||
+          (height == best.height && isMp4 && !bestIsMp4);
+      if (better) {
+        best = InnerTubeVideoLink(url: url, height: height);
+        bestIsMp4 = isMp4;
+      }
+    }
+    if (best == null) throw InnerTubeFailure('no video links offered');
+    _guard.recordSuccess(videoId);
+    return best;
+  }
+
+  /// The request headers the video link expects, as the lookup was made.
+  static const Map<String, String> videoHeaders = {
+    'User-Agent': _userAgent,
+    'Origin': 'https://www.youtube.com',
+  };
 
   /// Reads a stream's bytes in ranges, as one continuous stream.
   static Stream<List<int>> open(BackupAudioCandidate c, String videoId) async* {

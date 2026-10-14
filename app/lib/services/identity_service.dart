@@ -43,6 +43,7 @@ class IdentityService extends ChangeNotifier {
   static const _fastEngineKey = 'peerm_fast_engine';
   static const _visualizerAudioExplainedKey = 'peerm_visualizer_audio_explained';
   static const _miniVisualizerKey = 'peerm_mini_visualizer';
+  static const _videoQualityKey = 'peerm_video_quality';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -66,6 +67,7 @@ class IdentityService extends ChangeNotifier {
   late bool _fastEngine;
   late bool _visualizerAudioExplained;
   late bool _miniVisualizer;
+  late int _videoQuality;
 
   IdentityService(this._prefs) {
     deviceId = _prefs.getString(_deviceIdKey) ?? _uuid();
@@ -119,6 +121,7 @@ class IdentityService extends ChangeNotifier {
     // Off by default: bars behind the mini player redraw the blurred glass
     // under them all through playback, which is the costly part.
     _miniVisualizer = _prefs.getBool(_miniVisualizerKey) ?? false;
+    _videoQuality = _prefs.getInt(_videoQualityKey) ?? 0;
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
@@ -314,6 +317,17 @@ class IdentityService extends ChangeNotifier {
     if (_synthesizerBar == value) return;
     _synthesizerBar = value;
     await _prefs.setBool(_synthesizerBarKey, value);
+    notifyListeners();
+  }
+
+  /// The tallest picture, in lines, a streamed video may be: 0 lets the app
+  /// choose (lower on mobile data), or 360, 480 or 720.
+  int get videoQuality => _videoQuality;
+
+  Future<void> setVideoQuality(int value) async {
+    if (_videoQuality == value) return;
+    _videoQuality = value;
+    await _prefs.setInt(_videoQualityKey, value);
     notifyListeners();
   }
 

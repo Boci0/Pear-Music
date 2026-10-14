@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/player_service.dart';
+import '../../services/video_service.dart';
 import 'player_artwork.dart';
 import 'player_controls.dart';
+import 'player_video_view.dart';
 
 /// Landscape mobile layout: 2-column split with artwork on the left and
 /// transport/volume controls on the right.
@@ -43,12 +46,23 @@ class PlayerLandscapeBody extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          PlayerArtworkHero(
-                            song: song,
-                            size: artSize,
-                            artwork: ArtworkPalette.cachedBytes(song),
-                            accent: accent,
-                          ),
+                          if (context.watch<VideoService?>()?.showingFor(
+                                song,
+                              ) ??
+                              false)
+                            PlayerVideoView(
+                              accent: accent,
+                              maxWidth: constraints.maxWidth * 5 / 9 - 24,
+                              maxHeight: constraints.maxHeight * 0.62,
+                            )
+                          else
+                            PlayerArtworkHero(
+                              song: song,
+                              size: artSize,
+                              artwork: ArtworkPalette.cachedBytes(song),
+                              accent: accent,
+                              videoEnabled: true,
+                            ),
                           const SizedBox(height: 20),
                           PlayerSongInfo(song: song),
                         ],

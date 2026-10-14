@@ -248,6 +248,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : null,
                 ),
                 const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.high_quality_rounded),
+                  title: const Text('Video quality'),
+                  subtitle: const Text(
+                    'Auto uses 360p on mobile data and 720p otherwise. A '
+                    'moving 720p music video is about 30 MB a minute.',
+                  ),
+                  trailing: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: identity.videoQuality,
+                      items: const [
+                        DropdownMenuItem(value: 0, child: Text('Auto')),
+                        DropdownMenuItem(value: 360, child: Text('360p')),
+                        DropdownMenuItem(value: 480, child: Text('480p')),
+                        DropdownMenuItem(value: 720, child: Text('720p')),
+                      ],
+                      onChanged: (v) async {
+                        if (v == null) return;
+                        TactileFeedback.selection();
+                        await identity.setVideoQuality(v);
+                      },
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.battery_saver_rounded),
                   title: const Text('Reduced Effects'),

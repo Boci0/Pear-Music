@@ -8,6 +8,7 @@ import '../controllers/app_controller.dart';
 import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/player_service.dart';
+import '../services/video_service.dart';
 import 'home_shell.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_artwork.dart';
@@ -47,6 +48,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _resolvedSongId;
   bool _handingOffToPane = false;
 
+  /// Kept to stop the picture when this page closes: dispose cannot look it
+  /// up, and a picture nobody is looking at would go on fetching.
+  VideoService? _video;
+
   /// When the window grows wide enough for the Now Playing pane (for example
   /// the player was opened at phone width and the window was then widened),
   /// close this page and open the pane's expanded player instead, so wide
@@ -69,6 +74,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _video = context.read<VideoService?>();
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
   }
 
@@ -345,6 +351,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Playing pane (after a hand-off to a wide window) listens to the lyrics
     // switch. The visualizer is a setting and stays on.
     Future.microtask(PlayerArtwork.closeLyrics);
+    final video = _video;
+    Future.microtask(() => video?.hide());
     super.dispose();
   }
 }

@@ -12,6 +12,7 @@ import '../../services/artwork_service.dart';
 import '../../services/lyrics_display.dart';
 import '../../services/player_service.dart';
 import '../../services/screen_awake.dart';
+import '../../services/video_service.dart';
 import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
 import 'rhythm_pulse.dart';
@@ -31,6 +32,10 @@ class PlayerArtwork extends StatefulWidget {
   final String? networkUrl;
   final double size;
   final Color? accent;
+
+  /// Offers the video button for a song that has a picture. Only the layouts
+  /// that can show the video in the artwork's place turn this on.
+  final bool videoEnabled;
   const PlayerArtwork({
     super.key,
     this.song,
@@ -38,6 +43,7 @@ class PlayerArtwork extends StatefulWidget {
     this.networkUrl,
     this.size = 240,
     this.accent,
+    this.videoEnabled = false,
   });
 
   @override
@@ -533,6 +539,27 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              if (widget.videoEnabled &&
+                                  (context
+                                          .watch<VideoService?>()
+                                          ?.canOffer(song) ??
+                                      false)) ...[
+                                PlayerPillButton(
+                                  isCircle: true,
+                                  activeColor: baseShadowColor,
+                                  tooltip: 'Show video',
+                                  onTap: () {
+                                    PlayerArtwork.closeLyrics();
+                                    context.read<VideoService>().show();
+                                  },
+                                  child: Icon(
+                                    Icons.videocam_rounded,
+                                    size: 16,
+                                    color: Colors.white.withValues(alpha: 0.90),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
                               PlayerPillButton(
                                 isCircle: true,
                                 isActive: isLyricsFullyOpen,
@@ -600,6 +627,7 @@ class PlayerArtworkHero extends StatelessWidget {
   final Uint8List? artwork;
   final double size;
   final Color? accent;
+  final bool videoEnabled;
 
   const PlayerArtworkHero({
     super.key,
@@ -607,6 +635,7 @@ class PlayerArtworkHero extends StatelessWidget {
     this.artwork,
     this.size = 240,
     this.accent,
+    this.videoEnabled = false,
   });
 
   @override
@@ -620,6 +649,7 @@ class PlayerArtworkHero extends StatelessWidget {
         networkUrl: isNetwork ? song.artwork : null,
         size: size,
         accent: accent,
+        videoEnabled: videoEnabled,
       ),
     );
   }

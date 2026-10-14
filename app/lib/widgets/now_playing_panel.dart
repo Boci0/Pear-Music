@@ -9,11 +9,13 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
+import '../services/video_service.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
 import 'player/player_controls.dart';
+import 'player/player_video_view.dart';
 import 'player/sleep_timer_dialog.dart';
 import 'player/stream_quality_info_dialog.dart';
 import 'live_seek_bar.dart';
@@ -49,6 +51,12 @@ class NowPlayingPanel extends StatelessWidget {
   static const double compactPaneWidth = 348;
   static const double expandedPaneWidth = 508;
 
+  /// The expanded card's width while it shows a song's video: half the
+  /// window, within a range that keeps both the video and the page beside it
+  /// usable.
+  static double videoPaneWidthFor(double windowWidth) =>
+      (windowWidth * 0.5).clamp(640.0, 860.0);
+
   /// The card's border (one per side); the content area is inset by it.
   static const double _kPaneBorder = 1;
 
@@ -60,6 +68,11 @@ class NowPlayingPanel extends StatelessWidget {
     final accent = song == null || song.artwork == null || song.artwork!.isEmpty
         ? theme.colorScheme.primary
         : ArtworkPalette.dominantSync(song);
+    final showVideo =
+        expanded && (context.watch<VideoService?>()?.showingFor(song) ?? false);
+    final expandedWidth = showVideo
+        ? videoPaneWidthFor(MediaQuery.sizeOf(context).width)
+        : expandedPaneWidth;
 
     // The artwork wash fades in and out with the expand motion instead of
     // popping on the first frame of the width animation.
@@ -117,10 +130,16 @@ class NowPlayingPanel extends StatelessWidget {
                 // what made the expand feel rough.
                 child: _PaneLayoutWidth(
                   width: expanded
-                      ? expandedPaneWidth - 2 * _kPaneBorder
+                      ? expandedWidth - 2 * _kPaneBorder
                       : compactPaneWidth - 2 * _kPaneBorder,
                   child: expanded
-                      ? _buildExpandedState(context, player, song, theme)
+                      ? _buildExpandedState(
+                          context,
+                          player,
+                          song,
+                          theme,
+                          showVideo: showVideo,
+                        )
                       : _buildPlayingState(context, player, song, theme),
                 ),
               ),
@@ -132,6 +151,8 @@ class NowPlayingPanel extends StatelessWidget {
     // Park the lyrics so they do not keep running once the pane is compact
     // again. The visualizer is a setting and stays on.
     PlayerArtwork.closeLyrics();
+    // The picture is only drawn in the expanded card, so it stops with it.
+    context.read<VideoService?>()?.hide();
     onToggleExpanded?.call();
   }
 
@@ -141,13 +162,14 @@ class NowPlayingPanel extends StatelessWidget {
     BuildContext context,
     PlayerService player,
     Song song,
-    ThemeData theme,
-  ) {
+    ThemeData theme, {
+    required bool showVideo,
+  }) {
     final controller = context.read<AppController>();
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
 
-    return Column(
+    final column = Column(
       key: const ValueKey('now_playing_panel_expanded'),
       children: [
         Padding(
@@ -189,12 +211,20 @@ class NowPlayingPanel extends StatelessWidget {
                 child: Column(
                   children: [
                     const SizedBox(height: 12),
-                    PlayerArtworkHero(
-                      song: song,
-                      size: artSize,
-                      artwork: ArtworkPalette.cachedBytes(song),
-                      accent: accent,
-                    ),
+                    if (showVideo)
+                      PlayerVideoView(
+                        accent: accent,
+                        maxWidth: constraints.maxWidth - 44,
+                        maxHeight: constraints.maxHeight * 0.6,
+                      )
+                    else
+                      PlayerArtworkHero(
+                        song: song,
+                        size: artSize,
+                        artwork: ArtworkPalette.cachedBytes(song),
+                        accent: accent,
+                        videoEnabled: true,
+                      ),
                     const SizedBox(height: 14),
                     PlayerSongInfo(song: song),
                     const SizedBox(height: 4),
@@ -226,7 +256,7 @@ class NowPlayingPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
           child: PlayerVolumeRow(accent: control),
         ),
-        if (player.queue.isNotEmpty)
+        if (!showVideo && player.queue.isNotEmpty)
           SizedBox(
             // The queue yields space before the controls do: on shorter
             // windows it shrinks so the seek bar and its time labels stay
@@ -247,6 +277,27 @@ class NowPlayingPanel extends StatelessWidget {
               ),
             ),
           ),
+      ],
+    );
+    if (!showVideo || player.queue.isEmpty) return column;
+
+    // Widened for a picture: the queue stands beside the player at full
+    // height instead of under it, where it had room for three rows.
+    final paneWidth = videoPaneWidthFor(MediaQuery.sizeOf(context).width);
+    return Row(
+      children: [
+        Expanded(child: column),
+        SizedBox(
+          width: (paneWidth * 0.38).clamp(250.0, 320.0),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
+            child: _QueueContextList(
+              player: player,
+              control: Theme.of(context).colorScheme.primary,
+              theme: theme,
+            ),
+          ),
+        ),
       ],
     );
   }

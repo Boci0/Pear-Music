@@ -1001,6 +1001,69 @@ class StreamCacheManager {
     return null;
   }
 
+  /// A picture-only link for [videoId], at most [maxHeight] lines tall, from
+  /// yt-dlp (the desktop binary or the phone's embedded one). The fallback
+  /// for the video when the fast engine is resting or its links are refused.
+  /// Nothing is downloaded. Null when it fails.
+  static Future<ResolvedStream?> resolveVideoLink(
+    String videoId, {
+    int maxHeight = 720,
+  }) async {
+    final url = 'https://www.youtube.com/watch?v=$videoId';
+    if (YoutubeService.isEmbeddedYtDlpSupported) {
+      // The phone's embedded yt-dlp prints the same line the desktop one does.
+      try {
+        final line = await const MethodChannel('peerm/ytdlp')
+            .invokeMethod<String>('getVideoLink', {
+              'url': url,
+              'maxHeight': maxHeight,
+            })
+            .timeout(_linkPrefetchTimeout);
+        final stream = line == null ? null : parseStreamLine(line);
+        if (stream == null) {
+          DebugLog.write('[video] no picture link for $videoId from yt-dlp');
+        }
+        return stream;
+      } catch (e) {
+        DebugLog.write('[video] picture link lookup for $videoId failed: $e');
+        return null;
+      }
+    }
+    try {
+      final bin = await YoutubeService.ytDlpPath();
+      if (bin == null) return null;
+      final ytdlpCache = await getYtDlpCacheDirectory();
+      final result = await Process.run(bin, [
+        '--print',
+        'video:$streamLinePrefix%(.{url,http_headers,ext})j',
+        '-f',
+        'bv*[height<=$maxHeight][vcodec^=avc1]/bv*[height<=$maxHeight]'
+            '/b[height<=$maxHeight]',
+        '--cache-dir',
+        ytdlpCache.path,
+        '--extractor-args',
+        'youtube:skip=webpage,authcheck,translated_subs',
+        '--no-playlist',
+        '--quiet',
+        '--force-ipv4',
+        '--socket-timeout',
+        '10',
+        url,
+      ]).timeout(_linkPrefetchTimeout);
+      for (final line in LineSplitter.split('${result.stdout}')) {
+        final stream = parseStreamLine(line);
+        if (stream != null) return stream;
+      }
+      DebugLog.write(
+        '[video] no picture link for $videoId from yt-dlp: '
+        '${'${result.stderr}'.trim()}',
+      );
+    } catch (e) {
+      DebugLog.write('[video] picture link lookup for $videoId failed: $e');
+    }
+    return null;
+  }
+
   /// Stops a running link lookup (a real fetch is about to use the
   /// connection, or the app is closing).
   static void cancelLinkPrefetch() {

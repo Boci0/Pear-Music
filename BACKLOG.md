@@ -7,6 +7,22 @@ audio, but it can drive the Windows build through the control port, see Working 
 
 ## Start here
 
+0. **Video player (merged to main 2026-10-14, not released).** A camera button
+   next to the lyrics button shows the picture of a video file or a streamed
+   song (Windows and the phone). Streamed pictures come through
+   `video_relay.dart` in 2 MB windows, are counted ("Streaming 720p . N MB
+   used"), and follow the audio player, which stays the master. A Settings row
+   "Video quality" (Auto = 360p on mobile data, 720p otherwise). Tested on the
+   Windows window and on the phone over LTE (a jump costs about 2 MB at 360p,
+   about 5 MB at 720p). Not confirmed: the yt-dlp fallback on the phone (the
+   fast engine accepted every link in the test), a long listen with video on,
+   and the Windows Beta with the quality row. Phone build numbers: arm64 adds
+   2000, the phone's test build is versionCode 13319, so the next release must
+   use a build number of 11320 or higher (pubspec is +11320). Local-only
+   gotchas are in the owner's notes: stale generated plugin files after a
+   failed `pub get` (Windows cmake list, Android `GeneratedPluginRegistrant`),
+   and `build/windows/x64/libmpv` keeping the audio libmpv.
+
 1. **Confirm the v4.5.0 and v4.6.0 changes on a real run.** Covered by tests
    and the control port only, not yet confirmed by the owner. A control port
    run of the v4.6.1 Windows build (2026-10-12) did pass: local playback,
