@@ -289,7 +289,7 @@ class SongTile extends StatelessWidget {
     final theme = Theme.of(context);
     final fromPeer = song.sourceDeviceId != null;
     final baseMeta = song.sourceDeviceId == 'stream'
-        ? 'Stream · Pear Radio'
+        ? 'Stream'
         : fromPeer
         ? 'Shared · ${song.sizeLabel}'
         : 'Local · ${song.sizeLabel}';

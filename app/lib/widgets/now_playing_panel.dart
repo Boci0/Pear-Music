@@ -345,7 +345,7 @@ class NowPlayingPanel extends StatelessWidget {
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
     final meta = song.sourceDeviceId == 'stream'
-        ? 'Stream · Pear Radio'
+        ? 'Stream'
         : song.sourceDeviceId != null
         ? 'Shared · ${song.sizeLabel}'
         : 'Local · ${song.sizeLabel}';
