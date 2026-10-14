@@ -321,6 +321,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: SearchBar(
+                // Full width: the default 800px cap left the bar floating off
+                // centre against the title and genre row, which span the page.
+                constraints: const BoxConstraints(minHeight: 56),
                 controller: _searchController,
                 focusNode: _searchFocusNode,
                 hintText: 'Search songs, artists, or paste link...',

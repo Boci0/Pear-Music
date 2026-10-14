@@ -87,6 +87,25 @@ void main() {
     );
   }
 
+  testWidgets('Explore search bar spans the page at desktop width', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(
+      await buildScreen(const ExploreScreen(isActive: false)),
+    );
+    await tester.pumpAndSettle();
+
+    final bar = find.byType(SearchBar);
+    expect(bar, findsOneWidget);
+    // Level with the header and the genre row, not an 800px island.
+    expect(tester.getTopLeft(bar).dx, 16);
+    expect(tester.getTopRight(bar).dx, 1200 - 16);
+  });
+
   for (final entry in <String, Widget>{
     'Library': const HomeScreen(),
     'Playlists': const PlaylistsScreen(),
