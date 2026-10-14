@@ -98,6 +98,25 @@ void main() {
 
         expect(tester.takeException(), isNull);
 
+        if (entry.key == 'shell' &&
+            !HomeShell.usesWideShell(size) &&
+            size.height < 500) {
+          // Short phone shell: the nav bar shares a row with the mini player
+          // instead of stacking under it.
+          final nav = tester.getSize(find.byKey(const ValueKey('nav_bar')));
+          expect(nav.width, lessThanOrEqualTo(size.width * 0.5));
+        }
+
+        if (entry.key == 'player') {
+          // Landscape has no pull-up queue sheet, so Up Next opens from the
+          // top bar.
+          await tester.tap(find.byTooltip('Up Next'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 600));
+          expect(find.byKey(const ValueKey('queue_panel')), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
+
         if (entry.key == 'shell') {
           // Visit every tab, in the phone shell's nav bar or the side rail.
           for (final tab in const [

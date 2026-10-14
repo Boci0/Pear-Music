@@ -358,16 +358,33 @@ class _HomeShellState extends State<HomeShell>
             ? null
             : SafeArea(
                 top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const PlayerBar(),
-                    _MinimalistNavBar(
-                      selectedIndex: _index,
-                      onDestinationSelected: _onDestinationSelected,
-                    ),
-                  ],
-                ),
+                child: size.height < 500 && currentSong != null
+                    // A phone held sideways has no height for the mini player
+                    // stacked on the nav bar, so they share one row and the
+                    // list keeps the room.
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Expanded(child: PlayerBar()),
+                          SizedBox(
+                            width: math.min(380, size.width * 0.5),
+                            child: _MinimalistNavBar(
+                              selectedIndex: _index,
+                              onDestinationSelected: _onDestinationSelected,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const PlayerBar(),
+                          _MinimalistNavBar(
+                            selectedIndex: _index,
+                            onDestinationSelected: _onDestinationSelected,
+                          ),
+                        ],
+                      ),
               ),
       ),
     );

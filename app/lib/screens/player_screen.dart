@@ -110,6 +110,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  void _openQueueSheet(PlayerService player, Color accent) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 600),
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * 0.9,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          child: PlayerQueuePanel(player: player, accent: accent),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
@@ -123,6 +139,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _resolveAccent(song, themePrimary);
     }
     final targetAccent = _accentColor ?? themePrimary;
+
+    final phoneLandscape =
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS) &&
+        MediaQuery.orientationOf(context) == Orientation.landscape;
 
     final appBar = AppBar(
       backgroundColor: Colors.transparent,
@@ -144,6 +165,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
       actions: [
+        // A phone held sideways has neither the pull-up queue sheet nor the
+        // side panel, so the queue opens from here.
+        if (phoneLandscape)
+          IconButton(
+            tooltip: 'Up Next',
+            icon: const Icon(Icons.queue_music_rounded),
+            onPressed: () => _openQueueSheet(player, targetAccent),
+          ),
         PlaybackSpeedButton(player: player),
         SleepTimerButton(player: player),
         StreamQualityInfoButton(player: player),
