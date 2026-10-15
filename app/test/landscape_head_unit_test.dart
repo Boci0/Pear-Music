@@ -12,11 +12,23 @@ import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/player_theme.dart';
+import 'package:peerm_app/services/video_service.dart';
 import 'package:peerm_app/services/youtube_service.dart';
 import 'package:peerm_app/widgets/player/player_artwork.dart';
 import 'package:peerm_app/widgets/player/player_fullscreen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// A video that is shown until [shown] is cleared; no player behind it.
+class _FakeVideo extends VideoService {
+  _FakeVideo(super.player, super.library);
+  bool shown = true;
+
+  @override
+  bool showingFor(Song? song) => shown;
+
+  void changed() => notifyListeners();
+}
 
 /// Android car head units (1024x600, 800x480) and landscape phones run
 /// landscape. Neither the shell nor the player may overflow at those sizes.
@@ -31,7 +43,10 @@ void main() {
         );
   });
 
-  Future<Widget> build(Widget home) async {
+  Future<Widget> build(
+    Widget home, {
+    VideoService Function(PlayerService, LibraryService)? makeVideo,
+  }) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
@@ -65,13 +80,57 @@ void main() {
         ChangeNotifierProvider<IdentityService>.value(value: identity),
         ChangeNotifierProvider<LibraryService>.value(value: library),
         ChangeNotifierProvider<HistoryService>.value(value: history),
-        ChangeNotifierProvider<PlayerTheme>.value(
-          value: PlayerTheme(player),
-        ),
+        ChangeNotifierProvider<PlayerTheme>.value(value: PlayerTheme(player)),
+        if (makeVideo != null)
+          ChangeNotifierProvider<VideoService?>.value(
+            value: makeVideo(player, library),
+          ),
       ],
       child: MaterialApp(home: home),
     );
   }
+
+  testWidgets('the full-screen page closes once when its video goes away', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    late _FakeVideo video;
+    await tester.pumpWidget(
+      await build(
+        const Scaffold(body: Text('root')),
+        makeVideo: (p, l) => video = _FakeVideo(p, l),
+      ),
+    );
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('under')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    PlayerFullscreenPage.open(tester.element(find.text('under')));
+    // Not pumpAndSettle: the picture's spinner never settles.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(PlayerFullscreenPage), findsOneWidget);
+
+    // The video goes away and keeps announcing changes while the page fades:
+    // each rebuild used to schedule another pop, which also took 'under'.
+    video.shown = false;
+    for (var i = 0; i < 6; i++) {
+      video.changed();
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+    expect(find.byType(PlayerFullscreenPage), findsNothing);
+    expect(find.text('under'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final size in const [
     Size(1024, 600),

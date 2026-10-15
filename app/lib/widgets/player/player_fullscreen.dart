@@ -98,7 +98,15 @@ class _PlayerFullscreenPageState extends State<PlayerFullscreenPage> {
     if (_controls) _armHide();
   }
 
-  void _close() => Navigator.of(context).maybePop();
+  // Every rebuild with no video to show schedules a close; once the page is
+  // on its way out a second pop would take the screen underneath with it.
+  bool _closing = false;
+
+  void _close() {
+    if (_closing) return;
+    _closing = true;
+    Navigator.of(context).maybePop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -119,15 +127,12 @@ class _PlayerFullscreenPageState extends State<PlayerFullscreenPage> {
     final accent = Theme.of(context).colorScheme.primary;
     // The picture's own shape (bars the video carries are already trimmed).
     final aspect =
-        (video!.frameAspect ?? 16 / 9) *
-        (video.crop.width / video.crop.height);
+        (video!.frameAspect ?? 16 / 9) * (video.crop.width / video.crop.height);
     final fill =
         _fill ?? PlayerFullscreenPage.fillsByDefault(aspect, size.aspectRatio);
 
     return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): _close,
-      },
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): _close},
       child: Focus(
         autofocus: true,
         child: Scaffold(
@@ -167,96 +172,106 @@ class _PlayerFullscreenPageState extends State<PlayerFullscreenPage> {
                   duration: const Duration(milliseconds: 180),
                   child: IgnorePointer(
                     ignoring: !_controls,
-                    child: Column(
-                      children: [
-                        DecoratedBox(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0xCC000000), Color(0x00000000)],
+                    // Using a control keeps them up, so they do not vanish
+                    // under a finger a moment after a tap.
+                    child: Listener(
+                      onPointerDown: (_) => _armHide(),
+                      child: Column(
+                        children: [
+                          DecoratedBox(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Color(0xCC000000), Color(0x00000000)],
+                              ),
+                            ),
+                            child: SafeArea(
+                              bottom: false,
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Exit fullscreen',
+                                    icon: const Icon(
+                                      Icons.fullscreen_exit_rounded,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: _close,
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      song.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(color: Colors.white),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: fill
+                                        ? 'Show the whole picture'
+                                        : 'Fill the screen',
+                                    icon: Icon(
+                                      fill
+                                          ? Icons.fit_screen_rounded
+                                          : Icons.aspect_ratio_rounded,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: () =>
+                                        setState(() => _fill = !fill),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                              ),
                             ),
                           ),
-                          child: SafeArea(
-                            bottom: false,
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Exit fullscreen',
-                                  icon: const Icon(
-                                    Icons.fullscreen_exit_rounded,
-                                    color: Colors.white,
-                                  ),
-                                  onPressed: _close,
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    song.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(color: Colors.white),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: fill
-                                      ? 'Show the whole picture'
-                                      : 'Fill the screen',
-                                  icon: Icon(
-                                    fill
-                                        ? Icons.fit_screen_rounded
-                                        : Icons.aspect_ratio_rounded,
-                                    color: Colors.white,
-                                  ),
-                                  onPressed: () =>
-                                      setState(() => _fill = !fill),
-                                ),
-                                const SizedBox(width: 8),
-                              ],
+                          const Spacer(),
+                          DecoratedBox(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [Color(0xCC000000), Color(0x00000000)],
+                              ),
                             ),
-                          ),
-                        ),
-                        const Spacer(),
-                        DecoratedBox(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [Color(0xCC000000), Color(0x00000000)],
-                            ),
-                          ),
-                          child: SafeArea(
-                            top: false,
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-                              child: Center(
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 560,
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      PlayerSeekBar(
-                                        player: player,
-                                        duration: duration,
-                                        accent: accent,
-                                      ),
-                                      PlayerTransport(
-                                        player: player,
-                                        controller: controller,
-                                        accent: accent,
-                                      ),
-                                    ],
+                            child: SafeArea(
+                              top: false,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  24,
+                                  16,
+                                  24,
+                                  8,
+                                ),
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 560,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        PlayerSeekBar(
+                                          player: player,
+                                          duration: duration,
+                                          accent: accent,
+                                        ),
+                                        PlayerTransport(
+                                          player: player,
+                                          controller: controller,
+                                          accent: accent,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
