@@ -248,30 +248,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : null,
                 ),
                 const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.high_quality_rounded),
-                  title: const Text('Video quality'),
-                  subtitle: const Text(
-                    'Auto uses 360p on mobile data and 720p otherwise. A '
-                    'moving 720p music video is about 30 MB a minute and 1080p '
-                    'about twice that.',
-                  ),
-                  trailing: DropdownButtonHideUnderline(
-                    child: DropdownButton<int>(
-                      value: identity.videoQuality,
-                      items: const [
-                        DropdownMenuItem(value: 0, child: Text('Auto')),
-                        DropdownMenuItem(value: 360, child: Text('360p')),
-                        DropdownMenuItem(value: 480, child: Text('480p')),
-                        DropdownMenuItem(value: 720, child: Text('720p')),
-                        DropdownMenuItem(value: 1080, child: Text('1080p')),
-                      ],
-                      onChanged: (v) async {
-                        if (v == null) return;
-                        TactileFeedback.selection();
-                        await identity.setVideoQuality(v);
-                      },
-                    ),
+                // Same shape as Crossfade: the text, then the control under it,
+                // so the long explanation keeps the row's full width. The
+                // choices are the app's borderless segmented buttons.
+                ListenableBuilder(
+                  listenable: identity,
+                  builder: (context, _) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const ListTile(
+                        leading: Icon(Icons.high_quality_rounded),
+                        title: Text('Video quality'),
+                        subtitle: Text(
+                          'Auto uses 360p on mobile data and 720p otherwise. A '
+                          'moving 720p music video is about 30 MB a minute and '
+                          '1080p about twice that.',
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: SegmentedButton<int>(
+                          showSelectedIcon: false,
+                          style: const ButtonStyle(
+                            padding: WidgetStatePropertyAll(
+                              EdgeInsets.symmetric(horizontal: 4),
+                            ),
+                          ),
+                          segments: const [
+                            ButtonSegment(value: 0, label: Text('Auto')),
+                            ButtonSegment(value: 360, label: Text('360p')),
+                            ButtonSegment(value: 480, label: Text('480p')),
+                            ButtonSegment(value: 720, label: Text('720p')),
+                            ButtonSegment(value: 1080, label: Text('1080p')),
+                          ],
+                          selected: {identity.videoQuality},
+                          onSelectionChanged: (picked) async {
+                            TactileFeedback.selection();
+                            await identity.setVideoQuality(picked.first);
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const Divider(height: 1),
