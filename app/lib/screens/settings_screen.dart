@@ -268,6 +268,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                         child: SegmentedButton<int>(
+                          // Fill the row; left alone it keeps its natural
+                          // width and sits off-centre in the card.
+                          expandedInsets: EdgeInsets.zero,
                           showSelectedIcon: false,
                           style: const ButtonStyle(
                             padding: WidgetStatePropertyAll(
