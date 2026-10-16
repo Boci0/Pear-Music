@@ -275,6 +275,9 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
     final playerService = context.read<PlayerService?>();
+    // The glow is what the feathered edge dissolves into, so without it (or
+    // with reduced effects, which also saves the mask layers) keep the card.
+    final feathered = playerService != null && !reducedEffects;
 
     final Widget glowWidget;
     if (playerService != null && !reducedEffects) {
@@ -339,7 +342,11 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
           child: Container(
             width: size,
             height: size,
-            decoration: BoxDecoration(
+            // A feathered card has no outline or drop shadow of its own: the
+            // accent halo behind it is what its edge dissolves into.
+            decoration: feathered
+                ? null
+                : BoxDecoration(
               borderRadius: radius,
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.18),
@@ -375,6 +382,12 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                   return Stack(
                     fit: StackFit.expand,
                     children: [
+                      RepaintBoundary(
+                        child: _feather(
+                          feathered,
+                          Stack(
+                            fit: StackFit.expand,
+                            children: [
                       crossfadeImage,
                       if (cachedBackdrop != null && isLyricsActive)
                         FadeTransition(
@@ -415,6 +428,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             ),
                           ),
                         ),
+                            ],
+                          ),
+                        ),
+                      ),
                       // Equalizer spectrum visualizer stacked behind lyrics and border.
                       // The key keeps the same visualizer (and its bars) when
                       // the lyrics mask is added or removed around it.
@@ -467,6 +484,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           ),
                         ),
                       // Razor-thin crisp border framing the big artwork
+                      if (!feathered)
                       Positioned.fill(
                         child: IgnorePointer(
                           child: Container(
@@ -603,6 +621,9 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
   }
+
+  static Widget _feather(bool on, Widget child) =>
+      on ? EdgeFeather(child: child) : child;
 
   Widget _placeholder(ColorScheme scheme) {
     final size = widget.size;
@@ -1203,3 +1224,39 @@ class _GlowPainter extends CustomPainter {
       oldDelegate.radius != radius;
 }
 
+
+/// Fades the outer [width] pixels of [child] to transparent on all four sides,
+/// so a card dissolves into the glow and page behind it instead of ending in a
+/// hard edge. Two nested masks (one per axis); callers keep it around static
+/// layers or a video, never around a 60 fps painter.
+class EdgeFeather extends StatelessWidget {
+  final double width;
+  final Widget child;
+  const EdgeFeather({super.key, this.width = 16, required this.child});
+
+  static const _clear = Color(0x00FFFFFF);
+
+  static ui.Shader _mask(Rect rect, double feather, Axis axis) {
+    final horizontal = axis == Axis.horizontal;
+    final f = (feather / (horizontal ? rect.width : rect.height)).clamp(0.0, 0.5);
+    return LinearGradient(
+      begin: horizontal ? Alignment.centerLeft : Alignment.topCenter,
+      end: horizontal ? Alignment.centerRight : Alignment.bottomCenter,
+      colors: const [_clear, Colors.white, Colors.white, _clear],
+      stops: [0.0, f, 1 - f, 1.0],
+    ).createShader(rect);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) => _mask(rect, width, Axis.horizontal),
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (rect) => _mask(rect, width, Axis.vertical),
+        child: child,
+      ),
+    );
+  }
+}

@@ -59,22 +59,31 @@ class PlayerPortraitBody extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   Center(
-                    child: context.watch<VideoService?>()?.showingFor(song) ??
-                            false
-                        // The picture takes the artwork's place, as wide as
-                        // the page allows in its own shape.
-                        ? PlayerVideoView(
-                            accent: accent,
-                            maxWidth: constraints.maxWidth - 48,
-                            maxHeight: math.max(artSize, 180),
-                          )
-                        : PlayerArtworkHero(
-                            song: song,
-                            size: artSize,
-                            artwork: ArtworkPalette.cachedBytes(song),
-                            accent: accent,
-                            videoEnabled: true,
-                          ),
+                    child: Builder(
+                      builder: (context) {
+                        final showVideo =
+                            context.watch<VideoService?>()?.showingFor(song) ??
+                            false;
+                        return PlayerPictureSwap(
+                          video: showVideo,
+                          // The picture takes the artwork's place, as wide as
+                          // the page allows in its own shape.
+                          child: showVideo
+                              ? PlayerVideoView(
+                                  accent: accent,
+                                  maxWidth: constraints.maxWidth - 48,
+                                  maxHeight: math.max(artSize, 180),
+                                )
+                              : PlayerArtworkHero(
+                                  song: song,
+                                  size: artSize,
+                                  artwork: ArtworkPalette.cachedBytes(song),
+                                  accent: accent,
+                                  videoEnabled: true,
+                                ),
+                        );
+                      },
+                    ),
                   ),
                   PlayerSongInfo(song: song),
                   PlayerSeekBar(

@@ -72,28 +72,39 @@ class PlayerLandscapeBody extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (context.watch<VideoService?>()?.showingFor(
-                                song,
-                              ) ??
-                              false)
-                            PlayerVideoView(
-                              accent: accent,
-                              maxWidth: constraints.maxWidth * 5 / 9 - 24,
-                              maxHeight: compact
-                                  ? constraints.maxHeight - 8
-                                  : math.max(
-                                      constraints.maxHeight * 0.62,
-                                      constraints.maxHeight - 150,
-                                    ),
-                            )
-                          else
-                            PlayerArtworkHero(
-                              song: song,
-                              size: artSize,
-                              artwork: ArtworkPalette.cachedBytes(song),
-                              accent: accent,
-                              videoEnabled: true,
-                            ),
+                          Builder(
+                            builder: (context) {
+                              final showVideo =
+                                  context.watch<VideoService?>()?.showingFor(
+                                    song,
+                                  ) ??
+                                  false;
+                              return PlayerPictureSwap(
+                                video: showVideo,
+                                child: showVideo
+                                    ? PlayerVideoView(
+                                        accent: accent,
+                                        maxWidth:
+                                            constraints.maxWidth * 5 / 9 - 24,
+                                        maxHeight: compact
+                                            ? constraints.maxHeight - 8
+                                            : math.max(
+                                                constraints.maxHeight * 0.62,
+                                                constraints.maxHeight - 150,
+                                              ),
+                                      )
+                                    : PlayerArtworkHero(
+                                        song: song,
+                                        size: artSize,
+                                        artwork: ArtworkPalette.cachedBytes(
+                                          song,
+                                        ),
+                                        accent: accent,
+                                        videoEnabled: true,
+                                      ),
+                              );
+                            },
+                          ),
                           if (!compact) ...[
                             const SizedBox(height: 20),
                             PlayerSongInfo(song: song),

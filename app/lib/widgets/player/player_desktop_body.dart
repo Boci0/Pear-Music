@@ -57,23 +57,33 @@ class PlayerDesktopBody extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (context.watch<VideoService?>()?.showingFor(
-                                song,
-                              ) ??
-                              false)
-                            PlayerVideoView(
-                              accent: accent,
-                              maxWidth: artColumnWidth - 16,
-                              maxHeight: constraints.maxHeight * 0.56,
-                            )
-                          else
-                            PlayerArtworkHero(
-                              song: song,
-                              size: artSize,
-                              artwork: ArtworkPalette.cachedBytes(song),
-                              accent: accent,
-                              videoEnabled: true,
-                            ),
+                          Builder(
+                            builder: (context) {
+                              final showVideo =
+                                  context.watch<VideoService?>()?.showingFor(
+                                    song,
+                                  ) ??
+                                  false;
+                              return PlayerPictureSwap(
+                                video: showVideo,
+                                child: showVideo
+                                    ? PlayerVideoView(
+                                        accent: accent,
+                                        maxWidth: artColumnWidth - 16,
+                                        maxHeight: constraints.maxHeight * 0.56,
+                                      )
+                                    : PlayerArtworkHero(
+                                        song: song,
+                                        size: artSize,
+                                        artwork: ArtworkPalette.cachedBytes(
+                                          song,
+                                        ),
+                                        accent: accent,
+                                        videoEnabled: true,
+                                      ),
+                              );
+                            },
+                          ),
                           const SizedBox(height: 20),
                           PlayerSongInfo(song: song),
                         ],

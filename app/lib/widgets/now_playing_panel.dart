@@ -211,20 +211,22 @@ class NowPlayingPanel extends StatelessWidget {
                 child: Column(
                   children: [
                     const SizedBox(height: 12),
-                    if (showVideo)
-                      PlayerVideoView(
-                        accent: accent,
-                        maxWidth: constraints.maxWidth - 44,
-                        maxHeight: constraints.maxHeight * 0.6,
-                      )
-                    else
-                      PlayerArtworkHero(
-                        song: song,
-                        size: artSize,
-                        artwork: ArtworkPalette.cachedBytes(song),
-                        accent: accent,
-                        videoEnabled: true,
-                      ),
+                    PlayerPictureSwap(
+                      video: showVideo,
+                      child: showVideo
+                          ? PlayerVideoView(
+                              accent: accent,
+                              maxWidth: constraints.maxWidth - 44,
+                              maxHeight: constraints.maxHeight * 0.6,
+                            )
+                          : PlayerArtworkHero(
+                              song: song,
+                              size: artSize,
+                              artwork: ArtworkPalette.cachedBytes(song),
+                              accent: accent,
+                              videoEnabled: true,
+                            ),
+                    ),
                     const SizedBox(height: 14),
                     PlayerSongInfo(song: song),
                     const SizedBox(height: 4),

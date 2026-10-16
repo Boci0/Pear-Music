@@ -269,6 +269,9 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       mayHaveVideo(song) &&
       !_noPicture.contains(song.id);
 
+  /// Whether the picture is switched on (before it is ready, a spinner shows).
+  bool get isShown => _shown;
+
   /// Whether the picture, not the artwork, is what [song] shows right now.
   bool showingFor(Song? song) => _shown && canOffer(song);
 
