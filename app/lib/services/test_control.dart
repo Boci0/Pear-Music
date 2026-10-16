@@ -9,6 +9,7 @@ import '../screens/home_shell.dart';
 import 'debug_log.dart';
 import 'video_service.dart';
 import 'visualizer_feed.dart';
+import 'window_occlusion.dart';
 import 'youtube_search_service.dart';
 
 /// The control port: lets an automated check drive a running build without a
@@ -121,6 +122,7 @@ Future<HttpServer?> startTestControl(
               'positionMs': player.position?.inMilliseconds,
               'durationMs': player.duration?.inMilliseconds,
               'volume': player.volume,
+              'covered': WindowOcclusion.covered.value,
               'format': player.currentLoadedFormat,
               'route': player.currentRouteType.name,
               'loadMs': player.lastTrackLoadMs,

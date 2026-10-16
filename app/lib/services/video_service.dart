@@ -18,6 +18,7 @@ import 'library_service.dart';
 import 'player_service.dart';
 import 'stream_cache_manager.dart';
 import 'video_relay.dart';
+import 'window_occlusion.dart';
 
 /// The video library could not be started on this device.
 class VideoUnavailable implements Exception {
@@ -281,8 +282,11 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// screen. The sound goes on.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
+    // A window that is only covered by others keeps its picture; the app
+    // reports hidden then to park rendering, not because it was minimized.
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.hidden) &&
+        !WindowOcclusion.covered.value) {
       hide();
     }
   }

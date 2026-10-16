@@ -27,6 +27,7 @@ import 'services/session_diagnostics.dart';
 import 'services/stream_cache_manager.dart';
 import 'services/video_service.dart';
 import 'services/window_focus.dart';
+import 'services/window_occlusion.dart';
 import 'services/window_title.dart';
 import 'services/youtube_service.dart';
 import 'widgets/pear_backdrop.dart';
@@ -44,6 +45,10 @@ Future<void> main([List<String> args = const []]) async {
       await SelfTestService.run(args);
       return;
     }
+
+    // Windows: park rendering while the window is minimized or entirely
+    // covered, which otherwise piles up native memory.
+    WindowOcclusion.start();
 
     // Clamp Flutter image cache to 25 MB to prevent high memory usage on mobile devices
     PaintingBinding.instance.imageCache.maximumSizeBytes = 25 * 1024 * 1024;
