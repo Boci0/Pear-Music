@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import '../theme/tokens.dart';
 import 'artwork_palette.dart';
 import 'player_service.dart';
@@ -17,6 +18,7 @@ class PlayerTheme extends ChangeNotifier {
   PlayerTheme(PlayerService player) : _player = player {
     _player.addListener(_onPlayerChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
+    PearStyles.current.addListener(_onStyleChanged);
     _onPlayerChanged();
   }
 
@@ -29,7 +31,7 @@ class PlayerTheme extends ChangeNotifier {
   /// but the colour only needs to change when the SONG changes.
   String? _appliedSongId;
 
-  static final Map<Color, ThemeData> _cache = {};
+  static final Map<(Color, PearStyle), ThemeData> _cache = {};
   static const int _cacheMax = 32;
 
   /// Builds the app theme around [scheme]: the fixed dark structure (scaffold,
@@ -365,7 +367,8 @@ class PlayerTheme extends ChangeNotifier {
   }
 
   static ThemeData _build(Color accent) {
-    final cached = _cache[accent];
+    final key = (accent, PearStyles.current.value);
+    final cached = _cache[key];
     if (cached != null) return cached;
     final built = buildFromScheme(
       ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark),
@@ -375,8 +378,19 @@ class PlayerTheme extends ChangeNotifier {
     if (_cache.length >= _cacheMax) {
       _cache.remove(_cache.keys.first);
     }
-    _cache[accent] = built;
+    _cache[key] = built;
     return built;
+  }
+
+  /// A new style changes the theme's own numbers (card fill, rims), so build
+  /// the current song's theme again under it.
+  void _onStyleChanged() {
+    final song = _player.currentSong;
+    _apply(
+      song != null && ArtworkPalette.hasResolved(song)
+          ? ArtworkPalette.dominantSync(song)
+          : ArtworkPalette.fallback,
+    );
   }
 
   void _onPaletteUpdated() {
@@ -422,6 +436,7 @@ class PlayerTheme extends ChangeNotifier {
   void dispose() {
     _player.removeListener(_onPlayerChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
+    PearStyles.current.removeListener(_onStyleChanged);
     super.dispose();
   }
 }

@@ -29,10 +29,11 @@ class WindowOcclusion with WidgetsBindingObserver {
 
   static WindowOcclusion? _instance;
 
-  /// Starts watching the real window. Windows only; a no-op elsewhere and
-  /// when already started.
-  static void start() {
-    if (_instance != null || kIsWeb || !Platform.isWindows) return;
+  /// Starts watching the real window. Windows only; a no-op elsewhere, when
+  /// already started and when [enabled] is false (the `--no-occlusion` launch
+  /// flag, for checks that screenshot a window sitting behind others).
+  static void start({bool enabled = true}) {
+    if (!enabled || _instance != null || kIsWeb || !Platform.isWindows) return;
     _instance = WindowOcclusion._(
       _WindowsSampler().isCovered,
       const Duration(seconds: 1),

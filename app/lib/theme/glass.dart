@@ -19,54 +19,54 @@ import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/player_theme.dart';
+import 'pear_style.dart';
 
-/// Values shared by every glass surface.
+/// Values shared by every glass surface. Most follow the current
+/// [PearStyle] (see `pear_style.dart`); the shapes stay the same in all of
+/// them.
 class PearGlassTokens {
   PearGlassTokens._();
 
   /// Backdrop blur strength. High enough that list text scrolling under the
   /// mini player reads as colour, not as legible letters.
-  static const double blur = 20;
+  static double get blur => PearStyles.spec.blur;
 
   /// Tint laid over the backdrop. Kept thin on purpose: the glass has to let
   /// the backdrop's glows through, or it reads as grey plastic instead of
   /// frosted glass.
-  static const double baseAlpha = 0.38;
+  static double get baseAlpha => PearStyles.spec.baseAlpha;
 
   /// How much of the accent colour goes into the panel's base, so the body
   /// is a tinted glass rather than the canvas's own grey laid over itself.
-  static const double accentTint = 0.20;
+  static double get accentTint => PearStyles.spec.accentTint;
 
   /// Denser base for popups, menus and sheets, which open over busy content
   /// and hold small text.
-  static const double popupAlpha = 0.74;
+  static double get popupAlpha => PearStyles.spec.popupAlpha;
 
   /// Light catching the top edge: the highlight is brightest at the rim and
   /// is gone by [sheenReach] of the panel's height, so the body stays clear.
-  static const double sheenTop = 0.16;
-  static const double sheenBottom = 0.02;
+  static double get sheenTop => PearStyles.spec.sheenTop;
+  static double get sheenBottom => PearStyles.spec.sheenBottom;
   static const double sheenReach = 0.22;
 
   /// Hairline edge. Brighter on top, like light catching the rim.
-  static const double edgeTop = 0.34;
-  static const double edge = 0.09;
+  static double get edgeTop => PearStyles.spec.edgeTop;
+  static double get edge => PearStyles.spec.edge;
 
   /// Corner radius of floating chrome: side rail, nav bar, mini player.
   static const double floatingRadius = 20;
 
   /// Resting fill for cards and rows that sit on the backdrop without a blur.
-  static const double cardFill = 0.045;
+  static double get cardFill => PearStyles.spec.cardFill;
 
   /// Idle card body: lit from the top so rows read as raised glass instead of
   /// a flat sheet. Same average strength as [cardFill].
-  static const LinearGradient cardSheen = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0x14FFFFFF), Color(0x0AFFFFFF)],
-  );
+  static LinearGradient get cardSheen => PearStyles.spec.cardSheen;
 
   /// Hairline rim for card rows.
-  static const Color cardRim = Color(0x10FFFFFF);
+  static Color get cardRim =>
+      Color.fromRGBO(255, 255, 255, PearStyles.spec.cardRim);
 
   /// Corner radius of the selected-tab pill, the same on the phone bar and the
   /// side rail so the two read as one shape. On the phone bar it is also the
@@ -90,9 +90,9 @@ class PearGlassTokens {
         ),
       );
 
-  static final List<BoxShadow> shadow = [
+  static List<BoxShadow> get shadow => [
     BoxShadow(
-      color: Colors.black.withValues(alpha: 0.35),
+      color: Colors.black.withValues(alpha: PearStyles.spec.shadowAlpha),
       blurRadius: 32,
       offset: const Offset(0, 12),
     ),
@@ -193,7 +193,7 @@ class PearGlass extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final reduced = pearReducedEffects(context);
+    final reduced = pearReducedEffects(context) || PearStyles.spec.flat;
 
     Widget panel = DecoratedBox(
       decoration: fill(

@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../screens/home_shell.dart';
+import '../theme/pear_style.dart';
 import 'debug_log.dart';
 import 'video_service.dart';
 import 'visualizer_feed.dart';
@@ -38,6 +39,7 @@ import 'youtube_search_service.dart';
 ///   /viz?hold=1|0           what the visualizer feed saw since the last call
 ///                           (hold=1 keeps a client on the feed, hold=0 drops it)
 ///   /log?n=60               the last lines of the debug log
+///   /style?v=glass|frosted|solid  switch the look; the reply is the style in use
 ///   /quit                   exit the app
 class ControlSettings {
   const ControlSettings(this.port, this.token);
@@ -290,6 +292,12 @@ Future<HttpServer?> startTestControl(
           case '/log':
             final n = int.tryParse(q['n'] ?? '') ?? 60;
             body = {'lines': await _logTail(n)};
+          case '/style':
+            final wanted = q['v'];
+            if (wanted != null) {
+              await controller.identity.setStyle(PearStyle.parse(wanted));
+            }
+            body = {'style': controller.identity.style.name};
           case '/quit':
             res.headers.contentType = ContentType.json;
             res.write(jsonEncode({'quitting': true}));

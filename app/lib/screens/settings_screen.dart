@@ -9,6 +9,7 @@ import '../controllers/app_controller.dart';
 import '../services/identity_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
+import '../theme/pear_style.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/audio_engine_card.dart';
 import '../widgets/pear_app_bar.dart';
@@ -206,6 +207,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _sectionTitle(context, 'Appearance'),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListenableBuilder(
+              listenable: identity,
+              builder: (context, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.palette_outlined),
+                    title: const Text('Style'),
+                    subtitle: Text(switch (identity.style) {
+                      PearStyle.glass =>
+                        'Dark frosted panels tinted by the song',
+                      PearStyle.frosted =>
+                        'Lighter, more colourful glass with a stronger edge',
+                      PearStyle.solid =>
+                        'Flat dark surfaces with no blur, easiest on the battery',
+                    }),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: SegmentedButton<PearStyle>(
+                      expandedInsets: EdgeInsets.zero,
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(
+                        padding: WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 4),
+                        ),
+                      ),
+                      segments: [
+                        for (final style in PearStyle.values)
+                          ButtonSegment(value: style, label: Text(style.label)),
+                      ],
+                      selected: {identity.style},
+                      onSelectionChanged: (picked) async {
+                        TactileFeedback.selection();
+                        await identity.setStyle(picked.first);
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 18),

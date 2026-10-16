@@ -48,7 +48,7 @@ Future<void> main([List<String> args = const []]) async {
 
     // Windows: park rendering while the window is minimized or entirely
     // covered, which otherwise piles up native memory.
-    WindowOcclusion.start();
+    WindowOcclusion.start(enabled: !args.contains('--no-occlusion'));
 
     // Clamp Flutter image cache to 25 MB to prevent high memory usage on mobile devices
     PaintingBinding.instance.imageCache.maximumSizeBytes = 25 * 1024 * 1024;

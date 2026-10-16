@@ -1,3 +1,4 @@
+import '../theme/pear_style.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -92,12 +93,19 @@ class NowPlayingPanel extends StatelessWidget {
             // from the top edge, the same gesture the full-screen player
             // makes, so the pane reads as "the player" rather than a plain
             // sidebar card.
-            gradient: song != null && wash > 0.001
+            gradient: song != null &&
+                    wash > 0.001 &&
+                    PearStyles.spec.glowScale > 0
                 ? LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.center,
                     colors: [
-                      accent.withValues(alpha: 0.16 * wash),
+                      accent.withValues(
+                        alpha: (0.16 * wash * PearStyles.spec.glowScale).clamp(
+                          0.0,
+                          1.0,
+                        ),
+                      ),
                       Colors.transparent,
                     ],
                   )

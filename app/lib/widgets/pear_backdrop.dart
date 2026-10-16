@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+import '../theme/pear_style.dart';
+
 /// The room behind every route: the ambient canvas colour, soft glows of the
 /// current song's colours, and a faint, slanted watermark of the pear logo.
 ///
@@ -53,10 +55,6 @@ class _PearBackdropState extends State<PearBackdrop> {
 
   /// Wallpaper slant, in degrees.
   static const double _slantDegrees = -18;
-
-  /// How loud the watermark is. Deliberately faint: it reads as texture, not
-  /// decoration.
-  static const double _alpha = 0.035;
 
   /// Tiles shared by every backdrop (the app-wide one plus the copy each page
   /// transition brings), one per device pixel ratio seen, so moving a window
@@ -180,15 +178,22 @@ class _PearBackdropState extends State<PearBackdrop> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return RepaintBoundary(
-      child: CustomPaint(
-        painter: _BackdropPainter(
-          scheme: Theme.of(context).colorScheme,
-          tile: _tileImage,
-          tileDpr: _tileDpr,
-          bake: _bakes ? _bake : null,
+      // The glows and the watermark follow the chosen style.
+      child: ValueListenableBuilder<PearStyle>(
+        valueListenable: PearStyles.current,
+        builder: (context, style, _) => CustomPaint(
+          painter: _BackdropPainter(
+            scheme: scheme,
+            tile: _tileImage,
+            tileDpr: _tileDpr,
+            bake: _bakes ? _bake : null,
+            glowScale: PearStyles.spec.glowScale,
+            watermarkAlpha: PearStyles.spec.watermarkAlpha,
+          ),
+          size: Size.infinite,
         ),
-        size: Size.infinite,
       ),
     );
   }
@@ -229,10 +234,17 @@ class _BackdropPainter extends CustomPainter {
     required this.scheme,
     required this.tile,
     required this.tileDpr,
+    required this.glowScale,
+    required this.watermarkAlpha,
     this.bake,
   });
 
   final _BackdropBake? bake;
+
+  /// Multiplier on the glows' strength and the watermark's alpha, from the
+  /// current style.
+  final double glowScale;
+  final double watermarkAlpha;
 
   final ColorScheme scheme;
   final ui.Image? tile;
@@ -268,6 +280,8 @@ class _BackdropPainter extends CustomPainter {
         scheme.tertiary,
         tile,
         tileDpr,
+        glowScale,
+        watermarkAlpha,
       ),
       (c) => _draw(c, size),
     );
@@ -285,7 +299,13 @@ class _BackdropPainter extends CustomPainter {
     final longest = size.longestSide;
     final colors = [scheme.primary, scheme.tertiary, scheme.secondary];
     for (var i = 0; i < _glows.length; i++) {
-      final glow = _glows[i];
+      if (glowScale <= 0) break;
+      final glow = (
+        x: _glows[i].x,
+        y: _glows[i].y,
+        reach: _glows[i].reach,
+        alpha: (_glows[i].alpha * glowScale).clamp(0.0, 0.9),
+      );
       final color = colors[i];
       final center = Offset(size.width * glow.x, size.height * glow.y);
       canvas.drawRect(
@@ -322,7 +342,7 @@ class _BackdropPainter extends CustomPainter {
               .storage,
         )
         ..colorFilter = ColorFilter.mode(
-          Colors.white.withValues(alpha: _PearBackdropState._alpha),
+          Colors.white.withValues(alpha: watermarkAlpha),
           BlendMode.srcIn,
         ),
     );
@@ -335,6 +355,8 @@ class _BackdropPainter extends CustomPainter {
         oldDelegate.scheme.secondary != scheme.secondary ||
         oldDelegate.scheme.tertiary != scheme.tertiary ||
         oldDelegate.tile != tile ||
-        oldDelegate.tileDpr != tileDpr;
+        oldDelegate.tileDpr != tileDpr ||
+        oldDelegate.glowScale != glowScale ||
+        oldDelegate.watermarkAlpha != watermarkAlpha;
   }
 }
