@@ -31,12 +31,14 @@ void main() {
     String path,
     Completer<void> done, {
     int? expectedLength,
+    Duration stallTimeout = const Duration(seconds: 20),
   }) => GrowingFileAudioSource(
     path: path,
     done: done.future,
     expectedLength: expectedLength,
     pollInterval: const Duration(milliseconds: 5),
     openTimeout: const Duration(seconds: 5),
+    stallTimeout: stallTimeout,
   );
 
   test('follows the file as it is written and ends with the download',
@@ -105,6 +107,29 @@ void main() {
     final pending = src.request();
     done.complete();
     await expectLater(pending, throwsA(isA<FileSystemException>()));
+  });
+
+  test('a download that stops without ending fails instead of hanging', () async {
+    // The connection dropped mid-song: yt-dlp neither wrote more bytes nor
+    // exited. The reader must give up, or the song waits on loading forever.
+    final path = p.join(dir.path, 'stalled.m4a');
+    File(path).writeAsBytesSync([1, 2, 3]);
+    final done = Completer<void>(); // never completed: the download never ends
+    final src = source(
+      path,
+      done,
+      stallTimeout: const Duration(milliseconds: 150),
+    );
+
+    final response = await src.request();
+    final received = <int>[];
+    await expectLater(
+      response.stream.forEach(received.addAll),
+      throwsA(isA<StateError>()),
+      reason: 'a stalled download is an error, not an endless wait',
+    );
+    expect(received, [1, 2, 3], reason: 'bytes already on disk still played');
+    await src.close();
   });
 
   test('keeps reading the original bytes when the file is replaced', () async {

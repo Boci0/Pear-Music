@@ -196,6 +196,11 @@ class PearMusicApp extends StatelessWidget {
     this.video,
   });
 
+  /// Routes pushed by a check driving the app (the control port's `/player`)
+  /// go through this navigator. Null until the app is built.
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -220,6 +225,7 @@ class PearMusicApp extends StatelessWidget {
             title: 'Pear Music',
             debugShowCheckedModeBanner: false,
             theme: theme,
+            navigatorKey: PearMusicApp.navigatorKey,
             // App-wide playback keys (media keys and Ctrl+Alt combos) wrap
             // every route, so they work from any screen while a song is
             // loaded. Text fields keep priority, so typing never triggers

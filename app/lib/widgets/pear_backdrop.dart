@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -65,24 +65,32 @@ class _PearBackdropState extends State<PearBackdrop> {
 
   ui.Image? _tileImage;
 
+  /// Snap a colour to the bake key's resolution. MaterialApp lerps the whole
+  /// ThemeData over 200 ms when the song changes the palette, so a bake key
+  /// holding the raw colours would rebuild a window-sized image on about
+  /// twelve of those frames, which costs more than the bake saves. Sixteen
+  /// steps per channel is far below what a soft glow can show, and it leaves
+  /// one or two rebakes for a whole transition.
+  static int _snap(Color? color) =>
+      color == null ? 0 : ((color.toARGB32() >> 4) & 0x0F0F0F0F);
+
   /// Device pixel ratio [_tileImage] was rendered at, so the painter can draw
   /// it back at its logical size.
   double _tileDpr = 1;
 
   int _generation = 0;
 
-  /// The finished backdrop as one image. Impeller on a phone re-rasterises
-  /// the whole scene every frame, so the five full-screen passes the backdrop
-  /// is made of (canvas, three glows, watermark) were being paid for on every
-  /// frame the player drew; measured at about 5 CPU points at 60 frames a
-  /// second. Desktop GPUs do not notice them.
+  /// The finished backdrop as one image. Every backend that redraws the scene
+  /// when anything on it animates pays for the five full-screen passes the
+  /// backdrop is made of (canvas, three glows, watermark) on every presented
+  /// frame, and the player animates for as long as a song plays. Measured at
+  /// about 5 CPU points at 60 frames a second on a phone; on the Windows
+  /// build the same passes were being paid for across a 1252x922 window,
+  /// about 5.8 megapixels of fill per frame. Baked, the whole backdrop is one
+  /// textured rectangle.
   final _BackdropBake _bake = _BackdropBake();
 
-  bool get _bakes =>
-      PearBackdrop.debugBake ??
-      (!kIsWeb &&
-          (defaultTargetPlatform == TargetPlatform.android ||
-              defaultTargetPlatform == TargetPlatform.iOS));
+  bool get _bakes => PearBackdrop.debugBake ?? !kIsWeb;
 
   @override
   void didChangeDependencies() {
@@ -274,10 +282,10 @@ class _BackdropPainter extends CustomPainter {
       tileDpr,
       (
         size,
-        scheme.surface,
-        scheme.primary,
-        scheme.secondary,
-        scheme.tertiary,
+        _PearBackdropState._snap(scheme.surface),
+        _PearBackdropState._snap(scheme.primary),
+        _PearBackdropState._snap(scheme.secondary),
+        _PearBackdropState._snap(scheme.tertiary),
         tile,
         tileDpr,
         glowScale,

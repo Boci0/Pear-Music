@@ -227,14 +227,26 @@ class PlayerVideoView extends StatelessWidget {
         ValueListenableBuilder<int>(
           valueListenable: VideoRelay.bytesUsed,
           builder: (context, bytes, _) {
-            final lines = video.streamHeight;
-            if (lines == null || fullscreen) return const SizedBox.shrink();
+            if (fullscreen) return const SizedBox.shrink();
+            // A picture read from disk moves no network bytes: it shows its
+            // own size instead, so the line under the picture is never empty
+            // and never reuses a previous stream's total.
+            final String label;
+            if (video.streamPicture) {
+              final lines = video.streamHeight;
+              if (lines == null) return const SizedBox.shrink();
+              label = bytes <= 0
+                  ? 'Streaming ${lines}p'
+                  : 'Streaming ${lines}p · ${_size(bytes)} used';
+            } else {
+              final size = video.pictureSize;
+              if (size == null) return const SizedBox.shrink();
+              label = '${size.width}x${size.height} · from this device';
+            }
             return Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                bytes <= 0
-                    ? 'Streaming ${lines}p'
-                    : 'Streaming ${lines}p · ${_size(bytes)} used',
+                label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(

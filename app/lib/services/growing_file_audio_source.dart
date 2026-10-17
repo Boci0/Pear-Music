@@ -30,6 +30,7 @@ class GrowingFileAudioSource extends StreamAudioSource {
     this.contentType = 'audio/mp4',
     this.pollInterval = const Duration(milliseconds: 50),
     this.openTimeout = const Duration(seconds: 30),
+    this.stallTimeout = const Duration(seconds: 20),
     super.tag,
   }) {
     done.then((_) => _finished = true, onError: (_) => _finished = true);
@@ -50,6 +51,15 @@ class GrowingFileAudioSource extends StreamAudioSource {
 
   /// How long to wait for yt-dlp to create the file before giving up.
   final Duration openTimeout;
+
+  /// How long to wait for new bytes before calling the download dead.
+  ///
+  /// Without this the read loops forever: a connection that drops mid-song
+  /// ends neither the download nor the file, so the player waits on a stream
+  /// that will never advance and the song hangs on loading with no error and
+  /// no way out but stopping it by hand. Giving up hands the failure to the
+  /// player, which reports it and can retry.
+  final Duration stallTimeout;
 
   bool _finished = false;
   bool _closed = false;
@@ -94,6 +104,7 @@ class GrowingFileAudioSource extends StreamAudioSource {
   Stream<List<int>> _read(RandomAccessFile file, int from, int? to) async* {
     const chunkSize = 64 * 1024;
     var position = from;
+    var lastProgress = DateTime.now();
     while (!_closed && (to == null || position < to)) {
       // Check "finished" before measuring, so bytes written just before the
       // download ended are still read on this pass.
@@ -112,10 +123,20 @@ class GrowingFileAudioSource extends StreamAudioSource {
           continue;
         }
         position += bytes.length;
+        lastProgress = DateTime.now();
         yield bytes;
       } else if (finished) {
         break;
       } else {
+        // Nothing new on disk. A download that stopped without ending (the
+        // connection dropped mid-song) never produces another byte, so the
+        // read must fail instead of waiting forever.
+        if (DateTime.now().difference(lastProgress) > stallTimeout) {
+          throw StateError(
+            'the download stopped for '
+            '${stallTimeout.inSeconds} s at $position bytes',
+          );
+        }
         await Future<void>.delayed(pollInterval);
       }
     }

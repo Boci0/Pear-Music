@@ -5,8 +5,11 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import '../controllers/app_controller.dart';
+import '../main.dart' show PearMusicApp;
 import '../screens/home_shell.dart';
+import '../screens/player_screen.dart';
 import '../theme/pear_style.dart';
+import '../widgets/pear_page_route.dart';
 import 'debug_log.dart';
 import 'video_service.dart';
 import 'visualizer_feed.dart';
@@ -40,6 +43,7 @@ import 'youtube_search_service.dart';
 ///                           (hold=1 keeps a client on the feed, hold=0 drops it)
 ///   /log?n=60               the last lines of the debug log
 ///   /style?v=glass|frosted|solid  switch the look; the reply is the style in use
+///   /player                 open the full player screen, as tapping the bar does
 ///   /quit                   exit the app
 class ControlSettings {
   const ControlSettings(this.port, this.token);
@@ -298,6 +302,21 @@ Future<HttpServer?> startTestControl(
               await controller.identity.setStyle(PearStyle.parse(wanted));
             }
             body = {'style': controller.identity.style.name};
+          case '/player':
+            // Opens the full player screen the way a tap on the playing bar
+            // does, so a check can measure or screenshot that screen.
+            final navigator = PearMusicApp.navigatorKey.currentState;
+            if (navigator == null) {
+              res.statusCode = HttpStatus.serviceUnavailable;
+              body = {'error': 'no navigator yet'};
+            } else {
+              unawaited(
+                navigator.push(
+                  PearPageRoute(builder: (_) => const PlayerScreen()),
+                ),
+              );
+              body = {'player': 'opened'};
+            }
           case '/quit':
             res.headers.contentType = ContentType.json;
             res.write(jsonEncode({'quitting': true}));

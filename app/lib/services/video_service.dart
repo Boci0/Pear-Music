@@ -159,9 +159,21 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   Media? _streamMedia;
   Rect _crop = const Rect.fromLTRB(0, 0, 1, 1);
   int? _streamHeight;
+  bool _streamPicture = false;
 
   /// Height in lines of the streamed picture; null for a file on disk.
   int? get streamHeight => _streamHeight;
+
+  /// Whether the picture on show is being pulled over the network (as opposed
+  /// to a file on disk). The usage line only exists for these.
+  bool get streamPicture => _streamPicture;
+
+  /// Pixels of the picture on show, once it has one.
+  ({int width, int height})? get pictureSize {
+    final w = _video?.state.width ?? 0;
+    final h = _video?.state.height ?? 0;
+    return w > 0 && h > 0 ? (width: w, height: h) : null;
+  }
 
   /// The part of the frame worth showing, as fractions of it (see [scanBars]).
   Rect get crop => _crop;
@@ -396,6 +408,7 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           }
         }
         _streamHeight = link.height;
+        _streamPicture = true;
         if (token != _token || !_shown) return;
         // Through the relay, so the traffic is counted and read in ranges; a
         // refused link is looked up again through yt-dlp, once.
@@ -615,6 +628,7 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     _streamMedia = null;
     _crop = const Rect.fromLTRB(0, 0, 1, 1);
     _streamHeight = null;
+    _streamPicture = false;
     VideoRelay.stop();
   }
 
