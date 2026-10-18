@@ -396,43 +396,59 @@ class _HomeShellState extends State<HomeShell>
               ),
         bottomNavigationBar: isWide
             ? null
-            : SafeArea(
-                top: false,
-                child: size.height < 500 && currentSong != null
-                    // A phone held sideways has no height for the mini player
-                    // stacked on the nav bar, so they share one row and the
-                    // list keeps the room.
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          // The nav bar keeps 10 below it and the player bar 6,
-                          // so lift the player by the difference to share a
-                          // baseline.
-                          const Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(bottom: 4),
-                              child: PlayerBar(),
+            // A scrim behind the stacked bars, so list rows fade out under
+            // them instead of showing in the gap between the pills.
+            : DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Theme.of(context).colorScheme.surface.withValues(alpha: 0),
+                      Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
+                      Theme.of(context).colorScheme.surface,
+                    ],
+                    stops: const [0, 0.3, 1],
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: size.height < 500 && currentSong != null
+                      // A phone held sideways has no height for the mini player
+                      // stacked on the nav bar, so they share one row and the
+                      // list keeps the room.
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            // The nav bar keeps 10 below it and the player bar 6,
+                            // so lift the player by the difference to share a
+                            // baseline.
+                            const Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(bottom: 4),
+                                child: PlayerBar(),
+                              ),
                             ),
-                          ),
-                          SizedBox(
-                            width: math.min(380, size.width * 0.5),
-                            child: _MinimalistNavBar(
+                            SizedBox(
+                              width: math.min(380, size.width * 0.5),
+                              child: _MinimalistNavBar(
+                                selectedIndex: _index,
+                                onDestinationSelected: _onDestinationSelected,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const PlayerBar(),
+                            _MinimalistNavBar(
                               selectedIndex: _index,
                               onDestinationSelected: _onDestinationSelected,
                             ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const PlayerBar(),
-                          _MinimalistNavBar(
-                            selectedIndex: _index,
-                            onDestinationSelected: _onDestinationSelected,
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                ),
               ),
       ),
     );
