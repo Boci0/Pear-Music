@@ -117,7 +117,7 @@ class PearStyles {
       cardSheenBottom: 0.039,
       cardRim: 0.063,
       glowScale: 1,
-      watermarkAlpha: 0.035,
+      watermarkAlpha: 0.024,
       grainAlpha: 0.05,
     ),
     PearStyle.frosted: PearStyleSpec(
@@ -134,7 +134,7 @@ class PearStyles {
       cardSheenBottom: 0.08,
       cardRim: 0.22,
       glowScale: 1.6,
-      watermarkAlpha: 0.06,
+      watermarkAlpha: 0.04,
       grainAlpha: 0.045,
     ),
     PearStyle.solid: PearStyleSpec(
@@ -151,8 +151,8 @@ class PearStyles {
       cardSheenBottom: 0.06,
       cardRim: 0.10,
       glowScale: 0,
-      watermarkAlpha: 0.03,
-      grainAlpha: 0.04,
+      watermarkAlpha: 0.02,
+      grainAlpha: 0.03,
       flat: true,
     ),
   };

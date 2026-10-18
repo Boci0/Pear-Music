@@ -287,7 +287,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
           size: size,
           radius: radius,
           color: baseShadowColor,
-          alpha: (0.38 + (0.62 * aura)).clamp(0.0, 1.0),
+          alpha: (0.28 + (0.44 * aura)).clamp(0.0, 1.0),
         ),
       );
     } else if (playerService != null) {
@@ -983,12 +983,12 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
       shadowColor = accent.withValues(alpha: 0.40);
     } else {
       bgColor = Colors.black.withValues(
-        alpha: _isPressed ? 0.72 : (_isHovered ? 0.62 : 0.52),
+        alpha: _isPressed ? 0.62 : (_isHovered ? 0.52 : 0.42),
       );
       borderColor = Colors.white.withValues(
-        alpha: _isHovered ? 0.34 : 0.22,
+        alpha: _isHovered ? 0.34 : 0.26,
       );
-      shadowColor = Colors.black.withValues(alpha: 0.35);
+      shadowColor = Colors.black.withValues(alpha: 0.25);
     }
 
     Widget button = MouseRegion(
