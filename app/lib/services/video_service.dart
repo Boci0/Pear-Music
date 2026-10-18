@@ -43,7 +43,8 @@ typedef _Link = ({
 /// player that only renders video and follows the audio player's play state
 /// and position; it exists only while the video is shown. A local video file
 /// plays from disk; a streamed song gets a picture-only link through the
-/// counting [VideoRelay], capped by the quality setting.
+/// counting [VideoRelay], capped by the quality setting. A song downloaded as
+/// audio streams the picture of its YouTube id the same way.
 class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   VideoService(this._player, this._library, [this._identity]);
 
@@ -108,11 +109,29 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           ? song.id.substring(7)
           : null;
 
+  /// The YouTube id a download keeps in its file name (`<uuid> [<id>].ext`),
+  /// or null. A song downloaded as audio has no picture of its own, but this
+  /// id lets the app fetch the video when asked.
+  static String? downloadVideoId(Song song) {
+    if (song.isLive || song.sourceDeviceId == 'stream') return null;
+    return RegExp(r' \[([a-zA-Z0-9_-]{11})\]\.[A-Za-z0-9]+$')
+        .firstMatch(song.fileName)
+        ?.group(1);
+  }
+
+  /// The video id to stream the picture for, or null when the picture comes
+  /// from the file: a local file in a video container always plays its own
+  /// picture, a streamed song or an audio download fetches YouTube's.
+  static String? pictureStreamId(Song song) =>
+      streamVideoId(song) ??
+      (videoExtensions.contains(song.extension) ? null : downloadVideoId(song));
+
   static bool mayHaveVideo(Song song) =>
       !song.isLive &&
       (streamVideoId(song) != null ||
           (song.sourceDeviceId != 'stream' &&
-              videoExtensions.contains(song.extension)));
+              videoExtensions.contains(song.extension)) ||
+          downloadVideoId(song) != null);
 
   @visibleForTesting
   static bool needsSeek(Duration video, Duration audio) =>
@@ -365,7 +384,7 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
 
     try {
       final Media media;
-      final streamId = streamVideoId(song);
+      final streamId = pictureStreamId(song);
       if (streamId != null) {
         final maxHeight = await _maxHeight();
         final key = '$streamId@$maxHeight';

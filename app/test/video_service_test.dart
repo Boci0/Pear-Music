@@ -28,6 +28,22 @@ void main() {
     expect(VideoService.mayHaveVideo(_song('a.mp4', live: true)), isFalse);
   });
 
+  test('an audio download is offered a picture through the id in its name', () {
+    const id = 'dQw4w9WgXcQ';
+    final audio = _song('0d9b [$id].m4a');
+    expect(VideoService.downloadVideoId(audio), id);
+    expect(VideoService.mayHaveVideo(audio), isTrue);
+    expect(VideoService.pictureStreamId(audio), id);
+    // No id in the name, no picture to fetch.
+    expect(VideoService.downloadVideoId(_song('0d9b.m4a')), isNull);
+    expect(VideoService.mayHaveVideo(_song('0d9b.mp3')), isFalse);
+    // A video file plays its own picture, id or not.
+    final video = _song('0d9b [$id].mp4');
+    expect(VideoService.mayHaveVideo(video), isTrue);
+    expect(VideoService.pictureStreamId(video), isNull);
+    expect(VideoService.downloadVideoId(_song('a [$id].m4a', live: true)), isNull);
+  });
+
   test('a streamed song is looked up by its video id, a live one is not', () {
     Song stream({bool live = false}) => Song(
       id: 'stream_dQw4w9WgXcQ',
