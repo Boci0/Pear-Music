@@ -751,6 +751,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                           horizontal: 14,
                                           vertical: 10,
                                         ),
+                                        // The card handles the tap, so the
+                                        // button is "disabled"; keep it filled.
+                                        disabledBackgroundColor:
+                                            theme.colorScheme.primary,
+                                        disabledForegroundColor:
+                                            theme.colorScheme.onPrimary,
                                       ),
                                       icon: const Icon(
                                         Icons.play_arrow_rounded,
