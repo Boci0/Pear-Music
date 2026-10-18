@@ -72,7 +72,7 @@ class PlayerPortraitBody extends StatelessWidget {
                               ? PlayerVideoView(
                                   accent: accent,
                                   maxWidth: constraints.maxWidth - 48,
-                                  maxHeight: math.max(artSize, 180),
+                                  maxHeight: math.max(artSize - 24, 160),
                                 )
                               : PlayerArtworkHero(
                                   song: song,
