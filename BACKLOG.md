@@ -196,32 +196,19 @@ audio, but it can drive the Windows build through the control port, see Working 
 - `tool/test_playlists/Pear Lyrics Test.m3u8`: 17 songs covering the lyric
   sync edge cases (fast rap, J-rock, CJK, ballads, an instrumental). Import
   it through the app; entries are resolved online by title.
-- **The Windows memory climb is a start-of-playback transient, not a leak
-  (measured 2026-10-17, corrected).** Steady state is flat in every mode of
-  `docs/perf-audit/tools/memlab.ps1`: behind -11, shown -12, front -31,
-  focused -38 MB/min (medians, 5 runs each, private bytes, 60-90 s windows).
-  What users see as "1.5 GB that never comes down" is a one-off warm-up when a
-  song starts with the window focused and animating: single runs spiked to 1.9
-  and 2.5 GB, then released to 250 to 350 MB. A parked or unfocused window does
-  not do it, which is why `--no-focus` measurements could never see it; use
-  `-Mode focused -SettleSeconds 0` and compare `peak_mb`, not the slope.
-  Tried and rejected: capping the visualizer repaint to 30 fps and caching its
-  paints and shaders (commit that did this was amended out). In focused runs
-  that change did not flatten anything and raised the start peak from a median
-  of 677 MB to 1179 MB. The visualizer widget being off makes it flatter
-  (Claude's finding, not explained yet). Focused repeats on 2026-10-18 exonerated the visualizer, the
-  audio capture and the backdrop bake: every focused configuration spiked in 3 or 4 runs of 5, peaks 0.3 to
-  2.7 GB, so no rendering variable isolates it. Next suspects are the autoplay recommendation preload that runs
-  on every launch and GPU adapter allocations. Impeller on 3.44.9 is flat (268 to 273
-  MB) but renders the client area black on this laptop, so it cannot ship.
-- **Video picture memory on Windows (measured 2026-10-17).** Opening the
-  picture grew the process about 40 MB a second to a 1.5 to 2.9 GB ceiling,
-  then it collapsed to about 340 MB and stayed flat. Same start-of-playback
-  warm-up as above, larger because the picture starts decoding too. Not the
-  bar scan, not the feather ShaderMask, not the output size, not `hwdec=no`,
-  and `media_kit_video` 2.0.1 is byte-identical on Windows.
-  Measure memory here with `--control-port`/`--control-token`, `/import` plus
-  `/playlocal` on a mute (`/volume?v=0`), `/expand`, `/video?on=1`, and a tall
-  window raised without activating it (with no focus the window counts as
-  covered and rendering is parked, so the numbers mean nothing).
+- **The Windows memory climb is fixed (v4.9.5, 2026-10-18).** With the Now
+  Playing UI focused and animating, GPU memory (counted as private bytes on the
+  integrated graphics) grew about 38 MB a second to 2 to 2.7 GB and was freed in
+  bursts. Cause: the glass card's drop shadow, a blurred shadow drawn through a
+  fresh even-odd clip path on every frame, so the renderer built a new clip mask
+  (about 0.7 MB) per frame. Removing the shadow from every `PearGlass` gave 5 of
+  5 flat runs at 296 to 311 MB. Caching the clip Path and wrapping the card in a
+  RepaintBoundary did not help; a baked shadow image did. The video picture's
+  extra memory was the same warm-up, not a separate leak. Method and the full run
+  log: `docs/perf-audit/MEMLAB.md` (local), measure with `tools/memlab.ps1`
+  `-Mode focused -SettleSeconds 0 -Gpu` and compare peaks over at least 4 runs.
+  Ruled out on the way: visualizer rate and painters, audio capture, backdrop
+  bake, blur, feather, pulse, seek glow, picture, seek bar, transport, preload,
+  prefs size, Flutter 3.47.6. Impeller stays unusable (black window on this
+  laptop). `--no-focus` runs park the app and cannot show this.
 
