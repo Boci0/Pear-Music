@@ -38,7 +38,6 @@ class PearStyleSpec {
     required this.cardSheenTop,
     required this.cardSheenBottom,
     required this.cardRim,
-    required this.shadowAlpha,
     required this.glowScale,
     required this.watermarkAlpha,
     this.flat = false,
@@ -69,9 +68,6 @@ class PearStyleSpec {
   final double cardSheenTop;
   final double cardSheenBottom;
   final double cardRim;
-
-  /// Strength of the drop shadow under floating chrome.
-  final double shadowAlpha;
 
   /// Multiplier on the backdrop's colour glows (0 = none).
   final double glowScale;
@@ -115,7 +111,6 @@ class PearStyles {
       cardSheenTop: 0.078,
       cardSheenBottom: 0.039,
       cardRim: 0.063,
-      shadowAlpha: 0.35,
       glowScale: 1,
       watermarkAlpha: 0.035,
     ),
@@ -132,7 +127,6 @@ class PearStyles {
       cardSheenTop: 0.15,
       cardSheenBottom: 0.08,
       cardRim: 0.22,
-      shadowAlpha: 0.30,
       glowScale: 1.6,
       watermarkAlpha: 0.06,
     ),
@@ -149,7 +143,6 @@ class PearStyles {
       cardSheenTop: 0.06,
       cardSheenBottom: 0.06,
       cardRim: 0.10,
-      shadowAlpha: 0.18,
       glowScale: 0,
       watermarkAlpha: 0.03,
       flat: true,

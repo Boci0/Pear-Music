@@ -24,7 +24,6 @@ void main() {
     expect((sheen[0].a * 255).round(), 0x14);
     expect((sheen[1].a * 255).round(), 0x0A);
     expect((PearGlassTokens.cardRim.a * 255).round(), 0x10);
-    expect(PearGlassTokens.shadow.single.color.a, closeTo(0.35, 0.005));
     expect(PearStyles.spec.glowScale, 1);
     expect(PearStyles.spec.flat, isFalse);
   });

@@ -115,7 +115,6 @@ Future<T?> showPearPopup<T>({
     builder: (ctx) => PearGlass(
       borderRadius: sheetRadius,
       blur: true,
-      shadow: false,
       opacity: PearGlassTokens.popupAlpha,
       child: Material(
         type: MaterialType.transparency,

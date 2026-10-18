@@ -183,7 +183,6 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
       child: PearGlass(
         borderRadius: cardRadius,
         blur: true,
-        shadow: widget.desktop,
         opacity: PearGlassTokens.popupAlpha,
         child: Material(
         type: MaterialType.transparency,

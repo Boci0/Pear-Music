@@ -247,7 +247,6 @@ class _HomeShellState extends State<HomeShell>
                     // bar reads as chrome from a distance instead of dead
                     // space (mirror of the status bar at the bottom).
                     const PearGlass(
-                      shadow: false,
                       edge: PearGlassEdge.bottom,
                       child: Padding(
                         padding: EdgeInsets.symmetric(vertical: 4),

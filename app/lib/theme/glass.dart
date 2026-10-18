@@ -89,14 +89,6 @@ class PearGlassTokens {
           width: 1,
         ),
       );
-
-  static List<BoxShadow> get shadow => [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: PearStyles.spec.shadowAlpha),
-      blurRadius: 32,
-      offset: const Offset(0, 12),
-    ),
-  ];
 }
 
 /// Whether glass surfaces should skip the blur (Reduced Effects setting).
@@ -123,7 +115,6 @@ class PearGlass extends StatelessWidget {
   final Widget child;
   final BorderRadius borderRadius;
   final Color? tint;
-  final bool shadow;
   final PearGlassEdge edge;
 
   /// Blur what lies behind the panel. Only worth it where content scrolls
@@ -139,7 +130,6 @@ class PearGlass extends StatelessWidget {
     required this.child,
     this.borderRadius = BorderRadius.zero,
     this.tint,
-    this.shadow = true,
     this.edge = PearGlassEdge.all,
     this.blur = false,
     this.opacity,
@@ -246,40 +236,8 @@ class PearGlass extends StatelessWidget {
       );
     }
 
-    if (!shadow) return panel;
-    return CustomPaint(
-      painter: _OutsideShadowPainter(borderRadius),
-      child: panel,
-    );
+    return panel;
   }
-}
-
-/// The panel's drop shadow, drawn only outside the panel's own shape. A
-/// BoxDecoration shadow also fills the area under the box, which shows
-/// through translucent glass as a dark body with a bright strip along the top.
-class _OutsideShadowPainter extends CustomPainter {
-  final BorderRadius borderRadius;
-  const _OutsideShadowPainter(this.borderRadius);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    final rrect = borderRadius.toRRect(Offset.zero & size);
-    final outside = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect((Offset.zero & size).inflate(120))
-      ..addRRect(rrect);
-    canvas.save();
-    canvas.clipPath(outside);
-    for (final s in PearGlassTokens.shadow) {
-      canvas.drawRRect(rrect.shift(s.offset), s.toPaint());
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_OutsideShadowPainter old) =>
-      old.borderRadius != borderRadius;
 }
 
 /// A 1px rounded rim, brighter along the top edge.

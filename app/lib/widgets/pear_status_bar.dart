@@ -17,7 +17,6 @@ class PearStatusBar extends StatelessWidget {
 
     return PearGlass(
       key: const ValueKey('pear_status_bar'),
-      shadow: false,
       edge: PearGlassEdge.top,
       child: Container(
         height: 26,
