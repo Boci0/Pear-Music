@@ -141,7 +141,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
-                          child: Slider(
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 4,
+                              inactiveTrackColor:
+                                  Colors.white.withValues(alpha: 0.14),
+                              activeTickMarkColor:
+                                  Colors.white.withValues(alpha: 0.35),
+                              inactiveTickMarkColor:
+                                  Colors.white.withValues(alpha: 0.25),
+                            ),
+                            child: Slider(
                             value: seconds.toDouble(),
                             max: IdentityService.maxCrossfadeSeconds.toDouble(),
                             divisions: IdentityService.maxCrossfadeSeconds,
@@ -152,6 +162,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               unawaited(identity.setCrossfadeSeconds(val.round()));
                               unawaited(controller.player.setCrossfadeSeconds(val.round()));
                             },
+                            ),
                           ),
                         ),
                       ],
@@ -223,7 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Style'),
                     subtitle: Text(switch (identity.style) {
                       PearStyle.glass =>
-                        'Dark frosted panels tinted by the song',
+                        'Translucent dark panels tinted by the song',
                       PearStyle.frosted =>
                         'Lighter, more colourful glass with a stronger edge',
                       PearStyle.solid =>
