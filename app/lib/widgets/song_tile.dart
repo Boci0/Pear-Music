@@ -389,7 +389,7 @@ class SongTile extends StatelessWidget {
                             // Wide rows (desktop) move the meta line into a
                             // right-aligned column so the row reads like a table
                             // instead of a title stranded next to the menu dots.
-                            final wideRow = constraints.maxWidth >= 620;
+                            final wideRow = constraints.maxWidth >= 900;
                             return Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [

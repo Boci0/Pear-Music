@@ -435,6 +435,9 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               cacheWidth: 88,
               fit: BoxFit.cover,
               gaplessPlayback: true,
+              // Until the picture arrives show the note tile, not a blank square.
+              loadingBuilder: (_, child, progress) =>
+                  progress == null ? child : _placeholder(theme),
               errorBuilder: (_, _, _) => _placeholder(theme),
             )
           : _placeholder(theme),
@@ -516,7 +519,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                           builder: (context, constraints) {
                             // Wide rows (desktop) move the meta line into a
                             // right-aligned column so the row reads like a table.
-                            final wideRow = constraints.maxWidth >= 620;
+                            final wideRow = constraints.maxWidth >= 900;
                             final onlineMeta =
                                 'Online · ${widget.result.author}${widget.result.duration != null ? ' · ${widget.result.durationFormatted}' : ''}';
                             return Row(
