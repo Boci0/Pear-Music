@@ -272,7 +272,7 @@ class NowPlayingPanel extends StatelessWidget {
             // above the scroll edge.
             height: math.min(
               216.0,
-              math.max(96.0, MediaQuery.sizeOf(context).height * 0.14),
+              math.max(132.0, MediaQuery.sizeOf(context).height * 0.17),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -321,21 +321,21 @@ class NowPlayingPanel extends StatelessWidget {
             Icon(
               Icons.music_note_rounded,
               size: 42,
-              color: Colors.white.withValues(alpha: 0.25),
+              color: Colors.white.withValues(alpha: 0.35),
             ),
             const SizedBox(height: 12),
             Text(
               'Nothing playing',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: Colors.white.withValues(alpha: 0.7),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.75),
               ),
             ),
             const SizedBox(height: 4),
             Text(
               'Pick a song to start listening',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white.withValues(alpha: 0.4),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.55),
               ),
             ),
           ],

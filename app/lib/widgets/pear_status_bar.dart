@@ -25,7 +25,7 @@ class PearStatusBar extends StatelessWidget {
           children: [
             Text(
               '${controller.songs.length} songs · ${controller.playlists.length} playlists',
-              style: const TextStyle(fontSize: 11.5, color: Colors.white54),
+              style: const TextStyle(fontSize: 11.5, color: Colors.white70),
             ),
             const Spacer(),
             // The time ticks 4 times a second while playing: its own layer,
@@ -34,7 +34,7 @@ class PearStatusBar extends StatelessWidget {
             const SizedBox(width: 20),
             Text(
               'Pear Music v${UpdateService.displayVersion}',
-              style: const TextStyle(fontSize: 11.5, color: Colors.white54),
+              style: const TextStyle(fontSize: 11.5, color: Colors.white70),
             ),
           ],
         ),
@@ -64,7 +64,7 @@ class _PlaybackStatus extends StatelessWidget {
     if (song == null) {
       return const Text(
         'Stopped',
-        style: TextStyle(fontSize: 11.5, color: Colors.white54),
+        style: TextStyle(fontSize: 11.5, color: Colors.white70),
       );
     }
 

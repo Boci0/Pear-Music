@@ -221,7 +221,7 @@ class _SideRailItemState extends State<_SideRailItem> {
                           widget.label,
                           maxLines: 1,
                           style: TextStyle(
-                            fontSize: 10.5,
+                            fontSize: 11.5,
                             height: 1.0,
                             letterSpacing: -0.4,
                             fontWeight: isSelected
