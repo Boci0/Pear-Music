@@ -390,22 +390,31 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
             lerpDouble(peek, maxH, _curvedAnimation.value)!;
         final isExpanded = _animController.value > 0.30;
 
+        // The mini player's own tone (card fill leaning to the song's colour),
+        // so the sheet matches the bars around it instead of reading near black.
+        final tone = Color.lerp(
+              PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+              ArtworkPalette.wash(widget.accent, lightness: 0.11),
+              0.45,
+            ) ??
+            PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme);
+
         return Container(
           height: currentHeight,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             // Solid glass: the card tone with a soft top sheen. No blur, since
             // the player animates right behind the sheet.
-            color: PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+            color: tone,
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
                 Color.alphaBlend(
                   Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
-                  PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+                  tone,
                 ),
-                PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
+                tone,
               ],
               stops: const [0, 0.35],
             ),
