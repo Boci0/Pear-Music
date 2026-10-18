@@ -1085,8 +1085,8 @@ class _QueueRow extends StatelessWidget {
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                       colors: [
-                        readableAccent.withValues(alpha: 0.20),
-                        readableAccent.withValues(alpha: 0.03),
+                        readableAccent.withValues(alpha: 0.36),
+                        readableAccent.withValues(alpha: 0.10),
                       ],
                     )
                   : PearGlassTokens.cardSheen,
@@ -1094,18 +1094,15 @@ class _QueueRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // Track Number or Active indicator bar
+                // Track number, or the equalizer icon on the playing row
                 SizedBox(
                   width: 38,
                   child: Center(
                     child: isCurrent
-                        ? Container(
-                            width: 3,
-                            height: 18,
-                            decoration: BoxDecoration(
-                              color: readableAccent,
-                              borderRadius: BorderRadius.circular(1.5),
-                            ),
+                        ? Icon(
+                            Icons.graphic_eq_rounded,
+                            size: 16,
+                            color: readableAccent,
                           )
                         : Text(
                             '${index + 1}',

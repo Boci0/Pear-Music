@@ -361,8 +361,8 @@ class SongTile extends StatelessWidget {
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
                           colors: [
-                            theme.colorScheme.primary.withValues(alpha: 0.18),
-                            theme.colorScheme.primary.withValues(alpha: 0.02),
+                            theme.colorScheme.primary.withValues(alpha: 0.34),
+                            theme.colorScheme.primary.withValues(alpha: 0.10),
                           ],
                         )
                       : isSelected
@@ -382,18 +382,6 @@ class SongTile extends StatelessWidget {
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [
-                      if (isCurrent)
-                        Positioned(
-                          left: 4,
-                          child: Container(
-                            width: 3.5,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
                       Padding(
                         padding: const EdgeInsets.only(left: 14, right: 12),
                         child: LayoutBuilder(

@@ -918,7 +918,7 @@ class _QueueContextListState extends State<_QueueContextList> {
                     // artwork thumbnail per row, and the playing row carries
                     // the track accent.
                     color: isCurrent
-                        ? control.withValues(alpha: 0.14)
+                        ? control.withValues(alpha: 0.28)
                         : null,
                   ),
                   child: Row(
