@@ -93,9 +93,8 @@ class NowPlayingPanel extends StatelessWidget {
             // from the top edge, the same gesture the full-screen player
             // makes, so the pane reads as "the player" rather than a plain
             // sidebar card.
-            gradient: song != null &&
-                    wash > 0.001 &&
-                    PearStyles.spec.glowScale > 0
+            gradient:
+                song != null && wash > 0.001 && PearStyles.spec.glowScale > 0
                 ? LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.center,
@@ -596,7 +595,8 @@ class _ProgressLineState extends State<_ProgressLine> {
           stream: player.uiPositionStream,
           initialData: player.position ?? Duration.zero,
           builder: (context, posSnapshot) {
-            final playing = posSnapshot.data ?? player.position ?? Duration.zero;
+            final playing =
+                posSnapshot.data ?? player.position ?? Duration.zero;
             final pos = _dragMs != null
                 ? Duration(milliseconds: _dragMs!.round())
                 : playing;
@@ -624,23 +624,23 @@ class _ProgressLineState extends State<_ProgressLine> {
                           behavior: HitTestBehavior.opaque,
                           onTapUp: canSeek
                               ? (d) => _commit(
-                                    _msAt(d.localPosition.dx, width, totalMs),
-                                  )
+                                  _msAt(d.localPosition.dx, width, totalMs),
+                                )
                               : null,
                           onHorizontalDragStart: canSeek
                               ? (d) => _scrub(
-                                    _msAt(d.localPosition.dx, width, totalMs),
-                                  )
+                                  _msAt(d.localPosition.dx, width, totalMs),
+                                )
                               : null,
                           onHorizontalDragUpdate: canSeek
                               ? (d) => _scrub(
-                                    _msAt(d.localPosition.dx, width, totalMs),
-                                  )
+                                  _msAt(d.localPosition.dx, width, totalMs),
+                                )
                               : null,
                           onHorizontalDragEnd: canSeek
                               ? (_) => _commit(
-                                    _dragMs ?? playing.inMilliseconds.toDouble(),
-                                  )
+                                  _dragMs ?? playing.inMilliseconds.toDouble(),
+                                )
                               : null,
                           onHorizontalDragCancel: canSeek ? _cancel : null,
                           // A taller hit area than the 4 px line, so it is
@@ -659,7 +659,9 @@ class _ProgressLineState extends State<_ProgressLine> {
                                       fit: StackFit.expand,
                                       children: [
                                         ColoredBox(
-                                          color: Colors.white.withValues(alpha: 0.08),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.08,
+                                          ),
                                         ),
                                         FractionallySizedBox(
                                           alignment: Alignment.centerLeft,
@@ -825,9 +827,7 @@ class _QueueContextListState extends State<_QueueContextList> {
       if (!mounted || !_scrollController.hasClients) return;
       final position = _scrollController.position;
       final target =
-          (index * _rowExtent -
-                  position.viewportDimension / 2 +
-                  _rowExtent / 2)
+          (index * _rowExtent - position.viewportDimension / 2 + _rowExtent / 2)
               .clamp(0.0, position.maxScrollExtent);
       if (animate) {
         _scrollController.animateTo(
@@ -886,95 +886,107 @@ class _QueueContextListState extends State<_QueueContextList> {
         ),
         const SizedBox(height: 6),
         Expanded(
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: EdgeInsets.zero,
-            itemExtent: _rowExtent,
-            itemCount: queue.length,
-            itemBuilder: (context, i) {
-              final song = queue[i];
-              final isCurrent = i == index;
-              final isPlayed = i < index;
-              return InkWell(
-                borderRadius: BorderRadius.circular(10),
-                hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
-                // Desktop rows: instant press fill, no touch ripple.
-                splashFactory: NoSplash.splashFactory,
-                highlightColor: Colors.white.withValues(alpha: 0.06),
-                onTap: () {
-                  TactileFeedback.click();
-                  player.playSong(
-                    song,
-                    queue: queue,
-                    sourceId: player.queueSourceId,
-                    initialIndex: i,
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  decoration: BoxDecoration(
+          // The rows' hover and press fills paint on the nearest Material, not
+          // on the list, so scrolling fast let them show through above the
+          // list over the controls. Their own clipped Material keeps them in.
+          child: ClipRect(
+            child: Material(
+              type: MaterialType.transparency,
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: EdgeInsets.zero,
+                itemExtent: _rowExtent,
+                itemCount: queue.length,
+                itemBuilder: (context, i) {
+                  final song = queue[i];
+                  final isCurrent = i == index;
+                  final isPlayed = i < index;
+                  return InkWell(
                     borderRadius: BorderRadius.circular(10),
-                    // Same card language as the lists and the queue sheet:
-                    // artwork thumbnail per row, and the playing row carries
-                    // the track accent.
-                    color: isCurrent
-                        ? control.withValues(alpha: 0.28)
-                        : null,
-                  ),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 20,
-                        child: isCurrent
-                            ? Icon(
-                                Icons.graphic_eq_rounded,
-                                size: 13,
-                                color: control,
-                              )
-                            : Text(
-                                '${i + 1}',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  fontSize: 11,
-                                  color: Colors.white.withValues(alpha: 0.35),
-                                ),
-                              ),
+                    hoverColor: Colors.white.withValues(
+                      alpha: PearOverlay.hover,
+                    ),
+                    // Desktop rows: instant press fill, no touch ripple.
+                    splashFactory: NoSplash.splashFactory,
+                    highlightColor: Colors.white.withValues(alpha: 0.06),
+                    onTap: () {
+                      TactileFeedback.click();
+                      player.playSong(
+                        song,
+                        queue: queue,
+                        sourceId: player.queueSourceId,
+                        initialIndex: i,
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        // Same card language as the lists and the queue sheet:
+                        // artwork thumbnail per row, and the playing row carries
+                        // the track accent.
+                        color: isCurrent
+                            ? control.withValues(alpha: 0.28)
+                            : null,
                       ),
-                      _QueueThumb(song: song),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 12.5,
-                            fontWeight: isCurrent
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                            // Played tracks stay listed but recede, so the
-                            // queue reads as a fixed list with a moving cursor
-                            // instead of shrinking as it plays.
-                            color: isCurrent
-                                ? control
-                                : Colors.white.withValues(
-                                    alpha: isPlayed ? 0.38 : 0.85,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            child: isCurrent
+                                ? Icon(
+                                    Icons.graphic_eq_rounded,
+                                    size: 13,
+                                    color: control,
+                                  )
+                                : Text(
+                                    '${i + 1}',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      fontSize: 11,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                    ),
                                   ),
                           ),
-                        ),
+                          _QueueThumb(song: song),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              song.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 12.5,
+                                fontWeight: isCurrent
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
+                                // Played tracks stay listed but recede, so the
+                                // queue reads as a fixed list with a moving cursor
+                                // instead of shrinking as it plays.
+                                color: isCurrent
+                                    ? control
+                                    : Colors.white.withValues(
+                                        alpha: isPlayed ? 0.38 : 0.85,
+                                      ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            song.sizeLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontSize: 11,
+                              color: Colors.white.withValues(alpha: 0.4),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        song.sizeLabel,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontSize: 11,
-                          color: Colors.white.withValues(alpha: 0.4),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ],
