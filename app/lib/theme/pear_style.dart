@@ -40,6 +40,7 @@ class PearStyleSpec {
     required this.cardRim,
     required this.glowScale,
     required this.watermarkAlpha,
+    required this.grainAlpha,
     this.flat = false,
   });
 
@@ -74,6 +75,10 @@ class PearStyleSpec {
 
   /// How loud the pear watermark is.
   final double watermarkAlpha;
+
+  /// Strength of the fine grain over the backdrop and the glass panels
+  /// (`assets/pear_grain.png`, one image pixel per screen pixel).
+  final double grainAlpha;
 
   /// Opaque surfaces and no blur, as Reduced Effects draws panels.
   final bool flat;
@@ -113,6 +118,7 @@ class PearStyles {
       cardRim: 0.063,
       glowScale: 1,
       watermarkAlpha: 0.035,
+      grainAlpha: 0.05,
     ),
     PearStyle.frosted: PearStyleSpec(
       blur: 24,
@@ -129,6 +135,7 @@ class PearStyles {
       cardRim: 0.22,
       glowScale: 1.6,
       watermarkAlpha: 0.06,
+      grainAlpha: 0.045,
     ),
     PearStyle.solid: PearStyleSpec(
       blur: 0,
@@ -145,6 +152,7 @@ class PearStyles {
       cardRim: 0.10,
       glowScale: 0,
       watermarkAlpha: 0.03,
+      grainAlpha: 0.04,
       flat: true,
     ),
   };

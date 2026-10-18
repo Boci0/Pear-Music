@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+import '../theme/glass.dart' show pearGrainAsset;
 import '../theme/pear_style.dart';
 
 /// The room behind every route: the ambient canvas colour, soft glows of the
@@ -63,7 +64,11 @@ class _PearBackdropState extends State<PearBackdrop> {
   /// only ever as many as there are display scales.
   static final Map<double, ui.Image> _sharedTiles = {};
 
+  /// The grain tile, decoded once for every backdrop.
+  static ui.Image? _sharedGrain;
+
   ui.Image? _tileImage;
+  ui.Image? _grain;
 
   /// Snap a colour to the bake key's resolution. MaterialApp lerps the whole
   /// ThemeData over 200 ms when the song changes the palette, so a bake key
@@ -91,6 +96,23 @@ class _PearBackdropState extends State<PearBackdrop> {
   final _BackdropBake _bake = _BackdropBake();
 
   bool get _bakes => PearBackdrop.debugBake ?? !kIsWeb;
+
+  @override
+  void initState() {
+    super.initState();
+    _grain = _sharedGrain;
+    if (_grain == null) _loadGrain();
+  }
+
+  Future<void> _loadGrain() async {
+    final data = await rootBundle.load(pearGrainAsset);
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+    final image = (await codec.getNextFrame()).image;
+    codec.dispose();
+    _sharedGrain ??= image;
+    if (!mounted) return;
+    setState(() => _grain = _sharedGrain);
+  }
 
   @override
   void didChangeDependencies() {
@@ -196,6 +218,8 @@ class _PearBackdropState extends State<PearBackdrop> {
             scheme: scheme,
             tile: _tileImage,
             tileDpr: _tileDpr,
+            grain: _grain,
+            grainAlpha: PearStyles.spec.grainAlpha,
             bake: _bakes ? _bake : null,
             glowScale: PearStyles.spec.glowScale,
             watermarkAlpha: PearStyles.spec.watermarkAlpha,
@@ -242,6 +266,8 @@ class _BackdropPainter extends CustomPainter {
     required this.scheme,
     required this.tile,
     required this.tileDpr,
+    required this.grain,
+    required this.grainAlpha,
     required this.glowScale,
     required this.watermarkAlpha,
     this.bake,
@@ -256,6 +282,10 @@ class _BackdropPainter extends CustomPainter {
 
   final ColorScheme scheme;
   final ui.Image? tile;
+
+  /// Fine noise drawn over the glows, at one grain pixel per screen pixel.
+  final ui.Image? grain;
+  final double grainAlpha;
 
   /// Device pixels per logical pixel in [tile]. The canvas is in logical
   /// pixels, so the shader scales the tile down by this to keep the mark at
@@ -290,6 +320,8 @@ class _BackdropPainter extends CustomPainter {
         tileDpr,
         glowScale,
         watermarkAlpha,
+        grain,
+        grainAlpha,
       ),
       (c) => _draw(c, size),
     );
@@ -332,6 +364,27 @@ class _BackdropPainter extends CustomPainter {
       );
     }
 
+    final noise = grain;
+    if (noise != null && grainAlpha > 0) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..filterQuality = FilterQuality.none
+          ..shader = ui.ImageShader(
+            noise,
+            TileMode.repeated,
+            TileMode.repeated,
+            Matrix4.diagonal3Values(1 / tileDpr, 1 / tileDpr, 1).storage,
+          )
+          ..colorFilter = ColorFilter.matrix(<double>[
+            1, 0, 0, 0, 0,
+            0, 1, 0, 0, 0,
+            0, 0, 1, 0, 0,
+            0, 0, 0, grainAlpha, 0,
+          ]),
+      );
+    }
+
     final image = tile;
     if (image == null) {
       return;
@@ -364,6 +417,8 @@ class _BackdropPainter extends CustomPainter {
         oldDelegate.scheme.tertiary != scheme.tertiary ||
         oldDelegate.tile != tile ||
         oldDelegate.tileDpr != tileDpr ||
+        oldDelegate.grain != grain ||
+        oldDelegate.grainAlpha != grainAlpha ||
         oldDelegate.glowScale != glowScale ||
         oldDelegate.watermarkAlpha != watermarkAlpha;
   }

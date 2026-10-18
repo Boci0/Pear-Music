@@ -91,6 +91,10 @@ class PearGlassTokens {
       );
 }
 
+/// The grain tile: 128 px of grey noise, drawn at one image pixel per screen
+/// pixel over the backdrop and the glass panels.
+const String pearGrainAsset = 'assets/pear_grain.png';
+
 /// Whether glass surfaces should skip the blur (Reduced Effects setting).
 bool pearReducedEffects(BuildContext context) => context
     .select<AppController?, bool>((c) => c?.identity.reducedEffects ?? false);
@@ -143,6 +147,7 @@ class PearGlass extends StatelessWidget {
     Color? tint,
     BorderRadius? borderRadius,
     double? opacity,
+    double grainScale = 1,
   }) {
     final base = tint ??
         Color.alphaBlend(
@@ -161,6 +166,16 @@ class PearGlass extends StatelessWidget {
     }
     return BoxDecoration(
       borderRadius: borderRadius,
+      // Fine grain over the sheen, one grain pixel per screen pixel, so the
+      // panel has a surface instead of a smooth gradient. Static, so it costs
+      // one textured rectangle.
+      image: DecorationImage(
+        image: const AssetImage(pearGrainAsset),
+        repeat: ImageRepeat.repeat,
+        opacity: PearStyles.spec.grainAlpha,
+        filterQuality: FilterQuality.none,
+        scale: grainScale,
+      ),
       gradient: LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
@@ -192,6 +207,7 @@ class PearGlass extends StatelessWidget {
         tint: tint,
         borderRadius: borderRadius,
         opacity: opacity,
+        grainScale: MediaQuery.devicePixelRatioOf(context),
       ),
       child: child,
     );
