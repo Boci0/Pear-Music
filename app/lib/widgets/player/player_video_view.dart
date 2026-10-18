@@ -56,8 +56,8 @@ class PlayerVideoView extends StatelessWidget {
     );
     // The card's edge dissolves into its accent glow, as the artwork's does.
     // The fade is two mask layers over a playing picture, so reduced effects
-    // and phones (where that costs battery) keep a plain outline and drop
-    // shadow instead.
+    // and phones (where that costs battery) keep a plain outline instead.
+    // Reduced effects also drops the glow for a plain drop shadow.
     final phone =
         defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS;
@@ -66,7 +66,9 @@ class PlayerVideoView extends StatelessWidget {
     final BoxDecoration edge;
     if (fullscreen) {
       edge = const BoxDecoration();
-    } else if (feathered) {
+    } else if (!reducedEffects) {
+      // The glow is a static shadow in its own repaint boundary, cheap enough
+      // for phones; only the edge fade over the playing picture is not.
       edge = BoxDecoration(
         borderRadius: radius,
         boxShadow: [

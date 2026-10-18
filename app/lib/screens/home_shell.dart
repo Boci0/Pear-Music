@@ -371,7 +371,15 @@ class _HomeShellState extends State<HomeShell>
                     ? Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          const Expanded(child: PlayerBar()),
+                          // The nav bar keeps 10 below it and the player bar 6,
+                          // so lift the player by the difference to share a
+                          // baseline.
+                          const Expanded(
+                            child: Padding(
+                              padding: EdgeInsets.only(bottom: 4),
+                              child: PlayerBar(),
+                            ),
+                          ),
                           SizedBox(
                             width: math.min(380, size.width * 0.5),
                             child: _MinimalistNavBar(
