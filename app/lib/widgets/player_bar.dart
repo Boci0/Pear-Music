@@ -350,19 +350,13 @@ class _MiniPlayerBackgroundProgress extends StatelessWidget {
                     gradient: LinearGradient(
                       colors: [
                         color.withValues(alpha: 0.22),
-                        color.withValues(alpha: 0.12),
+                        color.withValues(alpha: 0.08),
                       ],
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                     ),
-                    border: fraction > 0.02
-                        ? Border(
-                            right: BorderSide(
-                              color: color.withValues(alpha: 0.35),
-                              width: 1.0,
-                            ),
-                          )
-                        : null,
+                    // No edge line: it cut through the title, and the wave
+                    // along the bottom already marks the position.
                   ),
                 ),
               );
