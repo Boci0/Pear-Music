@@ -186,11 +186,18 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           ? song.id.substring(7)
           : null;
 
+  /// Set by the control port (`/video?base=`) so a slow-link check can point
+  /// every audio file's picture at a local server that serves `v720.mp4`,
+  /// `v480.mp4` and `v360.mp4`; nothing is asked of YouTube then.
+  static String? debugPictureBase;
+  static const String _debugPictureId = 'debugpic001';
+
   /// The YouTube id a download keeps in its file name (`<uuid> [<id>].ext`),
   /// or null. A song downloaded as audio has no picture of its own, but this
   /// id lets the app fetch the video when asked.
   static String? downloadVideoId(Song song) {
     if (song.isLive || song.sourceDeviceId == 'stream') return null;
+    if (debugPictureBase != null) return _debugPictureId;
     return RegExp(r' \[([a-zA-Z0-9_-]{11})\]\.[A-Za-z0-9]+$')
         .firstMatch(song.fileName)
         ?.group(1);
@@ -412,6 +419,8 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     'videoPositionMs': _video?.state.position.inMilliseconds,
     'videoPlaying': _video?.state.playing,
     'networkBytes': VideoRelay.bytesUsed.value,
+    'height': _streamHeight,
+    'buffering': _video?.state.buffering,
     'crop': [_crop.left, _crop.top, _crop.right, _crop.bottom],
   };
 
@@ -495,10 +504,17 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           // The fast engine's one lookup first; yt-dlp when it is resting
           // after a block or has nothing for this video.
           try {
-            final ladder = await InnerTubeAudioEngine.videoLinks(
-              streamId,
-              maxHeight: maxHeight,
-            );
+            final base = debugPictureBase;
+            final ladder = base != null && streamId == _debugPictureId
+                ? [
+                    for (final h in _rungs)
+                      if (h <= maxHeight)
+                        InnerTubeVideoLink(url: '$base/v$h.mp4', height: h),
+                  ]
+                : await InnerTubeAudioEngine.videoLinks(
+                    streamId,
+                    maxHeight: maxHeight,
+                  );
             link = (
               url: ladder.first.url,
               headers: InnerTubeAudioEngine.videoHeaders,

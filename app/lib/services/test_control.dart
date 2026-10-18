@@ -38,7 +38,9 @@ import 'youtube_search_service.dart';
 ///   /import?path=           copy a file into the library (JSON: added)
 ///   /expand                 open the Now Playing pane, as a tap on it does
 ///   /remove?id=             take a song out of the library again
-///   /video?on=1|0           show or hide the picture; the reply is its state
+///   /video?on=1|0&base=URL  show or hide the picture; the reply is its state.
+///                           base= points every audio file's picture at
+///                           URL/v720.mp4 etc. (slow-link checks)
 ///   /viz?hold=1|0           what the visualizer feed saw since the last call
 ///                           (hold=1 keeps a client on the feed, hold=0 drops it)
 ///   /log?n=60               the last lines of the debug log
@@ -278,6 +280,7 @@ Future<HttpServer?> startTestControl(
               res.statusCode = HttpStatus.badRequest;
               body = {'error': 'no video service'};
             } else {
+              if (q['base'] != null) VideoService.debugPictureBase = q['base'];
               if (q['on'] == '1') video.show();
               if (q['on'] == '0') video.hide();
               body = video.status;
