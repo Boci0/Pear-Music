@@ -46,6 +46,10 @@ import 'youtube_search_service.dart';
 ///   /log?n=60               the last lines of the debug log
 ///   /style?v=glass|frosted|solid  switch the look; the reply is the style in use
 ///   /player                 open the full player screen, as tapping the bar does
+///   /tab?i=0..4             switch tab (Library, Playlists, Explore, History,
+///                           Settings), as a tap on the bar does
+///   /pop                    close the top page, sheet or dialog if there is
+///                           one (a page inside Playlists last); never quits
 ///   /quit                   exit the app
 class ControlSettings {
   const ControlSettings(this.port, this.token);
@@ -85,7 +89,11 @@ Future<List<String>> controlArgsWithFile(List<String> args) async {
     if (!await file.exists()) return args;
     final parts = (await file.readAsString()).trim().split(RegExp(r'\s+'));
     if (parts.length < 2) return args;
-    return [...args, '--control-port=${parts[0]}', '--control-token=${parts[1]}'];
+    return [
+      ...args,
+      '--control-port=${parts[0]}',
+      '--control-token=${parts[1]}',
+    ];
   } catch (_) {
     return args;
   }
@@ -254,7 +262,9 @@ Future<HttpServer?> startTestControl(
               res.statusCode = HttpStatus.badRequest;
               body = {'error': 'no such file'};
             } else {
-              final added = await controller.library.addLocalFiles([File(path)]);
+              final added = await controller.library.addLocalFiles([
+                File(path),
+              ]);
               body = {
                 'added': added.length,
                 'ids': [for (final s in added) s.id],
@@ -319,6 +329,25 @@ Future<HttpServer?> startTestControl(
                 ),
               );
               body = {'player': 'opened'};
+            }
+          case '/tab':
+            final index = int.tryParse(q['i'] ?? '');
+            if (index == null || index < 0 || index > 4) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'i must be 0 to 4'};
+            } else {
+              HomeShell.requestTab(index);
+              body = {'tab': index};
+            }
+          case '/pop':
+            final navigator = PearMusicApp.navigatorKey.currentState;
+            if (navigator != null && navigator.canPop()) {
+              navigator.pop();
+              body = {'popped': 'route'};
+            } else if (HomeShell.popInnerPage()) {
+              body = {'popped': 'page'};
+            } else {
+              body = {'popped': 'nothing'};
             }
           case '/quit':
             res.headers.contentType = ContentType.json;

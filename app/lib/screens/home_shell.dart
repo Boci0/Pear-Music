@@ -59,6 +59,22 @@ class HomeShell extends StatefulWidget {
   /// the pane instead of the separate phone-style player page.
   static void requestExpandedPane() => _expandPaneRequests.value++;
 
+  static final ValueNotifier<int> _tabRequests = ValueNotifier<int>(0);
+  static int _requestedTab = 0;
+
+  /// Switches tab as a tap on the bar does. Only the control port (a check
+  /// driving a running build) calls this.
+  static void requestTab(int index) {
+    _requestedTab = index;
+    _tabRequests.value++;
+  }
+
+  static bool Function()? _popInnerPage;
+
+  /// Closes the page open inside the Playlists tab, if one is; false when
+  /// there was none. Only the control port calls this.
+  static bool popInnerPage() => _popInnerPage?.call() ?? false;
+
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
@@ -166,6 +182,22 @@ class _HomeShellState extends State<HomeShell>
     );
     _requestPermissions();
     HomeShell._expandPaneRequests.addListener(_onExpandPaneRequest);
+    HomeShell._tabRequests.addListener(_onTabRequest);
+    HomeShell._popInnerPage = _popPlaylistsPage;
+  }
+
+  void _onTabRequest() {
+    if (!mounted) return;
+    _onDestinationSelected(
+      HomeShell._requestedTab.clamp(0, _screens.length - 1),
+    );
+  }
+
+  bool _popPlaylistsPage() {
+    final nav = _playlistsNavKey.currentState;
+    if (nav == null || !nav.canPop()) return false;
+    nav.pop();
+    return true;
   }
 
   void _onExpandPaneRequest() {
@@ -177,6 +209,8 @@ class _HomeShellState extends State<HomeShell>
   @override
   void dispose() {
     HomeShell._expandPaneRequests.removeListener(_onExpandPaneRequest);
+    HomeShell._tabRequests.removeListener(_onTabRequest);
+    HomeShell._popInnerPage = null;
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
     _tabFade.dispose();
