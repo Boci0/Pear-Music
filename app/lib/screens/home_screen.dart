@@ -492,7 +492,15 @@ class _HomeScreenState extends State<HomeScreen> {
             // The selected pill's glow reaches past the row: let it spill
             // above and below (the list's own top edge needs the 12 px).
             child: GlowRoom(
-              child: SingleChildScrollView(
+              // The row scrolls sideways: fade its right edge so a clipped
+              // pill reads as "more this way", not as a cut-off bug.
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => LinearGradient(
+                  colors: const [Colors.white, Colors.white, Colors.transparent],
+                  stops: [0, 1 - 16 / rect.width, 1],
+                ).createShader(rect),
+                child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               clipBehavior: Clip.none,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
@@ -572,6 +580,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
+              ),
             ),
           ),
           if (songs.isEmpty)
