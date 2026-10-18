@@ -41,4 +41,15 @@ void main() {
       throwsA(isA<InnerTubeFailure>()),
     );
   });
+
+  test('every height within the cap is offered once, tallest first', () async {
+    InnerTubeAudioEngine.debugPlayerOverride = (id, visitor) async => _response([
+      _video(1080, 'video/mp4; codecs="avc1"', 'https://v/1080'),
+      _video(720, 'video/webm; codecs="vp9"', 'https://v/720-webm'),
+      _video(720, 'video/mp4; codecs="avc1"', 'https://v/720-mp4'),
+      _video(360, 'video/mp4; codecs="avc1"', 'https://v/360'),
+    ]);
+    final ladder = await InnerTubeAudioEngine.videoLinks('abc', maxHeight: 720);
+    expect(ladder.map((l) => l.url), ['https://v/720-mp4', 'https://v/360']);
+  });
 }

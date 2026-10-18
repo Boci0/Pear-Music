@@ -70,6 +70,7 @@ void main() {
   });
 
   tearDown(() async {
+    VideoRelay.idleTimeout = const Duration(seconds: 8);
     VideoRelay.stop();
     await upstream.server.close(force: true);
   });
@@ -190,5 +191,31 @@ void main() {
     expect(VideoRelay.parseRange('bytes=10-19')?.end, 19);
     expect(VideoRelay.parseRange('bytes=-500'), isNull);
     expect(VideoRelay.parseRange(null), isNull);
+  });
+
+  test('a read that goes silent is cut instead of hanging', () async {
+    final silent = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final held = <HttpResponse>[];
+    silent.listen((req) {
+      req.response.statusCode = 206;
+      req.response.headers
+        ..set('content-range', 'bytes 0-${VideoRelay.windowBytes - 1}/9999999')
+        ..contentLength = VideoRelay.windowBytes;
+      req.response.add(Uint8List(100 * 1024));
+      req.response.flush();
+      held.add(req.response); // never finished: a dead mobile link
+    });
+    VideoRelay.idleTimeout = const Duration(milliseconds: 300);
+    final local = await VideoRelay.serve('http://127.0.0.1:${silent.port}/v.mp4');
+    final started = DateTime.now();
+    try {
+      await _get(local, 'bytes=0-').timeout(const Duration(seconds: 5));
+    } on HttpException {
+      // The short answer is reported as a dropped connection: the player
+      // reconnects for the rest.
+    }
+    expect(DateTime.now().difference(started), lessThan(const Duration(seconds: 4)));
+    expect(VideoRelay.bytesUsed.value, lessThan(VideoRelay.windowBytes));
+    await silent.close(force: true);
   });
 }

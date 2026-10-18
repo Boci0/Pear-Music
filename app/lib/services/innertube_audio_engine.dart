@@ -243,6 +243,16 @@ class InnerTubeAudioEngine {
   static Future<InnerTubeVideoLink> videoLink(
     String videoId, {
     int maxHeight = 480,
+  }) async => (await videoLinks(videoId, maxHeight: maxHeight)).first;
+
+  /// Every picture-only link [videoId] offers within [maxHeight], tallest
+  /// first, one per height (MP4/H.264 over WebM at the same height: the
+  /// graphics card decodes it, where VP9 would fall to the processor on many
+  /// machines). One lookup, so a player on a slow link can step down a rung
+  /// without asking YouTube again. Throws [InnerTubeFailure].
+  static Future<List<InnerTubeVideoLink>> videoLinks(
+    String videoId, {
+    int maxHeight = 480,
   }) async {
     if (!_guard.allow(videoId, DateTime.now())) {
       throw InnerTubeFailure('resting after a block');
@@ -251,28 +261,23 @@ class InnerTubeAudioEngine {
     final formats =
         ((json['streamingData'] as Map?)?['adaptiveFormats'] as List?) ??
             const [];
-    InnerTubeVideoLink? best;
-    var bestIsMp4 = false;
+    final byHeight = <int, InnerTubeVideoLink>{};
+    final isMp4 = <int, bool>{};
     for (final f in formats.cast<Map>()) {
       final mime = f['mimeType'] as String? ?? '';
       final url = f['url'] as String?;
       final height = (f['height'] as num?)?.toInt() ?? 0;
       if (!mime.startsWith('video/') || url == null) continue;
       if (height <= 0 || height > maxHeight) continue;
-      // MP4 (H.264) over WebM at the same height: the graphics card decodes
-      // it, where VP9 would fall to the processor on many machines.
-      final isMp4 = mime.contains('mp4');
-      final better = best == null ||
-          height > best.height ||
-          (height == best.height && isMp4 && !bestIsMp4);
-      if (better) {
-        best = InnerTubeVideoLink(url: url, height: height);
-        bestIsMp4 = isMp4;
+      final mp4 = mime.contains('mp4');
+      if (!byHeight.containsKey(height) || (mp4 && isMp4[height] != true)) {
+        byHeight[height] = InnerTubeVideoLink(url: url, height: height);
+        isMp4[height] = mp4;
       }
     }
-    if (best == null) throw InnerTubeFailure('no video links offered');
+    if (byHeight.isEmpty) throw InnerTubeFailure('no video links offered');
     _guard.recordSuccess(videoId);
-    return best;
+    return byHeight.values.toList()..sort((a, b) => b.height - a.height);
   }
 
   /// The request headers the video link expects, as the lookup was made.

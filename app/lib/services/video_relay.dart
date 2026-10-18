@@ -48,6 +48,12 @@ class VideoRelay {
   /// YouTube throttles long unchunked reads).
   static const int windowBytes = 2 * 1024 * 1024;
 
+  /// How long a read may go without a single byte before it is cut. A phone
+  /// moving between cells can leave a socket silent for minutes; cut, the
+  /// player's reconnect asks for the rest at once.
+  @visibleForTesting
+  static Duration idleTimeout = const Duration(seconds: 8);
+
   static VideoRelay? _current;
 
   /// Starts relaying [url] (stopping any running relay) and returns the local
@@ -225,7 +231,7 @@ class VideoRelay {
       final keep = pos == 0 && !wholeFile && last + 1 >= windowBytes
           ? BytesBuilder(copy: false)
           : null;
-      await for (final piece in upstream) {
+      await for (final piece in upstream.timeout(idleTimeout)) {
         if (gone || _stopped) return;
         bytesUsed.value += piece.length;
         final room = last - at + 1;

@@ -194,4 +194,40 @@ void main() {
         isFalse);
     expect(VideoService.cropsAgree(a, const Rect.fromLTRB(0, 0, 1, 1)), isFalse);
   });
+
+  test('the picture waits for a lead over the sound, then gives up', () {
+    Preroll verdict(int bufferedS, int waitedS, {int atS = 10, int? totalS}) =>
+        VideoService.prerollVerdict(
+          buffered: Duration(seconds: bufferedS),
+          at: Duration(seconds: atS),
+          waited: Duration(seconds: waitedS),
+          total: totalS == null ? null : Duration(seconds: totalS),
+        );
+    expect(verdict(16, 1), Preroll.ready);
+    expect(verdict(12, 1), Preroll.waiting);
+    // The wait is over: a little buffered is enough, almost nothing is not.
+    expect(verdict(13, 12), Preroll.ready);
+    expect(verdict(10, 12), Preroll.tooSlow);
+    // The end of a short video cannot buffer further.
+    expect(verdict(60, 1, atS: 58, totalS: 60), Preroll.ready);
+  });
+
+  test('two stalls close together mean the link is too slow, spread out do not', () {
+    final meter = StallMeter();
+    final t = DateTime(2026);
+    expect(meter.record(t), isFalse);
+    expect(meter.record(t.add(const Duration(seconds: 10))), isTrue);
+    meter.clear();
+    expect(meter.record(t), isFalse);
+    expect(meter.record(t.add(const Duration(seconds: 40))), isFalse);
+  });
+
+  test('the next quality down skips nothing and stops at 360', () {
+    expect(VideoService.lowerHeight(1080), 720);
+    expect(VideoService.lowerHeight(720), 480);
+    expect(VideoService.lowerHeight(480), 360);
+    expect(VideoService.lowerHeight(360), isNull);
+    // A height YouTube offers between the rungs still lands on one.
+    expect(VideoService.lowerHeight(540), 480);
+  });
 }

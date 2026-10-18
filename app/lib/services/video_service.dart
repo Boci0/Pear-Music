@@ -33,8 +33,32 @@ typedef _Link = ({
   String url,
   Map<String, String> headers,
   int height,
+  // The tallest picture asked for, and every rung the lookup found within it
+  // (tallest first), so a step down needs no new lookup.
+  int cap,
+  List<InnerTubeVideoLink> ladder,
   DateTime at,
 });
+
+/// Counts recent stalls of the picture; says when the link cannot keep up.
+@visibleForTesting
+class StallMeter {
+  static const Duration window = Duration(seconds: 30);
+  static const int limit = 2;
+  final List<DateTime> _at = [];
+
+  /// Notes a stall that began at [now]; true once [limit] fell in [window].
+  bool record(DateTime now) {
+    _at.removeWhere((t) => now.difference(t) > window);
+    _at.add(now);
+    return _at.length >= limit;
+  }
+
+  void clear() => _at.clear();
+}
+
+/// Whether the buffer ahead of the sound is enough to start the picture.
+enum Preroll { ready, waiting, tooSlow }
 
 /// Shows the picture of a song that has one, next to the audio the
 /// [PlayerService] already plays.
@@ -73,6 +97,53 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     return metered ? 360 : 720;
   }
 
+  /// The pictures YouTube publishes as H.264, tallest first.
+  static const List<int> _rungs = [1080, 720, 480, 360];
+
+  /// The next rung under [height], or null when it is already the lowest.
+  @visibleForTesting
+  static int? lowerHeight(int height) {
+    for (final r in _rungs) {
+      if (r < height) return r;
+    }
+    return null;
+  }
+
+  /// How long a stepped-down choice holds before the chosen quality is tried
+  /// again. shortcut: one timer for every song, not a per-song memory.
+  static const Duration stepCapLife = Duration(minutes: 10);
+
+  /// The picture waits for this much buffer ahead of the sound before it
+  /// starts, so it does not begin by stalling.
+  static const Duration prerollLead = Duration(seconds: 5);
+
+  /// ...but not longer than this; then it starts if a little is buffered, or
+  /// the quality steps down if almost nothing is.
+  static const Duration prerollMax = Duration(seconds: 12);
+  static const Duration _prerollLeast = Duration(seconds: 2);
+
+  /// A stall lasting this long steps down at once, without waiting for more.
+  static const Duration longStall = Duration(seconds: 6);
+
+  @visibleForTesting
+  static Preroll prerollVerdict({
+    required Duration buffered,
+    required Duration at,
+    required Duration waited,
+    Duration? total,
+  }) {
+    final ahead = buffered - at;
+    if (ahead >= prerollLead) return Preroll.ready;
+    // The end of a short video is as far as it can buffer.
+    if (total != null &&
+        total > Duration.zero &&
+        buffered >= total - const Duration(seconds: 1)) {
+      return Preroll.ready;
+    }
+    if (waited < prerollMax) return Preroll.waiting;
+    return ahead >= _prerollLeast ? Preroll.ready : Preroll.tooSlow;
+  }
+
   Future<bool> _isMetered() async {
     if (kIsWeb || !Platform.isAndroid) return false;
     try {
@@ -82,10 +153,17 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<int> _maxHeight() async => pickHeight(
-        setting: _identity?.videoQuality ?? 0,
-        metered: await _isMetered(),
-      );
+  Future<int> _maxHeight() async {
+    final chosen = pickHeight(
+      setting: _identity?.videoQuality ?? 0,
+      metered: await _isMetered(),
+    );
+    final cap = _stepCap;
+    if (cap != null && DateTime.now().difference(cap.at) < stepCapLife) {
+      return math.min(chosen, cap.height);
+    }
+    return chosen;
+  }
 
   /// Containers that can carry a picture. A first filter only: cached stream
   /// audio is `.mp4`/`.webm` too, so [_load] checks for a video track.
@@ -161,6 +239,12 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// Picture links found a moment ago, so toggling the picture does not ask
   /// YouTube again. Tied to this connection and short lived.
   final Map<String, _Link> _links = {};
+
+  /// Set when the link proved too slow for the quality it was playing at.
+  ({int height, DateTime at})? _stepCap;
+  final StallMeter _stalls = StallMeter();
+  StreamSubscription<bool>? _bufferingSub;
+  Timer? _longStall;
   static const Duration _linkLife = Duration(minutes: 15);
 
   static bool _libraryStarted = false;
@@ -386,7 +470,6 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       final streamId = pictureStreamId(song);
       if (streamId != null) {
         final maxHeight = await _maxHeight();
-        final key = '$streamId@$maxHeight';
         Future<({String url, Map<String, String> headers})?> ytDlp() async {
           final l = await StreamCacheManager.resolveVideoLink(
             streamId,
@@ -395,22 +478,35 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           return l == null ? null : (url: l.url, headers: l.headers);
         }
 
-        var link = _links[key];
-        if (link == null || DateTime.now().difference(link.at) >= _linkLife) {
+        // The tallest rung of a link found earlier that fits [maxHeight].
+        InnerTubeVideoLink? rung(_Link l) {
+          for (final r in l.ladder) {
+            if (r.height <= maxHeight) return r;
+          }
+          return null;
+        }
+
+        var link = _links[streamId];
+        final cached = link != null &&
+            DateTime.now().difference(link.at) < _linkLife &&
+            maxHeight <= link.cap &&
+            rung(link) != null;
+        if (!cached) {
           // The fast engine's one lookup first; yt-dlp when it is resting
           // after a block or has nothing for this video.
           try {
-            final fast = await InnerTubeAudioEngine.videoLink(
+            final ladder = await InnerTubeAudioEngine.videoLinks(
               streamId,
               maxHeight: maxHeight,
             );
             link = (
-              url: fast.url,
+              url: ladder.first.url,
               headers: InnerTubeAudioEngine.videoHeaders,
-              height: fast.height,
+              height: ladder.first.height,
+              cap: maxHeight,
+              ladder: ladder,
               at: DateTime.now(),
             );
-            _links[key] = link;
           } on InnerTubeFailure catch (e) {
             DebugLog.write(
               '[video] fast lookup said "${e.message}", using yt-dlp',
@@ -421,9 +517,23 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
               url: l.url,
               headers: l.headers,
               height: maxHeight,
+              cap: maxHeight,
+              ladder: [InnerTubeVideoLink(url: l.url, height: maxHeight)],
               at: DateTime.now(),
             );
           }
+          _links[streamId] = link;
+        } else {
+          final found = link;
+          final r = rung(found)!;
+          link = (
+            url: r.url,
+            headers: found.headers,
+            height: r.height,
+            cap: found.cap,
+            ladder: found.ladder,
+            at: found.at,
+          );
         }
         _streamHeight = link.height;
         _streamPicture = true;
@@ -482,6 +592,20 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         }
         return;
       }
+      await video.seek(_player.position ?? Duration.zero);
+      if (streamId != null) {
+        // The sound plays on meanwhile; the picture starts once it has a lead
+        // on it, so it does not begin by stalling on a slow link.
+        final enough = await _prebuffer(video, token);
+        if (token != _token || !_shown) return;
+        if (!enough) {
+          final low = _streamHeight == null ? null : lowerHeight(_streamHeight!);
+          if (low != null) {
+            _stepDown('almost nothing buffered after ${prerollMax.inSeconds} s');
+            return;
+          }
+        }
+      }
       _ready = true;
       await video.setRate(_player.speed);
       await video.seek(_player.position ?? Duration.zero);
@@ -497,6 +621,52 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         giveUp('Could not get the video. YouTube may be refusing right now.');
       }
     }
+  }
+
+  /// Waits for the picture to buffer a lead over the sound; false when it
+  /// could not within [prerollMax].
+  Future<bool> _prebuffer(Player video, int token) async {
+    final waited = Stopwatch()..start();
+    while (token == _token && _shown) {
+      final verdict = prerollVerdict(
+        buffered: video.state.buffer,
+        at: _player.position ?? Duration.zero,
+        waited: waited.elapsed,
+        total: video.state.duration,
+      );
+      if (verdict != Preroll.waiting) return verdict == Preroll.ready;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return true;
+  }
+
+  /// The link cannot keep up with this quality: play the next one down, from
+  /// where the sound is. Held for [stepCapLife] so the next songs start there.
+  void _stepDown(String why) {
+    final low = _streamHeight == null ? null : lowerHeight(_streamHeight!);
+    if (low == null) return;
+    _stepCap = (height: low, at: DateTime.now());
+    DebugLog.write('[video] link too slow ($why), dropping to ${low}p');
+    _stalls.clear();
+    _loadedId = null;
+    unawaited(_sync());
+  }
+
+  /// A rebuffering while the picture plays. Two close together, or one that
+  /// drags on, mean the link is below the picture's rate.
+  void _onBuffering(bool buffering) {
+    _longStall?.cancel();
+    if (!buffering || !_ready || !_player.playing || _streamMedia == null) {
+      return;
+    }
+    if (_stalls.record(DateTime.now())) {
+      _stepDown('stalled again within ${StallMeter.window.inSeconds} s');
+      return;
+    }
+    final token = _token;
+    _longStall = Timer(longStall, () {
+      if (token == _token) _stepDown('a stall over ${longStall.inSeconds} s');
+    });
   }
 
   /// Whether two bar scans found the same area. Bars are only cut once two
@@ -574,9 +744,9 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       configuration: const PlayerConfiguration(
         title: 'Pear Music video',
         logLevel: MPVLogLevel.error,
-        // Every byte read ahead is wasted if the song is skipped, and every
-        // jump refills it: keep it small.
-        bufferSize: 4 * 1024 * 1024,
+        // Room for about 30 s of a 1080p stream; the time limits below are
+        // what normally bound the cache.
+        bufferSize: 24 * 1024 * 1024,
       ),
     );
     final platform = player.platform;
@@ -586,8 +756,15 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       // Keep the cache in memory (media_kit spools to disk by default) and
       // bound it by time as well as bytes.
       await platform.setProperty('cache-on-disk', 'no');
-      await platform.setProperty('cache-secs', '8');
-      await platform.setProperty('demuxer-readahead-secs', '8');
+      // Seconds of lead to ride out a slow stretch on a mobile link; 8 s was
+      // gone in one bad moment. The wait to resume after a stall is longer
+      // too, so it does not stall again at once. media_kit gives the data kept
+      // behind the position as much room as ahead: nothing here seeks back far.
+      await platform.setProperty('cache-secs', '30');
+      await platform.setProperty('demuxer-readahead-secs', '30');
+      await platform.setProperty('demuxer-max-back-bytes', '${2 * 1024 * 1024}');
+      await platform.setProperty('cache-pause', 'yes');
+      await platform.setProperty('cache-pause-wait', '3');
       // The relay answers in windows: ask for the next one at a window's end.
       await platform.setProperty(
         'stream-lavf-o',
@@ -595,6 +772,7 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       );
     }
     _controller = VideoController(player);
+    _bufferingSub = player.stream.buffering.listen(_onBuffering);
     return player;
   }
 
@@ -605,6 +783,9 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     if (playing != video.state.playing) {
       unawaited(playing ? video.play() : video.pause());
     }
+    // Seeking a stalled stream throws away what it just fetched and stalls it
+    // again; once it plays it is brought back to the sound.
+    if (video.state.buffering) return;
     final audioPos = _player.position ?? Duration.zero;
     if (shouldSeek(
       video: video.state.position,
@@ -658,6 +839,10 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     final video = _video;
     _video = null;
     _controller = null;
+    _longStall?.cancel();
+    unawaited(_bufferingSub?.cancel());
+    _bufferingSub = null;
+    _stalls.clear();
     if (video != null) unawaited(video.dispose());
   }
 
