@@ -66,7 +66,6 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// the top choice: it is the tallest YouTube publishes as H.264, which the
   /// device's decoder handles; above it the picture is VP9 or AV1, which many
   /// phones would decode in software.
-  @visibleForTesting
   static int pickHeight({required int setting, required bool metered}) {
     if (setting == 360 || setting == 480 || setting == 720 || setting == 1080) {
       return setting;

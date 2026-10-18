@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/widgets/player/player_fullscreen.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/video_service.dart';
+import 'package:peerm_app/services/youtube_service.dart';
 
 Song _song(String fileName, {String? source, bool live = false}) => Song(
   id: fileName,
@@ -42,6 +43,14 @@ void main() {
     expect(VideoService.mayHaveVideo(video), isTrue);
     expect(VideoService.pictureStreamId(video), isNull);
     expect(VideoService.downloadVideoId(_song('a [$id].m4a', live: true)), isNull);
+  });
+
+  test('a video download asks for a joinable H.264 picture within the height', () {
+    final format = YoutubeService.videoDownloadFormat(720);
+    expect(format.startsWith('bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]'), isTrue);
+    // Without ffmpeg's join there is still a ready-made file to fall back on.
+    expect(format, contains('/b[height<=720]'));
+    expect(format, isNot(contains('1080')));
   });
 
   test('a streamed song is looked up by its video id, a live one is not', () {

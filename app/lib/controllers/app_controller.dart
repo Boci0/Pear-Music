@@ -1193,8 +1193,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     YoutubeStatusCallback? onStatus,
     YoutubeProgressCallback? onProgress,
     DownloadCancellation? cancel,
+    int? videoHeight,
   }) async {
-    final existing = _inFlightAddFromLink[url];
+    // Audio and video downloads of one link are different jobs.
+    final key = '$url#${videoHeight ?? 'audio'}';
+    final existing = _inFlightAddFromLink[key];
     if (existing != null) return existing;
 
     final future = _addFromLinkInternal(
@@ -1202,12 +1205,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       onStatus: onStatus,
       onProgress: onProgress,
       cancel: cancel,
+      videoHeight: videoHeight,
     );
-    _inFlightAddFromLink[url] = future;
+    _inFlightAddFromLink[key] = future;
     try {
       return await future;
     } finally {
-      _inFlightAddFromLink.remove(url);
+      _inFlightAddFromLink.remove(key);
     }
   }
 
@@ -1216,6 +1220,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     YoutubeStatusCallback? onStatus,
     YoutubeProgressCallback? onProgress,
     DownloadCancellation? cancel,
+    int? videoHeight,
   }) async {
     Song? song;
     Object? error;
@@ -1226,8 +1231,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
               ? youtube.scrapeAndAddWithEmbeddedYtDlp(library, url,
                   onStatus: onStatus, onProgress: onProgress, cancel: cancel)
               : youtube.scrapeAndAddWithYtDlp(library, url,
-                  onStatus: onStatus, onProgress: onProgress, cancel: cancel))
-          .timeout(const Duration(minutes: 7));
+                  onStatus: onStatus,
+                  onProgress: onProgress,
+                  cancel: cancel,
+                  videoHeight: videoHeight))
+          .timeout(Duration(minutes: videoHeight == null ? 7 : 20));
     } catch (e) {
       error = e;
       debugPrint('[pearmusic] yt-dlp download failed: $e');
@@ -1251,6 +1259,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     YouTubeSearchResult result, {
     YoutubeProgressCallback? onProgress,
     DownloadCancellation? cancel,
+    int? videoHeight,
   }) async {
     final initialIds = library.songs.map((s) => s.id).toSet();
 
@@ -1258,6 +1267,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       result.url,
       onProgress: onProgress,
       cancel: cancel,
+      videoHeight: videoHeight,
     );
 
     if (err != null && !err.contains('already in your library')) {

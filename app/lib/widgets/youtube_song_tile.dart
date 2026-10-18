@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../controllers/app_controller.dart';
 import '../services/artwork_service.dart';
 import '../services/stream_cache_manager.dart';
+import '../services/video_service.dart';
 import '../services/youtube_search_service.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
@@ -185,7 +186,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.download),
-              title: const Text('Download to Library'),
+              title: const Text('Download audio'),
               subtitle: const Text(
                 'Save for offline listening without interrupting playback',
               ),
@@ -196,6 +197,22 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
                       _downloadToLibrary(context, controller);
                     },
             ),
+            if (VideoService.canImportVideoFiles)
+              ListTile(
+                leading: const Icon(Icons.movie_outlined),
+                title: Text('Download video (${_videoHeight(controller)}p)'),
+                subtitle: const Text('A larger file that plays its own picture'),
+                onTap: _isDownloading
+                    ? null
+                    : () {
+                        Navigator.of(ctx).pop();
+                        _downloadToLibrary(
+                          context,
+                          controller,
+                          videoHeight: _videoHeight(controller),
+                        );
+                      },
+              ),
             Builder(
               builder: (ctx) {
                 final song = widget.result.toSong();
@@ -261,7 +278,13 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
         _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
         _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
         if (!_isDownloading)
-          _menuItem('download', Icons.download, 'Download to Library'),
+          _menuItem('download', Icons.download, 'Download audio'),
+        if (!_isDownloading && VideoService.canImportVideoFiles)
+          _menuItem(
+            'download_video',
+            Icons.movie_outlined,
+            'Download video (${_videoHeight(controller)}p)',
+          ),
         _menuItem(
           'favorite',
           isFav ? Icons.favorite : Icons.favorite_border,
@@ -282,6 +305,12 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
         controller.addToQueue(song);
       case 'download':
         _downloadToLibrary(context, controller);
+      case 'download_video':
+        _downloadToLibrary(
+          context,
+          controller,
+          videoHeight: _videoHeight(controller),
+        );
       case 'favorite':
         await controller.toggleFavorite(
           'stream_${widget.result.videoId}',
@@ -329,10 +358,17 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     );
   }
 
+  /// The picture height a video download uses: the Video quality setting.
+  int _videoHeight(AppController controller) => VideoService.pickHeight(
+    setting: controller.identity.videoQuality,
+    metered: false,
+  );
+
   Future<void> _downloadToLibrary(
     BuildContext context,
-    AppController controller,
-  ) async {
+    AppController controller, {
+    int? videoHeight,
+  }) async {
     if (_isDownloading) return;
 
     final messenger = ScaffoldMessenger.of(context);
@@ -343,13 +379,18 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
     messenger.showSnackBar(
       SnackBar(
-        content: Text('Downloading "${widget.result.title}" to library...'),
+        content: Text(
+          videoHeight == null
+              ? 'Downloading "${widget.result.title}" to library...'
+              : 'Downloading the ${videoHeight}p video of "${widget.result.title}"...',
+        ),
         duration: const Duration(seconds: 3),
       ),
     );
 
     final res = await controller.downloadAndGetYouTubeSong(
       widget.result,
+      videoHeight: videoHeight,
       onProgress: (downloaded, total) {
         if (mounted) {
           setState(() {

@@ -923,7 +923,8 @@ class YoutubeService {
   static bool get isEmbeddedYtDlpSupported => !kIsWeb && Platform.isAndroid;
 
   /// Rip [url] with an installed yt-dlp binary (desktop). Downloads the best
-  /// audio-only stream (m4a preferred; no ffmpeg/conversion needed). Works for
+  /// audio-only stream (m4a preferred; no ffmpeg/conversion needed), or with
+  /// [videoHeight] a video up to that many lines (ffmpeg joins its parts). Works for
   /// YouTube and Spotify links (yt-dlp resolves Spotify itself).
   Future<Song?> scrapeAndAddWithYtDlp(
     LibraryService library,
@@ -933,6 +934,7 @@ class YoutubeService {
     YoutubeStatusCallback? onStatus,
     YoutubeProgressCallback? onProgress,
     DownloadCancellation? cancel,
+    int? videoHeight,
   }) async {
     var bin = await ytDlpPath();
     bin ??= await ensureYtDlpAvailable(onStatus: onStatus);
@@ -951,12 +953,20 @@ class YoutubeService {
 
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
         final isAndroid = !kIsWeb && Platform.isAndroid;
-        final formatArg = isAndroid
+        final formatArg = videoHeight != null
+            ? videoDownloadFormat(videoHeight)
+            : isAndroid
             ? '140/bestaudio[ext=m4a]/bestaudio[abr<=128]/bestaudio/best'
             : 'bestaudio[acodec=opus][abr<=160]/141/bestaudio[ext=m4a]/bestaudio/best';
         final args = [
           '-f', formatArg,
-          '--extractor-args', 'youtube:player_client=android,web',
+          // The android client only offers the 360p ready-made file; the
+          // default clients carry the separate 720p/1080p H.264 streams.
+          if (videoHeight != null) ...['--merge-output-format', 'mp4'],
+          if (videoHeight == null) ...[
+            '--extractor-args',
+            'youtube:player_client=android,web',
+          ],
           '--newline',
           '--no-playlist',
           '--no-part',
@@ -988,7 +998,9 @@ class YoutubeService {
         });
         int exit;
         try {
-          exit = await proc.exitCode.timeout(const Duration(minutes: 6));
+          exit = await proc.exitCode.timeout(
+            Duration(minutes: videoHeight == null ? 6 : 18),
+          );
         } on TimeoutException {
           killProcessTree(proc.pid);
           rethrow;
@@ -1010,15 +1022,22 @@ class YoutubeService {
       }
 
       // Attempt 1: Client emulation (android, web, mweb) with audio stream support.
-      int exitCode = await runDownloadWithArgs([
+      // A video download starts with yt-dlp's own clients and falls back to the
+      // emulation, the reverse of the audio order.
+      const emulation = [
         '--extractor-args',
         'youtube:player_client=android,web,mweb',
-      ]);
+      ];
+      int exitCode = await runDownloadWithArgs(
+        videoHeight == null ? emulation : const [],
+      );
 
-      // Attempt 2 (Fallback): Standard extraction if attempt 1 encountered an error.
+      // Attempt 2 (Fallback): the other way if attempt 1 encountered an error.
       if (exitCode != 0 && !(cancel?.isCancelled ?? false)) {
         onStatus?.call('Retrying with fallback client…');
-        exitCode = await runDownloadWithArgs([]);
+        exitCode = await runDownloadWithArgs(
+          videoHeight == null ? const [] : emulation,
+        );
       }
 
       if (exitCode != 0) {
@@ -1067,6 +1086,16 @@ class YoutubeService {
       } catch (_) {}
     }
   }
+
+  /// The yt-dlp format for a video download no taller than [height]: H.264
+  /// picture plus m4a sound (joined into an mp4 without re-encoding), or one
+  /// ready-made file when nothing can be joined.
+  @visibleForTesting
+  static String videoDownloadFormat(int height) =>
+      'bv*[height<=$height][vcodec^=avc1]+ba[ext=m4a]'
+      '/b[height<=$height][ext=mp4]'
+      '/bv*[height<=$height]+ba'
+      '/b[height<=$height]';
 
   static const _audioExts = {
     '.m4a', '.mp4', '.webm', '.opus', '.mka', '.ogg', '.aac', '.mp3', '.flac',
