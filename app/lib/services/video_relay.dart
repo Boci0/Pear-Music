@@ -35,9 +35,11 @@ class VideoRelay {
   Future<bool>? _relinking;
   bool _stopped = false;
 
-  /// The first window and the file's length: the player re-reads the start
-  /// (container header and index) at every jump, so keeping it makes that free.
-  Uint8List? _head;
+  /// The start of the file as far as it has arrived, and the file's length:
+  /// the player re-reads the start (container header and index) at every jump,
+  /// so keeping it makes that free. Filled as the bytes come in, since the
+  /// player often leaves before the window ends.
+  final BytesBuilder _head = BytesBuilder();
   int _headTotal = 0;
   String _headType = 'video/mp4';
 
@@ -47,6 +49,18 @@ class VideoRelay {
   /// How much of the file one answer carries (and one upstream read:
   /// YouTube throttles long unchunked reads).
   static const int windowBytes = 2 * 1024 * 1024;
+
+  /// The least of the start worth answering from memory.
+  static const int headMin = 256 * 1024;
+
+  /// A window is sized to about this much of the link's speed, so a jump on a
+  /// slow link does not leave seconds of unread data being fetched (the
+  /// player leaves, the loopback socket swallows the whole window, and the
+  /// upstream read goes on for nobody). Never over [windowBytes].
+  @visibleForTesting
+  static Duration windowTime = const Duration(seconds: 4);
+  static const int _windowMin = 256 * 1024;
+  int _window = windowBytes;
 
   /// How long a read may go without a single byte before it is cut. A phone
   /// moving between cells can leave a socket silent for minutes; cut, the
@@ -167,10 +181,11 @@ class VideoRelay {
       from = pos;
       // At most one window: the player asks again from where it ends.
       final want = range?.end == null
-          ? pos + windowBytes - 1
-          : math.min(range!.end!, pos + windowBytes - 1);
-      final head = _head;
-      if (pos == 0 && head != null && want >= head.length - 1) {
+          ? pos + _window - 1
+          : math.min(range!.end!, pos + _window - 1);
+      final started = Stopwatch()..start();
+      if (pos == 0 && _head.length >= headMin && want >= _head.length - 1) {
+        final head = _head.toBytes();
         res.statusCode = HttpStatus.partialContent;
         res.headers
           ..set(HttpHeaders.acceptRangesHeader, 'bytes')
@@ -228,27 +243,29 @@ class VideoRelay {
       }
 
       var at = pos;
-      final keep = pos == 0 && !wholeFile && last + 1 >= windowBytes
-          ? BytesBuilder(copy: false)
-          : null;
       await for (final piece in upstream.timeout(idleTimeout)) {
-        if (gone || _stopped) return;
+        if (gone || _stopped) break;
         bytesUsed.value += piece.length;
         final room = last - at + 1;
         if (room <= 0) break;
         final out = piece.length > room ? piece.sublist(0, room) : piece;
-        keep?.add(out);
+        if (!wholeFile && at == _head.length && at < windowBytes) {
+          _head.add(out.length > windowBytes - at ? out.sublist(0, windowBytes - at) : out);
+          _headTotal = total;
+          _headType =
+              upstream.headers.value(HttpHeaders.contentTypeHeader) ?? 'video/mp4';
+        }
         res.add(out);
         at += out.length;
         sent = at - pos;
         await res.flush();
       }
-      // Kept only when the whole first window arrived.
-      if (keep != null && at - pos == last - pos + 1) {
-        _head = keep.takeBytes();
-        _headTotal = total;
-        _headType =
-            upstream.headers.value(HttpHeaders.contentTypeHeader) ?? 'video/mp4';
+      // How long a window took says how big the next should be.
+      final took = started.elapsedMilliseconds;
+      if (at - pos == last - pos + 1 && sent >= _windowMin && took > 0) {
+        _window = (sent * windowTime.inMilliseconds / took)
+            .round()
+            .clamp(_windowMin, windowBytes);
       }
     } catch (e) {
       // The player dropping a request (a seek) is normal.

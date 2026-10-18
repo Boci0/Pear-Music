@@ -100,13 +100,32 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// The pictures YouTube publishes as H.264, tallest first.
   static const List<int> _rungs = [1080, 720, 480, 360];
 
-  /// The next rung under [height], or null when it is already the lowest.
+  /// What each rung typically costs in kbit/s (YouTube's H.264).
+  static const Map<int, int> _rungKbps = {
+    1080: 3500,
+    720: 1800,
+    480: 1000,
+    360: 500,
+  };
+
+  /// What the rung at or under [height] typically costs, in kbit/s.
+  static int rungKbps(int height) =>
+      _rungKbps[_rungs.firstWhere((r) => r <= height, orElse: () => 360)]!;
+
+  /// The rung to drop to from [height], or null when it is already the
+  /// lowest. With [linkKbps], the speed measured while [height] was tried, it
+  /// is the tallest rung that speed carries with a margin (so a very slow
+  /// link goes straight to the bottom instead of trying every rung for a
+  /// dozen seconds); without it, the next one down.
   @visibleForTesting
-  static int? lowerHeight(int height) {
-    for (final r in _rungs) {
-      if (r < height) return r;
+  static int? lowerHeight(int height, {int? linkKbps}) {
+    final lower = [for (final r in _rungs) if (r < height) r];
+    if (lower.isEmpty) return null;
+    if (linkKbps == null) return lower.first;
+    for (final r in lower) {
+      if (_rungKbps[r]! * 1.3 <= linkKbps) return r;
     }
-    return null;
+    return lower.last;
   }
 
   /// How long a stepped-down choice holds before the chosen quality is tried
@@ -125,12 +144,16 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// A stall lasting this long steps down at once, without waiting for more.
   static const Duration longStall = Duration(seconds: 6);
 
+  /// After this long the pace of the buffer says whether the lead can come.
+  static const Duration _prerollProbe = Duration(seconds: 4);
+
   @visibleForTesting
   static Preroll prerollVerdict({
     required Duration buffered,
     required Duration at,
     required Duration waited,
     Duration? total,
+    double? rate,
   }) {
     final ahead = buffered - at;
     if (ahead >= prerollLead) return Preroll.ready;
@@ -140,7 +163,16 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         buffered >= total - const Duration(seconds: 1)) {
       return Preroll.ready;
     }
-    if (waited < prerollMax) return Preroll.waiting;
+    if (waited < prerollMax) {
+      // The sound runs on while this waits, so the lead only grows when the
+      // picture arrives faster than it plays. If it does not, say so now.
+      if (waited >= _prerollProbe && rate != null) {
+        final left = (prerollMax - waited).inMilliseconds / 1000;
+        final projected = ahead.inMilliseconds / 1000 + (rate - 1) * left;
+        if (projected < _prerollLeast.inSeconds) return Preroll.tooSlow;
+      }
+      return Preroll.waiting;
+    }
     return ahead >= _prerollLeast ? Preroll.ready : Preroll.tooSlow;
   }
 
@@ -218,12 +250,35 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           downloadVideoId(song) != null);
 
   @visibleForTesting
-  static bool needsSeek(Duration video, Duration audio) =>
-      (video - audio).abs() > maxDrift;
+  static bool needsSeek(
+    Duration video,
+    Duration audio, {
+    Duration allowed = maxDrift,
+  }) => (video - audio).abs() > allowed;
 
   /// How long a seek is given to land; asking again every tick would restart
   /// a streamed seek each time.
   static const Duration seekGrace = Duration(seconds: 4);
+
+  /// A streamed picture is a network seek away from the sound, which on a slow
+  /// link takes longer than [seekGrace] and lands late: chasing it every few
+  /// seconds restarted the stream for ever and it never caught up. So it is
+  /// allowed more drift, given longer to land, and aimed ahead of the sound
+  /// by what the last landing took ([streamLead] to start with, at most
+  /// [maxLead]) so that it lands on it.
+  static const Duration streamDrift = Duration(milliseconds: 2500);
+  static const Duration streamGrace = Duration(seconds: 15);
+  static const Duration streamLead = Duration(seconds: 3);
+  static const Duration maxLead = Duration(seconds: 15);
+
+  /// The lead to aim the next seek with, from how long the last one took to
+  /// land (the picture playing again).
+  @visibleForTesting
+  static Duration leadAfterLanding(Duration took) {
+    final lead = took + const Duration(seconds: 1);
+    if (lead < streamLead) return streamLead;
+    return lead > maxLead ? maxLead : lead;
+  }
 
   /// Whether to issue a (new) seek now. [lastTarget] and [sinceLast] describe
   /// the previous seek; audio jumping away from where it expects always seeks.
@@ -234,9 +289,14 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     Duration? lastTarget,
     Duration? sinceLast,
     double speed = 1.0,
+    bool stream = false,
   }) {
-    if (!needsSeek(video, audio)) return false;
-    if (lastTarget == null || sinceLast == null || sinceLast > seekGrace) {
+    if (!needsSeek(video, audio, allowed: stream ? streamDrift : maxDrift)) {
+      return false;
+    }
+    if (lastTarget == null ||
+        sinceLast == null ||
+        sinceLast > (stream ? streamGrace : seekGrace)) {
       return true;
     }
     final expected = lastTarget + sinceLast * speed;
@@ -264,6 +324,8 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   int _token = 0;
   Timer? _follow;
   Duration? _lastSeekTarget;
+  Duration _lead = streamLead;
+  bool _landing = false;
   final Stopwatch _sinceSeek = Stopwatch();
   Media? _streamMedia;
   Rect _crop = const Rect.fromLTRB(0, 0, 1, 1);
@@ -612,14 +674,14 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       if (streamId != null) {
         // The sound plays on meanwhile; the picture starts once it has a lead
         // on it, so it does not begin by stalling on a slow link.
-        final enough = await _prebuffer(video, token);
+        final pre = await _prebuffer(video, token, _streamHeight ?? 360);
         if (token != _token || !_shown) return;
-        if (!enough) {
-          final low = _streamHeight == null ? null : lowerHeight(_streamHeight!);
-          if (low != null) {
-            _stepDown('almost nothing buffered after ${prerollMax.inSeconds} s');
-            return;
-          }
+        if (!pre.ok &&
+            _stepDown(
+              'too little buffered at ${pre.kbps} kbit/s',
+              kbps: pre.kbps == 0 ? null : pre.kbps,
+            )) {
+          return;
         }
       }
       _ready = true;
@@ -639,33 +701,49 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Waits for the picture to buffer a lead over the sound; false when it
-  /// could not within [prerollMax].
-  Future<bool> _prebuffer(Player video, int token) async {
+  /// Waits for the picture to buffer a lead over the sound. `ok` is false
+  /// when it could not in time; `kbps` is the speed the picture arrived at.
+  Future<({bool ok, int kbps})> _prebuffer(
+    Player video,
+    int token,
+    int height,
+  ) async {
     final waited = Stopwatch()..start();
+    final from = VideoRelay.bytesUsed.value;
+    int kbps() {
+      final ms = waited.elapsedMilliseconds;
+      return ms < 500 ? 0 : (VideoRelay.bytesUsed.value - from) * 8 ~/ ms;
+    }
+
     while (token == _token && _shown) {
+      final speed = kbps();
       final verdict = prerollVerdict(
         buffered: video.state.buffer,
         at: _player.position ?? Duration.zero,
         waited: waited.elapsed,
         total: video.state.duration,
+        rate: speed == 0 ? null : speed / rungKbps(height),
       );
-      if (verdict != Preroll.waiting) return verdict == Preroll.ready;
+      if (verdict != Preroll.waiting) {
+        return (ok: verdict == Preroll.ready, kbps: speed);
+      }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    return true;
+    return (ok: true, kbps: 0);
   }
 
   /// The link cannot keep up with this quality: play the next one down, from
   /// where the sound is. Held for [stepCapLife] so the next songs start there.
-  void _stepDown(String why) {
-    final low = _streamHeight == null ? null : lowerHeight(_streamHeight!);
-    if (low == null) return;
+  bool _stepDown(String why, {int? kbps}) {
+    final low =
+        _streamHeight == null ? null : lowerHeight(_streamHeight!, linkKbps: kbps);
+    if (low == null) return false;
     _stepCap = (height: low, at: DateTime.now());
     DebugLog.write('[video] link too slow ($why), dropping to ${low}p');
     _stalls.clear();
     _loadedId = null;
     unawaited(_sync());
+    return true;
   }
 
   /// A rebuffering while the picture plays. Two close together, or one that
@@ -802,6 +880,10 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     // Seeking a stalled stream throws away what it just fetched and stalls it
     // again; once it plays it is brought back to the sound.
     if (video.state.buffering) return;
+    if (_landing && _sinceSeek.elapsed > const Duration(milliseconds: 1500)) {
+      _landing = false;
+      _lead = leadAfterLanding(_sinceSeek.elapsed);
+    }
     final audioPos = _player.position ?? Duration.zero;
     if (shouldSeek(
       video: video.state.position,
@@ -809,26 +891,26 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       lastTarget: _lastSeekTarget,
       sinceLast: _lastSeekTarget == null ? null : _sinceSeek.elapsed,
       speed: _player.speed,
+      stream: _streamMedia != null,
     )) {
       _lastSeekTarget = audioPos;
       _sinceSeek
         ..reset()
         ..start();
       final stream = _streamMedia;
+      // Aimed ahead of the sound by what landing takes (see [streamLead]).
+      final target = stream == null ? audioPos : audioPos + _lead;
+      _landing = stream != null;
       if (stream != null &&
           (video.state.position - audioPos).abs() > reopenDrift) {
         unawaited(
           video.open(
-            Media(
-              stream.uri,
-              httpHeaders: stream.httpHeaders,
-              start: audioPos,
-            ),
+            Media(stream.uri, httpHeaders: stream.httpHeaders, start: target),
             play: playing,
           ),
         );
       } else {
-        unawaited(video.seek(audioPos));
+        unawaited(video.seek(target));
       }
     }
     if ((video.state.rate - _player.speed).abs() > 0.01) {
@@ -839,6 +921,8 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// Clears everything that belongs to the picture of one song.
   void _resetPicture() {
     _lastSeekTarget = null;
+    _lead = streamLead;
+    _landing = false;
     _sinceSeek.stop();
     _streamMedia = null;
     _crop = const Rect.fromLTRB(0, 0, 1, 1);

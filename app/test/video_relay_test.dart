@@ -71,6 +71,7 @@ void main() {
 
   tearDown(() async {
     VideoRelay.idleTimeout = const Duration(seconds: 8);
+    VideoRelay.windowTime = const Duration(seconds: 4);
     VideoRelay.stop();
     await upstream.server.close(force: true);
   });
@@ -217,5 +218,70 @@ void main() {
     expect(DateTime.now().difference(started), lessThan(const Duration(seconds: 4)));
     expect(VideoRelay.bytesUsed.value, lessThan(VideoRelay.windowBytes));
     await silent.close(force: true);
+  });
+
+  test('the part of the start that arrived is kept, so a jump does not fetch it again', () async {
+    final stalled = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var asked = 0;
+    final held = <HttpResponse>[];
+    stalled.listen((req) {
+      asked++;
+      req.response.statusCode = 206;
+      req.response.headers
+        ..set('content-range', 'bytes 0-${VideoRelay.windowBytes - 1}/9999999')
+        ..contentLength = VideoRelay.windowBytes;
+      req.response.add(Uint8List(400 * 1024));
+      req.response.flush();
+      held.add(req.response); // then silence: a slow link
+    });
+    VideoRelay.idleTimeout = const Duration(milliseconds: 300);
+    final local = await VideoRelay.serve('http://127.0.0.1:${stalled.port}/v.mp4');
+    try {
+      await _get(local, 'bytes=0-').timeout(const Duration(seconds: 5));
+    } on HttpException {
+      // cut short, as the silent read is
+    }
+    final again = await _get(local, 'bytes=0-');
+    expect(again.$1, 206);
+    expect(again.$2.length, 400 * 1024);
+    expect(again.$3['content-range'], 'bytes 0-${400 * 1024 - 1}/9999999');
+    expect(asked, 1);
+    await stalled.close(force: true);
+  });
+
+  test('a slow link gets smaller windows, so a jump wastes little', () async {
+    final slow = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    slow.listen((req) async {
+      final m = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(
+        req.headers.value(HttpHeaders.rangeHeader) ?? 'bytes=0-',
+      )!;
+      final start = int.parse(m.group(1)!);
+      final end = m.group(2)!.isEmpty ? 9999999 : int.parse(m.group(2)!);
+      final n = end - start + 1;
+      req.response.statusCode = 206;
+      req.response.headers
+        ..set('content-range', 'bytes $start-$end/10000000')
+        ..contentLength = n;
+      var left = n;
+      try {
+        while (left > 0) {
+          final c = left < 65536 ? left : 65536;
+          req.response.add(Uint8List(c));
+          await req.response.flush();
+          left -= c;
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+        }
+        await req.response.close();
+      } catch (_) {}
+    });
+    VideoRelay.windowTime = const Duration(milliseconds: 400);
+    final local = await VideoRelay.serve('http://127.0.0.1:${slow.port}/v.mp4');
+    final first = await _get(local, 'bytes=0-');
+    expect(first.$2.length, VideoRelay.windowBytes);
+    // That took a second or more: 400 ms of that speed is a small window.
+    final second = await _get(local, 'bytes=${VideoRelay.windowBytes}-');
+    expect(second.$2.length, lessThan(VideoRelay.windowBytes ~/ 2));
+    expect(second.$2.length, greaterThanOrEqualTo(256 * 1024));
+    await slow.close(force: true);
   });
 }

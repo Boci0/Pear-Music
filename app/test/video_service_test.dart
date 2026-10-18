@@ -77,6 +77,35 @@ void main() {
     expect(VideoService.needsSeek(t - const Duration(milliseconds: 400), t), isTrue);
   });
 
+  test('a streamed picture gets more drift and time to land than a file', () {
+    const audio = Duration(seconds: 30);
+    const video = Duration(seconds: 28); // two seconds behind
+    expect(VideoService.shouldSeek(video: video, audio: audio), isTrue);
+    expect(
+      VideoService.shouldSeek(video: video, audio: audio, stream: true),
+      isFalse,
+    );
+    // Ten seconds after the last seek: a file is chased again, a stream waits.
+    bool again({required bool stream}) => VideoService.shouldSeek(
+          video: const Duration(seconds: 26),
+          audio: audio,
+          lastTarget: const Duration(seconds: 20),
+          sinceLast: const Duration(seconds: 10),
+          stream: stream,
+        );
+    expect(again(stream: false), isTrue);
+    expect(again(stream: true), isFalse);
+  });
+
+  test('the next seek is aimed as far ahead as the last one took to land', () {
+    expect(VideoService.leadAfterLanding(const Duration(seconds: 1)),
+        VideoService.streamLead);
+    expect(VideoService.leadAfterLanding(const Duration(seconds: 7)),
+        const Duration(seconds: 8));
+    expect(VideoService.leadAfterLanding(const Duration(minutes: 2)),
+        VideoService.maxLead);
+  });
+
   test('a seek still landing is not asked for again every tick', () {
     const audio = Duration(seconds: 60);
     const video = Duration(seconds: 200);
@@ -210,6 +239,18 @@ void main() {
     expect(verdict(10, 12), Preroll.tooSlow);
     // The end of a short video cannot buffer further.
     expect(verdict(60, 1, atS: 58, totalS: 60), Preroll.ready);
+    // Four seconds in, a buffer that grows slower than the sound plays is
+    // given up on at once; one that gains on it is waited for.
+    Preroll probe(double rate) {
+      return VideoService.prerollVerdict(
+        buffered: const Duration(seconds: 14),
+        at: const Duration(seconds: 14),
+        waited: const Duration(seconds: 4),
+        rate: rate,
+      );
+    }
+    expect(probe(0.2), Preroll.tooSlow);
+    expect(probe(1.4), Preroll.waiting);
   });
 
   test('two stalls close together mean the link is too slow, spread out do not', () {
@@ -229,5 +270,11 @@ void main() {
     expect(VideoService.lowerHeight(360), isNull);
     // A height YouTube offers between the rungs still lands on one.
     expect(VideoService.lowerHeight(540), 480);
+    // With the pace seen, a slow link goes straight to a rung it can carry.
+    expect(VideoService.lowerHeight(1080, linkKbps: 700), 360);
+    expect(VideoService.lowerHeight(1080, linkKbps: 1500), 480);
+    expect(VideoService.lowerHeight(1080, linkKbps: 3100), 720);
+    expect(VideoService.lowerHeight(360, linkKbps: 200), isNull);
+    expect(VideoService.rungKbps(1080), 3500);
   });
 }
