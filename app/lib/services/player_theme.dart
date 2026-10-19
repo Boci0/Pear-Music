@@ -69,9 +69,12 @@ class PlayerTheme extends ChangeNotifier {
     // The music colours the room: the canvas and every neutral surface pick up
     // a whisper of the song's accent, so the whole window follows the artwork
     // instead of staying pure grey. Idle uses the emerald fallback accent.
-    final bgDark = ambientBlend(scheme, baseBg);
-    final surfaceDark = ambientBlend(scheme, baseSurface, alpha: 0.06);
-    final surfaceHighlight = ambientBlend(scheme, baseHighlight, alpha: 0.06);
+    final ambient = PearStyles.spec.ambient;
+    final bgDark = ambientBlend(scheme, baseBg, alpha: ambient);
+    final surfaceDark =
+        ambientBlend(scheme, baseSurface, alpha: ambient * 0.75);
+    final surfaceHighlight =
+        ambientBlend(scheme, baseHighlight, alpha: ambient * 0.75);
 
     return ThemeData(
       useMaterial3: true,
@@ -132,7 +135,7 @@ class PlayerTheme extends ChangeNotifier {
         color: Colors.white.withValues(alpha: PearGlassTokens.cardFill),
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(PearRadius.card),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.card)),
           side: BorderSide(
             color: Colors.white.withValues(alpha: PearGlassTokens.edge),
           ),
@@ -142,7 +145,7 @@ class PlayerTheme extends ChangeNotifier {
         backgroundColor: surfaceHighlight,
         elevation: 4,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(PearRadius.sheet),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.sheet)),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
         ),
         titleTextStyle: const TextStyle(
@@ -157,7 +160,7 @@ class PlayerTheme extends ChangeNotifier {
         color: surfaceHighlight,
         elevation: 8,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
@@ -171,7 +174,7 @@ class PlayerTheme extends ChangeNotifier {
           ),
           shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
               side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
             ),
           ),
@@ -185,19 +188,19 @@ class PlayerTheme extends ChangeNotifier {
           vertical: 12,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(PearRadius.field),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.field)),
           borderSide: BorderSide(
             color: Colors.white.withValues(alpha: PearGlassTokens.edge),
           ),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(PearRadius.field),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.field)),
           borderSide: BorderSide(
             color: Colors.white.withValues(alpha: PearGlassTokens.edge),
           ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(PearRadius.field),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.field)),
           borderSide: BorderSide(
             color: scheme.primary.withValues(alpha: 0.6),
             width: 1.5,
@@ -220,7 +223,7 @@ class PlayerTheme extends ChangeNotifier {
           color: scheme.primary,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
@@ -250,7 +253,7 @@ class PlayerTheme extends ChangeNotifier {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: surfaceHighlight,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
         ),
         textStyle: const TextStyle(
@@ -268,9 +271,9 @@ class PlayerTheme extends ChangeNotifier {
         ),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         shadowColor: const WidgetStatePropertyAll(Colors.transparent),
-        shape: const WidgetStatePropertyAll(
+        shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderRadius: BorderRadius.all(Radius.circular(PearGlassTokens.r(14))),
           ),
         ),
         side: WidgetStateProperty.resolveWith((states) {
@@ -347,7 +350,7 @@ class PlayerTheme extends ChangeNotifier {
         backgroundColor: surfaceHighlight,
         contentTextStyle: const TextStyle(color: Colors.white),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
       ),
@@ -355,11 +358,11 @@ class PlayerTheme extends ChangeNotifier {
         backgroundColor: surfaceDark,
         constraints: BoxConstraints(maxWidth: 640),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(PearGlassTokens.r(24))),
         ),
       ),
       listTileTheme: ListTileThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(PearGlassTokens.r(8))),
       ),
       iconTheme: IconThemeData(color: scheme.onSurface),
       primaryColor: scheme.primary,
@@ -370,9 +373,22 @@ class PlayerTheme extends ChangeNotifier {
     final key = (accent, PearStyles.current.value);
     final cached = _cache[key];
     if (cached != null) return cached;
-    final built = buildFromScheme(
-      ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark),
+    var scheme = ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: Brightness.dark,
     );
+    // Signal-colour styles use the vivid accent exactly, with ink that reads
+    // on it (dark on bright colours, white on deep ones).
+    if (PearStyles.spec.vividAccent) {
+      final vivid = ArtworkPalette.vivid(accent);
+      scheme = scheme.copyWith(
+        primary: vivid,
+        onPrimary: vivid.computeLuminance() > 0.35
+            ? const Color(0xFF15161A)
+            : Colors.white,
+      );
+    }
+    final built = buildFromScheme(scheme);
     // Bounded cache: evict the oldest accent so the cache can't grow without
     // bound as more songs with distinct artwork colours are played.
     if (_cache.length >= _cacheMax) {

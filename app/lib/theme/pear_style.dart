@@ -12,14 +12,19 @@ enum PearStyle {
   frosted('Frosted'),
 
   /// Flat dark surfaces and hairline borders: no blur, no glows.
-  solid('Solid');
+  solid('Solid'),
+
+  /// Neutral graphite, square panels with one cut
+  /// corner, thin lines, accent bars and spaced capitals.
+  graphite('Graphite');
 
   const PearStyle(this.label);
   final String label;
 
+  /// The saved style, or Graphite (the default look) when none is saved.
   static PearStyle parse(String? name) => PearStyle.values.firstWhere(
     (s) => s.name == name,
-    orElse: () => PearStyle.glass,
+    orElse: () => PearStyle.graphite,
   );
 }
 
@@ -42,6 +47,9 @@ class PearStyleSpec {
     required this.watermarkAlpha,
     required this.grainAlpha,
     this.flat = false,
+    this.angular = false,
+    this.ambient = 0.08,
+    this.vividAccent = false,
   });
 
   /// Backdrop blur strength of the panels that content scrolls under.
@@ -82,6 +90,18 @@ class PearStyleSpec {
 
   /// Opaque surfaces and no blur, as Reduced Effects draws panels.
   final bool flat;
+
+  /// Square corners, one cut corner on panels, accent bars instead of pills
+  /// and spaced capitals on tab labels.
+  final bool angular;
+
+  /// How much of the song's accent tints the canvas (the surfaces get three
+  /// quarters of it).
+  final double ambient;
+
+  /// Push the song's artwork colour to a bright, saturated signal colour
+  /// (see [ArtworkPalette.vivid]) so accent marks pop on neutral panels.
+  final bool vividAccent;
 
   LinearGradient get cardSheen => LinearGradient(
     begin: Alignment.topCenter,
@@ -154,6 +174,27 @@ class PearStyles {
       watermarkAlpha: 0.02,
       grainAlpha: 0.03,
       flat: true,
+    ),
+    PearStyle.graphite: PearStyleSpec(
+      blur: 0,
+      baseAlpha: 1,
+      accentTint: 0,
+      popupAlpha: 0.97,
+      sheenTop: 0,
+      sheenBottom: 0,
+      edgeTop: 0.14,
+      edge: 0.12,
+      cardFill: 0.04,
+      cardSheenTop: 0.04,
+      cardSheenBottom: 0.04,
+      cardRim: 0.10,
+      glowScale: 0,
+      watermarkAlpha: 0,
+      grainAlpha: 0,
+      flat: true,
+      angular: true,
+      ambient: 0,
+      vividAccent: true,
     ),
   };
 

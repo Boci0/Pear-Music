@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../theme/glass.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -94,14 +95,14 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         child: InkWell(
                           onTap: () => player.toggleAutoRerollSeed(),
                           onLongPress: () => player.rerollUpcomingQueue(),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                           child: Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
                               color: active
                                   ? scheme.primary.withValues(alpha: 0.20)
                                   : Colors.transparent,
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                             ),
                             child: Icon(
                               active ? Icons.casino_rounded : Icons.casino_outlined,
@@ -230,7 +231,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
 
             final artworkWidget = isNetwork
                 ? ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(6)),
                     child: Image.network(
                       ArtworkService.optimizeArtworkUrl(song.artwork!),
                       width: 36,
@@ -253,7 +254,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         return _iconPlaceholder(isCurrent, scheme);
                       }
                       return ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(6)),
                         child: Image.memory(
                           bytes,
                           width: 36,
@@ -279,7 +280,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                     ? scheme.primaryContainer.withValues(alpha: 0.35)
                     : null,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                   side: isCurrent
                       ? BorderSide(
                           color: scheme.primary.withValues(alpha: 0.5),
@@ -577,7 +578,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                             ? scheme.primaryContainer.withValues(alpha: 0.35)
                             : null,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                           side: isCurrent
                               ? BorderSide(
                                   color: scheme.primary.withValues(alpha: 0.5),

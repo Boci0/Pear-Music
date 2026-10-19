@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import '../widgets/import_export_sheet.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
@@ -247,14 +248,14 @@ class _NewPlaylistTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
           hoverColor: Colors.white.withValues(alpha: 0.055),
           child: Ink(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
               color: Colors.white.withValues(
                 alpha: PearGlassTokens.cardFill,
               ),
@@ -323,7 +324,7 @@ class _PlaylistTile extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -337,8 +338,20 @@ class _PlaylistTile extends StatelessWidget {
             },
             hoverColor: Colors.white.withValues(alpha: 0.055),
             child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
+              decoration: PearStyles.spec.angular
+                  // Angular styles: a square graphite tile with a thin edge.
+                  ? BoxDecoration(
+                      color: isActive
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.white.withValues(alpha: 0.025),
+                      border: Border.all(
+                        color: isActive
+                            ? theme.colorScheme.primary
+                            : PearGlassTokens.cardRim,
+                      ),
+                    )
+                  : BoxDecoration(
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
                 gradient: isActive
                     ? LinearGradient(
                         begin: Alignment.centerLeft,
@@ -392,7 +405,7 @@ class _PlaylistTile extends StatelessWidget {
                                             alpha: 0.15,
                                           )
                                         : Colors.white.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
                                   ),
                                   child: Text(
                                     '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
@@ -555,7 +568,7 @@ class _PlaylistArtwork extends StatelessWidget {
         width: 46,
         height: 46,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
         ),
         child: Icon(
@@ -578,7 +591,7 @@ class _PlaylistArtwork extends StatelessWidget {
           song.artwork != null && song.artwork!.startsWith('http');
       if (isNetwork) {
         content = ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           child: Image.network(
             ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('pl_net_${song.id}'),
@@ -592,7 +605,7 @@ class _PlaylistArtwork extends StatelessWidget {
         );
       } else if (bytes != null && bytes.isNotEmpty) {
         content = ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           child: Image.memory(
             bytes,
             key: ValueKey('pl_mem_${song.id}'),
@@ -613,7 +626,7 @@ class _PlaylistArtwork extends StatelessWidget {
             final b = snap.data ?? bytes;
             if (b != null && b.isNotEmpty) {
               return ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
                 child: Image.memory(
                   b,
                   key: ValueKey('pl_mem_${song.id}'),
@@ -637,7 +650,7 @@ class _PlaylistArtwork extends StatelessWidget {
       width: 46,
       height: 46,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
         border: Border.all(
           color: scheme.primary.withValues(alpha: 0.65),
           width: 1.5,
@@ -652,7 +665,7 @@ class _PlaylistArtwork extends StatelessWidget {
       width: 46,
       height: 46,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -692,8 +705,8 @@ class _EmptyPlaylists extends StatelessWidget {
               height: 76,
               decoration: BoxDecoration(
                 color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
+                boxShadow: PearStyles.spec.angular ? null : [
                   BoxShadow(
                     color: theme.colorScheme.primary.withValues(alpha: 0.16),
                     blurRadius: 24,
@@ -739,7 +752,7 @@ class _EmptyPlaylists extends StatelessWidget {
                       backgroundColor: theme.colorScheme.primary,
                       foregroundColor: theme.colorScheme.onPrimary,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 18,
@@ -770,7 +783,7 @@ class _EmptyPlaylists extends StatelessWidget {
                           theme.colorScheme.surfaceContainerHighest,
                       foregroundColor: theme.colorScheme.onSurface,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 18,

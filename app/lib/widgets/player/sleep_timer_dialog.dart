@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../theme/glass.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
@@ -59,7 +60,7 @@ Future<void> showSleepTimerDialog(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: scheme.primaryContainer.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                       ),
                       child: Text(
                         player.sleepTimerEndOfSong
@@ -141,7 +142,7 @@ Widget _timerTile(
 }) {
   return ListTile(
     dense: true,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(PearGlassTokens.r(12))),
     leading: const Icon(Icons.timer_outlined, size: 20),
     title: Text(title),
     onTap: () {
@@ -221,7 +222,7 @@ class _SleepTimerButtonState extends State<SleepTimerButton> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,

@@ -69,12 +69,12 @@ Future<T?> showPearPopup<T>({
         return Dialog(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(24)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(PearGlassTokens.r(24))),
           ),
           child: useDialogSurface
               ? PearGlass(
-                  borderRadius: const BorderRadius.all(Radius.circular(24)),
+                  borderRadius: BorderRadius.all(Radius.circular(PearGlassTokens.r(24))),
                   blur: true,
                   opacity: PearGlassTokens.popupAlpha,
                   child: Material(
@@ -98,7 +98,7 @@ Future<T?> showPearPopup<T>({
         );
   }
   // The phone sheet is a frosted glass panel rising from the bottom edge.
-  const sheetRadius = BorderRadius.vertical(top: Radius.circular(24));
+  final sheetRadius = BorderRadius.vertical(top: Radius.circular(PearGlassTokens.r(24)));
   final sheetBuilder = effectiveBuilder;
   return showModalBottomSheet<T>(
     context: context,
@@ -145,7 +145,7 @@ class _SheetHandle extends StatelessWidget {
         height: 4,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.28),
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(2)),
         ),
       ),
     );
@@ -205,7 +205,7 @@ Future<T?> _showAnchoredPopup<T>({
         ),
       );
       final card = PearGlass(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
         blur: true,
         opacity: PearGlassTokens.popupAlpha,
         child: Material(

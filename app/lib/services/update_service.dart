@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../theme/glass.dart';
 import 'dart:io';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
@@ -1206,7 +1207,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.primaryContainer.withAlpha(80),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                 ),
                 child: Row(
                   children: [

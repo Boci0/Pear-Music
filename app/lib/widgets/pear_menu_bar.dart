@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/glass.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -14,26 +15,26 @@ import 'player/playback_speed_dialog.dart';
 class PearMenuBar extends StatelessWidget {
   const PearMenuBar({super.key});
 
-  static const ButtonStyle _itemStyle = ButtonStyle(
+  static ButtonStyle get _itemStyle => ButtonStyle(
     minimumSize: WidgetStatePropertyAll(Size(0, 34)),
     padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12)),
     visualDensity: VisualDensity.compact,
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     shape: WidgetStatePropertyAll(
       RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(10)),
+        borderRadius: BorderRadius.all(Radius.circular(PearGlassTokens.r(10))),
       ),
     ),
   );
 
-  static const ButtonStyle _topStyle = ButtonStyle(
+  static ButtonStyle get _topStyle => ButtonStyle(
     minimumSize: WidgetStatePropertyAll(Size(0, 32)),
     padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12)),
     visualDensity: VisualDensity.compact,
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     shape: WidgetStatePropertyAll(
       RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(8)),
+        borderRadius: BorderRadius.all(Radius.circular(PearGlassTokens.r(8))),
       ),
     ),
   );

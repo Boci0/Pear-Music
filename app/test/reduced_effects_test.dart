@@ -30,7 +30,8 @@ void main() {
   testWidgets('Reduced Effects turns the glass blur off and on live', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
+    // These checks are about the Glass look (pill, pear mark, blur).
+    SharedPreferences.setMockInitialValues({'peerm_style': 'glass'});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
     final library = LibraryService();

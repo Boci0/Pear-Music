@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -194,8 +196,8 @@ class _EmptyHistory extends StatelessWidget {
               height: 76,
               decoration: BoxDecoration(
                 color: primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
+                boxShadow: PearStyles.spec.angular ? null : [
                   BoxShadow(
                     color: primary.withValues(alpha: 0.16),
                     blurRadius: 24,

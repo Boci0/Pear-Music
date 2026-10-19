@@ -176,8 +176,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
     _checkCanOpen(filePath);
 
     final cardRadius = widget.desktop
-        ? BorderRadius.circular(24)
-        : const BorderRadius.vertical(top: Radius.circular(24));
+        ? BorderRadius.circular(PearGlassTokens.r(24))
+        : BorderRadius.vertical(top: Radius.circular(PearGlassTokens.r(24)));
 
     return RepaintBoundary(
       child: PearGlass(
@@ -208,7 +208,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                       height: 4,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(2)),
                       ),
                     ),
                   ),
@@ -259,7 +259,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                               color: Colors.white.withValues(alpha: PearGlassTokens.edge),
                             ),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                             ),
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             visualDensity: VisualDensity.compact,
@@ -283,7 +283,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                                 color: Colors.white.withValues(alpha: PearGlassTokens.edge),
                               ),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                               ),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               visualDensity: VisualDensity.compact,
@@ -312,7 +312,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.045),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                     ),
                     child: currentSong == null
                         ? Text(
@@ -376,7 +376,7 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.045),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

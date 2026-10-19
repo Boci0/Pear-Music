@@ -425,7 +425,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
   Widget _artwork(ThemeData theme) {
     final thumb = widget.result.thumbnailUrl;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
       child: thumb != null && thumb.isNotEmpty
           ? Image.network(
               ArtworkService.optimizeArtworkUrl(thumb),
@@ -462,7 +462,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     );
 
     return RepaintBoundary(
-      child: Padding(
+      child: PearRowRule(child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: 10,
           vertical: PearRow.gap,
@@ -473,7 +473,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             onSecondaryTapDown: (details) =>
                 _showContextMenu(context, details.globalPosition),
             child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(PearRowLook.radius()),
               onHover: _onHover,
               onTap: () {
                 _hoverTimer?.cancel();
@@ -492,27 +492,13 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
               splashFactory: NoSplash.splashFactory,
               highlightColor: Colors.white.withValues(alpha: 0.06),
               child: Ink(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: widget.isCurrent
-                      ? LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            theme.colorScheme.primary.withValues(alpha: 0.34),
-                            theme.colorScheme.primary.withValues(alpha: 0.10),
-                          ],
-                        )
-                      : PearGlassTokens.cardSheen,
-                  // Same card body as the playlist tile: a top-lit glass sheen
-                  // when idle, the accent gradient when this row is playing.
-                  border: Border.all(color: PearGlassTokens.cardRim),
-                ),
+                decoration: PearRowLook.body(context, current: widget.isCurrent),
                 child: SizedBox(
                   height: PearRow.content,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [
+                      PearRowLook.accentBar(context, current: widget.isCurrent),
                       Padding(
                         padding: const EdgeInsets.only(left: 14, right: 8),
                         child: LayoutBuilder(
@@ -710,7 +696,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

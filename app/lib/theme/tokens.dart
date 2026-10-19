@@ -11,6 +11,11 @@
 /// radius (20, side rail and mini player). New work picks from the roles.
 library;
 
+import 'dart:math' as math;
+
+
+import 'pear_style.dart';
+
 import 'package:flutter/material.dart';
 
 /// Spacing steps, 4pt base.
@@ -37,34 +42,38 @@ class PearSpacing {
 }
 
 /// Corner-radius roles. Pick by what the surface is, not by its size.
+/// Angular styles (Graphite) square every role off to a 2px soften.
 class PearRadius {
   PearRadius._();
 
+  static double _style(double radius) =>
+      PearStyles.spec.angular ? math.min(radius, 2) : radius;
+
   /// Small chips, badges, icon-button hit shapes.
-  static const double chip = 8;
+  static double get chip => _style(8);
 
   /// Artwork thumbnails in list rows (44-48px).
-  static const double thumb = 10;
+  static double get thumb => _style(10);
 
   /// Song, queue and list rows, and buttons inside them.
-  static const double row = 12;
+  static double get row => _style(12);
 
   /// Search fields and filter pills.
-  static const double field = 14;
+  static double get field => _style(14);
 
   /// Content cards (settings, home panels).
-  static const double card = 18;
+  static double get card => _style(18);
 
   /// Dialogs, bottom sheets, the Now Playing pane.
-  static const double sheet = 24;
+  static double get sheet => _style(24);
 
   /// Fully rounded (capsule): accent bars, pills, the nav indicator.
-  static const double pill = 999;
+  static double get pill => _style(999);
 
-  static const BorderRadius chipAll = BorderRadius.all(Radius.circular(chip));
-  static const BorderRadius thumbAll = BorderRadius.all(Radius.circular(thumb));
-  static const BorderRadius rowAll = BorderRadius.all(Radius.circular(row));
-  static const BorderRadius pillAll = BorderRadius.all(Radius.circular(pill));
+  static BorderRadius get chipAll => BorderRadius.circular(chip);
+  static BorderRadius get thumbAll => BorderRadius.circular(thumb);
+  static BorderRadius get rowAll => BorderRadius.circular(row);
+  static BorderRadius get pillAll => BorderRadius.circular(pill);
 }
 
 /// Icon sizes, by the role the glyph plays.

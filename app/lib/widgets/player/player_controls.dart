@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../../services/artwork_palette.dart';
+import '../../theme/pear_style.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
@@ -33,7 +35,7 @@ class PlayerTransport extends StatelessWidget {
       listenable: player,
       builder: (context, _) {
         final scheme = Theme.of(context).colorScheme;
-        final effectiveAccent = accent ?? scheme.primary;
+        final effectiveAccent = _signal(accent ?? scheme.primary);
         final loopIcon = switch (player.loopMode) {
           LoopSetting.one => Icons.repeat_one,
           _ => Icons.repeat,
@@ -402,7 +404,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final effectiveAccent = widget.accent ?? colorScheme.primary;
+    final effectiveAccent = _signal(widget.accent ?? colorScheme.primary);
     final reducedEffects = context.select<AppController?, bool>(
       (c) => c?.identity.reducedEffects ?? false,
     );
@@ -1099,3 +1101,8 @@ class _VolumeKnob extends StatelessWidget {
     );
   }
 }
+
+/// The controls' accent in the current style: signal-colour styles push the
+/// song's colour to its vivid form, the rest use it as given.
+Color _signal(Color accent) =>
+    PearStyles.spec.vividAccent ? ArtworkPalette.vivid(accent) : accent;

@@ -46,8 +46,11 @@ void main() {
   Future<Widget> build(
     Widget home, {
     VideoService Function(PlayerService, LibraryService)? makeVideo,
+    String? style,
   }) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues(
+      style == null ? {} : {'peerm_style': style},
+    );
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
     final library = LibraryService();
@@ -142,11 +145,14 @@ void main() {
     Size(844, 390),
     Size(915, 412),
   ]) {
+    // Graphite (the default) and Glass: a car screen must fit either style.
+    for (final style in const ['graphite', 'glass']) {
     for (final entry in <String, Widget>{
       'shell': const HomeShell(),
       'player': const PlayerScreen(),
     }.entries) {
-      testWidgets('${entry.key} lays out at ${size.width}x${size.height}', (
+      testWidgets('${entry.key} lays out at ${size.width}x${size.height} '
+          'in $style', (
         tester,
       ) async {
         tester.view.physicalSize = size;
@@ -155,7 +161,7 @@ void main() {
           tester.view.resetPhysicalSize();
           tester.view.resetDevicePixelRatio();
         });
-        await tester.pumpWidget(await build(entry.value));
+        await tester.pumpWidget(await build(entry.value, style: style));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
 
@@ -213,13 +219,23 @@ void main() {
             'Settings',
             'Library',
           ]) {
-            await tester.tap(find.text(tab).first);
+            // Any case: angular styles draw tab labels in capitals.
+            await tester.tap(
+              find
+                  .byWidgetPredicate(
+                    (w) =>
+                        w is Text &&
+                        w.data?.toLowerCase() == tab.toLowerCase(),
+                  )
+                  .first,
+            );
             await tester.pump();
             await tester.pump(const Duration(milliseconds: 600));
             expect(tester.takeException(), isNull, reason: tab);
           }
         }
       });
+    }
     }
   }
 }

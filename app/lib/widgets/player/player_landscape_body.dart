@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../../theme/pear_style.dart';
+import '../../theme/glass.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -144,12 +146,45 @@ class PlayerLandscapeBody extends StatelessWidget {
                           ],
                           if (onOpenQueue != null) ...[
                             const SizedBox(height: 4),
-                            TextButton.icon(
-                              key: const ValueKey('up_next_button'),
-                              onPressed: onOpenQueue,
-                              icon: const Icon(Icons.queue_music_rounded),
-                              label: const Text('Up Next'),
-                            ),
+                            PearStyles.spec.angular
+                                // Angular styles: the UP NEXT label and count
+                                // block the portrait sheet uses.
+                                ? TextButton(
+                                    key: const ValueKey('up_next_button'),
+                                    onPressed: onOpenQueue,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.queue_music_rounded,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'UP NEXT',
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 1.2,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        PearCountChip(
+                                          '${player.queue.length}',
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                          fontSize: 10,
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : TextButton.icon(
+                                    key: const ValueKey('up_next_button'),
+                                    onPressed: onOpenQueue,
+                                    icon: const Icon(Icons.queue_music_rounded),
+                                    label: const Text('Up Next'),
+                                  ),
                           ],
                         ],
                       ),

@@ -37,7 +37,7 @@ class ArtworkVisualizer extends StatefulWidget {
   });
 
   /// The tallest crest, as a share of the card's height.
-  static const double maxBarFraction = 0.36;
+  static const double maxBarFraction = 0.24;
 
   /// Gap between the wave's baseline (where its crest bottoms out) and the
   /// card's bottom edge.
@@ -390,12 +390,12 @@ class _ArtworkVisualizerPainter extends CustomPainter {
     // turns into a deep shade of the accent with a light edge instead.
     final ink = _deepInk(accentColor);
     final light = Color.lerp(accentColor, Colors.white, 0.6)!;
-    final fillTop = (onBrightArt ? ink : light).withValues(alpha: 0.30 * fade);
+    final fillTop = (onBrightArt ? ink : light).withValues(alpha: 0.16 * fade);
     final fillBottom = onBrightArt
         ? Color.lerp(accentColor, ink, 0.5)!.withValues(alpha: 0.10 * fade)
         : accentColor.withValues(alpha: 0.10 * fade);
     final ghostColor =
-        (onBrightArt ? ink : light).withValues(alpha: 0.12 * fade);
+        (onBrightArt ? ink : light).withValues(alpha: 0.07 * fade);
     final crestColor = onBrightArt ? ink : Colors.white;
     // A thin opposite-tone edge keeps the crest readable on any cover: which
     // polarity a cover wants is guessed from its middle, but the wave sits

@@ -102,7 +102,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         color: theme.colorScheme.primaryContainer.withValues(
                           alpha: 0.3,
                         ),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -139,7 +139,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             foregroundColor: theme.colorScheme.onPrimary,
                             minimumSize: const Size.fromHeight(44),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                             ),
                           ),
                           onPressed: songs.isEmpty
@@ -175,7 +175,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         tooltip: 'Shuffle playlist',
                         style: IconButton.styleFrom(
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                           ),
                           minimumSize: const Size(44, 44),
                         ),
@@ -219,7 +219,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             color: const Color(0xFF1B1B20),
                             elevation: 8 * t,
                             shadowColor: Colors.black.withValues(alpha: 0.65),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                             child: child,
                           );
                         },
@@ -386,7 +386,7 @@ class _SongRow extends StatelessWidget {
     if (isNetwork) {
       artworkWidget = RepaintBoundary(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           child: Image.network(
             ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('pl_net_${song.id}'),
@@ -402,7 +402,7 @@ class _SongRow extends StatelessWidget {
     } else if (initialBytes != null && initialBytes.isNotEmpty) {
       artworkWidget = RepaintBoundary(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           child: Image.memory(
             initialBytes,
             key: ValueKey('pl_mem_${song.id}'),
@@ -427,7 +427,7 @@ class _SongRow extends StatelessWidget {
               return _placeholder(theme.colorScheme);
             }
             return ClipRRect(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
               child: Image.memory(
                 bytes,
                 key: ValueKey('pl_mem_${song.id}'),
@@ -449,7 +449,7 @@ class _SongRow extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           border: Border.all(
             color: theme.colorScheme.primary.withValues(alpha: 0.65),
             width: 1.5,
@@ -468,7 +468,7 @@ class _SongRow extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
           ),
           clipBehavior: Clip.antiAlias,
           child: GestureDetector(
@@ -486,22 +486,8 @@ class _SongRow extends StatelessWidget {
               splashFactory: NoSplash.splashFactory,
               highlightColor: Colors.white.withValues(alpha: 0.06),
               child: Ink(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: isCurrent
-                      ? LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            theme.colorScheme.primary.withValues(alpha: 0.34),
-                            theme.colorScheme.primary.withValues(alpha: 0.10),
-                          ],
-                        )
-                      : PearGlassTokens.cardSheen,
-                  // Same card body as the playlist tile: a top-lit glass sheen
-                  // when idle, the accent gradient when this row is playing.
-                  border: Border.all(color: PearGlassTokens.cardRim),
-                ),
+                // The song lists' row body, in whatever look is in use.
+                decoration: PearRowLook.body(context, current: isCurrent),
                 child: SizedBox(
                   height: PearRow.content,
                   child: Stack(
@@ -685,7 +671,7 @@ class _SongRow extends StatelessWidget {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,

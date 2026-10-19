@@ -1,6 +1,8 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import '../../theme/glass.dart';
+import '../../theme/pear_style.dart';
 import '../../theme/tokens.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -140,7 +142,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(PearRadius.sheet);
+    final radius = BorderRadius.circular(PearGlassTokens.r(PearRadius.sheet));
     final size = widget.size;
     final song = widget.song;
     final networkUrl = widget.networkUrl;
@@ -277,10 +279,15 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final playerService = context.read<PlayerService?>();
     // The glow is what the feathered edge dissolves into, so without it (or
     // with reduced effects, which also saves the mask layers) keep the card.
-    final feathered = playerService != null && !reducedEffects;
+    final angular = PearStyles.spec.angular;
+    final feathered = playerService != null && !reducedEffects && !angular;
 
     final Widget glowWidget;
-    if (playerService != null && !reducedEffects) {
+    if (angular) {
+      // Angular styles frame the cover with a thin line (drawn over it, at
+      // the end of the stack) instead of a glow.
+      glowWidget = const SizedBox.shrink();
+    } else if (playerService != null && !reducedEffects) {
       glowWidget = RhythmPulseBuilder(
         player: playerService,
         builder: (context, aura, child) => _GlowHalo(
@@ -336,6 +343,8 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
     return Stack(
       alignment: Alignment.center,
+      // The halo and the angular corner brackets reach past the cover.
+      clipBehavior: Clip.none,
       children: [
         glowWidget,
         RepaintBoundary(
@@ -617,6 +626,12 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
             ),
           ),
         ),
+        if (angular)
+          IgnorePointer(
+            child: PearCornerBrackets(
+              child: SizedBox(width: size, height: size),
+            ),
+          ),
       ],
     );
 
@@ -724,7 +739,7 @@ class PlayerSongInfo extends StatelessWidget {
             ),
           Expanded(
             child: InkWell(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
               onTap: () => _copyTitle(context, song.title),
               onLongPress: () => _copyTitle(context, song.title),
               child: Column(
@@ -769,11 +784,74 @@ class PlayerSongInfo extends StatelessWidget {
       );
     }
 
+    // Angular styles put a small read-out above the title, like a status
+    // line on a console: stripe mark, NOW PLAYING and the queue position.
+    final kicker =
+        PearStyles.spec.angular && MediaQuery.sizeOf(context).height >= 600;
+    final queueLength = context.select<PlayerService, int>(
+      (p) => p.queue.length,
+    );
+    final queuePos = context.select<PlayerService, int>((p) => p.queueIndex);
     return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 96, maxHeight: 114),
+      constraints: BoxConstraints(
+        minHeight: 96,
+        maxHeight: kicker ? 134 : 114,
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          if (kicker)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const PearStripes(width: 18, height: 7),
+                  const SizedBox(width: 8),
+                  Text(
+                    // The figure is the place in the queue, not the list
+                    // number, so it says so.
+                    queueLength > 0 ? 'NOW PLAYING  ·  QUEUE' : 'NOW PLAYING',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.6,
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  if (queueLength > 0) ...[
+                    const SizedBox(width: 12),
+                    // Position as a big figure over a small total, like a
+                    // module's "3/3" read-out.
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: (queuePos + 1).toString().padLeft(2, '0'),
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              height: 1,
+                            ),
+                          ),
+                          TextSpan(
+                            text: ' /${queueLength.toString().padLeft(2, '0')}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.45),
+                            ),
+                          ),
+                        ],
+                      ),
+                      style: const TextStyle(
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 58, maxHeight: 72),
             child: Row(
@@ -801,7 +879,7 @@ class PlayerSongInfo extends StatelessWidget {
                   child: Tooltip(
                     message: 'Tap or long-press to copy title',
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                       onTap: () => _copyTitle(context, song.title),
                       onLongPress: () => _copyTitle(context, song.title),
                       child: Padding(
@@ -967,7 +1045,7 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
 
   @override
   Widget build(BuildContext context) {
-    final pillRadius = widget.isCircle ? BorderRadius.circular(20) : BorderRadius.circular(16);
+    final pillRadius = widget.isCircle ? BorderRadius.circular(PearGlassTokens.r(20)) : BorderRadius.circular(PearGlassTokens.r(16));
     final accent = widget.activeColor;
     final isActive = widget.isActive;
 

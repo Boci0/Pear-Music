@@ -9,6 +9,7 @@ import '../services/artwork_service.dart';
 import '../services/player_service.dart';
 import '../services/player_theme.dart';
 import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import 'live_badge.dart';
 import 'pear_page_route.dart';
 import 'player/mini_visualizer.dart';
@@ -16,7 +17,20 @@ import 'tactile_button.dart';
 
 /// Compact now-playing bar shown above the navigation bar.
 class PlayerBar extends StatelessWidget {
-  const PlayerBar({super.key});
+  const PlayerBar({super.key, this.embedded = false});
+
+  /// Drawn inside the phone dock: no margins and no glass of its own.
+  final bool embedded;
+
+  /// The mini player's surface tone for [song]: the card fill leaning to the
+  /// song's artwork colour. The dock uses it for its whole panel.
+  static Color tintFor(ThemeData theme, Song song) =>
+      Color.lerp(
+        PlayerTheme.cardFillOpaque(theme.colorScheme),
+        ArtworkPalette.wash(ArtworkPalette.dominantSync(song), lightness: 0.11),
+        0.45,
+      ) ??
+      PlayerTheme.cardFillOpaque(theme.colorScheme);
 
   @override
   Widget build(BuildContext context) {
@@ -32,13 +46,7 @@ class PlayerBar extends StatelessWidget {
     // the colour follows the music outside the full player.
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
-    final barColor =
-        Color.lerp(
-          PlayerTheme.cardFillOpaque(theme.colorScheme),
-          ArtworkPalette.wash(accent, lightness: 0.11),
-          0.45,
-        ) ??
-        PlayerTheme.cardFillOpaque(theme.colorScheme);
+    final barColor = tintFor(theme, song);
 
     final screenWidth = MediaQuery.sizeOf(context).width;
     final hMargin = screenWidth < 380 ? 10.0 : 16.0;
@@ -53,7 +61,9 @@ class PlayerBar extends StatelessWidget {
     );
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(hMargin, 0, hMargin, 6),
+      padding: embedded
+          ? EdgeInsets.zero
+          : EdgeInsets.fromLTRB(hMargin, 0, hMargin, 6),
       child: GestureDetector(
         onHorizontalDragEnd: (details) {
           final vx = details.primaryVelocity ?? 0;
@@ -73,6 +83,7 @@ class PlayerBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
           tint: barColor,
           blur: true,
+          surface: !embedded,
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
@@ -96,11 +107,25 @@ class PlayerBar extends StatelessWidget {
                       ),
                     ),
                   Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: embedded
+                        ? const EdgeInsets.fromLTRB(
+                            PearGlassTokens.dockInset,
+                            PearGlassTokens.dockInset,
+                            PearGlassTokens.dockInset - 4,
+                            PearGlassTokens.dockInset,
+                          )
+                        : const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                     child: Row(
                       children: [
-                        _Thumb(song: song),
+                        _Thumb(
+                          song: song,
+                          radius: PearGlassTokens.r(
+                            embedded ? PearGlassTokens.dockInnerRadius : 8,
+                          ),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -161,6 +186,35 @@ class PlayerBar extends StatelessWidget {
                                     color: theme.colorScheme.primary,
                                     fontWeight: FontWeight.w600,
                                   ),
+                                ),
+                              ] else if (PearStyles.spec.angular) ...[
+                                // Angular styles always carry a status line,
+                                // like a read-out under a module's name.
+                                const SizedBox(height: 2),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      player.playing ? 'PLAYING' : 'PAUSED',
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.4,
+                                        color: control,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    // The pips are the song's progress:
+                                    // they light up one by one as it plays.
+                                    if (!player.isLive)
+                                      Flexible(
+                                        child: _ProgressPips(
+                                          player: player,
+                                          color: control,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ],
                             ],
@@ -232,7 +286,8 @@ class PlayerBar extends StatelessWidget {
 /// 40x40 artwork thumb for the now-playing bar wrapped in a Hero tag.
 class _Thumb extends StatelessWidget {
   final Song song;
-  const _Thumb({required this.song});
+  final double radius;
+  const _Thumb({required this.song, this.radius = 8});
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +297,7 @@ class _Thumb extends StatelessWidget {
       width: 40,
       height: 40,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(radius)),
         gradient: LinearGradient(
           colors: [
             theme.colorScheme.primaryContainer,
@@ -263,7 +318,7 @@ class _Thumb extends StatelessWidget {
     } else if (artwork.startsWith('http')) {
       final optimized = ArtworkService.optimizeArtworkUrl(artwork);
       imageWidget = ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(radius)),
         child: Image.network(
           optimized,
           width: 40,
@@ -291,7 +346,7 @@ class _Thumb extends StatelessWidget {
         imageWidget = placeholder;
       } else {
         imageWidget = ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(radius)),
           child: Image.memory(
             bytes,
             width: 40,
@@ -342,6 +397,10 @@ class _MiniPlayerBackgroundProgress extends StatelessWidget {
                       .inMilliseconds
                       .toDouble();
               final fraction = (posMs / totalMs).clamp(0.0, 1.0);
+              // Angular styles: a thin accent line along the top edge, like a
+              // read-out, instead of a fill behind the title.
+              // Angular styles show progress in the pips by the status.
+              if (PearStyles.spec.angular) return const SizedBox.shrink();
               return FractionallySizedBox(
                 alignment: Alignment.centerLeft,
                 widthFactor: fraction,
@@ -368,3 +427,58 @@ class _MiniPlayerBackgroundProgress extends StatelessWidget {
   }
 }
 
+
+/// Progress as a row of pips after the PLAYING / PAUSED label: each lights in
+/// turn as the song plays, the current one partly; dimmer while paused.
+class _ProgressPips extends StatelessWidget {
+  const _ProgressPips({required this.player, required this.color});
+
+  final PlayerService player;
+  final Color color;
+
+  static const int most = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    // Fewer pips when the bar is narrow (a phone held sideways).
+    return LayoutBuilder(
+      builder: (context, box) {
+        final count = box.maxWidth.isFinite
+            ? (box.maxWidth / 5).floor().clamp(0, most)
+            : most;
+        return _pips(count);
+      },
+    );
+  }
+
+  Widget _pips(int count) {
+    return RepaintBoundary(
+      child: StreamBuilder<Duration>(
+        stream: player.uiPositionStream,
+        initialData: player.position ?? Duration.zero,
+        builder: (context, snap) {
+          final total = (player.duration ?? Duration.zero).inMilliseconds;
+          final pos = (snap.data ?? Duration.zero).inMilliseconds;
+          final lit = total <= 0 ? 0.0 : (pos / total).clamp(0.0, 1.0) * count;
+          final strength = player.playing ? 1.0 : 0.6;
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < count; i++)
+                Container(
+                  width: 3,
+                  height: 8,
+                  margin: const EdgeInsets.only(right: 2),
+                  color: Color.lerp(
+                    Colors.white.withValues(alpha: 0.14),
+                    color.withValues(alpha: strength),
+                    (lit - i).clamp(0.0, 1.0),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}

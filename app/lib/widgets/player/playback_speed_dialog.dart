@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/glass.dart';
 import '../../services/player_service.dart';
 import '../pear_popup.dart';
 import '../tactile_button.dart';
@@ -63,7 +64,7 @@ Future<void> showPlaybackSpeedDialog(
                 return ListTile(
                   dense: true,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                   ),
                   selected: isSelected,
                   selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.35),
@@ -116,7 +117,7 @@ class PlaybackSpeedButton extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                   decoration: BoxDecoration(
                     color: scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                   ),
                   child: Text(
                     '${speed}x',

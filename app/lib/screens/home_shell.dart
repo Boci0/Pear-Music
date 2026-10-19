@@ -14,6 +14,7 @@ import '../services/player_theme.dart';
 import '../services/session_diagnostics.dart';
 import '../services/video_service.dart';
 import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import '../widgets/now_playing_panel.dart';
 import '../widgets/pear_content_frame.dart';
 import '../widgets/pear_menu_bar.dart';
@@ -30,7 +31,11 @@ import 'settings_screen.dart';
 
 /// Root shell with unified mobile-first layout (bottom navigation bar + mini player).
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  const HomeShell({super.key, this.singleDock = true});
+
+  /// Phone layout: the mini player and the nav bar share one glass panel.
+  /// False brings back the two floating pills (kept for the design gallery).
+  final bool singleDock;
 
   /// Whether a window of [size] gets the wide shell (menu bar, side rail).
   /// Desktop operating systems always do at 900+ px. Other platforms (phones
@@ -396,60 +401,113 @@ class _HomeShellState extends State<HomeShell>
               ),
         bottomNavigationBar: isWide
             ? null
-            // A scrim behind the stacked bars, so list rows fade out under
-            // them instead of showing in the gap between the pills.
-            : DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Theme.of(context).colorScheme.surface.withValues(alpha: 0),
-                      Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
-                      Theme.of(context).colorScheme.surface,
-                    ],
-                    stops: const [0, 0.3, 1],
-                  ),
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: size.height < 500 && currentSong != null
-                      // A phone held sideways has no height for the mini player
-                      // stacked on the nav bar, so they share one row and the
-                      // list keeps the room.
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            // The nav bar keeps 10 below it and the player bar 6,
-                            // so lift the player by the difference to share a
-                            // baseline.
-                            const Expanded(
-                              child: Padding(
-                                padding: EdgeInsets.only(bottom: 4),
-                                child: PlayerBar(),
-                              ),
+            : SafeArea(
+                top: false,
+                child: size.height < 500 &&
+                        currentSong != null &&
+                        widget.singleDock
+                    // Sideways: the dock lays the mini player and the nav bar
+                    // side by side in one panel, so nothing shows between them.
+                    ? _dock(context, currentSong, sideways: true)
+                    : size.height < 500 && currentSong != null
+                    // A phone held sideways has no height for the mini player
+                    // stacked on the nav bar, so they share one row and the
+                    // list keeps the room.
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          // The nav bar keeps 10 below it and the player bar 6,
+                          // so lift the player by the difference to share a
+                          // baseline.
+                          const Expanded(
+                            child: Padding(
+                              padding: EdgeInsets.only(bottom: 4),
+                              child: PlayerBar(),
                             ),
-                            SizedBox(
-                              width: math.min(380, size.width * 0.5),
-                              child: _MinimalistNavBar(
-                                selectedIndex: _index,
-                                onDestinationSelected: _onDestinationSelected,
-                              ),
-                            ),
-                          ],
-                        )
-                      : Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const PlayerBar(),
-                            _MinimalistNavBar(
+                          ),
+                          SizedBox(
+                            width: math.min(380, size.width * 0.5),
+                            child: _MinimalistNavBar(
                               selectedIndex: _index,
                               onDestinationSelected: _onDestinationSelected,
                             ),
-                          ],
-                        ),
-                ),
+                          ),
+                        ],
+                      )
+                    : widget.singleDock
+                    ? _dock(context, currentSong)
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const PlayerBar(),
+                          _MinimalistNavBar(
+                            selectedIndex: _index,
+                            onDestinationSelected: _onDestinationSelected,
+                          ),
+                        ],
+                      ),
               ),
+      ),
+    );
+  }
+
+  /// One glass panel holding the mini player over the nav bar, tinted like
+  /// the mini player, with a hairline between them: no gap for the list to
+  /// show through and no second surface tone.
+  Widget _dock(BuildContext context, Song? song, {bool sideways = false}) {
+    final theme = Theme.of(context);
+    final hMargin = MediaQuery.sizeOf(context).width < 380 ? 10.0 : 16.0;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(hMargin, 2, hMargin, 10),
+      child: PearGlass(
+        borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
+        tint: song == null ? null : PlayerBar.tintFor(theme, song),
+        blur: true,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(
+            PearGlassTokens.r(PearGlassTokens.floatingRadius),
+          ),
+          child: sideways
+              ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Expanded(child: PlayerBar(embedded: true)),
+                      Container(
+                        width: 1,
+                        height: 36,
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                      SizedBox(
+                        width: math.min(380, MediaQuery.sizeOf(context).width * 0.5),
+                        child: _MinimalistNavBar(
+                          embedded: true,
+                          selectedIndex: _index,
+                          onDestinationSelected: _onDestinationSelected,
+                        ),
+                      ),
+                    ],
+                  )
+              : Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (song != null) ...[
+                const PlayerBar(embedded: true),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  indent: PearGlassTokens.dockInset,
+                  endIndent: PearGlassTokens.dockInset,
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+              ],
+              _MinimalistNavBar(
+                embedded: true,
+                selectedIndex: _index,
+                onDestinationSelected: _onDestinationSelected,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -469,7 +527,11 @@ class _MinimalistNavBar extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
 
+  /// Drawn inside the phone dock: no margins and no glass of its own.
+  final bool embedded;
+
   const _MinimalistNavBar({
+    this.embedded = false,
     required this.selectedIndex,
     required this.onDestinationSelected,
   });
@@ -531,6 +593,12 @@ class _MinimalistNavBar extends StatelessWidget {
   /// Empty space the pill leaves either side of its label, and the smallest
   /// pill (an icon and a little air).
   static const double labelPadX = 15;
+
+  /// The least room a pill keeps either side of its label.
+  static const double minLabelPadX = 9;
+
+  /// The narrowest a pill may get, as width over height.
+  static const double minPillAspect = 1.35;
   static const double minPillWidth = 52;
 
   /// Room kept between the bar's ends and the items, and between the pill and
@@ -547,22 +615,47 @@ class _MinimalistNavBar extends StatelessWidget {
   static double pillWidthFor(
     BuildContext context,
     int index,
-    double barWidth,
-  ) {
-    final slot = (barWidth - edgePad * 2) / _destinations.length;
-    final center = edgePad + slot * (index + 0.5);
+    double barWidth, {
+    bool embedded = false,
+  }) {
+    final pad = embedded ? PearGlassTokens.dockInset : edgePad;
+    final slot = (barWidth - pad * 2) / _destinations.length;
+    final center = pad + slot * (index + 0.5);
     final painter = TextPainter(
       text: TextSpan(
-        text: _destinations[index].label,
+        text: navLabelText(_destinations[index].label),
         style: navLabelStyle(context, selected: true, color: Colors.white),
       ),
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.textScalerOf(context),
       maxLines: 1,
     )..layout();
+    // Angular styles draw square highlights that would touch or cover the
+    // next tab, so each one keeps to its own slot with a small gap.
+    if (PearStyles.spec.angular) {
+      return math.min(painter.width + 2 * minLabelPadX, slot - 4);
+    }
     final natural = painter.width / 2 + labelPadX;
-    final room = math.min(center, barWidth - center) - edgeInset;
-    final half = math.min(math.max(natural, minPillWidth / 2), room);
+    final toEdge = math.min(center, barWidth - center);
+    final room = toEdge - edgeInset;
+    if (!embedded) {
+      return math.min(math.max(natural, minPillWidth / 2), room) * 2;
+    }
+    // In the dock an edge pill lines up with the dock's margin while its label
+    // keeps [minLabelPadX] either side; on a narrow phone it gives up the
+    // alignment before the label gets cramped.
+    final aligned = toEdge - PearGlassTokens.dockInset;
+    final least = math.max(
+      painter.width / 2 + minLabelPadX,
+      pillHeight * minPillAspect / 2,
+    );
+    final wanted = math.max(natural, minPillWidth / 2);
+    var half = math.min(wanted, aligned);
+    if (half < least) half = math.min(wanted, room);
+    // An end pill a few pixels short of the margin stretches onto it, so its
+    // edge lines up with the cover and the hairline above it.
+    final atEnd = index == 0 || index == _destinations.length - 1;
+    if (atEnd && aligned > half && aligned - half <= 6) half = aligned;
     return half * 2;
   }
 
@@ -574,23 +667,30 @@ class _MinimalistNavBar extends StatelessWidget {
 
     return Container(
       key: const ValueKey('nav_bar'),
-      margin: EdgeInsets.fromLTRB(hMargin, 2, hMargin, 10),
+      // In the dock the pill keeps the dock's margin below it too.
+      margin: embedded
+          ? const EdgeInsets.only(
+              bottom: PearGlassTokens.dockInset - pillInsetY,
+            )
+          : EdgeInsets.fromLTRB(hMargin, 2, hMargin, 10),
       height: barHeight,
       child: PearGlass(
         borderRadius: BorderRadius.circular(barRadius),
         blur: true,
+        surface: !embedded,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(barRadius),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(barRadius)),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final barWidth = constraints.maxWidth;
-              final slot = (barWidth - edgePad * 2) / _destinations.length;
+              final pad = embedded ? PearGlassTokens.dockInset : edgePad;
+              final slot = (barWidth - pad * 2) / _destinations.length;
               final widths = [
                 for (var i = 0; i < _destinations.length; i++)
-                  pillWidthFor(context, i, barWidth),
+                  pillWidthFor(context, i, barWidth, embedded: embedded),
               ];
               final selectedWidth = widths[selectedIndex];
-              final selectedCenter = edgePad + slot * (selectedIndex + 0.5);
+              final selectedCenter = pad + slot * (selectedIndex + 0.5);
               return Stack(
                 children: [
                   // Gliding pill behind the selected icon and label. It resizes
@@ -610,7 +710,9 @@ class _MinimalistNavBar extends StatelessWidget {
                       // side rail.
                       decoration: PearGlassTokens.selectionPill(
                         scheme,
-                        radius: pillRadius,
+                        radius: embedded
+                            ? PearGlassTokens.dockInnerRadius
+                            : pillRadius,
                       ),
                     ),
                   ),
@@ -618,7 +720,7 @@ class _MinimalistNavBar extends StatelessWidget {
                   // centred where the pill expects it.
                   Positioned.fill(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: edgePad),
+                      padding: EdgeInsets.symmetric(horizontal: pad),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -646,6 +748,10 @@ class _MinimalistNavBar extends StatelessWidget {
   }
 }
 
+/// A tab label as drawn: spaced capitals in angular styles.
+String navLabelText(String label) =>
+    PearStyles.spec.angular ? label.toUpperCase() : label;
+
 /// Text style of a tab label. Shared by the item and by the pill's width
 /// measurement, so the pill is sized from exactly what is drawn.
 @visibleForTesting
@@ -655,11 +761,11 @@ TextStyle navLabelStyle(
   required Color color,
 }) =>
     (Theme.of(context).textTheme.labelSmall ?? const TextStyle()).copyWith(
-      fontSize: 10.5,
+      fontSize: PearStyles.spec.angular ? 9 : 10.5,
       height: 1.0,
       fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
       color: color,
-      letterSpacing: -0.2,
+      letterSpacing: PearStyles.spec.angular ? 0.9 : -0.2,
     );
 
 class _NavBarItem extends StatefulWidget {
@@ -759,7 +865,7 @@ class _NavBarItemState extends State<_NavBarItem> {
                         ? Colors.white.withValues(alpha: 0.08)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(
-                      _MinimalistNavBar.pillRadius,
+                      PearGlassTokens.r(_MinimalistNavBar.pillRadius),
                     ),
                   ),
                   child: Column(
@@ -785,7 +891,7 @@ class _NavBarItemState extends State<_NavBarItem> {
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(
-                              widget.label,
+                              navLabelText(widget.label),
                               maxLines: 1,
                               style: navLabelStyle(
                                 context,

@@ -14,7 +14,7 @@ class CoverBand {
 
   /// The top of the band, as a share of the card's height. Matches the
   /// vignette it replaces.
-  static const double top = 0.55;
+  static const double top = 0.68;
 
   /// Width of the baked image. The band is blurred, so a small image scaled up
   /// by the sampler loses nothing and costs almost no memory.

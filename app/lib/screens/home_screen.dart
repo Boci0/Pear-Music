@@ -11,6 +11,8 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
+import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import '../theme/tokens.dart';
 import '../widgets/filter_pill.dart';
 import '../widgets/import_export_sheet.dart';
@@ -291,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return RepaintBoundary(
       child: SongTile(
         key: ValueKey(song.id),
+        number: index + 1,
         song: song,
         queue: songs,
         sourceId: sourceId,
@@ -412,15 +415,15 @@ class _HomeScreenState extends State<HomeScreen> {
           filled: true,
           fillColor: Colors.white.withValues(alpha: 0.06),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
             borderSide: BorderSide.none,
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
             borderSide: BorderSide(
               color: theme.colorScheme.primary.withValues(alpha: 0.5),
               width: 1,
@@ -583,6 +586,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+          if (PearStyles.spec.angular)
+            const SliverToBoxAdapter(child: PearSpecRule()),
           if (songs.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -600,7 +605,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 color: theme.colorScheme.primary.withValues(
                                   alpha: 0.12,
                                 ),
-                                borderRadius: BorderRadius.circular(24),
+                                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: theme.colorScheme.primary.withValues(
@@ -757,7 +762,9 @@ class _HomeScreenState extends State<HomeScreen> {
         headerContent = Row(
           key: const ValueKey('header_default'),
           children: [
-            const PearTabTitle('Library'),
+            Flexible(
+              child: PearTabTitle('Library', tag: '${songs.length} TRACKS'),
+            ),
             const SizedBox(width: 24),
             SizedBox(
               width: 360,
@@ -766,9 +773,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         );
       } else {
-        headerContent = const PearTabTitle(
+        headerContent = PearTabTitle(
           'Library',
-          key: ValueKey('header_default'),
+          tag: '${songs.length} TRACKS',
+          key: const ValueKey('header_default'),
         );
       }
       headerActions = [
@@ -993,8 +1001,8 @@ class _EmptyState extends StatelessWidget {
               height: 76,
               decoration: BoxDecoration(
                 color: primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
+                boxShadow: PearStyles.spec.angular ? null : [
                   BoxShadow(
                     color: primary.withValues(alpha: 0.16),
                     blurRadius: 24,
@@ -1033,7 +1041,7 @@ class _EmptyState extends StatelessWidget {
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
                   ),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,

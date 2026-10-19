@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import 'tactile_button.dart';
 
 /// Rounded filter/toggle pill shared by the Library filters and the Explore
@@ -64,8 +66,9 @@ class _FilterPillState extends State<FilterPill> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: widget.isSelected
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
+            // Angular styles keep their chips flat: no glow under the pick.
+            boxShadow: widget.isSelected && !PearStyles.spec.angular
                 ? [
                     BoxShadow(
                       color: primary.withValues(alpha: 0.22),

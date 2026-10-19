@@ -7,6 +7,7 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import '../theme/tokens.dart';
 import 'live_badge.dart';
 import 'pear_popup.dart';
@@ -32,8 +33,13 @@ class SongTile extends StatelessWidget {
   /// Null keeps the plain source/size label.
   final String? metaSuffix;
 
+  /// Position in its list, from 1. Angular styles show it as "01" before the
+  /// cover; null draws no column.
+  final int? number;
+
 
   const SongTile({
+    this.number,
     super.key,
     required this.song,
     this.queue,
@@ -298,7 +304,7 @@ class SongTile extends StatelessWidget {
         : '$baseMeta · $metaSuffix';
 
     return RepaintBoundary(
-      child: Padding(
+      child: PearRowRule(child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: 10,
           vertical: PearRow.gap,
@@ -306,7 +312,7 @@ class SongTile extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PearRowLook.radius()),
           ),
           clipBehavior: Clip.antiAlias,
           child: GestureDetector(
@@ -354,34 +360,17 @@ class SongTile extends StatelessWidget {
               splashFactory: NoSplash.splashFactory,
               highlightColor: Colors.white.withValues(alpha: 0.06),
               child: Ink(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: isCurrent
-                      ? LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            theme.colorScheme.primary.withValues(alpha: 0.34),
-                            theme.colorScheme.primary.withValues(alpha: 0.10),
-                          ],
-                        )
-                      : isSelected
-                      ? null
-                      : PearGlassTokens.cardSheen,
-                  // Same card body as the playlist tile: a top-lit glass sheen
-                  // when idle, the accent gradient when this row is playing.
-                  color: isSelected && !isCurrent
-                      ? theme.colorScheme.primaryContainer.withValues(
-                          alpha: 0.22,
-                        )
-                      : null,
-                  border: Border.all(color: PearGlassTokens.cardRim),
+                decoration: PearRowLook.body(
+                  context,
+                  current: isCurrent,
+                  selected: isSelected,
                 ),
                 child: SizedBox(
                   height: PearRow.content,
                   child: Stack(
                     alignment: Alignment.centerLeft,
                     children: [
+                      PearRowLook.accentBar(context, current: isCurrent),
                       Padding(
                         padding: const EdgeInsets.only(left: 14, right: 12),
                         child: LayoutBuilder(
@@ -389,7 +378,10 @@ class SongTile extends StatelessWidget {
                             // Wide rows (desktop) move the meta line into a
                             // right-aligned column so the row reads like a table
                             // instead of a title stranded next to the menu dots.
-                            final wideRow = constraints.maxWidth >= 900;
+                            // Library meta ("Local · 4.2 MB") is short, so it
+                            // fits that column from 620 up; Explore rows carry
+                            // the artist and switch later (youtube_song_tile).
+                            final wideRow = constraints.maxWidth >= 620;
                             return Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -400,6 +392,27 @@ class SongTile extends StatelessWidget {
                                   ),
                                   const SizedBox(width: 6),
                                 ],
+                                if (number != null &&
+                                    PearStyles.spec.angular)
+                                  SizedBox(
+                                    width: PearRowLook.numberWidth,
+                                    child: Text(
+                                      number!.toString().padLeft(2, '0'),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.5,
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                        color: isCurrent
+                                            ? theme.colorScheme.primary
+                                            : Colors.white.withValues(
+                                                alpha: 0.35,
+                                              ),
+                                      ),
+                                    ),
+                                  ),
                                 _Artwork(song: song, isCurrent: isCurrent),
                                 const SizedBox(width: 12),
                                 Expanded(
@@ -591,7 +604,7 @@ class SongTile extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -614,7 +627,7 @@ class _Artwork extends StatelessWidget {
     if (isNetwork) {
       image = RepaintBoundary(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           child: Image.network(
             ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('tile_net_${song.id}'),
@@ -630,7 +643,7 @@ class _Artwork extends StatelessWidget {
     } else if (initialBytes != null && initialBytes.isNotEmpty) {
       image = RepaintBoundary(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           child: Image.memory(
             initialBytes,
             key: ValueKey('tile_mem_${song.id}'),
@@ -653,7 +666,7 @@ class _Artwork extends StatelessWidget {
             final bytes = snapshot.data ?? initialBytes;
             if (bytes == null || bytes.isEmpty) return _placeholder(scheme);
             return ClipRRect(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
               child: Image.memory(
                 bytes,
                 key: ValueKey('tile_mem_${song.id}'),
@@ -677,7 +690,7 @@ class _Artwork extends StatelessWidget {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,

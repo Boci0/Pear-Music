@@ -83,7 +83,7 @@ class NowPlayingPanel extends StatelessWidget {
       curve: Curves.easeOutCubic,
       builder: (context, wash, child) => PearGlass(
         key: const ValueKey('now_playing_panel'),
-        borderRadius: BorderRadius.circular(PearRadius.sheet),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.sheet)),
         child: Container(
           // Inset by the rim so the content keeps the width it is laid out
           // for (see [_kPaneBorder]).
@@ -210,7 +210,7 @@ class NowPlayingPanel extends StatelessWidget {
                       // labels) above the fold on shorter windows: only the
                       // artwork flexes, so no control silently drops below the
                       // scroll edge.
-                      constraints.maxHeight - 320,
+                      constraints.maxHeight - 220,
                     ),
                   )
                   .clamp(140.0, 520.0);
@@ -235,7 +235,7 @@ class NowPlayingPanel extends StatelessWidget {
                             ),
                     ),
                     const SizedBox(height: 14),
-                    PlayerSongInfo(song: song),
+                    PlayerSongInfo(song: song, compact: true),
                     const SizedBox(height: 4),
                     PlayerTransport(
                       player: player,
@@ -712,7 +712,7 @@ class _Artwork extends StatelessWidget {
     final theme = Theme.of(context);
     final placeholder = Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
         gradient: LinearGradient(
           colors: [
             theme.colorScheme.primaryContainer,
@@ -756,7 +756,7 @@ class _Artwork extends StatelessWidget {
       );
     }
 
-    final radius = BorderRadius.circular(PearRadius.sheet - 4);
+    final radius = BorderRadius.circular(PearGlassTokens.r(PearRadius.sheet - 4));
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
@@ -867,21 +867,7 @@ class _QueueContextListState extends State<_QueueContextList> {
               ),
             ),
             const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: control.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                '${index + 1} / ${queue.length}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.bold,
-                  color: control,
-                ),
-              ),
-            ),
+            PearCountChip('${index + 1} / ${queue.length}', color: control),
           ],
         ),
         const SizedBox(height: 6),
@@ -902,7 +888,7 @@ class _QueueContextListState extends State<_QueueContextList> {
                   final isCurrent = i == index;
                   final isPlayed = i < index;
                   return InkWell(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
                     hoverColor: Colors.white.withValues(
                       alpha: PearOverlay.hover,
                     ),
@@ -921,13 +907,18 @@ class _QueueContextListState extends State<_QueueContextList> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
                         // Same card language as the lists and the queue sheet:
                         // artwork thumbnail per row, and the playing row carries
                         // the track accent.
+                        // Angular styles: a faint fill and the accent bar,
+                        // as the song lists draw their playing row.
                         color: isCurrent
-                            ? control.withValues(alpha: 0.28)
+                            ? (PearStyles.spec.angular
+                                ? Colors.white.withValues(alpha: 0.05)
+                                : control.withValues(alpha: 0.28))
                             : null,
+
                       ),
                       child: Row(
                         children: [
@@ -1010,7 +1001,7 @@ class _QueueThumb extends StatelessWidget {
       height: _size,
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
       ),
       child: Icon(
         Icons.music_note_rounded,
@@ -1057,7 +1048,7 @@ class _QueueThumb extends StatelessWidget {
       );
     }
 
-    return ClipRRect(borderRadius: BorderRadius.circular(8), child: image);
+    return ClipRRect(borderRadius: BorderRadius.circular(PearGlassTokens.r(8)), child: image);
   }
 }
 

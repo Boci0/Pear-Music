@@ -40,9 +40,9 @@ void main() {
     expect(PearGlassTokens.sheenTop, 0);
   });
 
-  test('an unknown saved style falls back to Glass', () {
-    expect(PearStyle.parse(null), PearStyle.glass);
-    expect(PearStyle.parse('neon'), PearStyle.glass);
+  test('an unknown saved style falls back to Graphite', () {
+    expect(PearStyle.parse(null), PearStyle.graphite);
+    expect(PearStyle.parse('neon'), PearStyle.graphite);
     expect(PearStyle.parse('solid'), PearStyle.solid);
   });
 
@@ -50,7 +50,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     var prefs = await SharedPreferences.getInstance();
     var identity = IdentityService(prefs);
-    expect(identity.style, PearStyle.glass);
+    expect(identity.style, PearStyle.graphite);
 
     final glassTheme = PlayerTheme.buildFromScheme(
       ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark),

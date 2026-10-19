@@ -386,7 +386,7 @@ class _BackdropPainter extends CustomPainter {
     }
 
     final image = tile;
-    if (image == null) {
+    if (image == null || watermarkAlpha <= 0) {
       return;
     }
 

@@ -201,7 +201,7 @@ class _SideRailItemState extends State<_SideRailItem> {
                 color: !isSelected && _isHovered
                     ? Colors.white.withValues(alpha: 0.08)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(_SideRailItem.pillRadius),
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(_SideRailItem.pillRadius)),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,

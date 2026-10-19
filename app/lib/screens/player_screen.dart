@@ -32,6 +32,10 @@ import '../widgets/tactile_button.dart';
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
 
+  /// Lay the player out as on a phone whatever the platform: the design
+  /// gallery (lib/dev) sets it so its phone frames match a real phone.
+  static bool debugPhoneLayout = false;
+
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
@@ -139,7 +143,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     final targetAccent = _accentColor ?? themePrimary;
 
-    final isDesktopPlatform = !kIsWeb &&
+    final isDesktopPlatform = !PlayerScreen.debugPhoneLayout &&
+        !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.linux ||
             defaultTargetPlatform == TargetPlatform.macOS);
@@ -162,7 +167,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         landscape && !useQueuePanel && MediaQuery.sizeOf(context).height < 700;
 
     final phoneLandscape =
-        (defaultTargetPlatform == TargetPlatform.android ||
+        (PlayerScreen.debugPhoneLayout ||
+            defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS) &&
         MediaQuery.orientationOf(context) == Orientation.landscape;
 

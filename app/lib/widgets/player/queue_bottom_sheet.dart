@@ -10,6 +10,7 @@ import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
 import '../../services/player_theme.dart';
 import '../../theme/glass.dart';
+import '../../theme/pear_style.dart';
 import '../../theme/tokens.dart';
 import '../live_badge.dart';
 import '../tactile_button.dart';
@@ -399,35 +400,33 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
             ) ??
             PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme);
 
+        final t = _curvedAnimation.value;
+        final radius = BorderRadius.vertical(
+          top: Radius.circular(PearGlassTokens.r(lerpDouble(22, 28, t)!)),
+        );
+        // Collapsed it is the mini player's own glass; opening it fades to
+        // opaque so the queue stays readable over the player behind it.
+        final glass = PearGlass.fill(
+          Theme.of(context).colorScheme,
+          reduced: pearReducedEffects(context) || PearStyles.spec.flat,
+          // Angular styles keep their panels neutral graphite.
+          tint: PearStyles.spec.angular ? PearGlassTokens.angularPanel : tone,
+          borderRadius: radius,
+          opacity: lerpDouble(PearGlassTokens.baseAlpha, 1.0, t),
+          grainScale: MediaQuery.devicePixelRatioOf(context),
+        );
+
         return Container(
           height: currentHeight,
           clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            // Solid glass: the card tone with a soft top sheen. No blur, since
-            // the player animates right behind the sheet.
-            color: tone,
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color.alphaBlend(
-                  Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
-                  tone,
-                ),
-                tone,
-              ],
-              stops: const [0, 0.35],
-            ),
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(lerpDouble(22, 28, _curvedAnimation.value)!),
-            ),
+          decoration: glass.copyWith(
             border: Border(
               top: BorderSide(
                 color: Colors.white.withValues(
                   alpha: lerpDouble(
                     PearGlassTokens.edgeTop,
                     PearGlassTokens.edge,
-                    _curvedAnimation.value,
+                    t,
                   )!,
                 ),
                 width: 1,
@@ -436,9 +435,9 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(
-                  alpha: lerpDouble(0.40, 0.65, _curvedAnimation.value)!,
+                  alpha: lerpDouble(0.12, 0.65, t)!,
                 ),
-                blurRadius: lerpDouble(16, 28, _curvedAnimation.value)!,
+                blurRadius: lerpDouble(16, 28, t)!,
                 spreadRadius: 1,
                 offset: const Offset(0, -4),
               ),
@@ -612,21 +611,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
           ),
         ),
         const SizedBox(width: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: _readableAccent.withValues(alpha: 0.18),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            '$queueLength',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: _readableAccent,
-            ),
-          ),
-        ),
+        PearCountChip('$queueLength', color: _readableAccent, fontSize: 10),
         if (nextSong != null) ...[
           const SizedBox(width: 10),
           Expanded(
@@ -665,7 +650,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
             color: _readableAccent.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(6)),
           ),
           child: Text(
             '$queueLength',
@@ -684,14 +669,14 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
             TactileFeedback.selection();
             widget.player.setAutoplay(!widget.player.autoplay);
           },
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
             decoration: BoxDecoration(
               color: widget.player.autoplay
                   ? _readableAccent.withValues(alpha: 0.20)
                   : Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -739,14 +724,14 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                   TactileFeedback.selection();
                   widget.player.rerollUpcomingQueue();
                 },
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                 child: Container(
                   padding: const EdgeInsets.all(5),
                   decoration: BoxDecoration(
                     color: active
                         ? _readableAccent.withValues(alpha: 0.20)
                         : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                   ),
                   child: Icon(
                     active ? Icons.casino_rounded : Icons.casino_outlined,
@@ -799,7 +784,9 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
     return Container(
       key: const ValueKey('queue_panel'),
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
+      decoration: PearStyles.spec.angular
+          ? const BoxDecoration(color: PearGlassTokens.angularPanel)
+          : BoxDecoration(
         color: PlayerTheme.cardFillOpaque(theme.colorScheme),
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -813,7 +800,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
           ],
           stops: const [0, 0.35],
         ),
-        borderRadius: BorderRadius.circular(PearRadius.card),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.card)),
         border: Border.all(
           color: Colors.white.withValues(alpha: PearGlassTokens.edge),
         ),
@@ -843,23 +830,10 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: readableAccent.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '$queueLength',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: readableAccent,
-                        ),
-                      ),
+                    PearCountChip(
+                      '$queueLength',
+                      color: readableAccent,
+                      fontSize: 11,
                     ),
                     const Spacer(),
 
@@ -869,7 +843,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
                         TactileFeedback.selection();
                         widget.player.setAutoplay(!autoplay);
                       },
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 9,
@@ -879,7 +853,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
                           color: autoplay
                               ? readableAccent.withValues(alpha: 0.20)
                               : Colors.white.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -926,14 +900,14 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
                               TactileFeedback.selection();
                               widget.player.rerollUpcomingQueue();
                             },
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                             child: Container(
                               padding: const EdgeInsets.all(5),
                               decoration: BoxDecoration(
                                 color: active
                                     ? readableAccent.withValues(alpha: 0.20)
                                     : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                               ),
                               child: Icon(
                                 active
@@ -1069,7 +1043,7 @@ class _QueueRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
         // Clip the card so a row can never paint outside its bounds: a stale
         // raster slice used to show up in the gaps while the queue scrolled.
         clipBehavior: Clip.antiAlias,
@@ -1078,15 +1052,22 @@ class _QueueRow extends StatelessWidget {
             TactileFeedback.click();
             onTap();
           },
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
           hoverColor: Colors.white.withValues(alpha: PearOverlay.hover),
           // Desktop rows: instant press fill, no touch ripple.
           splashFactory: NoSplash.splashFactory,
           highlightColor: Colors.white.withValues(alpha: 0.06),
           child: Container(
             height: 64,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
+            decoration: PearStyles.spec.angular
+                // Angular styles: the song lists' flat row and accent bar.
+                ? BoxDecoration(
+                    color: isCurrent
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : null,
+                  )
+                : BoxDecoration(
+              borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
               // Same card body as the library rows: a faint glass fill when
               // idle, the accent gradient while this one is playing.
               gradient: isCurrent

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/glass.dart';
 import '../services/update_service.dart';
 import 'pear_app_bar.dart';
 import 'pear_popup.dart';
@@ -55,7 +56,7 @@ void showPearMusicAboutDialog(BuildContext context) {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.045),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
               ),
               child: Text(
                 'Copyright (c) 2026 Boci0\nLicensed under the MIT License.',

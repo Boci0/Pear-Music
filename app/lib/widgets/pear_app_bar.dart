@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import 'pear_popup.dart';
 
 /// The pear mark shown at the start of every tab header.
@@ -21,13 +23,18 @@ class PearMark extends StatelessWidget {
 /// Pear mark + tab label, the default [PearAppBar] title.
 class PearTabTitle extends StatelessWidget {
   final String label;
-  const PearTabTitle(this.label, {super.key});
+
+  /// A short status read-out ("14 TRACKS") angular styles set beside the
+  /// title, like a menu's code tag.
+  final String? tag;
+  const PearTabTitle(this.label, {super.key, this.tag});
 
   @override
   Widget build(BuildContext context) {
     // At rail widths the side rail already carries the mark, so repeating it
     // in every tab title reads as clutter. Phones and narrow windows keep it
     // (they have no rail).
+    if (PearStyles.spec.angular) return _labelTitle(context);
     final size = MediaQuery.sizeOf(context);
     final showMark =
         size.width < 900 || !(isDesktopPopupPlatform || size.shortestSide >= 600);
@@ -45,6 +52,56 @@ class PearTabTitle extends StatelessWidget {
                 letterSpacing: -0.4,
               ),
         ),
+      ],
+    );
+  }
+}
+
+extension on PearTabTitle {
+  /// Angular styles: the name in spaced capitals, a short stripe block and a
+  /// faint tag, like a label on equipment.
+  Widget _labelTitle(BuildContext context) {
+    final theme = Theme.of(context);
+    // On narrow bars the tag gives way first, then the title shortens; the
+    // stripe mark stays.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          flex: 3,
+          child: Text(
+            label.toUpperCase(),
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2.4,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        const PearStripes(),
+        // The tag shows whole or not at all: on a phone a clipped "6 TRA"
+        // read as a bug.
+        if (tag != null && MediaQuery.sizeOf(context).width >= 480) ...[
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              tag!,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.fade,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.4,
+                color: Colors.white.withValues(alpha: 0.38),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

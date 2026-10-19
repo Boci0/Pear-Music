@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/glass.dart';
 import '../models/song.dart';
 import '../services/live_hls_proxy.dart';
 import '../services/stream_cache_manager.dart';
@@ -54,7 +55,7 @@ class LiveBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
       decoration: BoxDecoration(
         color: scheme.error,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(4)),
       ),
       child: Text(
         'LIVE',

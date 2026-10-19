@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../../theme/glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -276,7 +277,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
       ),
       child: Column(
         children: [
@@ -539,7 +540,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     color: scheme.surfaceContainerHighest.withValues(
                       alpha: 0.35,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -709,7 +710,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     color: scheme.surfaceContainerHighest.withValues(
                       alpha: 0.35,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -857,7 +858,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     color: scheme.surfaceContainerHighest.withValues(
                       alpha: 0.25,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -871,7 +872,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                             _performSearch();
                           }
                         },
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -940,9 +941,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                               vertical: 8,
                                             ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
+                                          borderRadius: BorderRadius.circular(PearGlassTokens.r(
                                             10,
-                                          ),
+                                          )),
                                         ),
                                       ),
                                       onSubmitted: (_) => _performSearch(),
@@ -1079,9 +1080,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                             .withValues(
                                                               alpha: 0.25,
                                                             )),
-                                            borderRadius: BorderRadius.circular(
+                                            borderRadius: BorderRadius.circular(PearGlassTokens.r(
                                               12,
-                                            ),
+                                            )),
                                           ),
                                           child: ListTile(
                                             dense: true,
@@ -1132,9 +1133,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                                 alpha: 0.08,
                                                               ),
                                                     borderRadius:
-                                                        BorderRadius.circular(
+                                                        BorderRadius.circular(PearGlassTokens.r(
                                                           6,
-                                                        ),
+                                                        )),
                                                   ),
                                                   child: Text(
                                                     durBadgeText,
@@ -1174,9 +1175,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                                 alpha: 0.08,
                                                               ),
                                                     borderRadius:
-                                                        BorderRadius.circular(
+                                                        BorderRadius.circular(PearGlassTokens.r(
                                                           6,
-                                                        ),
+                                                        )),
                                                   ),
                                                   child: Text(
                                                     c.hasSyncedLyrics
@@ -1259,9 +1260,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                                                             alpha: 0.20,
                                                           ),
                                                       borderRadius:
-                                                          BorderRadius.circular(
+                                                          BorderRadius.circular(PearGlassTokens.r(
                                                             8,
-                                                          ),
+                                                          )),
                                                     ),
                                                     child: Row(
                                                       mainAxisSize:

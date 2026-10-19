@@ -9,7 +9,9 @@ import '../controllers/app_controller.dart';
 import '../services/identity_service.dart';
 import '../services/stream_cache_manager.dart';
 import '../services/update_service.dart';
+import '../theme/glass.dart';
 import '../theme/pear_style.dart';
+import '../widgets/pear_switch_tile.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/audio_engine_card.dart';
 import '../widgets/pear_app_bar.dart';
@@ -111,7 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.equalizer_rounded),
                   title: const Text('Loudness Normalization'),
                   subtitle: const Text('Equalize volume across tracks'),
@@ -170,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.playlist_play_rounded),
                   title: const Text('Endless Play'),
                   subtitle: const Text('Keep playing recommendations when queue ends'),
@@ -181,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.casino_rounded),
                   title: const Text('Auto-Reroll Seed'),
                   subtitle: const Text('Reroll recommendation seed on track change'),
@@ -192,7 +194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.bolt_rounded),
                   title: const Text('Fast audio engine'),
                   subtitle: const Text(
@@ -205,7 +207,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.safety_check_rounded),
                   title: const Text('Backup audio engine'),
                   subtitle: const Text(
@@ -239,6 +241,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'Lighter, more colourful glass with a stronger edge',
                       PearStyle.solid =>
                         'Flat dark surfaces with no blur, easiest on the battery',
+                      PearStyle.graphite =>
+                        'Graphite panels, cut corners and thin lines',
                     }),
                   ),
                   Padding(
@@ -272,7 +276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.graphic_eq_rounded),
                   title: const Text('Visualizer'),
                   subtitle: Text(
@@ -292,7 +296,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.view_headline_rounded),
                   title: const Text('Wave on the mini player'),
                   subtitle: const Text('Uses more battery'),
@@ -353,7 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.battery_saver_rounded),
                   title: const Text('Reduced Effects'),
                   subtitle: const Text(
@@ -373,7 +377,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
-                SwitchListTile(
+                PearSwitchTile(
                   secondary: const Icon(Icons.travel_explore_rounded),
                   title: const Text('Expanded Search Scope'),
                   subtitle: const Text('Include music videos, covers, and community uploads alongside official audio'),
@@ -469,7 +473,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _sectionTitle(BuildContext context, String title) => Padding(
+  /// Section order, for the numbers angular styles put before each title.
+  static const _sections = [
+    'Audio & Playback',
+    'Appearance',
+    'Performance',
+    'Discovery & Search',
+    'Storage & Cache',
+    'Audio engine',
+    'About & Updates',
+  ];
+
+  Widget _sectionTitle(BuildContext context, String title) {
+    if (PearStyles.spec.angular) return _numberedTitle(context, title);
+    return _plainTitle(context, title);
+  }
+
+  /// Angular styles: "01 // AUDIO & PLAYBACK", the number in the accent and
+  /// the name in spaced grey capitals, ending in a hairline.
+  Widget _numberedTitle(BuildContext context, String title) {
+    // Numbered among the sections this platform shows.
+    final visible = [
+      for (final s in _sections)
+        if (s != 'Audio engine' || (!kIsWeb && Platform.isWindows)) s,
+    ];
+    final number = (visible.indexOf(title) + 1).toString().padLeft(2, '0');
+    final accent = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(left: 6, bottom: 10, top: 8),
+      child: Row(
+        children: [
+          Text(
+            number,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+              color: accent,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          Text(
+            '  //  ',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.white.withValues(alpha: 0.25),
+            ),
+          ),
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.6,
+              color: Colors.white.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: Colors.white.withValues(alpha: PearGlassTokens.edge),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plainTitle(BuildContext context, String title) => Padding(
     padding: const EdgeInsets.only(left: 6, bottom: 8, top: 4),
     child: Text(
       title.toUpperCase(),

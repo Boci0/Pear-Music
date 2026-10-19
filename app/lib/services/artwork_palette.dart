@@ -1,4 +1,5 @@
 import 'dart:collection';
+import '../theme/pear_style.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -324,11 +325,31 @@ class ArtworkPalette {
     return (null, null);
   }
 
+  /// [accent] as a signal colour: full saturation and a fixed mid-high
+  /// lightness, so a dull or dark cover still gives a mark that reads on
+  /// graphite. Greys (no real hue) fall back to a warm yellow.
+  static Color vivid(Color accent) {
+    final hsl = HSLColor.fromColor(accent);
+    if (hsl.saturation < 0.12) return const Color(0xFFF5C518);
+    // Same lightness reads very differently by hue (violet looks dark,
+    // yellow bright), so lift it until the colour is bright enough for small
+    // text on graphite.
+    var out = hsl.withSaturation(hsl.saturation.clamp(0.80, 1.0));
+    var lightness = 0.58;
+    var color = out.withLightness(lightness).toColor();
+    while (color.computeLuminance() < 0.30 && lightness < 0.78) {
+      lightness += 0.02;
+      color = out.withLightness(lightness).toColor();
+    }
+    return color;
+  }
+
   /// A softened, readable accent for controls (play button, sliders, active
   /// highlights). Raw album colours can be too dark or too neon to tint a
   /// control with, so this desaturates and brightens them: saturation is
   /// clamped to a calm 0.32-0.65 and lightness to a readable 0.65-0.82.
   static Color controlAccent(Color accent) {
+    if (PearStyles.spec.vividAccent) return vivid(accent);
     final hsl = HSLColor.fromColor(accent);
     return hsl
         .withSaturation(hsl.saturation.clamp(0.32, 0.65))
@@ -341,6 +362,7 @@ class ArtworkPalette {
   /// Lifts dark artwork dominant tones to high-contrast lightness (at least 0.68)
   /// while keeping saturation vibrant.
   static Color readableAccent(Color accent, {double minLightness = 0.68}) {
+    if (PearStyles.spec.vividAccent) return vivid(accent);
     final hsl = HSLColor.fromColor(accent);
     final effectiveLightness = hsl.lightness < minLightness
         ? minLightness

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../theme/glass.dart';
 import 'dart:math';
 
 import 'package:flutter/gestures.dart';
@@ -564,7 +565,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             ),
                             decoration: BoxDecoration(
                               color: scheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
                             ),
                             child: Text(
                               '${_results.length}',
@@ -683,7 +684,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
                               ),
                               child: Row(
                                 children: [
