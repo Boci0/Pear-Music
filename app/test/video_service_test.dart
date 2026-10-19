@@ -251,6 +251,9 @@ void main() {
     }
     expect(probe(0.2), Preroll.tooSlow);
     expect(probe(1.4), Preroll.waiting);
+    // A link well above the picture's rate starts it even when the player
+    // reports no buffer (Android does until the picture plays).
+    expect(probe(1.6), Preroll.ready);
   });
 
   test('two stalls close together mean the link is too slow, spread out do not', () {
@@ -263,18 +266,32 @@ void main() {
     expect(meter.record(t.add(const Duration(seconds: 40))), isFalse);
   });
 
-  test('the next quality down skips nothing and stops at 360', () {
+  test('the next quality down skips nothing and stops at 144', () {
     expect(VideoService.lowerHeight(1080), 720);
     expect(VideoService.lowerHeight(720), 480);
     expect(VideoService.lowerHeight(480), 360);
-    expect(VideoService.lowerHeight(360), isNull);
+    expect(VideoService.lowerHeight(360), 240);
+    expect(VideoService.lowerHeight(240), 144);
+    expect(VideoService.lowerHeight(144), isNull);
     // A height YouTube offers between the rungs still lands on one.
     expect(VideoService.lowerHeight(540), 480);
     // With the pace seen, a slow link goes straight to a rung it can carry.
     expect(VideoService.lowerHeight(1080, linkKbps: 700), 360);
     expect(VideoService.lowerHeight(1080, linkKbps: 1500), 480);
     expect(VideoService.lowerHeight(1080, linkKbps: 3100), 720);
-    expect(VideoService.lowerHeight(360, linkKbps: 200), isNull);
+    // Under 1 Mbit/s the picture can now go below 360p.
+    expect(VideoService.lowerHeight(360, linkKbps: 450), 240);
+    expect(VideoService.lowerHeight(360, linkKbps: 200), 144);
+    expect(VideoService.lowerHeight(144, linkKbps: 50), isNull);
     expect(VideoService.rungKbps(1080), 3500);
+    expect(VideoService.rungKbps(100), 130);
+  });
+
+  test('the next quality up is one rung, and nothing above 1080', () {
+    expect(VideoService.higherHeight(144), 240);
+    expect(VideoService.higherHeight(240), 360);
+    expect(VideoService.higherHeight(360), 480);
+    expect(VideoService.higherHeight(720), 1080);
+    expect(VideoService.higherHeight(1080), isNull);
   });
 }

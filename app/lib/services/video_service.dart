@@ -97,8 +97,9 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     return metered ? 360 : 720;
   }
 
-  /// The pictures YouTube publishes as H.264, tallest first.
-  static const List<int> _rungs = [1080, 720, 480, 360];
+  /// The pictures YouTube publishes as H.264, tallest first. 240p and 144p
+  /// are only stepped down to (never chosen), for links under about 1 Mbit/s.
+  static const List<int> _rungs = [1080, 720, 480, 360, 240, 144];
 
   /// What each rung typically costs in kbit/s (YouTube's H.264).
   static const Map<int, int> _rungKbps = {
@@ -106,11 +107,13 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     720: 1800,
     480: 1000,
     360: 500,
+    240: 300,
+    144: 130,
   };
 
   /// What the rung at or under [height] typically costs, in kbit/s.
   static int rungKbps(int height) =>
-      _rungKbps[_rungs.firstWhere((r) => r <= height, orElse: () => 360)]!;
+      _rungKbps[_rungs.firstWhere((r) => r <= height, orElse: () => 144)]!;
 
   /// The rung to drop to from [height], or null when it is already the
   /// lowest. With [linkKbps], the speed measured while [height] was tried, it
@@ -132,6 +135,18 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// again. shortcut: one timer for every song, not a per-song memory.
   static const Duration stepCapLife = Duration(minutes: 10);
 
+  /// A song whose picture played this long without a stall lets the next
+  /// song start one rung higher. The climb happens only between songs: a
+  /// reload mid-song froze the picture on phones (branch video-climb).
+  static const Duration steadyToClimb = Duration(seconds: 60);
+
+  /// The rung above [height], or null at the top.
+  @visibleForTesting
+  static int? higherHeight(int height) {
+    final higher = [for (final r in _rungs) if (r > height) r];
+    return higher.isEmpty ? null : higher.last;
+  }
+
   /// The picture waits for this much buffer ahead of the sound before it
   /// starts, so it does not begin by stalling.
   static const Duration prerollLead = Duration(seconds: 5);
@@ -140,6 +155,10 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// the quality steps down if almost nothing is.
   static const Duration prerollMax = Duration(seconds: 12);
   static const Duration _prerollLeast = Duration(seconds: 2);
+
+  /// Link speed over the picture's rate at which it starts without waiting
+  /// for a reported buffer.
+  static const double _prerollTrustRate = 1.5;
 
   /// A stall lasting this long steps down at once, without waiting for more.
   static const Duration longStall = Duration(seconds: 6);
@@ -157,6 +176,12 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   }) {
     final ahead = buffered - at;
     if (ahead >= prerollLead) return Preroll.ready;
+    // On Android the player reports almost no buffer until the picture plays,
+    // so a link measured well above the picture's rate is trusted instead:
+    // without this, every rung down to the lowest looked too slow.
+    if (rate != null && rate >= _prerollTrustRate && waited >= _prerollProbe) {
+      return Preroll.ready;
+    }
     // The end of a short video is as far as it can buffer.
     if (total != null &&
         total > Duration.zero &&
@@ -310,6 +335,13 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// Set when the link proved too slow for the quality it was playing at.
   ({int height, DateTime at})? _stepCap;
   final StallMeter _stalls = StallMeter();
+
+  /// When the current picture last started playing without a stall since.
+  DateTime? _steadySince;
+
+  /// A song whose picture could not keep up even at the lowest rung: it shows
+  /// its cover for the rest of the song, with the sound playing on.
+  String? _parkedId;
   StreamSubscription<bool>? _bufferingSub;
   Timer? _longStall;
   static const Duration _linkLife = Duration(minutes: 15);
@@ -457,7 +489,8 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   bool get isShown => _shown;
 
   /// Whether the picture, not the artwork, is what [song] shows right now.
-  bool showingFor(Song? song) => _shown && canOffer(song);
+  bool showingFor(Song? song) =>
+      _shown && canOffer(song) && song?.id != _parkedId;
 
   void toggle() => _shown ? hide() : show();
 
@@ -487,7 +520,16 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   };
 
   void show() {
-    if (_shown || !supported) return;
+    if (!supported) return;
+    if (_shown) {
+      // The cover shows because the link was too slow: try again on request.
+      if (_parkedId != null) {
+        _parkedId = null;
+        notifyListeners();
+        unawaited(_sync());
+      }
+      return;
+    }
     _shown = true;
     _failed.clear();
     WidgetsBinding.instance.addObserver(this);
@@ -511,6 +553,9 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _sync() async {
     if (!_shown) return;
     final song = _player.currentSong;
+    // A parked song keeps its cover only while it plays.
+    if (_parkedId != null && song?.id != _parkedId) _parkedId = null;
+    if (song?.id == _parkedId) return;
     if (song == null || !canOffer(song)) {
       // No picture for this song: show its artwork, keep the switch on.
       if (_loadedId != null) {
@@ -525,6 +570,8 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _load(Song song) async {
+    _climbIfSteady();
+    _steadySince = null;
     final token = ++_token;
     _loadedId = song.id;
     _ready = false;
@@ -676,15 +723,15 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         // on it, so it does not begin by stalling on a slow link.
         final pre = await _prebuffer(video, token, _streamHeight ?? 360);
         if (token != _token || !_shown) return;
-        if (!pre.ok &&
-            _stepDown(
-              'too little buffered at ${pre.kbps} kbit/s',
-              kbps: pre.kbps == 0 ? null : pre.kbps,
-            )) {
+        if (!pre.ok) {
+          final why = 'too little buffered at ${pre.kbps} kbit/s';
+          if (_stepDown(why, kbps: pre.kbps == 0 ? null : pre.kbps)) return;
+          _park(song.id, why);
           return;
         }
       }
       _ready = true;
+      _steadySince = DateTime.now();
       await video.setRate(_player.speed);
       await video.seek(_player.position ?? Duration.zero);
       if (_player.playing) await video.play();
@@ -709,10 +756,15 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     int height,
   ) async {
     final waited = Stopwatch()..start();
-    final from = VideoRelay.bytesUsed.value;
+    // The first second carries the file header in one burst, which would
+    // overstate the link; the speed is measured from there on.
+    int? from;
     int kbps() {
       final ms = waited.elapsedMilliseconds;
-      return ms < 500 ? 0 : (VideoRelay.bytesUsed.value - from) * 8 ~/ ms;
+      if (ms < 1000) return 0;
+      from ??= VideoRelay.bytesUsed.value;
+      final span = ms - 1000;
+      return span < 500 ? 0 : (VideoRelay.bytesUsed.value - from!) * 8 ~/ span;
     }
 
     while (token == _token && _shown) {
@@ -753,14 +805,46 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     if (!buffering || !_ready || !_player.playing || _streamMedia == null) {
       return;
     }
+    _steadySince = null;
     if (_stalls.record(DateTime.now())) {
-      _stepDown('stalled again within ${StallMeter.window.inSeconds} s');
+      _slower('stalled again within ${StallMeter.window.inSeconds} s');
       return;
     }
     final token = _token;
     _longStall = Timer(longStall, () {
-      if (token == _token) _stepDown('a stall over ${longStall.inSeconds} s');
+      if (token == _token) _slower('a stall over ${longStall.inSeconds} s');
     });
+  }
+
+  /// Steps down, or at the lowest rung shows the cover instead.
+  void _slower(String why) {
+    if (_stepDown(why)) return;
+    final id = _loadedId;
+    if (id != null) _park(id, why);
+  }
+
+  /// Even the lowest picture cannot keep up: the cover shows for the rest of
+  /// this song, the sound plays on, and the next song tries again.
+  void _park(String songId, String why) {
+    DebugLog.write('[video] link too slow at the lowest picture ($why), '
+        'showing the cover for this song');
+    _teardown();
+    _parkedId = songId;
+    notifyListeners();
+  }
+
+  /// Between songs: a stepped-down choice whose picture ran steadily lets the
+  /// next song start one rung higher (up to the chosen quality).
+  void _climbIfSteady() {
+    final cap = _stepCap;
+    final since = _steadySince;
+    // Only a picture still playing when the song ends counts as steady.
+    if (cap == null || since == null || !_ready) return;
+    if (DateTime.now().difference(since) < steadyToClimb) return;
+    final up = higherHeight(cap.height);
+    if (up == null) return;
+    _stepCap = (height: up, at: DateTime.now());
+    DebugLog.write('[video] steady at ${cap.height}p, next song tries ${up}p');
   }
 
   /// Whether two bar scans found the same area. Bars are only cut once two
