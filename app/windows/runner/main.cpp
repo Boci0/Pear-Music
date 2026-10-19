@@ -12,10 +12,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   const bool is_beta = (::wcsstr(exe_path, L"Pear Music Beta") != nullptr) ||
                        (command_line != nullptr && ::wcsstr(command_line, L"--beta") != nullptr);
 
+  // The design gallery (lib/dev/gallery_main.dart, installed as PearGallery*)
+  // runs beside the real app, so it gets its own instance lock and caption.
+  const bool is_gallery = ::wcsstr(exe_path, L"PearGallery") != nullptr;
   const wchar_t* const mutex_name =
-      is_beta ? L"PearMusic_Beta_SingleInstance_Mutex" : L"PearMusic_SingleInstance_Mutex";
+      is_gallery ? L"PearMusic_Gallery_SingleInstance_Mutex"
+      : is_beta  ? L"PearMusic_Beta_SingleInstance_Mutex"
+                 : L"PearMusic_SingleInstance_Mutex";
   const wchar_t* const window_title =
-      is_beta ? L"Pear Music (Beta)" : L"Pear Music";
+      is_gallery ? L"Pear Gallery" : is_beta ? L"Pear Music (Beta)" : L"Pear Music";
 
   // Prevent multiple concurrent instances on Windows.
   // A second instance running against the same local databases causes
@@ -35,7 +40,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     const DWORD waited = ::WaitForSingleObject(mutex, 15000);
     another_instance = !(waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED);
   }
-  if (another_instance) {
+  // The gallery writes nothing, so several may run side by side.
+  if (another_instance && !is_gallery) {
     HWND existing_window = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", window_title);
     if (existing_window) {
       if (!no_focus) {
