@@ -762,13 +762,15 @@ class _HomeScreenState extends State<HomeScreen> {
         headerContent = Row(
           key: const ValueKey('header_default'),
           children: [
-            Flexible(
-              child: PearTabTitle('Library', tag: '${songs.length} TRACKS'),
-            ),
+            // The title keeps its full width; the search field is the one
+            // that narrows when the pane leaves little room.
+            PearTabTitle('Library', tag: '${songs.length} TRACKS'),
             const SizedBox(width: 24),
-            SizedBox(
-              width: 360,
-              child: _buildLibrarySearchField(autofocus: false),
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: _buildLibrarySearchField(autofocus: false),
+              ),
             ),
           ],
         );

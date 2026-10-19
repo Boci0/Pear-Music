@@ -83,24 +83,11 @@ extension on PearTabTitle {
         ),
         const SizedBox(width: 12),
         const PearStripes(),
-        // The tag shows whole or not at all: on a phone a clipped "6 TRA"
-        // read as a bug.
-        if (tag != null && MediaQuery.sizeOf(context).width >= 480) ...[
+        // The tag shows whole or not at all: a clipped "14 TR" reads as a
+        // bug, on a phone or beside the expanded pane alike.
+        if (tag != null) ...[
           const SizedBox(width: 10),
-          Flexible(
-            child: Text(
-              tag!,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.fade,
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.4,
-                color: Colors.white.withValues(alpha: 0.38),
-              ),
-            ),
-          ),
+          Flexible(child: _WholeOrNothing(tag!)),
         ],
       ],
     );
@@ -194,4 +181,35 @@ class PearAppBar extends StatelessWidget implements PreferredSizeWidget {
           : [...actions, const SizedBox(width: kAppBarActionInset)],
     );
   }
+}
+
+/// A one-line label drawn only when it fits its width in full.
+class _WholeOrNothing extends StatelessWidget {
+  const _WholeOrNothing(this.text);
+
+  final String text;
+
+  static final TextStyle _style = TextStyle(
+    fontSize: 10.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 1.4,
+    color: Colors.white.withValues(alpha: 0.38),
+  );
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, box) {
+          final painter = TextPainter(
+            text: TextSpan(text: text, style: _style),
+            textDirection: TextDirection.ltr,
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 1,
+          )..layout();
+          final fits = painter.width <= box.maxWidth;
+          painter.dispose();
+          return fits
+              ? Text(text, maxLines: 1, softWrap: false, style: _style)
+              : const SizedBox.shrink();
+        },
+      );
 }
