@@ -65,7 +65,7 @@ class LibraryProfile {
       ..writeln(marker)
       ..writeln('#PLAYLIST:Pear Music Library');
     for (final entry in entries) {
-      buffer.writeln('#EXTINF:-1,${entry.title}');
+      buffer.writeln('#EXTINF:-1,${_oneLine(entry.title)}');
       buffer.writeln('https://www.youtube.com/watch?v=${entry.videoId}');
       if (favoriteVideoIds.contains(entry.videoId)) {
         buffer.writeln('$favoriteMarker ${entry.videoId}');
@@ -75,21 +75,26 @@ class LibraryProfile {
       buffer.writeln(onlineFavoritesMarker);
       for (final fav in onlineFavorites) {
         if (fav.title.isNotEmpty) {
-          buffer.writeln('#EXTINF:-1,${fav.title}');
+          buffer.writeln('#EXTINF:-1,${_oneLine(fav.title)}');
         }
         final artist = fav.artist;
         if (artist != null && artist.isNotEmpty) {
-          buffer.writeln('$artistMarker $artist');
+          buffer.writeln('$artistMarker ${_oneLine(artist)}');
         }
         final artwork = fav.artwork;
         if (artwork != null && artwork.isNotEmpty) {
-          buffer.writeln('$artworkMarker $artwork');
+          buffer.writeln('$artworkMarker ${_oneLine(artwork)}');
         }
         buffer.writeln('https://www.youtube.com/watch?v=${fav.videoId}');
       }
     }
     return buffer.toString();
   }
+
+  /// [text] with line breaks removed, so a title or credit that contains one
+  /// cannot split an entry of the exported file.
+  static String _oneLine(String text) =>
+      text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
 
   /// Parses [content] into ordered, de-duplicated entries. Lines without a
   /// YouTube link (comments, local paths) are ignored so nothing foreign can

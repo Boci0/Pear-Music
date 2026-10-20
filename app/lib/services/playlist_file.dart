@@ -72,8 +72,21 @@ class PlaylistFile {
 
   /// A file name safe on Windows and Android for [name] plus [extension].
   static String safeFileName(String name, {String extension = 'm3u8'}) {
-    final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
-    return '${safe.isEmpty ? 'playlist' : safe}.$extension';
+    var safe = name
+        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_')
+        .trim();
+    // Windows drops trailing dots and spaces, so strip them before deciding
+    // whether the name is empty.
+    safe = safe.replaceFirst(RegExp(r'[. ]+$'), '');
+    if (safe.isEmpty) safe = 'playlist';
+    // These base names are reserved on Windows even with an extension.
+    const reserved = <String>{
+      'CON', 'PRN', 'AUX', 'NUL', //
+      'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+      'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+    };
+    if (reserved.contains(safe.toUpperCase())) safe = '_$safe';
+    return '$safe.$extension';
   }
 
   static String _oneLine(String text) =>

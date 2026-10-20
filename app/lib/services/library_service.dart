@@ -52,7 +52,9 @@ class LibraryService extends ChangeNotifier {
     _checksums.clear();
     for (final s in _songs) {
       _songsById[s.id] = s;
-      _checksums.add(s.checksum);
+      // An empty checksum is a missing value, not an identity: it must not
+      // make every checksum-less song look like the same audio.
+      if (s.checksum.isNotEmpty) _checksums.add(s.checksum);
     }
   }
 
@@ -63,7 +65,7 @@ class LibraryService extends ChangeNotifier {
 
   void _indexSong(Song s) {
     _songsById[s.id] = s;
-    _checksums.add(s.checksum);
+    if (s.checksum.isNotEmpty) _checksums.add(s.checksum);
   }
 
   void _unindexSong(Song s) {
@@ -143,15 +145,20 @@ class LibraryService extends ChangeNotifier {
     // would otherwise erase every song it had not reached yet (and strip
     // them from every playlist) for good.
     if (missingSongIds.isNotEmpty && listedAll) {
-      for (final id in missingSongIds) {
-        final s = findById(id);
-        if (s != null) {
-          _songs.remove(s);
-          _unindexSong(s);
-          _filesOnDisk.remove(id);
-          _stripSongFromPlaylists(id);
-        }
+      final missingIdSet = missingSongIds.toSet();
+      final removed = <Song>[];
+      for (final id in missingIdSet) {
+        final song = findById(id);
+        if (song != null) removed.add(song);
       }
+      // One pass over the library and one rebuild per playlist instead of a
+      // linear List.remove and a playlist rescan per missing song.
+      _songs.removeWhere((s) => missingIdSet.contains(s.id));
+      for (final s in removed) {
+        _unindexSong(s);
+        _filesOnDisk.remove(s.id);
+      }
+      _stripSongsFromPlaylists(missingIdSet);
       unawaited(_saveIndex());
       unawaited(_savePlaylists());
     }
@@ -235,12 +242,14 @@ class LibraryService extends ChangeNotifier {
             // made elsewhere). Save once to heal the index.
             hadGarbledTitles |= s.title != item['title'] ||
                 s.artist != item['artist'];
-            if (seenIds.contains(s.id) || seenChecksums.contains(s.checksum)) {
+            if (seenIds.contains(s.id) ||
+                (s.checksum.isNotEmpty &&
+                    seenChecksums.contains(s.checksum))) {
               hadDuplicates = true;
               continue;
             }
             seenIds.add(s.id);
-            seenChecksums.add(s.checksum);
+            if (s.checksum.isNotEmpty) seenChecksums.add(s.checksum);
             _songs.add(s);
             _indexSong(s);
           }
@@ -250,6 +259,12 @@ class LibraryService extends ChangeNotifier {
           await _saveIndex();
         }
         _retroactiveRepairHttpArtworks();
+      } else {
+        // Readable JSON with an unexpected shape (a map, a string, ...): keep
+        // it aside before any later save replaces it, and start empty.
+        debugPrint(
+            '[library] index.json has an unexpected shape, starting empty');
+        await _keepCorruptCopy(_indexFile!);
       }
     } catch (e) {
       // Corrupt index: start fresh but keep any orphaned files, and keep the
@@ -275,36 +290,65 @@ class LibraryService extends ChangeNotifier {
   Future<void> _loadPlaylists() async {
     _playlists.clear();
     _deletedPlaylistsAt.clear();
-    if (_playlistsFile == null || !await _playlistsFile!.exists()) return;
+    final file = _playlistsFile;
+    if (file == null || !await file.exists()) return;
+    final dynamic decoded;
     try {
-      final decoded = jsonDecode(await _playlistsFile!.readAsString());
-      if (decoded is List) {
-        // Legacy format: a bare array of playlists.
-        for (final item in decoded) {
-          if (item is Map<String, dynamic>) {
-            _playlists.add(Playlist.fromJson(item));
-          }
-        }
-      } else if (decoded is Map<String, dynamic>) {
-        for (final item in decoded['playlists'] as List? ?? []) {
-          if (item is Map<String, dynamic>) {
-            _playlists.add(Playlist.fromJson(item));
-          }
-        }
-        final deleted = decoded['deleted'];
-        if (deleted is Map) {
-          deleted.forEach((key, value) {
-            final at = DateTime.tryParse(value.toString());
-            if (at != null) _deletedPlaylistsAt[key.toString()] = at;
-          });
-        }
-      }
+      decoded = jsonDecode(await file.readAsString());
     } catch (e) {
       // Corrupt playlists file: start fresh, keeping the old one aside.
       debugPrint('[library] playlists.json is unreadable, starting empty: $e');
       _playlists.clear();
       _deletedPlaylistsAt.clear();
-      await _keepCorruptCopy(_playlistsFile!);
+      await _keepCorruptCopy(file);
+      return;
+    }
+    var hadBadEntries = false;
+    if (decoded is Map<String, dynamic>) {
+      final deleted = decoded['deleted'];
+      if (deleted is Map) {
+        deleted.forEach((key, value) {
+          final at = DateTime.tryParse(value.toString());
+          if (at != null) _deletedPlaylistsAt[key.toString()] = at;
+        });
+      }
+    }
+    // A bare array is the legacy format; a map holds the playlists under
+    // "playlists". Anything else is a file this build cannot read.
+    final dynamic rawList = decoded is List
+        ? decoded
+        : decoded is Map<String, dynamic>
+        ? decoded['playlists']
+        : null;
+    if (rawList is List) {
+      for (final item in rawList) {
+        if (item is! Map<String, dynamic>) {
+          hadBadEntries = true;
+          debugPrint('[library] skipping a malformed playlist entry');
+          continue;
+        }
+        try {
+          _playlists.add(Playlist.fromJson(item));
+        } catch (e) {
+          // One bad entry must not cost the rest of the playlists.
+          debugPrint('[library] skipping an unreadable playlist entry: $e');
+          hadBadEntries = true;
+        }
+      }
+    } else if (rawList != null) {
+      // A "playlists" value that is not a list is a broken file, not an
+      // empty one.
+      debugPrint('[library] playlists.json has a malformed playlists section');
+      hadBadEntries = true;
+    } else if (decoded is! List && decoded is! Map<String, dynamic>) {
+      debugPrint('[library] playlists.json has an unexpected top-level type');
+      hadBadEntries = true;
+    }
+    if (hadBadEntries) {
+      // Keep the original aside, then write the entries that could be read so
+      // the next save does not start from a file that is still bad.
+      await _keepCorruptCopy(file);
+      await _savePlaylists();
     }
   }
 
@@ -772,8 +816,8 @@ class LibraryService extends ChangeNotifier {
       artwork: artwork,
       addedAt: DateTime.now(),
     );
-    final existingIdx =
-        _songs.indexWhere((s) => s.id == id || s.checksum == checksum);
+    final existingIdx = _songs.indexWhere(
+        (s) => s.id == id || (checksum.isNotEmpty && s.checksum == checksum));
     if (existingIdx >= 0) {
       final existing = _songs[existingIdx];
       _unindexSong(existing);
@@ -895,12 +939,24 @@ class LibraryService extends ChangeNotifier {
     _songs.remove(song);
     _unindexSong(song);
     _filesOnDisk.remove(id);
-    final f = songFile(song);
-    if (await f.exists()) await f.delete();
-    _stripSongFromPlaylists(id);
+    await _deleteSongFile(song);
+    _stripSongsFromPlaylists({id});
     await _saveIndex();
     await _savePlaylists();
     notifyListeners();
+  }
+
+  /// Deletes the audio file for [song], logging a failure instead of throwing:
+  /// a locked file (Windows, a playing track) must not leave the library, the
+  /// index and the playlists disagreeing about whether the song exists.
+  Future<void> _deleteSongFile(Song song) async {
+    try {
+      final f = songFile(song);
+      if (await f.exists()) await f.delete();
+    } catch (e) {
+      DebugLog.write(
+          '[library] could not delete the file for "${song.id}": $e');
+    }
   }
 
   /// Batch removes multiple songs in a single disk save pass.
@@ -913,12 +969,9 @@ class LibraryService extends ChangeNotifier {
     for (final song in toRemove) {
       _unindexSong(song);
       _filesOnDisk.remove(song.id);
-      try {
-        final f = songFile(song);
-        if (await f.exists()) await f.delete();
-      } catch (_) {}
-      _stripSongFromPlaylists(song.id);
+      await _deleteSongFile(song);
     }
+    _stripSongsFromPlaylists(idSet);
     await _saveIndex();
     await _savePlaylists();
     notifyListeners();
@@ -929,14 +982,16 @@ class LibraryService extends ChangeNotifier {
   Future<int> removeAllFromSource(String sourceDeviceId) async {
     final toRemove = _songs.where((s) => s.sourceDeviceId == sourceDeviceId).toList();
     if (toRemove.isEmpty) return 0;
+    final ids = <String>{for (final song in toRemove) song.id};
+    // One pass over the library and one rebuild per playlist, so unpairing a
+    // peer with a large shared library is not O(n^2).
+    _songs.removeWhere((s) => ids.contains(s.id));
     for (final song in toRemove) {
-      _songs.remove(song);
       _unindexSong(song);
       _filesOnDisk.remove(song.id);
-      final f = songFile(song);
-      if (await f.exists()) await f.delete();
-      _stripSongFromPlaylists(song.id);
+      await _deleteSongFile(song);
     }
+    _stripSongsFromPlaylists(ids);
     await _saveIndex();
     await _savePlaylists();
     notifyListeners();
@@ -1034,14 +1089,17 @@ class LibraryService extends ChangeNotifier {
     await _savePlaylists();
   }
 
-  /// Drops [songId] from every playlist in memory. Callers save the
-  /// playlists afterwards, once per batch, instead of once per song.
-  void _stripSongFromPlaylists(String songId) {
+  /// Drops every id in [ids] from every playlist in memory, rebuilding each
+  /// playlist at most once. Callers save the playlists afterwards, once per
+  /// batch, instead of once per song.
+  void _stripSongsFromPlaylists(Set<String> ids) {
+    if (ids.isEmpty) return;
     for (var i = 0; i < _playlists.length; i++) {
-      if (_playlists[i].songIds.contains(songId)) {
-        final ids = _playlists[i].songIds.where((id) => id != songId).toList();
-        _playlists[i] = _playlists[i].copyWith(songIds: ids);
-      }
+      final current = _playlists[i].songIds;
+      if (!current.any(ids.contains)) continue;
+      _playlists[i] = _playlists[i].copyWith(
+        songIds: current.where((id) => !ids.contains(id)).toList(),
+      );
     }
   }
 

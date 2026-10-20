@@ -436,7 +436,9 @@ class UpdateService {
         .map((e) => int.tryParse(e) ?? 0)
         .toList();
 
-    for (var i = 0; i < 3; i++) {
+    final partCount =
+        currParts.length > lateParts.length ? currParts.length : lateParts.length;
+    for (var i = 0; i < partCount; i++) {
       final c = i < currParts.length ? currParts[i] : 0;
       final l = i < lateParts.length ? lateParts[i] : 0;
       if (l > c) return true;

@@ -1004,7 +1004,7 @@ class LyricsService {
         // Lyrics read from the file next to the music are written back to it,
         // without the app's marks.
         if (await lrcFile.exists()) {
-          await lrcFile.writeAsString(merged, flush: true);
+          await _writeFileAtomically(lrcFile.path, merged);
         }
       } catch (e) {
         DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
@@ -1281,7 +1281,7 @@ class LyricsService {
       try {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
         if (await lrcFile.exists()) {
-          await lrcFile.writeAsString(updatedRaw, flush: true);
+          await _writeFileAtomically(lrcFile.path, updatedRaw);
         }
       } catch (e) {
         DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
@@ -1375,7 +1375,7 @@ class LyricsService {
       try {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
         if (await lrcFile.exists()) {
-          await lrcFile.writeAsString(updated, flush: true);
+          await _writeFileAtomically(lrcFile.path, updated);
         }
       } catch (e) {
         DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
@@ -1414,7 +1414,7 @@ class LyricsService {
       try {
         final lrcFile = File(p.setExtension(localAudioPath, '.lrc'));
         // The file next to the music stays plain LRC, without the app's mark.
-        await lrcFile.writeAsString(candidate.lyricsContent, flush: true);
+        await _writeFileAtomically(lrcFile.path, candidate.lyricsContent);
       } catch (e) {
         DebugLog.write('[lyrics] could not write the .lrc next to the song: $e');
       }
@@ -1488,13 +1488,31 @@ class LyricsService {
     return dir;
   }
 
+  /// Writes [contents] to a temporary file next to [path] and renames it into
+  /// place, so a crash or a kill mid-write leaves the previous lyrics intact
+  /// instead of a truncated file. The direct-write fallback keeps Windows
+  /// working when a scanner or another process holds the target during the
+  /// rename.
+  static Future<void> _writeFileAtomically(String path, String contents) async {
+    final tmp = File('$path.tmp');
+    await tmp.writeAsString(contents, flush: true);
+    try {
+      await tmp.rename(path);
+    } catch (_) {
+      await File(path).writeAsString(contents, flush: true);
+      try {
+        await tmp.delete();
+      } catch (_) {}
+    }
+  }
+
   static Future<void> _saveToDiskCache(String songId, String lrcContent) async {
     try {
       final cacheDir = await _getCacheDir();
       final cacheFile = File(
         p.join(cacheDir.path, '${_safeFileName(songId)}.lrc'),
       );
-      await cacheFile.writeAsString(lrcContent, flush: true);
+      await _writeFileAtomically(cacheFile.path, lrcContent);
     } catch (e) {
       DebugLog.write('[lyrics] lyrics disk cache write failed: $e');
     }

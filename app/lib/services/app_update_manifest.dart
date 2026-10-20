@@ -79,8 +79,10 @@ class AppUpdateManifest {
         if (hash is! String || !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(hash)) {
           continue;
         }
+        final rawUrls = v['urls'];
+        if (rawUrls is! List) continue;
         final urls = <String>[
-          for (final u in (v['urls'] as List? ?? const []))
+          for (final u in rawUrls)
             if (u is String && u.startsWith('https://') && u.endsWith('/$name')) u,
         ];
         if (urls.isEmpty) continue;

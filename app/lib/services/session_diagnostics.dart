@@ -246,7 +246,11 @@ class SessionDiagnostics {
             final flag = ptr.ref.batteryFlag;
             final pct = ptr.ref.batteryLifePercent;
             final isAc = ac == 1;
-            final isCharging = (flag & 8) != 0 || (isAc && pct == 100);
+            // 128 (no system battery) and 255 (status unknown) are not
+            // charging states; 255 happens to have the charging bit set.
+            final hasBattery = flag != 128 && flag != 255;
+            final isCharging =
+                hasBattery && ((flag & 8) != 0 || (isAc && pct == 100));
             return BatterySnapshot(
               percent: pct <= 100 ? pct : null,
               isCharging: isCharging,

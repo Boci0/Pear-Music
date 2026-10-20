@@ -52,18 +52,54 @@ class DebugLog {
 
   static File? get file => _file;
 
+  /// Test hook: override the base directory instead of using path_provider.
+  @visibleForTesting
+  static Directory? debugBaseDirectory;
+
+  /// Test hook: forget the file, the init flag and buffered lines so a test
+  /// can exercise the first-init path again.
+  @visibleForTesting
+  static void resetForTesting() {
+    _file = null;
+    _initTried = false;
+    _pending = null;
+    _buffer.clear();
+    _recentLogs.clear();
+  }
+
+  /// Appends [formattedLine] to [file] through the shared write chain, so a
+  /// burst of log lines is written in order and no caller waits on the disk.
+  static void _appendToFile(File file, String formattedLine) {
+    final out = _pending ?? Future<void>.value();
+    _pending = out.then((_) async {
+      try {
+        await file.writeAsString('$formattedLine\n',
+            mode: FileMode.append, flush: false);
+      } catch (_) {}
+    });
+  }
+
   static void _ensureInit() {
     if (_initTried) return;
     _initTried = true;
     unawaited(() async {
       try {
-        final dir = await getApplicationSupportDirectory();
+        final dir =
+            debugBaseDirectory ?? await getApplicationSupportDirectory();
         final f = File(p.join(dir.path, 'peerm_debug.log'));
         if (await f.exists() && await f.length() > _maxBytes) {
           // Rotate: keep only the newest half.
           await f.writeAsString(newestHalf(await f.readAsBytes()));
         }
         _file = f;
+        // Lines logged while the path was still being resolved are written
+        // now, in order, instead of being dropped for the whole session.
+        if (_buffer.isNotEmpty) {
+          for (final buffered in _buffer) {
+            _appendToFile(f, buffered);
+          }
+          _buffer.clear();
+        }
       } catch (_) {
         _file = null; // logging unavailable; silently drop lines
       }
@@ -106,12 +142,6 @@ class DebugLog {
       if (_buffer.length < 200) _buffer.add(formattedLine);
       return;
     }
-    final out = _pending ?? Future<void>.value();
-    _pending = out.then((_) async {
-      try {
-        await f.writeAsString('$formattedLine\n',
-            mode: FileMode.append, flush: false);
-      } catch (_) {}
-    });
+    _appendToFile(f, formattedLine);
   }
 }

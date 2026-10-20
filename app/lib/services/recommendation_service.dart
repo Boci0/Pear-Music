@@ -91,6 +91,30 @@ class RecommendationService {
   static final Map<String, RecommendationBatch> _radioCache = {};
   static const int _maxCacheSize = 25;
 
+  // Regexes used on hot paths (radio seeds and search query generation for
+  // every song). They are compiled once instead of per call.
+  static final RegExp _videoIdOnly = RegExp(r'^[a-zA-Z0-9_-]{11}$');
+  static final RegExp _bracketVideoId = RegExp(r'\[([a-zA-Z0-9_-]{11})\]');
+  static final RegExp _urlVideoId =
+      RegExp(r'(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|\b)');
+  static final RegExp _controlChars = RegExp(r'[\x00-\x1F\x7F]');
+  static final RegExp _squareBrackets = RegExp(r'\[[^\]]*\]');
+  static final RegExp _roundBrackets = RegExp(r'\([^)]*\)');
+  static final RegExp _cjkTortoise = RegExp(r'【[^】]*】');
+  static final RegExp _cjkCorner = RegExp(r'「[^」]*」');
+  static final RegExp _cjkRound = RegExp(r'（[^）]*）');
+  static final RegExp _fileExtension = RegExp(
+    r'\.(mp3|m4a|flac|wav|ogg|webm|aac|opus|mp4)$',
+    caseSensitive: false,
+  );
+  static final RegExp _leadingTrackNumber = RegExp(r'^\d+[\s\.\-_]+');
+  static final RegExp _whitespaceRun = RegExp(r'\s+');
+  static final RegExp _latinPrefix =
+      RegExp(r"^([A-Za-z0-9\s\-_:',\.]+?)(?=\s*[^\x20-\x7E]|$)");
+  static final RegExp _threeLatinLetters = RegExp(r'[A-Za-z]{3,}');
+  static final RegExp _separatorPunctuation = RegExp(r'[|_/\\~]+');
+  static final RegExp _nonSeedChars = RegExp(r'[^a-z0-9\s]');
+
   /// Normalizes any collection of song IDs or raw video IDs to 11-char video IDs.
   static Set<String> normalizeVideoIds(Iterable<String> ids) {
     final normalized = <String>{};
@@ -138,16 +162,16 @@ class RecommendationService {
   /// Tries to extract an 11-character YouTube video ID from a song ID, fileName, or title.
   static String? extractVideoId(String text) {
     final trimmed = text.trim();
-    if (trimmed.length == 11 && RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(trimmed)) {
+    if (trimmed.length == 11 && _videoIdOnly.hasMatch(trimmed)) {
       return trimmed;
     }
-    final m = RegExp(r'\[([a-zA-Z0-9_-]{11})\]').firstMatch(trimmed);
+    final m = _bracketVideoId.firstMatch(trimmed);
     if (m != null) return m.group(1);
     if (trimmed.startsWith('stream_')) {
       final sub = trimmed.replaceFirst('stream_', '');
       if (sub.length == 11) return sub;
     }
-    final m2 = RegExp(r'(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|\b)').firstMatch(trimmed);
+    final m2 = _urlVideoId.firstMatch(trimmed);
     if (m2 != null) return m2.group(1);
     return null;
   }
@@ -185,23 +209,23 @@ class RecommendationService {
 
     var base = song.title
         .replaceAll('\uFFFD', ' ')
-        .replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ')
-        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
-        .replaceAll(RegExp(r'【[^】]*】'), '')
-        .replaceAll(RegExp(r'「[^」]*」'), '')
-        .replaceAll(RegExp(r'（[^）]*）'), '')
-        .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|ogg|webm|aac|opus|mp4)$', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'^\d+[\s\.\-_]+'), '')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_controlChars, ' ')
+        .replaceAll(_squareBrackets, ' ')
+        .replaceAll(_roundBrackets, ' ')
+        .replaceAll(_cjkTortoise, '')
+        .replaceAll(_cjkCorner, '')
+        .replaceAll(_cjkRound, '')
+        .replaceAll(_fileExtension, ' ')
+        .replaceAll(_leadingTrackNumber, '')
+        .replaceAll(_whitespaceRun, ' ')
         .trim();
 
     if (base.isNotEmpty) {
       // Extract clean Latin/alphanumeric prefix if followed by mojibake/corrupted unicode
-      final latinPrefixMatch = RegExp(r"^([A-Za-z0-9\s\-_:',\.]+?)(?=\s*[^\x20-\x7E]|$)").firstMatch(base);
+      final latinPrefixMatch = _latinPrefix.firstMatch(base);
       if (latinPrefixMatch != null) {
         final latinPrefix = latinPrefixMatch.group(1)?.trim();
-        if (latinPrefix != null && latinPrefix.length >= 4 && latinPrefix.contains(RegExp(r'[A-Za-z]{3,}'))) {
+        if (latinPrefix != null && latinPrefix.length >= 4 && latinPrefix.contains(_threeLatinLetters)) {
           candidates.add(latinPrefix);
           if (latinPrefix.contains(' - ')) {
             final parts = latinPrefix.split(' - ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
@@ -225,7 +249,7 @@ class RecommendationService {
       }
 
       for (final seg in segments) {
-        final cleanSegMatch = RegExp(r"^([A-Za-z0-9\s\-_:',\.]+?)(?=\s*[^\x20-\x7E]|$)").firstMatch(seg);
+        final cleanSegMatch = _latinPrefix.firstMatch(seg);
         if (cleanSegMatch != null) {
           final p = cleanSegMatch.group(1)?.trim();
           if (p != null && p.isNotEmpty && p.length >= 4) candidates.add(p);
@@ -243,7 +267,7 @@ class RecommendationService {
       }
 
       // 2. Cleaned base without special punctuation
-      final cleanedBase = base.replaceAll(RegExp(r'[|_/\\~]+'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+      final cleanedBase = base.replaceAll(_separatorPunctuation, ' ').replaceAll(_whitespaceRun, ' ').trim();
       candidates.add(cleanedBase);
     }
 
@@ -840,31 +864,41 @@ class RecommendationService {
     Set<String>? excludeSongIds,
   }) {
     if (librarySongs.isEmpty) return const [];
-    final pool = librarySongs.where((s) => s.id != seedSong.id && !(excludeSongIds?.contains(s.id) ?? false)).toList();
-    if (pool.isEmpty) return const [];
 
     final seedTokens = seedSong.title
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
-        .split(RegExp(r'\s+'))
+        .replaceAll(_nonSeedChars, '')
+        .split(_whitespaceRun)
         .where((t) => t.length > 2)
         .toSet();
 
-    pool.sort((a, b) {
-      int scoreA = 0;
-      int scoreB = 0;
-
-      final titleA = a.title.toLowerCase();
-      final titleB = b.title.toLowerCase();
-
-      for (final t in seedTokens) {
-        if (titleA.contains(t)) scoreA += 2;
-        if (titleB.contains(t)) scoreB += 2;
+    // Score every candidate once, then sort the precomputed records: the
+    // comparator must not re-lowercase titles or rescan the seed tokens.
+    final ranked = <({int score, String title, Song song})>[];
+    for (final song in librarySongs) {
+      if (song.id == seedSong.id ||
+          (excludeSongIds?.contains(song.id) ?? false)) {
+        continue;
       }
+      final title = song.title.toLowerCase();
+      var score = 0;
+      for (final token in seedTokens) {
+        if (title.contains(token)) score += 2;
+      }
+      ranked.add((score: score, title: title, song: song));
+    }
+    if (ranked.isEmpty) return const [];
 
-      return scoreB.compareTo(scoreA);
+    ranked.sort((a, b) {
+      final byScore = b.score.compareTo(a.score);
+      if (byScore != 0) return byScore;
+      // Deterministic tiebreak, so two equally good picks do not depend on
+      // the sort implementation.
+      final byTitle = a.title.compareTo(b.title);
+      if (byTitle != 0) return byTitle;
+      return a.song.id.compareTo(b.song.id);
     });
 
-    return pool.take(10).toList();
+    return [for (final entry in ranked.take(10)) entry.song];
   }
 }
