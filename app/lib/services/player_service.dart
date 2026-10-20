@@ -108,8 +108,22 @@ class PlayerService extends ChangeNotifier with
   Song? currentSong;
   static const int maxRecommendationsPerAppend = 10;
 
+  List<Song> _queueSongs = [];
+
+  /// Unmodifiable view kept in step with [_queueSongs]: the queue is always
+  /// replaced, never mutated in place, so [queue] can hand out this cached
+  /// view instead of copying the list on every read.
+  List<Song> _queueView = const <Song>[];
+
   @override
-  List<Song> _queue = [];
+  List<Song> get _queue => _queueSongs;
+
+  @override
+  set _queue(List<Song> value) {
+    _queueSongs = value;
+    _queueView = List<Song>.unmodifiable(value);
+  }
+
   @override
   int _queueIndex = -1;
   @override
@@ -486,7 +500,7 @@ class PlayerService extends ChangeNotifier with
   bool get sleepTimerEndOfSong => _sleep.endOfSong;
   bool get sleepTimerEndOfQueue => _sleep.endOfQueue;
 
-  List<Song> get queue => List.unmodifiable(_queue);
+  List<Song> get queue => _queueView;
   int get queueIndex {
     _syncQueueIndexWithCurrentSong();
     return _queueIndex;
@@ -649,7 +663,13 @@ class PlayerService extends ChangeNotifier with
   Future<void> _triggerSleepTimerStop() async {
     cancelSleepTimer();
     if (_player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(seconds: 3));
+      try {
+        await _fadeVolume(0.0, duration: const Duration(seconds: 3));
+      } catch (e) {
+        // The timer has already been cleared, so playback must still stop:
+        // log the fade failure and carry on to the pause below.
+        DebugLog.write('[player] sleep timer fade failed: $e');
+      }
     }
     await pause(smooth: false);
   }
@@ -908,6 +928,26 @@ class PlayerService extends ChangeNotifier with
 
   /// How long opening a stream's direct link may take before falling back.
   static const Duration _earlyStreamOpenTimeout = Duration(seconds: 10);
+
+  /// Cancels a playback attempt that a new session token has abandoned and
+  /// clears the flags it would have cleared itself. A `playSong` cut short by
+  /// a token change never reaches its own cleanup (see [stop]), so a caller
+  /// that takes the token over (radio) has to reset them or the player stays
+  /// "loading" for ever. Audio is not stopped: the caller keeps the current
+  /// track.
+  @override
+  void _resetAbandonedLoad() {
+    _preloadDebounceTimer?.cancel();
+    StreamCacheManager.cancelPreload();
+    if (_isLoadingTrack || _isBufferingNext) {
+      StreamCacheManager.cancelActiveDownload();
+    }
+    _isLoadingTrack = false;
+    _isBufferingNext = false;
+    _bufferingVideoId = null;
+    _isAdvancing = false;
+    _pendingNaturalAdvance = false;
+  }
 
   @override
   Future<void> stop() async {

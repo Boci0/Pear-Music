@@ -66,8 +66,11 @@ mixin _PlayerCrossfade on ChangeNotifier {
   void _onPosition(Duration position) {
     _skipSilentIntroOnLoop(position);
     _lastPosition = position;
-    _onPositionForCrossfade(position);
-    _skipSilentOutro(position);
+    // The silent outro is needed by both checks below; resolve it once for
+    // this tick instead of rebuilding the loudness key twice.
+    final outroStart = _silentOutroStart();
+    _onPositionForCrossfade(position, outroStart);
+    _skipSilentOutro(position, outroStart);
   }
 
   /// Last position seen by [_onPosition] (or asked for by [seek]), to tell
@@ -98,7 +101,7 @@ mixin _PlayerCrossfade on ChangeNotifier {
     unawaited(_player.seek(start));
   }
 
-  void _onPositionForCrossfade(Duration position) {
+  void _onPositionForCrossfade(Duration position, Duration? silentOutroStart) {
     if (_crossfadeSeconds <= 0 || _crossfadeStarting || _isLive) return;
     if (_crossfadedToken == _playRequestToken) return;
     if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
@@ -108,7 +111,7 @@ mixin _PlayerCrossfade on ChangeNotifier {
     final fade = Duration(seconds: _crossfadeSeconds);
     // Very short clips just play out.
     if (duration == null || duration < fade * 3) return;
-    final remaining = (_silentOutroStart() ?? duration) - position;
+    final remaining = (silentOutroStart ?? duration) - position;
     if (remaining > fade || remaining < const Duration(milliseconds: 500)) {
       return;
     }
@@ -178,26 +181,45 @@ mixin _PlayerCrossfade on ChangeNotifier {
   }
 
   /// Where the current song's silent outro begins, or null when it has none
-  /// worth skipping.
+  /// worth skipping. The result is cached per song and file length: this is
+  /// called on every position tick, and resolving the span means building the
+  /// loudness key (which parses the song id with regular expressions). A miss
+  /// is only cached once the span is known, so a song whose loudness pass
+  /// finishes while it plays starts skipping its outro as soon as the span
+  /// arrives.
+  Song? _outroSong;
+  Duration? _outroDuration;
+  Duration? _outroStart;
+
   Duration? _silentOutroStart() {
     final song = currentSong;
     final duration = _player.duration;
     if (song == null || duration == null) return null;
+    if (identical(song, _outroSong) && _outroDuration == duration) {
+      return _outroStart;
+    }
     final span = LoudnessService.spanFor(song);
     if (span == null) return null;
+    Duration? start;
     // The span must describe this file: the decoder stops after 20 minutes.
-    if ((span.length - duration.inMilliseconds / 1000).abs() > 1.5) return null;
-    if (span.length - span.musicEnd < _minSilenceSkip) return null;
-    return Duration(milliseconds: (span.musicEnd * 1000).round());
+    if ((span.length - duration.inMilliseconds / 1000).abs() > 1.5 ||
+        span.length - span.musicEnd < _minSilenceSkip) {
+      start = null;
+    } else {
+      start = Duration(milliseconds: (span.musicEnd * 1000).round());
+    }
+    _outroSong = song;
+    _outroDuration = duration;
+    _outroStart = start;
+    return start;
   }
 
-  void _skipSilentOutro(Duration position) {
+  void _skipSilentOutro(Duration position, Duration? outro) {
     if (_outroSkippedToken == _playRequestToken || _crossfadeStarting) return;
     if (_crossfadedToken == _playRequestToken) return;
     if (!_player.playing || _isAdvancing || _isLoadingTrack || _isManuallyPaused) {
       return;
     }
-    final outro = _silentOutroStart();
     if (outro == null || position < outro) return;
     final token = _playRequestToken;
     _outroSkippedToken = token;

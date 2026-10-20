@@ -28,7 +28,12 @@ class SleepTimer {
     if (duration != null && duration > Duration.zero) {
       _endTime = DateTime.now().add(duration);
       _timer = Timer(duration, () async {
-        await onExpire();
+        try {
+          await onExpire();
+        } catch (_) {
+          // The callback (the player) logs its own failures. A timer callback
+          // must never throw an unhandled async error.
+        }
       });
     }
   }

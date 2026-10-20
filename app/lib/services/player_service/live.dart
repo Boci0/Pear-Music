@@ -4,6 +4,7 @@ mixin _PlayerLive on ChangeNotifier {
   // What the live stream handling needs from the player it is mixed into.
   AudioPlayer get _player;
   abstract bool _isManuallyPaused;
+  abstract int _playRequestToken;
   set _lastInteraction(DateTime value);
   int get _volumeFadeToken;
   set _volumeFadeToken(int value);
@@ -69,9 +70,12 @@ mixin _PlayerLive on ChangeNotifier {
     );
     if (uri == null) return;
     final token = ++_liveSeekToken;
-    final paused = _isManuallyPaused || !_player.playing;
+    final playToken = _playRequestToken;
+    final previousBehind = _liveBehind;
+    final previousPausedSince = _livePausedSince;
+    final wasPaused = _isManuallyPaused || !_player.playing;
     _liveBehind = behind;
-    _livePausedSince = paused ? DateTime.now() : null;
+    _livePausedSince = wasPaused ? DateTime.now() : null;
     notifyListeners();
     // A seek takes over from any fade in progress, as [seek] does.
     _volumeFadeToken++;
@@ -81,13 +85,34 @@ mixin _PlayerLive on ChangeNotifier {
           .timeout(PlayerService._earlyStreamOpenTimeout);
     } catch (e) {
       DebugLog.write('[player] Live stream would not reopen $behind s back: $e');
+      if (token == _liveSeekToken && playToken == _playRequestToken) {
+        // The old stream may still be playing at the old edge: report the
+        // position playback actually has instead of the one it never reached.
+        _liveBehind = previousBehind;
+        _livePausedSince = previousPausedSince;
+        notifyListeners();
+      }
       return;
     }
-    if (token != _liveSeekToken || !_isLive) return;
+    // A track change or a newer live seek during the reopen owns the engine
+    // now; do not let this stale load start or keep playing.
+    if (token != _liveSeekToken ||
+        playToken != _playRequestToken ||
+        !_isLive) {
+      return;
+    }
+    // Re-read the pause state: the listener may have paused during the
+    // reopen, and that pause must win over the state captured above.
+    final paused = _isManuallyPaused || !_player.playing;
     DebugLog.write(
       '[player] LIVE ${behind <= 0 ? 'at the edge' : '${behind.round()} s behind'}',
     );
-    if (!paused) await _player.play();
+    if (paused) {
+      _livePausedSince ??= DateTime.now();
+      if (_player.playing) await _player.pause();
+    } else {
+      await _player.play();
+    }
     notifyListeners();
   }
 }

@@ -111,7 +111,6 @@ mixin _PlayerPlayback
     final fadeIn = crossfadeIn ?? const Duration(milliseconds: 80);
     if (_pendingFadeIn == null) _silenceTail();
     _pendingFadeIn = null;
-    RecommendationService.markPlayed(song.id);
     if (identity != null && identity!.isFavorite(song.id)) {
       unawaited(identity!.cacheFavoriteSongMetadata(song));
     }
@@ -129,6 +128,15 @@ mixin _PlayerPlayback
       await _player.setVolume(0.0);
       await _player.pause();
     }
+    // A pause (or a newer play) that lands while the previous source is being
+    // silenced wins over this request; nothing below has been changed yet.
+    if (token != _playRequestToken) return;
+
+    // The request still owns the session, so it counts as a play for history
+    // and radio exclusions. Superseded taps are excluded above; this keeps the
+    // same observable point in playSong as recording it before the load.
+    RecommendationService.markPlayed(song.id);
+    _recordHistory(song);
 
     // Android 13+ blocks the media notification unless the app holds the
     // notification permission. Ask for it (fire-and-forget) so the first
@@ -137,8 +145,12 @@ mixin _PlayerPlayback
 
     if (queue != null) {
       // A queue the listener just picked (not this queue handed back when
-      // moving along it) starts with nothing added by the app.
-      if (!identical(queue, _queue)) _autoAddedSongIds.clear();
+      // moving along it) starts with nothing added by the app, and starts
+      // shuffle over: ids played in the old queue are not part of this one.
+      if (!identical(queue, _queue)) {
+        _autoAddedSongIds.clear();
+        _shufflePlayedSongIds.clear();
+      }
       _queue = List<Song>.from(queue);
     } else if (_queue.isEmpty) {
       _queue = library.songs.isNotEmpty ? List<Song>.from(library.songs) : [song];
@@ -170,7 +182,6 @@ mixin _PlayerPlayback
     _pendingNaturalAdvance = false;
     _lastTrackLoadMs = -1;
     _updateActiveQueueCacheProtection();
-    _recordHistory(song);
     DebugLog.write(
       '[player] === playSong START === token=$token '
       'song="${song.title}" id=${song.id} source=${song.sourceDeviceId} '
@@ -247,6 +258,11 @@ mixin _PlayerPlayback
               AudioSource.file(cachedFile.path),
             );
             _resetStreamFailureCounters();
+          } on PlayerInterruptedException {
+            // A newer load took over the engine: the file is fine, so keep
+            // it in the cache and let the outer handler drop this request.
+            DebugLog.write('[player] Cached file load was superseded; keeping it in the cache');
+            rethrow;
           } catch (e) {
             DebugLog.write('[player] Cached file unplayable or corrupt: $e. Evicting from cache.');
             await StreamCacheManager.evictUnplayable(cachedFile);
@@ -391,6 +407,11 @@ mixin _PlayerPlayback
                 AudioSource.file(downloadedFile.path),
               );
               _resetStreamFailureCounters();
+            } on PlayerInterruptedException {
+              // A newer load took over the engine: the file is fine, so keep
+              // it in the cache and let the outer handler drop this request.
+              DebugLog.write('[player] Downloaded file load was superseded; keeping it in the cache');
+              rethrow;
             } catch (e) {
               DebugLog.write('[player] Downloaded stream unplayable or corrupt: $e. Evicting file.');
               await StreamCacheManager.evictUnplayable(downloadedFile);
@@ -548,6 +569,21 @@ mixin _PlayerPlayback
       }
     } catch (e) {
       DebugLog.write('[player] playSong ERROR: $e');
+      if (e is PlayerInterruptedException) {
+        // Another load took over the engine. That is a superseded request,
+        // not a playback failure: no error banner and no failure count. Its
+        // flags are cleared only while it still owns the token, so a newer
+        // request's state is left alone.
+        if (token == _playRequestToken) {
+          _pendingNaturalAdvance = false;
+          _isAdvancing = false;
+          _isLoadingTrack = false;
+          _isBufferingNext = false;
+          _bufferingVideoId = null;
+          notifyListeners();
+        }
+        return;
+      }
       if (token != _playRequestToken) return;
       _pendingNaturalAdvance = false;
       _consecutiveStreamFailures++;
@@ -621,7 +657,25 @@ mixin _PlayerPlayback
     String? sourceTitle,
   }) {
     if (newQueue.isEmpty) return;
+    // A different list is a new shuffle pool: ids played in the previous
+    // queue must not make songs of this one count as already played. An
+    // identical list (same songs in the same order) keeps the shuffle history.
+    var sameQueue = newQueue.length == _queue.length;
+    if (sameQueue) {
+      for (var i = 0; i < newQueue.length; i++) {
+        if (newQueue[i].id != _queue[i].id) {
+          sameQueue = false;
+          break;
+        }
+      }
+    }
     _queue = List.from(newQueue);
+    if (!sameQueue) {
+      _shufflePlayedSongIds.clear();
+      if (_shuffle && currentSong != null) {
+        _shufflePlayedSongIds.add(currentSong!.id);
+      }
+    }
     if (sourceId != null) {
       queueSourceId = sourceId;
       queueTitle = sourceTitle;
@@ -682,7 +736,13 @@ mixin _PlayerPlayback
     final targetVol = _effectiveVolume;
     if (_player.playing) {
       if (smooth && targetVol > 0.05) {
-        await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
+        try {
+          await _fadeVolume(0.0, duration: const Duration(milliseconds: 100));
+        } catch (e) {
+          // A failure to fade must not leave the player audible: fall
+          // through to the pause below.
+          DebugLog.write('[player] pause fade failed: $e');
+        }
       }
       await _player.pause();
       await _player.setVolume(targetVol);
@@ -814,10 +874,20 @@ mixin _PlayerPlayback
       return;
     }
     _isAdvancing = true;
-    if (!crossfade && _player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
-    }
+    final advanceToken = _playRequestToken;
     try {
+      if (!crossfade && _player.playing && _userVolume > 0.05) {
+        await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
+        // A pause (which bumps the token) or a newer play during the fade
+        // wins over this advance: stay on the current track and hand the
+        // listener their volume back.
+        if (advanceToken != _playRequestToken) {
+          if (_player.playing && _player.volume < _effectiveVolume) {
+            unawaited(_player.setVolume(_effectiveVolume));
+          }
+          return;
+        }
+      }
       if (_loopMode == LoopSetting.one && !userAction) {
         await _replayCurrent();
         return;
@@ -892,10 +962,14 @@ mixin _PlayerPlayback
   Future<void> previous() async {
     if (_queue.isEmpty || _isAdvancing) return;
     _isAdvancing = true;
-    if (_player.playing && _userVolume > 0.05) {
-      await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
-    }
+    final advanceToken = _playRequestToken;
     try {
+      if (_player.playing && _userVolume > 0.05) {
+        await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
+        // Paused or superseded during the fade: stay put. The finally below
+        // restores the volume.
+        if (advanceToken != _playRequestToken) return;
+      }
       _syncQueueIndexWithCurrentSong();
       final pos = _player.position;
       // A live stream has no start to go back to: Previous goes to the
@@ -1076,6 +1150,11 @@ mixin _PlayerPlayback
         position >= dur - const Duration(milliseconds: 150)) {
       await _player.seek(dur);
       if (!_isAdvancing && !_isLoadingTrack) {
+        if (!_player.playing || _isManuallyPaused) {
+          // Paused at the end stays paused: seeking there is not a request to
+          // start the next song.
+          return;
+        }
         if (_sleep.endOfSong) {
           cancelSleepTimer();
           unawaited(pause(smooth: true));
@@ -1112,9 +1191,14 @@ mixin _PlayerPlayback
   /// Android 13+ (API 33+) requires the POST_NOTIFICATIONS runtime permission
   /// for app notifications to show. The media notification from
   /// audio_service is affected on many devices (vivo/Oppo/Xiaomi are
-  /// strict). Request it once on the first play. No-op on other platforms.
+  /// strict). Request it once per process, on the first play. No-op on other
+  /// platforms.
+  static bool _notificationPermissionAsked = false;
+
   Future<void> _requestNotificationPermissionIfNeeded() async {
     if (!Platform.isAndroid) return;
+    if (_notificationPermissionAsked) return;
+    _notificationPermissionAsked = true;
     try {
       final status = await Permission.notification.status;
       if (!status.isGranted) {

@@ -25,6 +25,7 @@ mixin _PlayerRecommendations on ChangeNotifier {
   void _preloadUpcomingStreams({Duration delay = const Duration(seconds: 2)});
   void _syncQueueIndexWithCurrentSong();
   void _updateActiveQueueCacheProtection();
+  void _resetAbandonedLoad();
   Future<void> playSong(
     Song song, {
     List<Song>? queue,
@@ -64,6 +65,12 @@ mixin _PlayerRecommendations on ChangeNotifier {
     // Allocate session token once so recommendation fetching and track playback
     // participate in the exact same active session without invalidating each other.
     final token = ++_playRequestToken;
+
+    // A load cut short by the new token never reaches its own cleanup (see
+    // PlayerService.stop), and this session keeps the current audio, so the
+    // abandoned attempt is cancelled and its flags are reset here. Otherwise
+    // the player could stay "loading" with no playback ever starting.
+    _resetAbandonedLoad();
 
     // Trigger initial background fetch of recommended tracks
     unawaited(() async {
