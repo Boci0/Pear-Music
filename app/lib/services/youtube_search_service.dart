@@ -367,10 +367,20 @@ class YouTubeSearchService {
         isLive: item.isLive,
       );
 
+  /// Test seam: whether the live-search client is still held.
+  @visibleForTesting
+  static bool get debugHasLiveClient => _liveClient != null;
+
+  /// Test seam: replaces the live-search client so a test can watch it close.
+  @visibleForTesting
+  static void debugSetLiveClient(http.Client? client) => _liveClient = client;
+
   /// Close client resources and clear memory caches.
   static void dispose() {
     _cache.clear();
     _yt?.close();
     _yt = null;
+    _liveClient?.close();
+    _liveClient = null;
   }
 }

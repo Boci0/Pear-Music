@@ -185,8 +185,15 @@ class InnerTubeAudioEngine {
     if (status == 'LOGIN_REQUIRED') {
       if (sentWith == null && _visitorData != null) {
         // The expected first answer: retry with the visitor id it returned.
+        // A failure here is still the engine hitting a wall, so it goes
+        // through the same guard as the first attempts instead of escaping
+        // without the backoff being recorded.
         sentWith = _visitorData;
-        json = await _post(videoId, sentWith);
+        try {
+          json = await _post(videoId, sentWith);
+        } on InnerTubeFailure catch (e) {
+          throw _systemic(videoId, e.message);
+        }
         status = _status(json);
       }
       if (status == 'LOGIN_REQUIRED') {

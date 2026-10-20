@@ -44,6 +44,17 @@ class YtDlpPrewarmer {
   Process? _spare;
   String? _spareSignature;
 
+  /// The boot in progress, if any. Overlapping calls join it instead of
+  /// spawning a second spare and losing the first one (it would wait on stdin
+  /// until the app exited).
+  Future<void>? _booting;
+
+  /// Test seam: replaces `Process.start` so a boot can be held open and
+  /// counted without spawning a real helper.
+  @visibleForTesting
+  static Future<Process> Function(String bin, List<String> args)?
+      debugStartProcess;
+
   bool get hasSpare => _spare != null;
   int? get sparePid => _spare?.pid;
 
@@ -70,16 +81,38 @@ class YtDlpPrewarmer {
     required String bin,
     required List<String> baseArgs,
     required String outputTemplate,
-  }) async {
-    if (!enabled || kIsWeb || Platform.isAndroid) return;
+  }) {
+    if (!enabled || kIsWeb || Platform.isAndroid) return Future.value();
     final signature = _signatureOf(bin, baseArgs, outputTemplate);
+    if (_spare != null && _spareSignature == signature) return Future.value();
+    final booting = _booting;
+    if (booting != null) return booting;
+    final boot = _boot(bin, baseArgs, outputTemplate, signature);
+    _booting = boot;
+    return boot.whenComplete(() {
+      if (identical(_booting, boot)) _booting = null;
+    });
+  }
+
+  Future<void> _boot(
+    String bin,
+    List<String> baseArgs,
+    String outputTemplate,
+    String signature,
+  ) async {
+    // Another boot may have produced the spare while this call waited for the
+    // single-flight slot.
     if (_spare != null && _spareSignature == signature) return;
     killSpare();
     try {
-      final process = await Process.start(
-        bin,
-        buildStdinArgs(baseArgs: baseArgs, outputTemplate: outputTemplate),
+      final args = buildStdinArgs(
+        baseArgs: baseArgs,
+        outputTemplate: outputTemplate,
       );
+      final start = debugStartProcess;
+      final process = start != null
+          ? await start(bin, args)
+          : await Process.start(bin, args);
       // The process only writes a short "Reading URLs from STDIN" note while
       // idle, so the pipes are left unsubscribed; the fetch attaches its own
       // listeners when it takes over.

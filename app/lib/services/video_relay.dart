@@ -160,6 +160,12 @@ class VideoRelay {
       if (fresh == null) return false;
       _url = fresh.url;
       _headers = fresh.headers;
+      // The cached start belongs to the old file. A new lookup can pick a
+      // different format, whose init segment and length are not the same, so
+      // byte 0 of one is not byte 0 of the other.
+      _head.clear();
+      _headTotal = 0;
+      _headType = 'video/mp4';
       DebugLog.write('[video] picture link was refused, using a new one');
       return true;
     } catch (e) {

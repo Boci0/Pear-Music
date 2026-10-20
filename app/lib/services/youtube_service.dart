@@ -945,13 +945,28 @@ class YoutubeService {
     }
     final finalBin = bin;
     Directory? tempDir;
+    Process? activeRipProcess;
     try {
       onStatus?.call('Starting yt-dlp…');
       tempDir = await Directory.systemTemp.createTemp('peerm-ytdlp-');
       final outTemplate = '${tempDir.path}${Platform.pathSeparator}'
           '%(title).80B [%(id)s].%(ext)s';
 
+      if (cancel != null) {
+        // One listener for the whole rip. A listener registered per attempt
+        // outlived its process, so a cancel late in an import could send
+        // `taskkill` to a pid Windows had already reused for another process.
+        unawaited(cancel.whenCancelled.then((_) {
+          final running = activeRipProcess;
+          if (running != null) killProcessTree(running.pid);
+        }));
+      }
+
       Future<int> runDownloadWithArgs(List<String> extraArgs) async {
+        if (cancel?.isCancelled ?? false) {
+          // Cancelled between the two attempts: do not start another process.
+          throw DownloadCancelledException();
+        }
         final isAndroid = !kIsWeb && Platform.isAndroid;
         final formatArg = videoHeight != null
             ? videoDownloadFormat(videoHeight)
@@ -979,11 +994,7 @@ class YoutubeService {
           url,
         ];
         final proc = await Process.start(finalBin, args);
-        if (cancel != null) {
-          unawaited(cancel.whenCancelled.then((_) {
-            killProcessTree(proc.pid);
-          }));
-        }
+        activeRipProcess = proc;
         final outBuf = StringBuffer();
         final errBuf = StringBuffer();
         // Progress lines ([download] NN% of XMiB) arrive on stdout; stderr
@@ -1005,6 +1016,9 @@ class YoutubeService {
           killProcessTree(proc.pid);
           rethrow;
         } finally {
+          // The process is gone: a later cancel must not aim a taskkill at a
+          // pid that may already belong to something else.
+          if (identical(activeRipProcess, proc)) activeRipProcess = null;
           await outSub.cancel();
           await errSub.cancel();
         }

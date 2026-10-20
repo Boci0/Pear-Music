@@ -82,7 +82,17 @@ class GrowingFileAudioSource extends StreamAudioSource {
           }
           await Future<void>.delayed(pollInterval);
         }
-        return _file = await file.open();
+        final opened = await file.open();
+        if (_closed) {
+          // close() ran while the handle was being opened and saw no handle
+          // to release: release it here instead of leaking it (on Windows an
+          // open handle also keeps the file from being deleted or renamed).
+          try {
+            await opened.close();
+          } catch (_) {}
+          throw StateError('source closed');
+        }
+        return _file = opened;
       }();
 
   @override

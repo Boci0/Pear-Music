@@ -358,6 +358,12 @@ class StreamCacheManager {
   @visibleForTesting
   static bool debugAllowFastEngineInTests = false;
 
+  /// A test run never starts or downloads a desktop yt-dlp: a test that only
+  /// checks whether the fallback was reached turns this on so a regression
+  /// cannot touch the network.
+  @visibleForTesting
+  static bool debugSkipFallbackEngines = false;
+
   static final bool _underFlutterTest =
       !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
 
@@ -390,7 +396,7 @@ class StreamCacheManager {
       shouldAbort: () =>
           token != _downloadInvocationToken ||
           _activeDownloadingVideoId != videoId ||
-          (isPreload && preloadSeq != _slidingWindowSequence),
+          (isPreload && _preloadFetchStale(preloadSeq, videoId)),
       // A few megabytes in, playback can start from the file being written
       // instead of waiting for all of it (the same hand-over the Android
       // yt-dlp fetch makes); the fetch goes on and completes the cache entry.
@@ -453,7 +459,7 @@ class StreamCacheManager {
       shouldAbort: () =>
           token != _downloadInvocationToken ||
           _activeDownloadingVideoId != videoId ||
-          (isPreload && preloadSeq != _slidingWindowSequence),
+          (isPreload && _preloadFetchStale(preloadSeq, videoId)),
     );
     final file = result.file;
     if (file == null) {
@@ -482,6 +488,13 @@ class StreamCacheManager {
     _cachedTotalBytes = bytes;
     cacheBytesNotifier.value = bytes;
   }
+
+  /// Whether a fetch is still writing [videoId]'s file. Such a file must not
+  /// be handed out as a cache hit and must not be evicted while it grows.
+  static bool _isFileWriteInProgress(String videoId) =>
+      _inFlightDownloads.containsKey(videoId) ||
+      _activeDownloadingVideoId == videoId ||
+      _preservedPreloadVideoId == videoId;
 
   /// Returns live O(1) stats of cache size, track count, and active downloads.
   static ({int trackCount, int totalBytes, int inFlightCount}) getCacheStats() {
@@ -550,7 +563,19 @@ class StreamCacheManager {
   }
 
   /// Quick cache check: returns the cached file if it exists.
-  static Future<File?> getCachedFile(String videoId) async {
+  ///
+  /// A file a fetch is still writing is not a cache hit: the desktop and the
+  /// embedded yt-dlp both write to the final name while they download, so
+  /// serving that name mid-download plays a truncated file. Pass
+  /// [allowWhileDownloading] from a fetch's own adoption after it finished
+  /// writing.
+  static Future<File?> getCachedFile(
+    String videoId, {
+    bool allowWhileDownloading = false,
+  }) async {
+    if (!allowWhileDownloading && _isFileWriteInProgress(videoId)) {
+      return null;
+    }
     final dir = await getCacheDirectory();
 
     // 1. Direct cache files: $videoId.$ext
@@ -747,6 +772,17 @@ class StreamCacheManager {
   static bool _isActiveDownloadPreload = false;
   static String? _activeProcessId;
   static Process? _activeDesktopProcess;
+
+  /// The video whose preload the UI asked to preserve while it starts playing
+  /// it (see [cancelPreload]): the preload sequence is over, but the fetch
+  /// itself is exactly what playback wants.
+  static String? _preservedPreloadVideoId;
+
+  /// Whether a preload fetch started with [seq] for [videoId] has been
+  /// abandoned. A preserved fetch is not abandoned even though its sequence
+  /// number is stale.
+  static bool _preloadFetchStale(int seq, String videoId) =>
+      seq != _slidingWindowSequence && videoId != _preservedPreloadVideoId;
 
   /// Kills the running desktop fetch process, if any. Cancellation frees the
   /// single connection immediately, which is what keeps skips and foreground
@@ -1113,16 +1149,23 @@ class StreamCacheManager {
   static void cancelPreload({String? exceptVideoId}) {
     _slidingWindowSequence++;
     if (exceptVideoId != null && _activeDownloadingVideoId == exceptVideoId) {
+      // Playback is about to use the track this preload is fetching. The
+      // sequence is over so the preload loop stops, but this one fetch has to
+      // keep running: it is the file the player is waiting for.
+      _preservedPreloadVideoId = exceptVideoId;
       DebugLog.write('[preload] Preserving active in-flight download for $exceptVideoId');
       return;
     }
+    _preservedPreloadVideoId = null;
     if (_isActiveDownloadPreload) {
       final activeId = _activeProcessId;
       if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
         _activeProcessId = null;
-        try {
-          const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
-        } catch (_) {}
+        unawaited(
+          const MethodChannel('peerm/ytdlp')
+              .invokeMethod('cancel', {'processId': activeId})
+              .catchError((Object _) => null),
+        );
       }
       _killActiveDesktopEngine();
       final abandoned = _activeDownloadingVideoId;
@@ -1141,36 +1184,44 @@ class StreamCacheManager {
   /// Terminates any ongoing yt-dlp download process (foreground or background preload)
   /// if it does not match [exceptVideoId], releasing native heap, CPU, and network immediately.
   static void cancelActiveDownload({String? exceptVideoId}) {
+    // The caller is about to play the track this fetch is downloading: leave
+    // the fetch exactly as it is. Bumping the tokens here would abort the fast
+    // engine and throw away the transfer the caller wants to keep.
+    if (exceptVideoId != null && _activeDownloadingVideoId == exceptVideoId) {
+      DebugLog.write('[cache] Preserving active download for $exceptVideoId');
+      return;
+    }
     _slidingWindowSequence++;
     _downloadInvocationToken++;
-    if (exceptVideoId == null || _activeDownloadingVideoId != exceptVideoId) {
-      final abandonedId = _activeDownloadingVideoId;
-      final activeId = _activeProcessId;
-      if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
-        _activeProcessId = null;
-        try {
-          const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': activeId});
-        } catch (_) {}
-      }
-      _killActiveDesktopEngine();
-      if (exceptVideoId == null) {
-        for (final entry in _inFlightDownloads.entries) {
-          if (!entry.value.isCompleted) {
-            entry.value.complete(null);
-          }
+    final abandonedId = _activeDownloadingVideoId;
+    final activeId = _activeProcessId;
+    if (activeId != null && YoutubeService.isEmbeddedYtDlpSupported) {
+      _activeProcessId = null;
+      unawaited(
+        const MethodChannel('peerm/ytdlp')
+            .invokeMethod('cancel', {'processId': activeId})
+            .catchError((Object _) => null),
+      );
+    }
+    _killActiveDesktopEngine();
+    if (exceptVideoId == null) {
+      for (final entry in _inFlightDownloads.entries) {
+        if (!entry.value.isCompleted) {
+          entry.value.complete(null);
         }
-        _inFlightDownloads.clear();
-      } else if (abandonedId != null && _inFlightDownloads.containsKey(abandonedId)) {
-        if (!_inFlightDownloads[abandonedId]!.isCompleted) {
-          _inFlightDownloads[abandonedId]?.complete(null);
-        }
-        _inFlightDownloads.remove(abandonedId);
       }
-      _activeDownloadingVideoId = null;
-      _isActiveDownloadPreload = false;
-      if (abandonedId != null) {
-        DebugLog.write('[cache] cancelActiveDownload: aborted abandoned download for $abandonedId');
+      _inFlightDownloads.clear();
+    } else if (abandonedId != null && _inFlightDownloads.containsKey(abandonedId)) {
+      if (!_inFlightDownloads[abandonedId]!.isCompleted) {
+        _inFlightDownloads[abandonedId]?.complete(null);
       }
+      _inFlightDownloads.remove(abandonedId);
+    }
+    _activeDownloadingVideoId = null;
+    _isActiveDownloadPreload = false;
+    _preservedPreloadVideoId = null;
+    if (abandonedId != null) {
+      DebugLog.write('[cache] cancelActiveDownload: aborted abandoned download for $abandonedId');
     }
   }
 
@@ -1287,6 +1338,14 @@ class StreamCacheManager {
     String videoId, {
     bool isPreload = false,
   }) async {
+    // Single-flight first, and before touching the tokens: a caller that joins
+    // a running fetch must not abort the very fetch it wants to wait for, nor
+    // drop the failure explanation the fetch recorded for it.
+    final joined = _inFlightDownloads[videoId];
+    if (joined != null) {
+      DebugLog.write('[cache] Joining in-flight download for $videoId');
+      return await joined.future;
+    }
     final token = ++_downloadInvocationToken;
     final preloadSeq = _slidingWindowSequence;
     // A new attempt starts clean: any explanation from an earlier attempt for
@@ -1300,7 +1359,7 @@ class StreamCacheManager {
     }
     if (isKnownLive(videoId)) return null;
     if (token != _downloadInvocationToken) return null;
-    if (isPreload && preloadSeq != _slidingWindowSequence) return null;
+    if (isPreload && _preloadFetchStale(preloadSeq, videoId)) return null;
 
     final override = debugEnsureStreamCachedOverride;
     if (override != null) {
@@ -1349,23 +1408,26 @@ class StreamCacheManager {
       if (cachedAfterWait != null) {
         return cachedAfterWait;
       }
-      if (token != _downloadInvocationToken || (isPreload && preloadSeq != _slidingWindowSequence) || _activeDownloadingVideoId != null) {
+      if (token != _downloadInvocationToken || (isPreload && _preloadFetchStale(preloadSeq, videoId)) || _activeDownloadingVideoId != null) {
         DebugLog.write('[cache] Another download took concurrency lock after wait or sequence cancelled, deferring $videoId');
         return null;
       }
     }
     if (token != _downloadInvocationToken) return null;
-    if (isPreload && preloadSeq != _slidingWindowSequence) return null;
+    if (isPreload && _preloadFetchStale(preloadSeq, videoId)) return null;
 
     // If direct playback is requested while another download is running, abort the active download to
     // dedicate 100% bandwidth to the track the user is actively waiting to hear.
     if (!isPreload && _activeDownloadingVideoId != null && _activeDownloadingVideoId != videoId) {
       DebugLog.write('[cache] Direct play for $videoId preempting active download $_activeDownloadingVideoId');
       if (_activeProcessId != null && YoutubeService.isEmbeddedYtDlpSupported) {
-        try {
-          const MethodChannel('peerm/ytdlp').invokeMethod('cancel', {'processId': _activeProcessId});
-        } catch (_) {}
+        final preempted = _activeProcessId!;
         _activeProcessId = null;
+        unawaited(
+          const MethodChannel('peerm/ytdlp')
+              .invokeMethod('cancel', {'processId': preempted})
+              .catchError((Object _) => null),
+        );
       }
       _killActiveDesktopEngine();
       _activeDownloadingVideoId = null;
@@ -1407,6 +1469,18 @@ class StreamCacheManager {
         if (isKnownLive(videoId)) return null;
       }
 
+      // Falling through to another engine is only worth it while this fetch is
+      // still wanted. A skip, a pause, a newer play or a finished preload
+      // sequence has already thrown this work away; starting yt-dlp here would
+      // be a hidden download for a track nobody is waiting for.
+      if (token != _downloadInvocationToken ||
+          _activeDownloadingVideoId != videoId ||
+          (isPreload && _preloadFetchStale(preloadSeq, videoId))) {
+        DebugLog.write('[cache] Fetch for $videoId was abandoned, not starting another engine');
+        if (!completer.isCompleted) completer.complete(null);
+        return null;
+      }
+
       // Android embedded yt-dlp
       if (YoutubeService.isEmbeddedYtDlpSupported && !forceBackupEngine) {
         final tempPart = File(p.join(dir.path, '$videoId.m4a'));
@@ -1415,6 +1489,7 @@ class StreamCacheManager {
         _installAndroidLinkHandler();
         _androidFetchVideoIds[processId] = videoId;
         _androidFetchPaths[processId] = tempPart.path;
+        const channel = MethodChannel('peerm/ytdlp');
         try {
           DebugLog.write('[cache] Android embedded yt-dlp downloading $videoId');
           // Same persistent yt-dlp cache as desktop: without it every fetch
@@ -1422,7 +1497,6 @@ class StreamCacheManager {
           // challenges before a single byte of audio arrives, which is slow
           // on a phone. refreshYtDlpCache clears it for a retry after a 403.
           final ytdlpCache = await getYtDlpCacheDirectory();
-          const channel = MethodChannel('peerm/ytdlp');
           await channel.invokeMethod('downloadAudioFast', {
             'url': 'https://www.youtube.com/watch?v=$videoId',
             'outputPath': tempPart.path,
@@ -1431,7 +1505,9 @@ class StreamCacheManager {
             'cacheDir': ytdlpCache.path,
           }).timeout(const Duration(seconds: 120));
 
-          final cached = await getCachedFile(videoId);
+          // The embedded download has finished writing but this fetch is still
+          // in flight, so the normal cache check would hide the file from us.
+          final cached = await getCachedFile(videoId, allowWhileDownloading: true);
           if (cached != null) {
             final len = await cached.length();
             _cachedVideoIds.add(videoId);
@@ -1461,6 +1537,18 @@ class StreamCacheManager {
                   ? '${e.code}: ${e.message ?? ''}'
                   : '$e',
             );
+          }
+          if (e is TimeoutException) {
+            // The wait gave up, but the embedded download did not: stop it, or
+            // it keeps spending data for a fetch nobody waits for and a retry
+            // can run a second download next to it.
+            try {
+              await channel
+                  .invokeMethod('cancel', {'processId': processId})
+                  .timeout(const Duration(seconds: 2));
+            } catch (_) {
+              // The plugin may already be gone; nothing else to do.
+            }
           }
           // Drop the half-written file so it can never be served as a cache hit.
           try {
@@ -1495,8 +1583,13 @@ class StreamCacheManager {
       }
 
       // Desktop yt-dlp engine with client emulation and robust audio format selection
-      var bin = await YoutubeService.ytDlpPath();
-      if (bin == null && !kIsWeb && !Platform.isAndroid) {
+      var bin = debugSkipFallbackEngines
+          ? null
+          : await YoutubeService.ytDlpPath();
+      if (bin == null &&
+          !debugSkipFallbackEngines &&
+          !kIsWeb &&
+          !Platform.isAndroid) {
         DebugLog.write('[cache] Desktop yt-dlp not found on disk, auto-downloading dependency...');
         bin = await YoutubeService.ensureYtDlpAvailable();
       }
@@ -1581,7 +1674,7 @@ class StreamCacheManager {
             await _deletePartialArtifacts(videoId);
             return null;
           }
-          return getCachedFile(videoId);
+          return getCachedFile(videoId, allowWhileDownloading: true);
         }
 
         var fetched = await fetchWithYtDlp(_desktopStreamArgs(ytdlpCache.path));
@@ -1591,7 +1684,7 @@ class StreamCacheManager {
         final failureKind = _lastFetchFailures[videoId]?.kind;
         final stillWanted = !cancelled &&
             token == _downloadInvocationToken &&
-            !(isPreload && preloadSeq != _slidingWindowSequence) &&
+            !(isPreload && _preloadFetchStale(preloadSeq, videoId)) &&
             _activeDownloadingVideoId == videoId;
         if (fetched == null &&
             !linkPublished &&
@@ -1650,6 +1743,9 @@ class StreamCacheManager {
       }
     } finally {
       _resolvedStreams.remove(videoId);
+      if (_preservedPreloadVideoId == videoId) {
+        _preservedPreloadVideoId = null;
+      }
       if (_activeDownloadingVideoId == videoId) {
         _activeDownloadingVideoId = null;
         _isActiveDownloadPreload = false;
@@ -1669,9 +1765,35 @@ class StreamCacheManager {
 
   /// Trims stream cache directory to remain strictly under the [maxCacheBytes] and
   /// [maxTrackCount] quota, and purges stale temporary download artifacts.
-  static Future<void> enforceCacheQuota() async {
+  static Future<void> enforceCacheQuota() {
+    final run = _quotaRun = _runQuotaPass(_quotaRun);
+    return run;
+  }
+
+  /// The last quota pass. Passes are chained so two of them never scan and
+  /// rewrite the byte total at the same time.
+  static Future<void>? _quotaRun;
+
+  static Future<void> _runQuotaPass(Future<void>? previous) async {
+    if (previous != null) {
+      try {
+        await previous;
+      } catch (_) {}
+    }
+    await _enforceCacheQuotaOnce();
+  }
+
+  /// Adds the bytes a fetch adopted while the scan ran, the same best-effort
+  /// correction [warmUp] makes.
+  static int _bestEffortTotal(int scanned, int scanStartBytes) {
+    final delta = _cachedTotalBytes - scanStartBytes;
+    return scanned + (delta > 0 ? delta : 0);
+  }
+
+  static Future<void> _enforceCacheQuotaOnce() async {
     try {
       final dir = await getCacheDirectory();
+      final scanStartBytes = _cachedTotalBytes;
       final entities = await dir.list().toList();
       final files = entities.whereType<File>().toList();
       int totalSize = 0;
@@ -1693,12 +1815,19 @@ class StreamCacheManager {
           continue;
         }
 
+        final rawName = p.basenameWithoutExtension(name);
+        final fileId = rawName.contains('.') ? rawName.split('.').first : rawName;
+        // A file a fetch is still writing is not a completed track: counting it
+        // here would double count it (the fetch adds its final length when it
+        // finishes) and the eviction below could delete a running download.
+        if (_isFileWriteInProgress(fileId)) continue;
+
         fileStats[f] = stat;
         totalSize += stat.size;
       }
 
       if (totalSize <= maxCacheBytes && fileStats.length <= maxTrackCount) {
-        _setCachedTotalBytes(totalSize);
+        _setCachedTotalBytes(_bestEffortTotal(totalSize, scanStartBytes));
         return;
       }
 
@@ -1726,7 +1855,7 @@ class StreamCacheManager {
           DebugLog.write('[cache] Evicted old unqueued track: $vId (${(size / 1024).round()} KB)');
         } catch (_) {}
       }
-      _setCachedTotalBytes(totalSize);
+      _setCachedTotalBytes(_bestEffortTotal(totalSize, scanStartBytes));
     } catch (e) {
       debugPrint('[StreamCacheManager] Quota enforcement error: $e');
     }
