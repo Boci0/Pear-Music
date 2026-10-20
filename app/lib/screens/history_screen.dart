@@ -137,8 +137,10 @@ class HistoryScreen extends StatelessWidget {
                       Widget tileAt(int i) {
                         final song = songs[i];
                         return RepaintBoundary(
+                          // The key must sit on the widget the list builds, or
+                          // findChildIndexCallback never gets one.
+                          key: ValueKey(song.id),
                           child: SongTile(
-                            key: ValueKey(song.id),
                             song: song,
                             queue: songs,
                             sourceId: 'history',

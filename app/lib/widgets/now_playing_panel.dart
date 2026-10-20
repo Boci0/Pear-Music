@@ -369,6 +369,12 @@ class NowPlayingPanel extends StatelessWidget {
                 final artSize = math
                     .min(constraints.maxWidth, constraints.maxHeight - 380)
                     .clamp(120.0, constraints.maxWidth);
+                // Decode the remote cover at the size it is painted instead of
+                // its full 640px thumbnail size.
+                final artCacheWidth =
+                    (artSize * MediaQuery.devicePixelRatioOf(context))
+                        .round()
+                        .clamp(96, 640);
                 final hasQueue = player.queue.isNotEmpty;
                 return Column(
                   children: [
@@ -383,7 +389,7 @@ class NowPlayingPanel extends StatelessWidget {
                     SizedBox(
                       width: artSize,
                       height: artSize,
-                      child: _Artwork(song: song),
+                      child: _Artwork(song: song, cacheWidth: artCacheWidth),
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -705,7 +711,11 @@ class _ProgressLineState extends State<_ProgressLine> {
 
 class _Artwork extends StatelessWidget {
   final Song song;
-  const _Artwork({required this.song});
+
+  /// Decode width for the remote cover, in physical pixels.
+  final int cacheWidth;
+
+  const _Artwork({required this.song, required this.cacheWidth});
 
   @override
   Widget build(BuildContext context) {
@@ -734,6 +744,7 @@ class _Artwork extends StatelessWidget {
     } else if (artwork.startsWith('http')) {
       image = Image.network(
         ArtworkService.optimizeArtworkUrl(artwork),
+        cacheWidth: cacheWidth,
         fit: BoxFit.cover,
         gaplessPlayback: true,
         errorBuilder: (_, _, _) => placeholder,
@@ -813,12 +824,24 @@ class _QueueContextListState extends State<_QueueContextList> {
     super.dispose();
   }
 
+  /// The playing row, resolved by song identity the same way the queue sheet
+  /// does. The player's queueIndex getter also syncs itself, but resolving
+  /// from [Song.id] keeps the indicator correct even when the queue and the
+  /// index disagree.
+  int _playingIndex(List<Song> queue) {
+    final songId = widget.player.currentSong?.id;
+    if (songId == null) return widget.player.queueIndex;
+    return queue.indexWhere((s) => s.id == songId);
+  }
+
   /// Keeps the playing track in view as the queue advances: jump on the first
   /// build, animate on track changes, and only when the track actually changes
   /// (the player notifies on every position tick).
   void _syncScrollToCurrent() {
-    final index = widget.player.queueIndex;
+    final queue = widget.player.queue;
+    final index = _playingIndex(queue);
     final songId = widget.player.currentSong?.id;
+    if (index < 0) return;
     if (index == _lastIndex && songId == _lastSongId) return;
     final animate = _lastIndex != null;
     _lastIndex = index;
@@ -845,7 +868,7 @@ class _QueueContextListState extends State<_QueueContextList> {
   Widget build(BuildContext context) {
     final player = widget.player;
     final queue = player.queue;
-    final index = player.queueIndex;
+    final index = _playingIndex(queue);
     final theme = widget.theme;
     final control = widget.control;
     _syncScrollToCurrent();

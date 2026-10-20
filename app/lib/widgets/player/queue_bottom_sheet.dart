@@ -401,8 +401,14 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
             PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme);
 
         final t = _curvedAnimation.value;
+        // The radius no longer follows the animation: a radius that changes
+        // every frame rebuilt the container's clip and shadow masks at 60 fps.
+        // A blurred shadow on a panel this size is the pattern that used to
+        // balloon GPU memory (see the glass shadow note in .dev_context.md),
+        // so the sheet keeps a constant rim and no drop shadow, like every
+        // PearGlass panel.
         final radius = BorderRadius.vertical(
-          top: Radius.circular(PearGlassTokens.r(lerpDouble(22, 28, t)!)),
+          top: Radius.circular(PearGlassTokens.r(24)),
         );
         // Collapsed it is the mini player's own glass; opening it fades to
         // opaque so the queue stays readable over the player behind it.
@@ -418,7 +424,9 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
 
         return Container(
           height: currentHeight,
-          clipBehavior: Clip.antiAlias,
+          // No clip: the panel's height animates, so any rounded clip would
+          // rebuild a mask every frame, and nothing in the sheet paints past
+          // its own bounds (the list viewport clips its rows).
           decoration: glass.copyWith(
             border: Border(
               top: BorderSide(
@@ -432,16 +440,6 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
                 width: 1,
               ),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(
-                  alpha: lerpDouble(0.12, 0.65, t)!,
-                ),
-                blurRadius: lerpDouble(16, 28, t)!,
-                spreadRadius: 1,
-                offset: const Offset(0, -4),
-              ),
-            ],
           ),
           child: Column(
             children: [

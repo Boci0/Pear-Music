@@ -42,9 +42,15 @@ class LyricsView extends StatefulWidget {
 class _LyricsViewState extends State<LyricsView>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   List<LyricLine> _lyrics = const [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   int _activeIndex = -1;
   StreamSubscription<Duration>? _positionSub;
+
+  /// Whether a lyrics lookup was ever started. The card is mounted (hidden)
+  /// even while the artwork is showing, so nothing is fetched until the card
+  /// is actually opened the first time; after that, song changes keep it
+  /// current so flipping back shows the right lyrics without a reload.
+  bool _lyricsRequested = false;
 
   /// The song position, advanced every frame between the player's position
   /// updates (4 a second) so the glow moves smoothly through the line.
@@ -69,7 +75,7 @@ class _LyricsViewState extends State<LyricsView>
     LyricsDisplay.mode.addListener(_onPaletteUpdated);
     LyricsDisplay.wordGlow.addListener(_onPaletteUpdated);
     LyricsDisplay.glowDelayMs.addListener(_onPaletteUpdated);
-    _loadLyrics();
+    _ensureLyricsLoaded();
   }
 
   void _onPaletteUpdated() {
@@ -101,7 +107,14 @@ class _LyricsViewState extends State<LyricsView>
       _updateSubscriptionState();
     }
     if (oldWidget.song.id != widget.song.id) {
-      _loadLyrics();
+      // Reload for the new song only if lyrics were looked up before or are
+      // on screen; a card that was never opened must not fetch for every
+      // track that plays.
+      if (_lyricsRequested || widget.isVisible) {
+        _loadLyrics();
+      } else {
+        _updateSubscriptionState();
+      }
     } else if (widget.isVisible != oldWidget.isVisible) {
       _updateSubscriptionState();
       if (widget.isVisible && _isForeground) {
@@ -110,11 +123,18 @@ class _LyricsViewState extends State<LyricsView>
     }
   }
 
+  /// Starts the first lyrics lookup, and only that: hidden lyrics do no work.
+  void _ensureLyricsLoaded() {
+    if (_lyricsRequested || !widget.isVisible) return;
+    _loadLyrics();
+  }
+
   /// Listens to the position only while lyrics are on screen. The position
   /// stream is shared (broadcast), and a paused broadcast subscription keeps
   /// every event it misses, so hidden lyrics cancel instead of pausing: hours
   /// in the background would otherwise pile up and replay as a burst.
   void _updateSubscriptionState() {
+    _ensureLyricsLoaded();
     final shouldListen =
         _lyrics.isNotEmpty && _isForeground && widget.isVisible;
     if (shouldListen && _positionSub == null) {
@@ -268,6 +288,7 @@ class _LyricsViewState extends State<LyricsView>
   }
 
   Future<void> _loadLyrics() async {
+    _lyricsRequested = true;
     setState(() {
       _isLoading = true;
       _lyrics = const [];

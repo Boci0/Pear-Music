@@ -31,10 +31,16 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// Wait after the last keystroke before the query reaches the list. Filtering
+  /// and sorting the whole library is not worth doing for every character, and
+  /// the list stays one frame behind the caret for at most this long.
+  static const Duration _searchDebounceDelay = Duration(milliseconds: 180);
+
   bool _isSelecting = false;
   bool _isSearching = false;
   bool _showOnlyFavorites = false;
   String _searchQuery = '';
+  Timer? _searchDebounce;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final Set<String> _selectedIds = {};
@@ -42,9 +48,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Applies a typed query after a short pause. Clearing the field is applied
+  /// at once so the list never looks stuck behind an empty box.
+  void _onSearchQueryChanged(String value) {
+    _searchDebounce?.cancel();
+    if (value.trim().isEmpty) {
+      _searchDebounce = null;
+      setState(() => _searchQuery = value);
+      return;
+    }
+    _searchDebounce = Timer(_searchDebounceDelay, () {
+      if (!mounted) return;
+      setState(() => _searchQuery = value);
+    });
+  }
+
+  /// Drops a pending debounce before the query is cleared another way, so the
+  /// old text cannot land back in the list after the field is empty.
+  void _cancelSearchDebounce() {
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
   }
 
   bool get _isDesktop =>
@@ -281,18 +310,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// One library row, shared by the single and multi-column lists.
+  /// One library row, shared by the single and multi-column lists. The
+  /// [index] comes from the list builders; looking it up with
+  /// `songs.indexOf` would scan the whole library once per visible row.
   Widget _tileFor(
     Song song,
+    int index,
     List<Song> songs,
     String? currentSongId, {
     required String sourceId,
     required String sourceTitle,
   }) {
-    final index = songs.indexOf(song);
     return RepaintBoundary(
+      // The row's identity has to sit on the widget the list builds, or the
+      // list's findChildIndexCallback never sees a key.
+      key: ValueKey(song.id),
       child: SongTile(
-        key: ValueKey(song.id),
         number: index + 1,
         song: song,
         queue: songs,
@@ -351,6 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
             findChildIndexCallback: findIndex,
             itemBuilder: (context, i) => _tileFor(
               songs[i],
+              i,
               songs,
               currentSongId,
               sourceId: sourceId,
@@ -369,6 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
           findChildIndexCallback: findIndex,
           itemBuilder: (context, i) => _tileFor(
             songs[i],
+            i,
             songs,
             currentSongId,
             sourceId: sourceId,
@@ -401,6 +436,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? IconButton(
                   icon: const Icon(Icons.clear, size: 16),
                   onPressed: () {
+                    _cancelSearchDebounce();
                     setState(() {
                       _searchQuery = '';
                       _searchController.clear();
@@ -430,7 +466,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        onChanged: (v) => setState(() => _searchQuery = v),
+        onChanged: _onSearchQueryChanged,
       ),
     );
   }
@@ -682,6 +718,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
               FocusScope.of(context).unfocus();
+              _cancelSearchDebounce();
               setState(() {
                 _isSearching = false;
                 _searchQuery = '';
@@ -839,6 +876,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _selectedIds.clear();
             });
           } else if (_searchQuery.isNotEmpty) {
+            _cancelSearchDebounce();
             setState(() {
               _searchQuery = '';
               _searchController.clear();

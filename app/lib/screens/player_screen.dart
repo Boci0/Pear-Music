@@ -59,11 +59,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// the player was opened at phone width and the window was then widened),
   /// close this page and open the pane's expanded player instead, so wide
   /// windows never show two different players.
+  ///
+  /// Only this route may be current: while a popup (queue, lyrics options,
+  /// speed, sleep timer) sits on top, popping would close that popup instead
+  /// of this page and leave the shell showing the full page over an expanded
+  /// pane. The hand-off is left for a later build, after the popup is gone.
   void _handOffToPaneIfWide(Size size) {
     if (_handingOffToPane || !HomeShell.usesNowPlayingPane(size)) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
     _handingOffToPane = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      final currentRoute = ModalRoute.of(context);
+      if (currentRoute != null && !currentRoute.isCurrent) {
+        // A popup opened before this frame: retry on a later build instead of
+        // latching the hand-off on a page that is no longer on top.
+        _handingOffToPane = false;
+        return;
+      }
       final navigator = Navigator.of(context);
       if (!navigator.canPop()) {
         _handingOffToPane = false;

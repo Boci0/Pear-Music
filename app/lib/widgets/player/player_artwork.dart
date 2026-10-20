@@ -172,7 +172,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     final effectiveNetworkUrl = rawNetworkUrl != null && rawNetworkUrl.isNotEmpty
         ? ArtworkService.optimizeArtworkUrl(rawNetworkUrl)
         : null;
-    final initialBytes = artwork ?? (song != null ? ArtworkPalette.bytes(song) : null);
+    // Cached bytes paint immediately; the FutureBuilder below decodes in the
+    // background otherwise. Decoding base64 in build would stall the first
+    // frame for artwork that scrolled out of the byte cache.
+    final initialBytes = artwork ?? (song != null ? ArtworkPalette.cachedBytes(song) : null);
     final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
     final targetPx = (size * dpr).round().clamp(96, 768);
 

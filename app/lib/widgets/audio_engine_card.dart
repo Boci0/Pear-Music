@@ -55,11 +55,6 @@ class _AudioEngineCardState extends State<AudioEngineCard> {
   late Future<String?> _deno = YoutubeService.installedDenoVersion();
   bool _busy = false;
 
-  void _refresh() => setState(() {
-        _inUse = YoutubeService.describeYtDlpInUse();
-        _deno = YoutubeService.installedDenoVersion();
-      });
-
   void _say(String text) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
@@ -71,8 +66,15 @@ class _AudioEngineCardState extends State<AudioEngineCard> {
     try {
       await action();
     } finally {
-      if (mounted) setState(() => _busy = false);
-      _refresh();
+      // One guarded update: an unmounted card must not call setState, and the
+      // two futures have to be refreshed together with the busy flag.
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _inUse = YoutubeService.describeYtDlpInUse();
+          _deno = YoutubeService.installedDenoVersion();
+        });
+      }
     }
   }
 
