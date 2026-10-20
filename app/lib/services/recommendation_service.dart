@@ -6,11 +6,15 @@ import 'package:flutter/foundation.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
+import 'text_repair.dart';
 import 'youtube_search_service.dart';
 
 /// Representation of a single recommended track from YouTube Music.
 class RecommendationItem {
   final String videoId;
+
+  /// The title with any code-page decoding mistakes repaired, so player and
+  /// list rows show the real characters even when a lookup comes back garbled.
   final String title;
   final String artist;
   final Duration? duration;
@@ -19,14 +23,15 @@ class RecommendationItem {
   /// Live right now (YouTube Music marks the row with a live badge).
   final bool isLive;
 
-  const RecommendationItem({
+  RecommendationItem({
     required this.videoId,
-    required this.title,
-    required this.artist,
+    required String title,
+    required String artist,
     this.duration,
     this.thumbnailUrl,
     this.isLive = false,
-  });
+  })  : title = TextRepair.title(title),
+        artist = TextRepair.title(artist);
 
   String get durationFormatted {
     if (duration == null) return '--:--';

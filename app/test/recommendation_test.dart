@@ -6,7 +6,7 @@ import 'package:peerm_app/services/stream_cache_manager.dart';
 void main() {
   group('RecommendationItem & Models', () {
     test('toSong produces a valid stream song', () {
-      const item = RecommendationItem(
+      final item = RecommendationItem(
         videoId: 'dQw4w9WgXcQ',
         title: 'Never Gonna Give You Up',
         artist: 'Rick Astley',

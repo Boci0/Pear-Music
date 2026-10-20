@@ -218,6 +218,7 @@ class LibraryService extends ChangeNotifier {
         final seenChecksums = <String>{};
         var hadDuplicates = false;
         var hadBadEntries = false;
+        var hadGarbledTitles = false;
         for (final item in decoded) {
           if (item is Map<String, dynamic>) {
             final Song s;
@@ -229,6 +230,11 @@ class LibraryService extends ChangeNotifier {
               hadBadEntries = true;
               continue;
             }
+            // Song repairs code-page decoding mistakes, so a title that came
+            // back different was stored garbled (by an older build or a file
+            // made elsewhere). Save once to heal the index.
+            hadGarbledTitles |= s.title != item['title'] ||
+                s.artist != item['artist'];
             if (seenIds.contains(s.id) || seenChecksums.contains(s.checksum)) {
               hadDuplicates = true;
               continue;
@@ -240,7 +246,7 @@ class LibraryService extends ChangeNotifier {
           }
         }
         if (hadBadEntries) await _keepCorruptCopy(_indexFile!);
-        if (hadDuplicates || hadBadEntries) {
+        if (hadDuplicates || hadBadEntries || hadGarbledTitles) {
           await _saveIndex();
         }
         _retroactiveRepairHttpArtworks();

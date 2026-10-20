@@ -37,7 +37,7 @@ void main() {
                 children: [
                   SizedBox(
                     width: width,
-                    child: const YouTubeSongTile(
+                    child: YouTubeSongTile(
                       result: YouTubeSearchResult(
                         videoId: 'v1',
                         title: 'Song 1',

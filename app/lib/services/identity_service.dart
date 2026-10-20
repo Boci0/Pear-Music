@@ -76,15 +76,20 @@ class IdentityService extends ChangeNotifier {
     deviceName = _prefs.getString(_deviceNameKey) ?? _defaultName();
 
     _favoriteSongIds = Set<String>.from(_prefs.getStringList(_favoriteIdsKey) ?? []);
+    var favoritesRepaired = false;
     final onlineJson = _prefs.getString(_favoriteOnlineSongsKey);
     if (onlineJson != null && onlineJson.isNotEmpty) {
       try {
         final decoded = jsonDecode(onlineJson);
         if (decoded is Map<String, dynamic>) {
           for (final entry in decoded.entries) {
-            if (entry.value is Map<String, dynamic>) {
-              _favoriteOnlineSongs[entry.key] =
-                  Song.fromJson(entry.value as Map<String, dynamic>);
+            final raw = entry.value;
+            if (raw is Map<String, dynamic>) {
+              final song = Song.fromJson(raw);
+              _favoriteOnlineSongs[entry.key] = song;
+              // Song repairs code-page decoding mistakes; a title that came
+              // back different was stored garbled by an older build.
+              favoritesRepaired |= song.title != raw['title'];
             }
           }
         }
@@ -92,21 +97,34 @@ class IdentityService extends ChangeNotifier {
         DebugLog.write('[identity] saved favorite songs could not be read: $e');
       }
     }
+    var knownRepaired = false;
     final knownOnlineJson = _prefs.getString(_knownOnlineSongsKey);
     if (knownOnlineJson != null && knownOnlineJson.isNotEmpty) {
       try {
         final decoded = jsonDecode(knownOnlineJson);
         if (decoded is Map<String, dynamic>) {
           for (final entry in decoded.entries) {
-            if (entry.value is Map<String, dynamic>) {
-              _knownOnlineSongs[entry.key] =
-                  Song.fromJson(entry.value as Map<String, dynamic>);
+            final raw = entry.value;
+            if (raw is Map<String, dynamic>) {
+              final song = Song.fromJson(raw);
+              _knownOnlineSongs[entry.key] = song;
+              knownRepaired |= song.title != raw['title'];
             }
           }
         }
       } catch (e) {
         DebugLog.write('[identity] known online songs could not be read: $e');
       }
+    }
+    // Write the repaired titles back once, so the history, favourites and
+    // anything that reads them from storage shows real characters too.
+    if (favoritesRepaired) unawaited(_saveFavorites());
+    if (knownRepaired) unawaited(_saveKnownOnlineSongs());
+    if (favoritesRepaired || knownRepaired) {
+      DebugLog.write(
+        '[identity] repaired garbled titles of stored online songs '
+        '(favorites: $favoritesRepaired, known: $knownRepaired)',
+      );
     }
     final sortStr = _prefs.getString(_sortOptionKey);
     _sortOption = SortOption.values.firstWhere(

@@ -8,10 +8,14 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
 import 'backup_audio_engine.dart';
 import 'recommendation_service.dart';
+import 'text_repair.dart';
 
 /// Representation of a YouTube search track result.
 class YouTubeSearchResult {
   final String videoId;
+
+  /// The title with any code-page decoding mistakes repaired, so search rows
+  /// show the real characters even when a lookup comes back garbled.
   final String title;
   final String author;
   final Duration? duration;
@@ -20,14 +24,15 @@ class YouTubeSearchResult {
   /// Live right now: it has no length, so rows show a LIVE badge instead.
   final bool isLive;
 
-  const YouTubeSearchResult({
+  YouTubeSearchResult({
     required this.videoId,
-    required this.title,
-    required this.author,
+    required String title,
+    required String author,
     this.duration,
     this.thumbnailUrl,
     this.isLive = false,
-  });
+  })  : title = TextRepair.title(title),
+        author = TextRepair.title(author);
 
   String get url => 'https://www.youtube.com/watch?v=$videoId';
 

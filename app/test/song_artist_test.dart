@@ -4,7 +4,7 @@ import 'package:peerm_app/services/recommendation_service.dart';
 
 void main() {
   test('online songs keep the artist apart from the title', () {
-    const item = RecommendationItem(
+    final item = RecommendationItem(
       videoId: 'abc',
       title: 'Some Title',
       artist: 'Some Artist',
@@ -16,7 +16,7 @@ void main() {
   });
 
   test('a title that already names the artist is left whole', () {
-    const item = RecommendationItem(
+    final item = RecommendationItem(
       videoId: 'abc',
       title: 'Some Artist - Some Title',
       artist: 'Some Artist',

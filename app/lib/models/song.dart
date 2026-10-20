@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../services/text_repair.dart';
+
 /// A music file in the local library.
 ///
 /// [sourceDeviceId] is `null` when the song was added directly on this device.
@@ -16,6 +18,10 @@ import 'dart:convert';
 /// a large library doesn't balloon RAM with per-song decoded bitmaps.
 class Song {
   final String id;
+
+  /// The display title. Code-page decoding mistakes (mojibake) are repaired
+  /// here (see [TextRepair]), so every path that builds a [Song] shows the
+  /// real characters, including titles restored from an older build's data.
   final String title;
   final String fileName;
   final int size;
@@ -36,16 +42,25 @@ class Song {
 
   Song({
     required this.id,
-    required this.title,
-    required this.fileName,
+    required String title,
+    required String fileName,
     required this.size,
     required this.checksum,
     this.sourceDeviceId,
     this.artwork,
-    this.artist,
+    String? artist,
     this.isLive = false,
     required this.addedAt,
-  });
+  })  : title = TextRepair.title(title),
+        // A stream reference's file name is just its title plus the video id,
+        // so it heals with the title. Local file names are real paths and are
+        // never touched.
+        fileName = id.startsWith('stream_')
+            ? TextRepair.title(fileName)
+            : fileName,
+        artist = artist == null || artist.isEmpty
+            ? artist
+            : TextRepair.title(artist);
 
   /// [title] without the ` - artist` suffix added for online songs, for
   /// places that show the artist on its own line.

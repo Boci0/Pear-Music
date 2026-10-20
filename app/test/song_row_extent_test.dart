@@ -79,7 +79,7 @@ void main() {
     await pumpLoose(
       tester,
       controller,
-      const YouTubeSongTile(
+      YouTubeSongTile(
         result: YouTubeSearchResult(
           videoId: 'v1',
           title: 'Song 1',

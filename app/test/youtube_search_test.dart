@@ -53,7 +53,7 @@ void main() {
 
   group('YouTubeSearchResult', () {
     test('formats duration correctly', () {
-      const item1 = YouTubeSearchResult(
+      final item1 = YouTubeSearchResult(
         videoId: 'abc12345',
         title: 'Test Song',
         author: 'Test Artist',
@@ -64,7 +64,7 @@ void main() {
       expect(item1.durationFormatted, '3:45');
       expect(item1.url, 'https://www.youtube.com/watch?v=abc12345');
 
-      const item2 = YouTubeSearchResult(
+      final item2 = YouTubeSearchResult(
         videoId: 'def67890',
         title: 'Short Clip',
         author: 'Artist',
@@ -72,7 +72,7 @@ void main() {
       );
       expect(item2.durationFormatted, '0:09');
 
-      const item3 = YouTubeSearchResult(
+      final item3 = YouTubeSearchResult(
         videoId: 'xyz',
         title: 'Live Stream',
         author: 'Channel',

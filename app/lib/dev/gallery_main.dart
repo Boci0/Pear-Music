@@ -412,13 +412,13 @@ class _RowsSheet extends StatelessWidget {
     final songs = _songs(context);
     final current = _current(context);
     final others = songs.where((s) => s != current).take(3).toList();
-    const yt = YouTubeSearchResult(
+    final yt = YouTubeSearchResult(
       videoId: 'gallery1',
       title: 'Broken Sun',
       author: 'Monster Siren Records',
       duration: Duration(minutes: 1, seconds: 45),
     );
-    const ytLong = YouTubeSearchResult(
+    final ytLong = YouTubeSearchResult(
       videoId: 'gallery2',
       title: 'Arknights EP - Revealing (Original Soundtrack, Extended Version)',
       author: 'Arknights Official - Yostar',
@@ -429,8 +429,8 @@ class _RowsSheet extends StatelessWidget {
             SizedBox(width: w, child: SongTile(song: s)),
           if (current != null)
             SizedBox(width: w, child: SongTile(song: current, isCurrent: true)),
-          SizedBox(width: w, child: const YouTubeSongTile(result: yt)),
-          SizedBox(width: w, child: const YouTubeSongTile(result: ytLong)),
+          SizedBox(width: w, child: YouTubeSongTile(result: yt)),
+          SizedBox(width: w, child: YouTubeSongTile(result: ytLong)),
         ];
     Widget pair(double w) => Row(
           crossAxisAlignment: CrossAxisAlignment.start,
