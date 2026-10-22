@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/loudness_meter.dart';
 import 'package:peerm_app/services/loudness_service.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
@@ -92,6 +93,36 @@ void main() {
       for (var i = 0; i < onsets.length; i++) {
         expect((decoded[i] - onsets[i]).abs(), lessThanOrEqualTo(5));
       }
+    });
+
+    test('the store is written by a background isolate and reads back',
+        () async {
+      final store = File(p.join(sandbox.path, 'loudness.json'));
+      addTearDown(() {
+        if (store.existsSync()) store.deleteSync();
+      });
+      await LoudnessService.load();
+      LoudnessService.setSpanForTesting(
+        'ddddddddddd',
+        const LoudnessAnalysis(
+          lufs: -12.5,
+          musicStart: 1.5,
+          musicEnd: 200.0,
+          length: 201.0,
+          onsetsMs: [1000, 1500],
+        ),
+      );
+
+      await LoudnessService.saveNowForTesting();
+
+      final saved = jsonDecode(store.readAsStringSync()) as Map;
+      expect(saved['ddddddddddd']['lufs'], -12.5);
+      expect(saved['ddddddddddd']['end'], 200.0);
+      expect(
+        LoudnessService.decodeOnsets(saved['ddddddddddd']['on'] as String),
+        [1000, 1500],
+      );
+      expect(File('${store.path}.tmp').existsSync(), isFalse);
     });
 
     test('a song saved before onsets keeps its level but is measured again',

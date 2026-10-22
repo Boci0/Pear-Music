@@ -145,22 +145,30 @@ class LoudnessService {
 
   static void _scheduleSave() {
     _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(seconds: 2), () {
-      final file = _storeFile;
-      if (file == null) return;
-      // The store holds every song ever measured, so encoding it is too much
-      // work for the UI isolate at a song change: copy the maps and encode and
-      // write in a background isolate.
-      final lufs = Map<String, double>.of(_lufs);
-      final spans = Map<String, LoudnessAnalysis>.of(_spans);
-      final needsOnsets = Set<String>.of(_needsOnsets);
-      _saveRun = _saveRun
-          .then((_) => Isolate.run(
-                () => _writeStore(file.path, lufs, spans, needsOnsets),
-              ))
-          .catchError((Object e) {
-        DebugLog.write('[loudness] could not save loudness.json: $e');
-      });
+    _saveTimer = Timer(const Duration(seconds: 2), _saveNow);
+  }
+
+  @visibleForTesting
+  static Future<void> saveNowForTesting() {
+    _saveNow();
+    return _saveRun;
+  }
+
+  static void _saveNow() {
+    final file = _storeFile;
+    if (file == null) return;
+    // The store holds every song ever measured, so encoding it is too much
+    // work for the UI isolate at a song change: copy the maps and encode and
+    // write in a background isolate.
+    final lufs = Map<String, double>.of(_lufs);
+    final spans = Map<String, LoudnessAnalysis>.of(_spans);
+    final needsOnsets = Set<String>.of(_needsOnsets);
+    _saveRun = _saveRun
+        .then((_) => Isolate.run(
+              () => _writeStore(file.path, lufs, spans, needsOnsets),
+            ))
+        .catchError((Object e) {
+      DebugLog.write('[loudness] could not save loudness.json: $e');
     });
   }
 
