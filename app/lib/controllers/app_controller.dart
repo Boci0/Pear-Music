@@ -54,7 +54,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     required this.player,
     required this.youtube,
     this.history,
-  });
+  }) {
+    identity.protectedOnlineIds = () => {
+          for (final pl in library.playlists) ...pl.songIds,
+        };
+  }
 
   List<Song> get songs => library.songs;
 

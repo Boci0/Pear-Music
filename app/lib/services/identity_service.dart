@@ -238,9 +238,16 @@ class IdentityService extends ChangeNotifier {
     }
   }
 
+  /// Online song ids the known-songs cache must not drop (the members of
+  /// playlists): this cache holds their only copy of the title and artwork, so
+  /// losing one makes it vanish from its playlist.
+  Set<String> Function() protectedOnlineIds = () => const {};
+
   void _pruneKnownOnlineSongs() {
     if (_knownOnlineSongs.length <= 1000) return;
+    final keep = protectedOnlineIds();
     final keysToRemove = _knownOnlineSongs.keys
+        .where((k) => !keep.contains(k))
         .take(_knownOnlineSongs.length - 1000)
         .toList();
     for (final k in keysToRemove) {

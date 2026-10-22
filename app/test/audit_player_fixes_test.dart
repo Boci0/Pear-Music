@@ -264,6 +264,19 @@ void main() {
     expect(player.isAdvancing, isFalse);
   });
 
+  test('previous does not jump to full volume while the new song fades in',
+      () async {
+    final (player, engine, songs) = await start(_ids, first: _streamSong(_ids[1]));
+    engine.position_ = const Duration(seconds: 1);
+
+    await player.previous();
+
+    expect(player.currentSong?.id, songs.first.id);
+    expect(engine.volume, lessThan(0.5),
+        reason: 'the fade-in starts from silence; forcing the volume back '
+            'to full right after playSong cut into it');
+  });
+
   test('PC-05: a failed volume fade during a skip does not leave the player '
       'advancing', () async {
     final (player, engine, songs) = await start(_ids);

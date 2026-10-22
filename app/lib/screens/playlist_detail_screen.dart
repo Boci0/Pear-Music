@@ -273,7 +273,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final mutableSongs = List<Song>.from(songs);
     final moved = mutableSongs.removeAt(oldIndex);
     mutableSongs.insert(newIndex, moved);
-    final ids = mutableSongs.map((s) => s.id).toList();
+    // Entries that cannot be resolved right now are not listed; they keep
+    // their place instead of being dropped from the playlist by the reorder.
+    final shown = songs.map((s) => s.id).toSet();
+    final reordered = mutableSongs.map((s) => s.id).iterator;
+    final ids = [
+      for (final id in _optimisticIds ?? playlist.songIds)
+        if (shown.contains(id) && reordered.moveNext()) reordered.current else id,
+    ];
     setState(() {
       _optimisticIds = ids;
     });

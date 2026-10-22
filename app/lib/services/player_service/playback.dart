@@ -966,9 +966,14 @@ mixin _PlayerPlayback
     try {
       if (_player.playing && _userVolume > 0.05) {
         await _fadeVolume(0.0, duration: const Duration(milliseconds: 80));
-        // Paused or superseded during the fade: stay put. The finally below
-        // restores the volume.
-        if (advanceToken != _playRequestToken) return;
+        // Paused or superseded during the fade: stay put and hand the
+        // listener their volume back.
+        if (advanceToken != _playRequestToken) {
+          if (_player.playing && _player.volume < _effectiveVolume) {
+            unawaited(_player.setVolume(_effectiveVolume));
+          }
+          return;
+        }
       }
       _syncQueueIndexWithCurrentSong();
       final pos = _player.position;
@@ -999,11 +1004,16 @@ mixin _PlayerPlayback
       }
     } catch (e) {
       DebugLog.write('[player] previous error: $e');
-    } finally {
-      _isAdvancing = false;
+      // The fade may have been cut off halfway: do not leave the song quiet.
       if (_player.playing && _player.volume < _effectiveVolume) {
-        await _player.setVolume(_effectiveVolume);
+        try {
+          await _player.setVolume(_effectiveVolume);
+        } catch (_) {}
       }
+    } finally {
+      // No volume restore here: playSong, seek and _replayCurrent set their
+      // own, and forcing full volume after playSong cut into its fade-in.
+      _isAdvancing = false;
     }
   }
 
