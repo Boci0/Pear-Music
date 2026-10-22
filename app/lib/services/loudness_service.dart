@@ -140,35 +140,55 @@ class LoudnessService {
     }
   }
 
+  /// Saves run one after another: two never write the same temp file.
+  static Future<void> _saveRun = Future.value();
+
   static void _scheduleSave() {
     _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(seconds: 2), () async {
+    _saveTimer = Timer(const Duration(seconds: 2), () {
       final file = _storeFile;
       if (file == null) return;
-      try {
-        final tmp = File('${file.path}.tmp');
-        await tmp.writeAsString(jsonEncode({
-          for (final e in _lufs.entries)
-            e.key: switch (_spans[e.key]) {
-              final span? => {
-                  'lufs': e.value,
-                  'start': span.musicStart,
-                  'end': span.musicEnd,
-                  'len': span.length,
-                  'v': _spanVersion,
-                  if (!_needsOnsets.contains(e.key)) ...{
-                    'on': encodeOnsets(span.onsetsMs),
-                    'ov': _onsetVersion,
-                  },
-                },
-              null => e.value,
-            },
-        }));
-        await tmp.rename(file.path);
-      } catch (e) {
+      // The store holds every song ever measured, so encoding it is too much
+      // work for the UI isolate at a song change: copy the maps and encode and
+      // write in a background isolate.
+      final lufs = Map<String, double>.of(_lufs);
+      final spans = Map<String, LoudnessAnalysis>.of(_spans);
+      final needsOnsets = Set<String>.of(_needsOnsets);
+      _saveRun = _saveRun
+          .then((_) => Isolate.run(
+                () => _writeStore(file.path, lufs, spans, needsOnsets),
+              ))
+          .catchError((Object e) {
         DebugLog.write('[loudness] could not save loudness.json: $e');
-      }
+      });
     });
+  }
+
+  static void _writeStore(
+    String path,
+    Map<String, double> lufs,
+    Map<String, LoudnessAnalysis> spans,
+    Set<String> needsOnsets,
+  ) {
+    final tmp = File('$path.tmp');
+    tmp.writeAsStringSync(jsonEncode({
+      for (final e in lufs.entries)
+        e.key: switch (spans[e.key]) {
+          final span? => {
+              'lufs': e.value,
+              'start': span.musicStart,
+              'end': span.musicEnd,
+              'len': span.length,
+              'v': _spanVersion,
+              if (!needsOnsets.contains(e.key)) ...{
+                'on': encodeOnsets(span.onsetsMs),
+                'ov': _onsetVersion,
+              },
+            },
+          null => e.value,
+        },
+    }));
+    tmp.renameSync(path);
   }
 
   /// The stored loudness of [song], or null if it has not been measured.

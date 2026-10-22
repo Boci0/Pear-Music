@@ -647,6 +647,8 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
               at: DateTime.now(),
             );
           }
+          final now = DateTime.now();
+          _links.removeWhere((_, l) => now.difference(l.at) >= _linkLife);
           _links[streamId] = link;
         } else {
           final found = link;
