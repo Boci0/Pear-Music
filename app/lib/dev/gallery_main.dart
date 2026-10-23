@@ -3,7 +3,7 @@
 //
 // Run:   flutter run -d windows -t lib/dev/gallery_main.dart
 // Build: flutter build windows --release --no-pub -t lib/dev/gallery_main.dart
-// Args:  --sheet=parts|rows|panes|phone|desktop  --style=glass|frosted|solid|graphite
+// Args:  --sheet=parts|rows|panes|phone|desktop|players|screens  --style=glass|frosted|solid|graphite
 //        --song=<part of a title> (the song shown as playing)
 //
 // It reads a copy of the library index (real titles and covers) from a temp
@@ -22,6 +22,7 @@ import '../models/song.dart';
 import '../screens/home_shell.dart';
 import '../widgets/player/stream_quality_info_dialog.dart';
 import '../widgets/player/playback_speed_dialog.dart';
+import '../widgets/player/lyric_sync_sheet.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
 import '../screens/history_screen.dart';
 import '../screens/playlists_screen.dart';
@@ -47,7 +48,15 @@ import '../widgets/side_rail.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/youtube_song_tile.dart';
 
-const _sheets = ['parts', 'rows', 'panes', 'phone', 'desktop', 'screens'];
+const _sheets = [
+  'parts',
+  'rows',
+  'panes',
+  'phone',
+  'desktop',
+  'players',
+  'screens',
+];
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -140,8 +149,9 @@ class _GalleryApp extends StatefulWidget {
 }
 
 class _GalleryAppState extends State<_GalleryApp> {
-  late String _sheet =
-      _sheets.contains(widget.initialSheet) ? widget.initialSheet : 'parts';
+  late String _sheet = _sheets.contains(widget.initialSheet)
+      ? widget.initialSheet
+      : 'parts';
   final _navKey = GlobalKey<NavigatorState>();
 
   @override
@@ -171,10 +181,7 @@ class _GalleryAppState extends State<_GalleryApp> {
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _TopBar(
-              sheet: _sheet,
-              onSheet: (s) => setState(() => _sheet = s),
-            ),
+            _TopBar(sheet: _sheet, onSheet: (s) => setState(() => _sheet = s)),
             Expanded(child: _sheetBody(_sheet)),
           ],
         ),
@@ -183,13 +190,14 @@ class _GalleryAppState extends State<_GalleryApp> {
   }
 
   Widget _sheetBody(String sheet) => switch (sheet) {
-        'rows' => const _RowsSheet(),
-        'panes' => const _PanesSheet(),
-        'phone' => const _PhoneSheet(),
-        'desktop' => const _DesktopSheet(),
-        'screens' => const _ScreensSheet(),
-        _ => const _PartsSheet(),
-      };
+    'rows' => const _RowsSheet(),
+    'panes' => const _PanesSheet(),
+    'phone' => const _PhoneSheet(),
+    'desktop' => const _DesktopSheet(),
+    'players' => const _PlayersSheet(),
+    'screens' => const _ScreensSheet(),
+    _ => const _PartsSheet(),
+  };
 }
 
 class _TopBar extends StatelessWidget {
@@ -290,12 +298,12 @@ class _Sheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: sections,
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: sections,
+    ),
+  );
 }
 
 Song? _current(BuildContext context) =>
@@ -314,20 +322,21 @@ class _PartsSheet extends StatelessWidget {
     final player = context.watch<PlayerService>();
     final controller = context.read<AppController>();
     final song = _current(context);
-    final accent =
-        song == null ? scheme.primary : ArtworkPalette.dominantSync(song);
+    final accent = song == null
+        ? scheme.primary
+        : ArtworkPalette.dominantSync(song);
     Widget swatch(String name, Color c) => _Spec(
-          name,
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: c,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white24),
-            ),
-          ),
-          width: 96,
-          height: 56,
-        );
+      name,
+      DecoratedBox(
+        decoration: BoxDecoration(
+          color: c,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white24),
+        ),
+      ),
+      width: 96,
+      height: 56,
+    );
     Widget type(String name, TextStyle? s) =>
         _Spec(name, Text('Arsonist · Local Library', style: s), width: 300);
     return _Sheet([
@@ -425,35 +434,47 @@ class _RowsSheet extends StatelessWidget {
       duration: Duration(minutes: 4, seconds: 49),
     );
     List<Widget> rowsAt(double w) => [
-          for (final s in others)
-            SizedBox(width: w, child: SongTile(song: s)),
-          if (current != null)
-            SizedBox(width: w, child: SongTile(song: current, isCurrent: true)),
-          SizedBox(width: w, child: YouTubeSongTile(result: yt)),
-          SizedBox(width: w, child: YouTubeSongTile(result: ytLong)),
-        ];
+      for (final s in others)
+        SizedBox(
+          width: w,
+          child: SongTile(song: s),
+        ),
+      if (current != null)
+        SizedBox(
+          width: w,
+          child: SongTile(song: current, isCurrent: true),
+        ),
+      SizedBox(
+        width: w,
+        child: YouTubeSongTile(result: yt),
+      ),
+      SizedBox(
+        width: w,
+        child: YouTubeSongTile(result: ytLong),
+      ),
+    ];
     Widget pair(double w) => Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _Spec(
-              'cards (old)',
-              PearRowLook(child: Column(children: rowsAt(w))),
-              width: w + 20,
-            ),
-            const SizedBox(width: 30),
-            _Spec(
-              'flat',
-              PearRowLook(flat: true, child: Column(children: rowsAt(w))),
-              width: w + 20,
-            ),
-            const SizedBox(width: 30),
-            _Spec(
-              'flat + dividers (now)',
-              PearRowLook(divided: true, child: Column(children: rowsAt(w))),
-              width: w + 20,
-            ),
-          ],
-        );
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Spec(
+          'cards (old)',
+          PearRowLook(child: Column(children: rowsAt(w))),
+          width: w + 20,
+        ),
+        const SizedBox(width: 30),
+        _Spec(
+          'flat',
+          PearRowLook(flat: true, child: Column(children: rowsAt(w))),
+          width: w + 20,
+        ),
+        const SizedBox(width: 30),
+        _Spec(
+          'flat + dividers (now)',
+          PearRowLook(divided: true, child: Column(children: rowsAt(w))),
+          width: w + 20,
+        ),
+      ],
+    );
     return _Sheet([
       _Section('Rows, phone width', [pair(370)]),
       _Section('Rows, 780 window', [pair(400)]),
@@ -543,14 +564,11 @@ class _FrameNavigatorState extends State<_FrameNavigator> {
 
   @override
   Widget build(BuildContext context) => Navigator(
-        pages: [
-          MaterialPage<void>(
-            key: ValueKey(_generation),
-            child: widget.child,
-          ),
-        ],
-        onDidRemovePage: (_) => setState(() => _generation++),
-      );
+    pages: [
+      MaterialPage<void>(key: ValueKey(_generation), child: widget.child),
+    ],
+    onDidRemovePage: (_) => setState(() => _generation++),
+  );
 }
 
 class _PhoneSheet extends StatelessWidget {
@@ -558,19 +576,30 @@ class _PhoneSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const _Sheet([
-        _Section('Phone (390 x 844)', [
-          _Frame('library, now (dock, flat rows + dividers)',
-              Size(390, 844), HomeShell(), scale: 0.9),
-          _Frame('player', Size(390, 844), PlayerScreen(), scale: 0.9),
-          _Frame('player sideways (844 x 390)', Size(844, 390),
-              PlayerScreen(), scale: 0.9),
-          _Frame('settings', Size(390, 844), SettingsScreen(), scale: 0.9),
-          _Frame('library, before (two pills, card rows)', Size(390, 844),
-              PearRowLook(child: HomeShell(singleDock: false)), scale: 0.9),
-          _Frame('sideways (844 x 390)', Size(844, 390), HomeShell(),
-              scale: 0.9),
-        ]),
-      ]);
+    _Section('Phone (390 x 844)', [
+      _Frame(
+        'library, now (dock, flat rows + dividers)',
+        Size(390, 844),
+        HomeShell(),
+        scale: 0.9,
+      ),
+      _Frame('player', Size(390, 844), PlayerScreen(), scale: 0.9),
+      _Frame(
+        'player sideways (844 x 390)',
+        Size(844, 390),
+        PlayerScreen(),
+        scale: 0.9,
+      ),
+      _Frame('settings', Size(390, 844), SettingsScreen(), scale: 0.9),
+      _Frame(
+        'library, before (two pills, card rows)',
+        Size(390, 844),
+        PearRowLook(child: HomeShell(singleDock: false)),
+        scale: 0.9,
+      ),
+      _Frame('sideways (844 x 390)', Size(844, 390), HomeShell(), scale: 0.9),
+    ]),
+  ]);
 }
 
 class _DesktopSheet extends StatelessWidget {
@@ -578,14 +607,34 @@ class _DesktopSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const _Sheet([
-        _Section('Desktop', [
-          _Frame('1440 x 860, before (cards)', Size(1440, 860),
-              PearRowLook(child: HomeShell()), scale: 0.48),
-          _Frame('1440 x 860, now', Size(1440, 860), HomeShell(),
-              scale: 0.48),
-          _Frame('780 x 900', Size(780, 900), HomeShell(), scale: 0.62),
-        ]),
-      ]);
+    _Section('Desktop', [
+      _Frame(
+        '1440 x 860, before (cards)',
+        Size(1440, 860),
+        PearRowLook(child: HomeShell()),
+        scale: 0.48,
+      ),
+      _Frame('1440 x 860, now', Size(1440, 860), HomeShell(), scale: 0.48),
+      _Frame('780 x 900', Size(780, 900), HomeShell(), scale: 0.62),
+    ]),
+  ]);
+}
+
+/// The Windows player: on a desktop the Now Playing pane is the only
+/// player (always expanded, Console look under Graphite), shown here beside
+/// the library at a small, a normal and a maximized window.
+class _PlayersSheet extends StatelessWidget {
+  const _PlayersSheet();
+
+  @override
+  Widget build(BuildContext context) => const _Sheet([
+    _Section('Windows player (Now Playing pane)', [
+      _Frame('1100 x 760', Size(1100, 760), HomeShell(), scale: 0.6),
+      _Frame('1500 x 900', Size(1500, 900), HomeShell(), scale: 0.5),
+      _Frame('maximized 1920 x 1040', Size(1920, 1040), HomeShell(),
+          scale: 0.4),
+    ]),
+  ]);
 }
 
 /// Opens one of the app's real dialogs by name.
@@ -598,6 +647,11 @@ void _openDialog(BuildContext context, String name) {
       showPlaybackSpeedDialog(context, player);
     case 'info':
       StreamQualityInfoDialog.show(context);
+    case 'lyrics':
+      final song = player.currentSong;
+      if (song != null) {
+        showLyricSyncSheet(context, song: song, player: player);
+      }
   }
 }
 
@@ -606,17 +660,17 @@ class _ScreensSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _Sheet([
-        _Section('Dialogs (open the real ones)', [
-          for (final d in const ['sleep', 'speed', 'info'])
-            OutlinedButton(
-              onPressed: () => _openDialog(context, d),
-              child: Text(d),
-            ),
-        ]),
-        const _Section('Screens (390 x 844)', [
-          _Frame('playlists', Size(390, 844), PlaylistsScreen(), scale: 0.9),
-          _Frame('history', Size(390, 844), HistoryScreen(), scale: 0.9),
-          _Frame('settings', Size(390, 844), SettingsScreen(), scale: 0.9),
-        ]),
-      ]);
+    _Section('Dialogs (open the real ones)', [
+      for (final d in const ['sleep', 'speed', 'info', 'lyrics'])
+        OutlinedButton(
+          onPressed: () => _openDialog(context, d),
+          child: Text(d),
+        ),
+    ]),
+    const _Section('Screens (390 x 844)', [
+      _Frame('playlists', Size(390, 844), PlaylistsScreen(), scale: 0.9),
+      _Frame('history', Size(390, 844), HistoryScreen(), scale: 0.9),
+      _Frame('settings', Size(390, 844), SettingsScreen(), scale: 0.9),
+    ]),
+  ]);
 }
