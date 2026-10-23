@@ -36,6 +36,48 @@ mixin _PlayerPlayback
   HistoryService? get history;
   ValueNotifier<double> get volumeNotifier;
 
+  /// Opens [source] for playback, giving up after [timeout]. The desktop
+  /// engine never reports a file it can neither play nor reject (a video
+  /// download with no sound track, a cut-off file) as loaded or failed, and
+  /// while the first load after startup hangs, every later engine call waits
+  /// behind it: no song would play again until a restart. Stopping swaps in a
+  /// fresh engine. An open that a newer one took over throws
+  /// [PlayerInterruptedException], so it is not reported as a broken file.
+  Future<void> _openSource(
+    AudioSource source, {
+    Duration? timeout,
+  }) async {
+    final attempt = ++_openAttempt;
+    final limit = timeout ?? PlayerService.fileOpenTimeout;
+    _openPending = true;
+    try {
+      await _player.setAudioSource(source).timeout(limit);
+    } on TimeoutException {
+      if (attempt != _openAttempt) {
+        throw PlayerInterruptedException('a newer song was opened');
+      }
+      DebugLog.write('[player] opening took over ${limit.inSeconds} s, resetting the engine');
+      await _player.stop();
+      rethrow;
+    } finally {
+      if (attempt == _openAttempt) _openPending = false;
+    }
+  }
+
+  /// Called before a new song touches the engine. If the previous song is
+  /// still opening, the engine may be stuck on it (see [_openSource]) and
+  /// would hold the new song's calls behind it for good, so it is reset.
+  Future<void> _abandonPendingOpen() async {
+    if (!_openPending) return;
+    _openAttempt++;
+    _openPending = false;
+    DebugLog.write('[player] previous song still opening, resetting the engine');
+    await _player.stop();
+  }
+
+  int _openAttempt = 0;
+  bool _openPending = false;
+
   /// Plays a live stream from its HLS link; it never ends, so it is never
   /// cached. False when no link resolved or it would not open. True when a
   /// newer play request took over meanwhile, so the caller just stops.
@@ -59,7 +101,7 @@ mixin _PlayerPlayback
         refresh: () async =>
             (await StreamCacheManager.resolveLiveLink(videoId))?.url,
       ));
-      await _player.setAudioSource(source).timeout(PlayerService._earlyStreamOpenTimeout);
+      await _openSource(source, timeout: PlayerService._earlyStreamOpenTimeout);
     } catch (e) {
       DebugLog.write('[player] Live stream $videoId would not play: $e');
       return token != _playRequestToken;
@@ -122,6 +164,7 @@ mixin _PlayerPlayback
     _isAdvancing = true;
     _isLoadingTrack = true;
 
+    await _abandonPendingOpen();
     // Immediately mute and pause existing playback so the previous track does not
     // produce an audio pop, crackle, or continue playing while the new track is resolving.
     if (_player.playing) {
@@ -254,9 +297,7 @@ mixin _PlayerPlayback
           notifyListeners();
           DebugLog.write('[player] DISK CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${cachedFile.path}');
           try {
-            await _player.setAudioSource(
-              AudioSource.file(cachedFile.path),
-            );
+            await _openSource(AudioSource.file(cachedFile.path));
             _resetStreamFailureCounters();
           } on PlayerInterruptedException {
             // A newer load took over the engine: the file is fine, so keep
@@ -317,13 +358,11 @@ mixin _PlayerPlayback
               // A link that was already used up or throttled (HTTP 403) can
               // leave the player opening it forever, which kept the song on
               // "loading" with no error. Give up and use the cached file.
-              final opening = _player
-                  .setAudioSource(
-                    growing ??
-                        AudioSource.uri(Uri.parse(link.url),
-                            headers: link.headers),
-                  )
-                  .timeout(PlayerService._earlyStreamOpenTimeout);
+              final opening = _openSource(
+                growing ??
+                    AudioSource.uri(Uri.parse(link.url), headers: link.headers),
+                timeout: PlayerService._earlyStreamOpenTimeout,
+              );
               // A fetch that ends with no file (a 403, a dropped connection)
               // leaves the engine retrying an empty source for seconds before
               // it reports an error. Once the fetch itself is over with
@@ -403,9 +442,7 @@ mixin _PlayerPlayback
             notifyListeners();
             DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             try {
-              await _player.setAudioSource(
-                AudioSource.file(downloadedFile.path),
-              );
+              await _openSource(AudioSource.file(downloadedFile.path));
               _resetStreamFailureCounters();
             } on PlayerInterruptedException {
               // A newer load took over the engine: the file is fine, so keep
@@ -482,15 +519,17 @@ mixin _PlayerPlayback
         _currentLoadedFormat = p.extension(file.path).replaceFirst('.', '');
         notifyListeners();
         try {
-          await _player.setAudioSource(
-            AudioSource.file(file.path),
-          );
+          await _openSource(AudioSource.file(file.path));
         } catch (e) {
           // Never delete the song here. Failing to open a file says little about
           // the file: the audio backend may not have started, the output device
           // may be busy, or the file may be locked for a moment. Removing the
           // entry also deletes the user's copy, which cannot be undone, so the
           // song stays and the user is told, with a retry.
+          if (e is PlayerInterruptedException || token != _playRequestToken) {
+            // Another song took over while this one was opening.
+            return;
+          }
           DebugLog.write('[player] Could not open ${song.title} ($e). Keeping it in the library.');
           _pendingNaturalAdvance = false;
           _isLoadingTrack = false;

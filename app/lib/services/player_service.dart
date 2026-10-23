@@ -934,6 +934,11 @@ class PlayerService extends ChangeNotifier with
   /// How long opening a stream's direct link may take before falling back.
   static const Duration _earlyStreamOpenTimeout = Duration(seconds: 10);
 
+  /// How long opening a file on disk may take; a local file opens in well
+  /// under a second, so this only catches one the engine is stuck on.
+  @visibleForTesting
+  static Duration fileOpenTimeout = const Duration(seconds: 15);
+
   /// Cancels a playback attempt that a new session token has abandoned and
   /// clears the flags it would have cleared itself. A `playSong` cut short by
   /// a token change never reaches its own cleanup (see [stop]), so a caller
