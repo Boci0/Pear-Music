@@ -270,6 +270,27 @@ Future<HttpServer?> startTestControl(
                 'ids': [for (final s in added) s.id],
               };
             }
+          case '/download':
+            // A download as the Explore tab starts it; height= asks for video.
+            final url = q['url'];
+            if (url == null) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no url'};
+            } else {
+              final before = controller.library.songs.map((s) => s.id).toSet();
+              final error = await controller.addFromLink(
+                url,
+                videoHeight: int.tryParse(q['height'] ?? ''),
+              );
+              body = {
+                'error': error,
+                'added': [
+                  for (final s in controller.library.songs)
+                    if (!before.contains(s.id))
+                      {'id': s.id, 'title': s.title, 'file': s.fileName},
+                ],
+              };
+            }
           case '/expand':
             HomeShell.requestExpandedPane();
             body = {'expanded': true};
