@@ -56,21 +56,29 @@ class _MiniVisualizerState extends State<MiniVisualizer>
   void initState() {
     super.initState();
     _feed.acquire(widget.player);
-    // The wave is there to be watched from the side while another window is
-    // in use, so an unfocused window must not freeze it.
-    _feed.holdWhileUnfocused();
     _feed.changes.addListener(_syncTimer);
     _syncTimer();
+  }
+
+  /// Whether this wave holds the feed running while the window is unfocused.
+  bool _holding = false;
+
+  /// The wave is there to be watched from the side while another window is
+  /// in use, so an unfocused window must not freeze it. Only while it is on
+  /// screen: under the full player the hold would keep the artwork visualizer
+  /// running in an unfocused window too.
+  void _syncHold() {
+    if (_visible == _holding) return;
+    _holding = _visible;
+    _holding ? _feed.holdWhileUnfocused() : _feed.releaseUnfocusedHold();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final visible = TickerMode.valuesOf(context).enabled;
-    if (visible != _visible) {
-      _visible = visible;
-      _syncTimer();
-    }
+    _visible = TickerMode.valuesOf(context).enabled;
+    _syncHold();
+    _syncTimer();
   }
 
   @override
@@ -134,7 +142,7 @@ class _MiniVisualizerState extends State<MiniVisualizer>
   void dispose() {
     _ticker.dispose();
     _feed.changes.removeListener(_syncTimer);
-    _feed.releaseUnfocusedHold();
+    if (_holding) _feed.releaseUnfocusedHold();
     _feed.release();
     _paintTick.dispose();
     super.dispose();

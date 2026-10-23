@@ -5,6 +5,8 @@ import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
 import 'package:peerm_app/services/player_service.dart';
+import 'package:peerm_app/services/visualizer_feed.dart';
+import 'package:peerm_app/services/window_focus.dart';
 import 'package:peerm_app/services/youtube_service.dart';
 import 'package:peerm_app/widgets/player/mini_visualizer.dart';
 import 'package:peerm_app/widgets/player_bar.dart';
@@ -81,5 +83,30 @@ void main() {
     await controller.updateReducedEffects(true);
     await tester.pumpAndSettle();
     expect(find.byType(MiniVisualizer), findsNothing);
+  });
+
+  testWidgets('a covered mini wave does not keep the feed running unfocused',
+      (tester) async {
+    final player = PlayerService(LibraryService());
+    final feed = VisualizerFeed.instance;
+    addTearDown(() => WindowFocus.focused.value = true);
+    Widget wave(bool onScreen) => TickerMode(
+          enabled: onScreen,
+          child: MiniVisualizer(player: player, color: Colors.white),
+        );
+
+    await tester.pumpWidget(wave(true));
+    WindowFocus.focused.value = false;
+    expect(feed.renderActive, isTrue, reason: 'on screen, watched from the side');
+
+    // Under the full player: the artwork visualizer must pause unfocused.
+    await tester.pumpWidget(wave(false));
+    expect(feed.renderActive, isFalse);
+
+    await tester.pumpWidget(wave(true));
+    expect(feed.renderActive, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    WindowFocus.focused.value = true;
   });
 }
