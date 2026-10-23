@@ -294,14 +294,22 @@ class SongTile extends StatelessWidget {
     final controller = context.read<AppController>();
     final theme = Theme.of(context);
     final fromPeer = song.sourceDeviceId != null;
+    final amount = song.durationLabel ?? song.sizeLabel;
     final baseMeta = song.sourceDeviceId == 'stream'
         ? 'Stream'
         : fromPeer
-        ? 'Shared · ${song.sizeLabel}'
-        : 'Local · ${song.sizeLabel}';
+        ? 'Shared · $amount'
+        : 'Local · $amount';
     final metaLabel = metaSuffix == null
         ? baseMeta
         : '$baseMeta · $metaSuffix';
+    // The wide column shows the length, which says more than the file size.
+    final length = song.durationLabel;
+    final wideMeta = length == null
+        ? metaLabel
+        : metaSuffix == null
+        ? length
+        : '$length · $metaSuffix';
 
     return RepaintBoundary(
       child: PearRowRule(child: Padding(
@@ -515,12 +523,15 @@ class SongTile extends StatelessWidget {
                                         ],
                                         Flexible(
                                           child: Text(
-                                            metaLabel,
+                                            wideMeta,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: theme.textTheme.bodySmall
                                                 ?.copyWith(
                                                   fontSize: 12.5,
+                                                  fontFeatures: const [
+                                                    FontFeature.tabularFigures(),
+                                                  ],
                                                   color: theme
                                                       .colorScheme
                                                       .onSurfaceVariant,
@@ -631,8 +642,8 @@ class _Artwork extends StatelessWidget {
           child: Image.network(
             ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('tile_net_${song.id}'),
-            width: 44,
-            height: 44,
+            width: PearRow.cover,
+            height: PearRow.cover,
             cacheWidth: 96,
             fit: BoxFit.cover,
             gaplessPlayback: true,
@@ -647,8 +658,8 @@ class _Artwork extends StatelessWidget {
           child: Image.memory(
             initialBytes,
             key: ValueKey('tile_mem_${song.id}'),
-            width: 44,
-            height: 44,
+            width: PearRow.cover,
+            height: PearRow.cover,
             cacheWidth: 96,
             fit: BoxFit.cover,
             gaplessPlayback: true,
@@ -670,8 +681,8 @@ class _Artwork extends StatelessWidget {
               child: Image.memory(
                 bytes,
                 key: ValueKey('tile_mem_${song.id}'),
-                width: 44,
-                height: 44,
+                width: PearRow.cover,
+                height: PearRow.cover,
                 cacheWidth: 96,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
@@ -687,8 +698,8 @@ class _Artwork extends StatelessWidget {
 
   Widget _placeholder(ColorScheme scheme) {
     return Container(
-      width: 44,
-      height: 44,
+      width: PearRow.cover,
+      height: PearRow.cover,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
         gradient: LinearGradient(

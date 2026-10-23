@@ -785,6 +785,11 @@ class PlayerService extends ChangeNotifier with
     _subs.add(_player.durationStream.listen((duration) {
       final song = currentSong;
       if (song != null) audioHandler?.updateSongDuration(song.id, duration);
+      // A whole file on disk reports its true length; a stream may still be
+      // growing, so only library files are recorded.
+      if (song != null && duration != null && song.sourceDeviceId != 'stream') {
+        library.setSongLength(song.id, duration);
+      }
       _publishNotificationState();
       notifyListeners();
     }));

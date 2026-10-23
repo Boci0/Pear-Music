@@ -201,91 +201,109 @@ class NowPlayingPanel extends StatelessWidget {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final showQueue = !showVideo && player.queue.isNotEmpty;
+              // The player block takes what it needs and the queue gets the
+              // rest, so no empty band opens between the seek bar and volume.
+              // The artwork is the part that flexes: it gives way first so
+              // the queue keeps room for about five rows (44 each plus its
+              // header), and never drops below three.
+              final queueMin = showQueue ? 132.0 : 0.0;
+              final queueRoom = showQueue ? 262.0 : 0.0;
               final artSize = math
                   .min(
                     constraints.maxWidth - 44,
                     math.min(
                       constraints.maxHeight * 0.54,
-                      // Keep the info + transport + seek block (with its time
-                      // labels) above the fold on shorter windows: only the
-                      // artwork flexes, so no control silently drops below the
-                      // scroll edge.
-                      constraints.maxHeight - 220,
+                      // Info, transport, seek bar and volume under the cover.
+                      constraints.maxHeight - queueRoom - 270,
                     ),
                   )
                   .clamp(140.0, 520.0);
-              return SingleChildScrollView(
+              final block = ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: constraints.maxHeight - queueMin,
+                ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const SizedBox(height: 12),
-                    PlayerPictureSwap(
-                      video: showVideo,
-                      child: showVideo
-                          ? PlayerVideoView(
-                              accent: accent,
-                              maxWidth: constraints.maxWidth - 44,
-                              maxHeight: constraints.maxHeight * 0.6,
-                            )
-                          : PlayerArtworkHero(
-                              song: song,
-                              size: artSize,
-                              artwork: ArtworkPalette.cachedBytes(song),
-                              accent: accent,
-                              videoEnabled: true,
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 12),
+                            PlayerPictureSwap(
+                              video: showVideo,
+                              child: showVideo
+                                  ? PlayerVideoView(
+                                      accent: accent,
+                                      maxWidth: constraints.maxWidth - 44,
+                                      maxHeight: constraints.maxHeight * 0.6,
+                                    )
+                                  : PlayerArtworkHero(
+                                      song: song,
+                                      size: artSize,
+                                      artwork: ArtworkPalette.cachedBytes(song),
+                                      accent: accent,
+                                      videoEnabled: true,
+                                    ),
                             ),
-                    ),
-                    const SizedBox(height: 14),
-                    PlayerSongInfo(song: song, compact: true),
-                    const SizedBox(height: 4),
-                    PlayerTransport(
-                      player: player,
-                      controller: controller,
-                      accent: accent,
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: PlayerSeekBar(
-                        player: player,
-                        duration: player.duration ?? Duration.zero,
-                        accent: accent,
+                            const SizedBox(height: 14),
+                            PlayerSongInfo(song: song, compact: true),
+                            const SizedBox(height: 4),
+                            PlayerTransport(
+                              player: player,
+                              controller: controller,
+                              accent: accent,
+                            ),
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 18),
+                              child: PlayerSeekBar(
+                                player: player,
+                                duration: player.duration ?? Duration.zero,
+                                accent: accent,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    // Volume stays outside the scroll area: at shorter window
+                    // heights it used to end up below the fold with no
+                    // scrollbar cue, which read as a missing control.
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 2, 18, 12),
+                      child: PlayerVolumeRow(accent: control),
+                    ),
                   ],
                 ),
+              );
+              return Column(
+                children: [
+                  block,
+                  if (showQueue)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: _QueueContextList(
+                          player: player,
+                          // One accent with the rest of the app: the same
+                          // green the library's playing row uses, so the
+                          // playing row tints identically in every list.
+                          control: Theme.of(context).colorScheme.primary,
+                          theme: theme,
+                        ),
+                      ),
+                    )
+                  else
+                    const Spacer(),
+                ],
               );
             },
           ),
         ),
-        // Volume lives outside the scroll area: at shorter window heights it
-        // used to end up below the fold with no scrollbar cue, which read as
-        // a missing control.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
-          child: PlayerVolumeRow(accent: control),
-        ),
-        if (!showVideo && player.queue.isNotEmpty)
-          SizedBox(
-            // The queue yields space before the controls do: on shorter
-            // windows it shrinks so the seek bar and its time labels stay
-            // above the scroll edge.
-            height: math.min(
-              216.0,
-              math.max(132.0, MediaQuery.sizeOf(context).height * 0.17),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _QueueContextList(
-                player: player,
-                // One accent with the rest of the app: the same green the
-                // library's playing row uses, so the playing row tints
-                // identically in every list.
-                control: Theme.of(context).colorScheme.primary,
-                theme: theme,
-              ),
-            ),
-          ),
       ],
     );
     if (!showVideo || player.queue.isEmpty) return column;
@@ -988,7 +1006,7 @@ class _QueueContextListState extends State<_QueueContextList> {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            song.sizeLabel,
+                            song.durationLabel ?? song.sizeLabel,
                             style: theme.textTheme.labelSmall?.copyWith(
                               fontSize: 11,
                               color: Colors.white.withValues(alpha: 0.4),

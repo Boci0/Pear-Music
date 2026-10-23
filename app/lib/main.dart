@@ -16,6 +16,7 @@ import 'services/debug_log.dart';
 import 'services/history_service.dart';
 import 'services/identity_service.dart';
 import 'services/library_service.dart';
+import 'services/song_length_reader.dart';
 import 'services/lyrics_display.dart';
 import 'services/media_keys.dart';
 import 'services/media_session.dart';
@@ -163,6 +164,8 @@ Future<void> _bootstrapAndRunApp(List<String> args) async {
     history: history,
   );
   await controller.init();
+  // Lengths for the library's length column, read in the background.
+  SongLengthReader.attach(library);
 
   // App-wide theme that follows the currently-playing song's artwork colour.
   final playerTheme = PlayerTheme(player);

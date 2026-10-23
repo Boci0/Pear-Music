@@ -1150,7 +1150,7 @@ class _QueueRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        song.sizeLabel,
+                        song.durationLabel ?? song.sizeLabel,
                         maxLines: 1,
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontSize: 11.5,

@@ -36,6 +36,9 @@ class Song {
   /// A live stream (no length, no file): rows mark it LIVE. Kept with the
   /// song so the queue, history and favourites show it too.
   final bool isLive;
+
+  /// Play length, once known. Null for older entries and live streams.
+  final int? durationMs;
   final DateTime addedAt;
   late final String lowerTitle = title.toLowerCase();
   late final String lowerArtist = (artist ?? '').toLowerCase();
@@ -50,6 +53,7 @@ class Song {
     this.artwork,
     String? artist,
     this.isLive = false,
+    this.durationMs,
     required this.addedAt,
   })  : title = TextRepair.title(title),
         // A stream reference's file name is just its title plus the video id,
@@ -87,6 +91,32 @@ class Song {
     return '${(size / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
+  /// This song with its play length set.
+  Song withDuration(int ms) => Song(
+        id: id,
+        title: title,
+        fileName: fileName,
+        size: size,
+        checksum: checksum,
+        sourceDeviceId: sourceDeviceId,
+        artwork: artwork,
+        artist: artist,
+        isLive: isLive,
+        durationMs: ms,
+        addedAt: addedAt,
+      );
+
+  /// "3:42", or "1:02:05" past an hour; null while the length is unknown.
+  String? get durationLabel {
+    final ms = durationMs;
+    if (ms == null || ms <= 0) return null;
+    final d = Duration(milliseconds: ms);
+    final ss = (d.inSeconds % 60).toString().padLeft(2, '0');
+    if (d.inHours == 0) return '${d.inMinutes}:$ss';
+    final mm = (d.inMinutes % 60).toString().padLeft(2, '0');
+    return '${d.inHours}:$mm:$ss';
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
@@ -97,6 +127,7 @@ class Song {
         'artwork': artwork,
         if (artist != null) 'artist': artist,
         if (isLive) 'isLive': true,
+        if (durationMs != null) 'durationMs': durationMs,
         'addedAt': addedAt.toIso8601String(),
       };
 
@@ -110,6 +141,7 @@ class Song {
         artwork: json['artwork'] as String?,
         artist: json['artist'] as String?,
         isLive: json['isLive'] == true,
+        durationMs: (json['durationMs'] as num?)?.toInt(),
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
             DateTime.now(),
       );

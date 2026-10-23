@@ -397,8 +397,8 @@ class _SongRow extends StatelessWidget {
           child: Image.network(
             ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('pl_net_${song.id}'),
-            width: 44,
-            height: 44,
+            width: PearRow.cover,
+            height: PearRow.cover,
             cacheWidth: 96,
             fit: BoxFit.cover,
             gaplessPlayback: true,
@@ -413,8 +413,8 @@ class _SongRow extends StatelessWidget {
           child: Image.memory(
             initialBytes,
             key: ValueKey('pl_mem_${song.id}'),
-            width: 44,
-            height: 44,
+            width: PearRow.cover,
+            height: PearRow.cover,
             cacheWidth: 96,
             fit: BoxFit.cover,
             gaplessPlayback: true,
@@ -438,8 +438,8 @@ class _SongRow extends StatelessWidget {
               child: Image.memory(
                 bytes,
                 key: ValueKey('pl_mem_${song.id}'),
-                width: 44,
-                height: 44,
+                width: PearRow.cover,
+                height: PearRow.cover,
                 cacheWidth: 96,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
@@ -453,8 +453,8 @@ class _SongRow extends StatelessWidget {
 
     if (isCurrent) {
       artworkWidget = Container(
-        width: 44,
-        height: 44,
+        width: PearRow.cover,
+        height: PearRow.cover,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
           border: Border.all(
@@ -675,8 +675,8 @@ class _SongRow extends StatelessWidget {
 
   Widget _placeholder(ColorScheme scheme) {
     return Container(
-      width: 44,
-      height: 44,
+      width: PearRow.cover,
+      height: PearRow.cover,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
         gradient: LinearGradient(

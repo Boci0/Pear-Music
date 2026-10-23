@@ -14,6 +14,7 @@ library;
 import 'dart:math' as math;
 
 
+import 'package:flutter/foundation.dart';
 import 'pear_style.dart';
 
 import 'package:flutter/material.dart';
@@ -160,19 +161,31 @@ class PearOverlay {
 class PearRow {
   PearRow._();
 
+  /// Desktop lists are read with a mouse on a tall screen: shorter rows fit
+  /// more songs. Touch platforms keep the 64 px card.
+  static bool get dense => switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => true,
+    _ => false,
+  };
+
   /// Card height, rim included.
-  static const double card = 64;
+  static double get card => dense ? 48 : 64;
+
+  /// Cover size inside a row.
+  static double get cover => dense ? 36 : 44;
 
   /// Card rim width (the 1 px `Border.all` on the card decoration), which
   /// the decoration adds as padding around the content.
   static const double rim = 1;
 
   /// Height of the content inside the rim.
-  static const double content = card - 2 * rim;
+  static double get content => card - 2 * rim;
 
   /// Vertical padding above and below the card.
   static const double gap = 4;
 
   /// Row pitch: `itemExtent` / `mainAxisExtent` for song lists and grids.
-  static const double extent = card + 2 * gap;
+  static double get extent => card + 2 * gap;
 }

@@ -430,8 +430,8 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
           ? Image.network(
               ArtworkService.optimizeArtworkUrl(thumb),
               key: ValueKey('yt_thumb_${widget.result.videoId}'),
-              width: 44,
-              height: 44,
+              width: PearRow.cover,
+              height: PearRow.cover,
               cacheWidth: 88,
               fit: BoxFit.cover,
               gaplessPlayback: true,
@@ -446,8 +446,8 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
 
   Widget _placeholder(ThemeData theme) {
     return Container(
-      width: 44,
-      height: 44,
+      width: PearRow.cover,
+      height: PearRow.cover,
       color: theme.colorScheme.surfaceContainerHighest,
       child: Icon(Icons.music_note, color: theme.colorScheme.primary, size: 20),
     );

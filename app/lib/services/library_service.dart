@@ -47,6 +47,9 @@ class LibraryService extends ChangeNotifier {
     _rebuildIndexMaps();
   }
 
+  @visibleForTesting
+  void debugMarkFilesOnDisk(Iterable<String> ids) => _filesOnDisk.addAll(ids);
+
   void _rebuildIndexMaps() {
     _songsById.clear();
     _checksums.clear();
@@ -182,6 +185,23 @@ class LibraryService extends ChangeNotifier {
   }
 
   Directory get libraryDir => _libraryDir!;
+
+  /// Records a song's play length the first time it is known, for the
+  /// length column. Saved with the next debounced index write.
+  void setSongLength(String id, Duration length) {
+    final song = _songsById[id];
+    final ms = length.inMilliseconds;
+    if (song == null || song.isLive || song.durationMs != null || ms <= 0) {
+      return;
+    }
+    final i = _songs.indexWhere((s) => identical(s, song));
+    if (i < 0) return;
+    final updated = song.withDuration(ms);
+    _songs[i] = updated;
+    _indexSong(updated);
+    _scheduleSaveIndex();
+    _scheduleNotify();
+  }
 
   File songFile(Song song) => File(p.join(_libraryDir!.path, song.fileName));
 
@@ -918,6 +938,7 @@ class LibraryService extends ChangeNotifier {
               sourceDeviceId: s.sourceDeviceId,
               artwork: base64Art,
               artist: s.artist,
+              durationMs: s.durationMs,
               addedAt: s.addedAt,
             );
             _songs[i] = repaired;
