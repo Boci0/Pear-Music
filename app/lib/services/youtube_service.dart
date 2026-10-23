@@ -1112,12 +1112,13 @@ class YoutubeService {
       '/b[height<=$height]';
 
   /// Whether [path] is one half of a video download that ffmpeg did not join
-  /// (`title [id].f137.mp4` is picture only, `.f140.m4a` sound only). Such a
-  /// part is left behind by a failed first attempt or a missing ffmpeg, and
-  /// imported it plays as a silent or blank song.
+  /// (`title [id].f137.mp4` is picture only, `.f140.m4a` sound only) or a join
+  /// cut off midway (`.temp.mp4`). Such a file is left behind by a failed
+  /// first attempt or a missing ffmpeg, and imported it plays as a silent or
+  /// broken song.
   @visibleForTesting
   static bool isUnjoinedPart(String path) =>
-      RegExp(r'\.f\d+$').hasMatch(p.basenameWithoutExtension(path));
+      RegExp(r'\.(f\d+|temp)$').hasMatch(p.basenameWithoutExtension(path));
 
   static const _audioExts = {
     '.m4a', '.mp4', '.webm', '.opus', '.mka', '.ogg', '.aac', '.mp3', '.flac',

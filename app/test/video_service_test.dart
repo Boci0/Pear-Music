@@ -56,6 +56,7 @@ void main() {
   test('the unjoined halves of a video download are never imported', () {
     expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].f137.mp4'), isTrue);
     expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].f140.m4a'), isTrue);
+    expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].temp.mp4'), isTrue);
     expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].mp4'), isFalse);
     expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].webm'), isFalse);
   });
