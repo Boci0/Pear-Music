@@ -1063,7 +1063,7 @@ class YoutubeService {
       String? thumbPath;
       for (final f in tempDir.listSync().whereType<File>()) {
         final ext = p.extension(f.path).toLowerCase();
-        if (_audioExts.contains(ext)) {
+        if (_audioExts.contains(ext) && !isUnjoinedPart(f.path)) {
           audioFile ??= f;
         } else if (_imgExts.contains(ext)) {
           thumbPath ??= f.path;
@@ -1110,6 +1110,14 @@ class YoutubeService {
       '/b[height<=$height][ext=mp4]'
       '/bv*[height<=$height]+ba'
       '/b[height<=$height]';
+
+  /// Whether [path] is one half of a video download that ffmpeg did not join
+  /// (`title [id].f137.mp4` is picture only, `.f140.m4a` sound only). Such a
+  /// part is left behind by a failed first attempt or a missing ffmpeg, and
+  /// imported it plays as a silent or blank song.
+  @visibleForTesting
+  static bool isUnjoinedPart(String path) =>
+      RegExp(r'\.f\d+$').hasMatch(p.basenameWithoutExtension(path));
 
   static const _audioExts = {
     '.m4a', '.mp4', '.webm', '.opus', '.mka', '.ogg', '.aac', '.mp3', '.flac',
@@ -1196,7 +1204,7 @@ class YoutubeService {
       String? thumbPath;
       for (final f in tempDir.listSync().whereType<File>()) {
         final ext = p.extension(f.path).toLowerCase();
-        if (_audioExts.contains(ext)) {
+        if (_audioExts.contains(ext) && !isUnjoinedPart(f.path)) {
           audioFile ??= f;
         } else if (_imgExts.contains(ext)) {
           thumbPath ??= f.path;

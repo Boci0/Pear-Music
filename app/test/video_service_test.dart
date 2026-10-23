@@ -53,6 +53,13 @@ void main() {
     expect(format, isNot(contains('1080')));
   });
 
+  test('the unjoined halves of a video download are never imported', () {
+    expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].f137.mp4'), isTrue);
+    expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].f140.m4a'), isTrue);
+    expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].mp4'), isFalse);
+    expect(YoutubeService.isUnjoinedPart('t [BjgmNg37WvU].webm'), isFalse);
+  });
+
   test('a streamed song is looked up by its video id, a live one is not', () {
     Song stream({bool live = false}) => Song(
       id: 'stream_dQw4w9WgXcQ',
