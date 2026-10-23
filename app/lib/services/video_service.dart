@@ -732,6 +732,9 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           return;
         }
       }
+      // The seek above can outlast a song change; a slow lookup for the next
+      // song would otherwise leave this one's picture on show.
+      if (token != _token || !_shown) return;
       _ready = true;
       _steadySince = DateTime.now();
       await video.setRate(_player.speed);
