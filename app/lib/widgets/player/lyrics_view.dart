@@ -75,6 +75,7 @@ class _LyricsViewState extends State<LyricsView>
     LyricsDisplay.mode.addListener(_onPaletteUpdated);
     LyricsDisplay.wordGlow.addListener(_onPaletteUpdated);
     LyricsDisplay.glowDelayMs.addListener(_onPaletteUpdated);
+    LyricsDisplay.textScale.addListener(_onPaletteUpdated);
     _ensureLyricsLoaded();
   }
 
@@ -281,6 +282,7 @@ class _LyricsViewState extends State<LyricsView>
     LyricsDisplay.mode.removeListener(_onPaletteUpdated);
     LyricsDisplay.wordGlow.removeListener(_onPaletteUpdated);
     LyricsDisplay.glowDelayMs.removeListener(_onPaletteUpdated);
+    LyricsDisplay.textScale.removeListener(_onPaletteUpdated);
     _positionSub?.cancel();
     _sweepTicker.dispose();
     _sweepPosition.dispose();
@@ -532,7 +534,8 @@ class _LyricsViewState extends State<LyricsView>
     } else {
       baseFontSize = 16.5;
     }
-    final fontSize = (baseFontSize * scale).roundToDouble();
+    final fontSize =
+        (baseFontSize * scale * LyricsDisplay.textScale.value).roundToDouble();
 
     final isScrubbing = widget.player.scrubbingPosition != null;
     final textColor = isLight ? const Color(0xFF141416) : Colors.white;

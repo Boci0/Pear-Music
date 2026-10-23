@@ -34,6 +34,26 @@ class LyricsDisplay {
   static const String _keepScreenOnKey = 'peerm_lyrics_keep_screen_on';
   static const String _wordGlowKey = 'peerm_lyrics_word_glow';
   static const String _glowDelayKey = 'peerm_lyrics_glow_delay_ms';
+  static const String _textScaleKey = 'peerm_lyrics_text_scale';
+
+  /// The text sizes on offer, as a multiple of the default size.
+  static const Map<String, double> textSizes = {
+    'S': 0.85,
+    'M': 1.0,
+    'L': 1.2,
+    'XL': 1.4,
+  };
+
+  /// Lyric text size, one of [textSizes]. Long lines still shrink to fit.
+  static final ValueNotifier<double> textScale = ValueNotifier<double>(1.0);
+
+  /// Updates and persists [textScale].
+  static Future<void> setTextScale(double value) async {
+    if (!textSizes.containsValue(value) || textScale.value == value) return;
+    textScale.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_textScaleKey, value);
+  }
 
   /// How far the word glow is held back (positive) or pulled forward
   /// (negative), in milliseconds, for songs where it runs off from the voice.
@@ -81,6 +101,9 @@ class LyricsDisplay {
       -glowDelayLimitMs,
       glowDelayLimitMs,
     );
+    final scale = prefs.getDouble(_textScaleKey);
+    textScale.value =
+        scale != null && textSizes.containsValue(scale) ? scale : 1.0;
     final glow = prefs.getString(_wordGlowKey);
     wordGlow.value = WordGlowMode.values.firstWhere(
       (m) => m.name == glow,

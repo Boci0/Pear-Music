@@ -271,99 +271,175 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
 
   Widget _buildLineNudgeCard(ColorScheme scheme) {
     final target = _nudgeTarget;
-    final label = Theme.of(context).textTheme.labelSmall;
-    return Container(
+    return Column(
       key: const ValueKey('lyrics_line_nudge'),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _settingRow(
+          'One line',
+          'Only one line is early or late? Pick the playing line, then nudge '
+              'it. The rest of the lyrics stay put.',
+          Text(
+            _nudgedMs == 0
+                ? ''
+                : 'Moved ${_nudgedMs > 0 ? '+' : ''}$_nudgedMs ms',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: scheme.primary,
+            ),
+          ),
+        ),
+        Text(
+          target?.text ?? 'No line is playing yet',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: target == null ? scheme.onSurfaceVariant : scheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _nudgeRow(
+          onNudge: target == null ? null : _nudgePickedLine,
+          middle: OutlinedButton(
+            key: const ValueKey('lyrics_line_nudge_pick'),
+            onPressed: _pickPlayingLine,
+            style: _smallButtonStyle(outlined: true),
+            child: const Text('Playing line'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A section heading in spaced capitals, like the rest of the app's labels.
+  Widget _sectionTitle(String title, ColorScheme scheme) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Text(
+      title,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.6,
+        color: scheme.primary,
       ),
-      child: Column(
+    ),
+  );
+
+  TextStyle? _rowLabel(ColorScheme scheme) =>
+      Theme.of(context).textTheme.bodyMedium?.copyWith(
+        fontSize: 13,
+        color: scheme.onSurface,
+      );
+
+  /// One setting: its name (hover or long-press it for the explanation) on
+  /// the left, its control on the right.
+  Widget _settingRow(String label, String help, Widget control) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
         children: [
-          Text(
-            'Fix one line',
-            style: label?.copyWith(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Only one line is early or late? Tap Playing line, then nudge it. The rest of the lyrics stay put.',
-            textAlign: TextAlign.center,
-            style: label?.copyWith(
-              fontSize: 10.5,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            target?.text ?? 'No line is playing yet',
-            maxLines: 2,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: target == null
-                  ? scheme.onSurfaceVariant
-                  : scheme.onSurface,
-            ),
-          ),
-          if (_nudgedMs != 0) ...[
-            const SizedBox(height: 2),
-            Text(
-              'Moved ${_nudgedMs > 0 ? '+' : ''}$_nudgedMs ms',
-              style: label?.copyWith(fontSize: 11, color: scheme.primary),
-            ),
-          ],
-          const SizedBox(height: 8),
-          FittedBox(
-            fit: BoxFit.scaleDown,
+          Tooltip(
+            message: help,
+            preferBelow: false,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildOffsetButton(
-                  '-0.5s',
-                  target == null ? null : () => _nudgePickedLine(-500),
-                ),
-                const SizedBox(width: 5),
-                _buildOffsetButton(
-                  '-0.1s',
-                  target == null ? null : () => _nudgePickedLine(-100),
-                ),
-                const SizedBox(width: 6),
-                OutlinedButton(
-                  key: const ValueKey('lyrics_line_nudge_pick'),
-                  onPressed: _pickPlayingLine,
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    minimumSize: const Size(0, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                  child: Text(
-                    'Playing line',
-                    style: label?.copyWith(fontSize: 11.5),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                _buildOffsetButton(
-                  '+0.1s',
-                  target == null ? null : () => _nudgePickedLine(100),
-                ),
-                const SizedBox(width: 5),
-                _buildOffsetButton(
-                  '+0.5s',
-                  target == null ? null : () => _nudgePickedLine(500),
+                Text(label, style: _rowLabel(scheme)),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 13,
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Align(alignment: Alignment.centerRight, child: control),
+          ),
         ],
       ),
     );
+  }
+
+  /// A compact single-choice row of square segments.
+  Widget _segments<T>({
+    Key? key,
+    required List<T> values,
+    required List<String> labels,
+    required T selected,
+    required Future<void> Function(T) onSelected,
+  }) {
+    return SegmentedButton<T>(
+      key: key,
+      segments: [
+        for (var i = 0; i < values.length; i++)
+          ButtonSegment(value: values[i], label: Text(labels[i])),
+      ],
+      selected: {selected},
+      onSelectionChanged: (selection) {
+        onSelected(selection.first);
+        setState(() {});
+      },
+      showSelectedIcon: false,
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// -0.5s, -0.1s, [middle], +0.1s, +0.5s across the sheet's width.
+  Widget _nudgeRow({
+    required void Function(int ms)? onNudge,
+    required Widget middle,
+  }) {
+    Widget step(int ms) => _buildOffsetButton(
+      '${ms > 0 ? '+' : '-'}${(ms.abs() / 1000).toStringAsFixed(1)}s',
+      onNudge == null ? null : () => onNudge(ms),
+    );
+    return Row(
+      children: [
+        Expanded(child: step(-500)),
+        const SizedBox(width: 4),
+        Expanded(child: step(-100)),
+        const SizedBox(width: 4),
+        Expanded(flex: 2, child: middle),
+        const SizedBox(width: 4),
+        Expanded(child: step(100)),
+        const SizedBox(width: 4),
+        Expanded(child: step(500)),
+      ],
+    );
+  }
+
+  ButtonStyle _smallButtonStyle({bool outlined = false}) {
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
+    );
+    final text = Theme.of(context).textTheme.labelSmall?.copyWith(
+      fontSize: 11.5,
+    );
+    return outlined
+        ? OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            minimumSize: const Size(0, 32),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            shape: shape,
+            textStyle: text,
+          )
+        : TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: shape,
+          );
   }
 
   Future<void> _borrowWordTiming() async {
@@ -530,328 +606,143 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Offset Control Card
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(
-                      alpha: 0.35,
-                    ),
-                    borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Sync Offset',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _isLoadingOffset
-                            ? '···'
-                            : (_currentOffsetMs == 0
-                                  ? '0.0s (In Sync)'
-                                  : '${_currentOffsetMs > 0 ? '+' : ''}${(_currentOffsetMs / 1000.0).toStringAsFixed(1)}s (${_currentOffsetMs > 0 ? '+' : ''}${_currentOffsetMs}ms)'),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _currentOffsetMs == 0
-                              ? scheme.onSurface
-                              : scheme.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Earlier',
-                                  style: Theme.of(context).textTheme.labelSmall
-                                      ?.copyWith(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _buildOffsetButton(
-                                      '-0.5s',
-                                      () => _adjustOffset(-500),
-                                    ),
-                                    const SizedBox(width: 5),
-                                    _buildOffsetButton(
-                                      '-0.1s',
-                                      () => _adjustOffset(-100),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            const SizedBox(width: 6),
-                            OutlinedButton(
-                              onPressed: _currentOffsetMs == 0
-                                  ? null
-                                  : _resetOffset,
-                              style: OutlinedButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                minimumSize: const Size(0, 32),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                              ),
-                              child: Text(
-                                'Reset',
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(fontSize: 11.5),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Later',
-                                  style: Theme.of(context).textTheme.labelSmall
-                                      ?.copyWith(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _buildOffsetButton(
-                                      '+0.1s',
-                                      () => _adjustOffset(100),
-                                    ),
-                                    const SizedBox(width: 5),
-                                    _buildOffsetButton(
-                                      '+0.5s',
-                                      () => _adjustOffset(500),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Whole song early or late? Shift every line together. Negative shows lyrics earlier; positive delays them.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: 10.5,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (_currentRawLrc != null &&
-                          !LyricsService.hasWordTiming(_currentRawLrc!))
-                        TextButton.icon(
-                          key: const ValueKey('lyrics_borrow_word_timing'),
-                          onPressed: _isLoadingOffset || _isBorrowing
-                              ? null
-                              : _borrowWordTiming,
-                          icon: const Icon(Icons.timer_outlined, size: 16),
-                          label: const Text('Try NetEase word timing'),
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        ),
-                      TextButton.icon(
-                        key: const ValueKey('lyrics_report_timing'),
-                        onPressed: _isLoadingOffset ? null : _copyTimingReport,
-                        icon: const Icon(Icons.content_copy_rounded, size: 16),
-                        label: const Text('Report timing'),
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
-                    ],
+                _sectionTitle('DISPLAY', scheme),
+                _settingRow(
+                  'Text size',
+                  'How big the lyrics are. Long lines still shrink to fit.',
+                  _segments<double>(
+                    key: const ValueKey('lyrics_text_size'),
+                    values: LyricsDisplay.textSizes.values.toList(),
+                    labels: LyricsDisplay.textSizes.keys.toList(),
+                    selected: LyricsDisplay.textScale.value,
+                    onSelected: LyricsDisplay.setTextScale,
                   ),
                 ),
-                const SizedBox(height: 12),
+                _settingRow(
+                  'Colour',
+                  'Auto matches the artwork; White or Black forces the lyric '
+                      'colour. The glow follows the song accent.',
+                  _segments<LyricsColorMode>(
+                    values: LyricsColorMode.values,
+                    labels: const ['Auto', 'White', 'Black'],
+                    selected: LyricsDisplay.mode.value,
+                    onSelected: LyricsDisplay.set,
+                  ),
+                ),
+                _settingRow(
+                  'Word glow',
+                  'Word by word lights each word as it is sung, using the '
+                      "lyrics' own word timing when they have it. Off lights "
+                      'the whole line at once.',
+                  _segments<WordGlowMode>(
+                    key: const ValueKey('lyrics_word_glow'),
+                    values: const [WordGlowMode.estimated, WordGlowMode.off],
+                    labels: const ['Word by word', 'Off'],
+                    selected: LyricsDisplay.wordGlow.value,
+                    onSelected: LyricsDisplay.setWordGlow,
+                  ),
+                ),
+                // Its own transparent surface: the tile's tap ripple needs one.
+                Material(
+                  type: MaterialType.transparency,
+                  child: SwitchListTile(
+                    key: const ValueKey('lyrics_keep_screen_on'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text('Keep screen on', style: _rowLabel(scheme)),
+                    subtitle: const Text(
+                      'While lyrics or the visualizer are showing.',
+                    ),
+                    value: LyricsDisplay.keepScreenOn.value,
+                    onChanged: (value) {
+                      LyricsDisplay.setKeepScreenOn(value);
+                      setState(() {});
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _sectionTitle('TIMING', scheme),
+                _settingRow(
+                  'Whole song',
+                  'Whole song early or late? Shift every line together. '
+                      'Negative shows lyrics earlier; positive delays them.',
+                  Text(
+                    _isLoadingOffset
+                        ? '···'
+                        : _currentOffsetMs == 0
+                        ? 'In sync'
+                        : '${_currentOffsetMs > 0 ? '+' : ''}'
+                              '${(_currentOffsetMs / 1000.0).toStringAsFixed(1)}s',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: _currentOffsetMs == 0
+                          ? scheme.onSurfaceVariant
+                          : scheme.primary,
+                    ),
+                  ),
+                ),
+                _nudgeRow(
+                  onNudge: _adjustOffset,
+                  middle: OutlinedButton(
+                    onPressed: _currentOffsetMs == 0 ? null : _resetOffset,
+                    style: _smallButtonStyle(outlined: true),
+                    child: const Text('Reset'),
+                  ),
+                ),
                 if (!_isLoadingOffset &&
                     _currentRawLrc != null &&
                     LyricsService.parseLrc(_currentRawLrc!).any((l) => l.timed))
-                  ...[
-                    _buildLineNudgeCard(scheme),
-                    const SizedBox(height: 12),
-                  ],
-                // Lyrics text colour
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(
-                      alpha: 0.35,
+                  _buildLineNudgeCard(scheme),
+                _settingRow(
+                  'Highlight delay',
+                  'Lines are right but the word highlight is off? Slide right '
+                      'if it runs ahead of the words, left if it lags. Only the '
+                      'highlight moves, not the lines.',
+                  Text(
+                    LyricsDisplay.glowDelayMs.value == 0
+                        ? 'Default'
+                        : '${LyricsDisplay.glowDelayMs.value > 0 ? '+' : ''}'
+                              '${LyricsDisplay.glowDelayMs.value} ms',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
-                    borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Lyrics Colour',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SegmentedButton<LyricsColorMode>(
-                        segments: const [
-                          ButtonSegment(
-                            value: LyricsColorMode.auto,
-                            label: Text('Auto'),
-                          ),
-                          ButtonSegment(
-                            value: LyricsColorMode.light,
-                            label: Text('White'),
-                          ),
-                          ButtonSegment(
-                            value: LyricsColorMode.dark,
-                            label: Text('Black'),
-                          ),
-                        ],
-                        selected: {LyricsDisplay.mode.value},
-                        onSelectionChanged: (selection) {
-                          LyricsDisplay.set(selection.first);
-                          setState(() {});
-                        },
-                        showSelectedIcon: false,
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Auto matches the artwork; White or Black forces the lyric colour. The glow follows the song accent.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: 10.5,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Word Glow',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SegmentedButton<WordGlowMode>(
-                        key: const ValueKey('lyrics_word_glow'),
-                        segments: const [
-                          ButtonSegment(
-                            value: WordGlowMode.estimated,
-                            label: Text('Word by word'),
-                          ),
-                          ButtonSegment(
-                            value: WordGlowMode.off,
-                            label: Text('Off'),
-                          ),
-                        ],
-                        selected: {LyricsDisplay.wordGlow.value},
-                        onSelectionChanged: (selection) {
-                          LyricsDisplay.setWordGlow(selection.first);
-                          setState(() {});
-                        },
-                        showSelectedIcon: false,
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Exact only lights up word by word when the lyrics have real '
-                        'word timing, and the whole line otherwise. Estimated guesses '
-                        'the timing for every line.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: 10.5,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Highlight delay: ${LyricsDisplay.glowDelayMs.value == 0 ? 'default' : '${LyricsDisplay.glowDelayMs.value > 0 ? '+' : ''}${LyricsDisplay.glowDelayMs.value} ms'}',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      Slider(
-                        key: const ValueKey('lyrics_glow_delay'),
-                        min: -LyricsDisplay.glowDelayLimitMs.toDouble(),
-                        max: LyricsDisplay.glowDelayLimitMs.toDouble(),
-                        divisions: 20,
-                        value: LyricsDisplay.glowDelayMs.value.toDouble(),
-                        onChanged: (v) {
-                          LyricsDisplay.setGlowDelayMs(v.round());
-                          setState(() {});
-                        },
-                      ),
-                      Text(
-                        'Lines are right but the word highlight is off? Slide right if it runs ahead of the words, left if it lags. Only the highlight moves, not the lines.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: 10.5,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      // Its own transparent surface: on the card's colour the
-                      // tile's tap ripple would otherwise be hidden.
-                      Material(
-                        type: MaterialType.transparency,
-                        child: SwitchListTile(
-                          key: const ValueKey('lyrics_keep_screen_on'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          title: const Text('Keep screen on'),
-                          subtitle: const Text(
-                            'While lyrics or the visualizer are showing.',
-                          ),
-                          value: LyricsDisplay.keepScreenOn.value,
-                          onChanged: (value) {
-                            LyricsDisplay.setKeepScreenOn(value);
-                            setState(() {});
-                          },
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                Slider(
+                  key: const ValueKey('lyrics_glow_delay'),
+                  min: -LyricsDisplay.glowDelayLimitMs.toDouble(),
+                  max: LyricsDisplay.glowDelayLimitMs.toDouble(),
+                  divisions: 20,
+                  value: LyricsDisplay.glowDelayMs.value.toDouble(),
+                  onChanged: (v) {
+                    LyricsDisplay.setGlowDelayMs(v.round());
+                    setState(() {});
+                  },
+                ),
+                Wrap(
+                  spacing: 4,
+                  children: [
+                    if (_currentRawLrc != null &&
+                        !LyricsService.hasWordTiming(_currentRawLrc!))
+                      TextButton.icon(
+                        key: const ValueKey('lyrics_borrow_word_timing'),
+                        onPressed: _isLoadingOffset || _isBorrowing
+                            ? null
+                            : _borrowWordTiming,
+                        icon: const Icon(Icons.timer_outlined, size: 16),
+                        label: const Text('Try NetEase word timing'),
+                        style: _smallButtonStyle(),
+                      ),
+                    TextButton.icon(
+                      key: const ValueKey('lyrics_report_timing'),
+                      onPressed: _isLoadingOffset ? null : _copyTimingReport,
+                      icon: const Icon(Icons.content_copy_rounded, size: 16),
+                      label: const Text('Report timing'),
+                      style: _smallButtonStyle(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 // Search Alternate Section
                 Container(
                   decoration: BoxDecoration(
@@ -1342,6 +1233,9 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         minimumSize: const Size(0, 32),
         padding: const EdgeInsets.symmetric(horizontal: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
+        ),
       ),
       child: Text(
         label,
