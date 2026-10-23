@@ -240,7 +240,7 @@ class PlayerTheme extends ChangeNotifier {
           return Colors.white.withValues(alpha: 0.16);
         }),
         thickness: const WidgetStatePropertyAll(6),
-        radius: const Radius.circular(999),
+        radius: Radius.circular(PearGlassTokens.r(999)),
         trackVisibility: const WidgetStatePropertyAll(false),
         crossAxisMargin: 2,
       ),

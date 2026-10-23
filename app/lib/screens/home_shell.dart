@@ -42,19 +42,20 @@ class HomeShell extends StatefulWidget {
   /// in landscape, tablets) only switch once the short side is at least
   /// 600 logical px, so a rotated phone never turns into a desktop window
   /// with a menu bar and side rail.
-  static bool usesWideShell(Size size) {
-    final isDesktopOs =
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.windows ||
-            defaultTargetPlatform == TargetPlatform.linux ||
-            defaultTargetPlatform == TargetPlatform.macOS);
-    return size.width >= 900 && (isDesktopOs || size.shortestSide >= 600);
-  }
+  static bool usesWideShell(Size size) =>
+      size.width >= 900 && (isDesktopOs || size.shortestSide >= 600);
+
+  static bool get isDesktopOs =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS);
 
   /// Whether a window of [size] shows the permanent Now Playing pane, which
-  /// doubles as the expanded player.
+  /// doubles as the expanded player. A desktop has no mini player: the pane
+  /// shows at every wide-shell width, always expanded.
   static bool usesNowPlayingPane(Size size) =>
-      usesWideShell(size) && size.width >= 1250;
+      usesWideShell(size) && (isDesktopOs || size.width >= 1250);
 
   static final ValueNotifier<int> _expandPaneRequests = ValueNotifier<int>(0);
 
@@ -90,6 +91,10 @@ class _HomeShellState extends State<HomeShell>
   // At 1250+ the Now Playing pane doubles as the expanded player: tapping the
   // compact pane grows it in place instead of pushing the full-screen route.
   bool _playerExpanded = false;
+
+  /// The pane's state: always the full player on a desktop, where it has no
+  /// compact form; tablets toggle it.
+  bool get _expanded => HomeShell.isDesktopOs || _playerExpanded;
   AppLifecycleListener? _lifecycleListener;
   final GlobalKey<NavigatorState> _playlistsNavKey =
       GlobalKey<NavigatorState>();
@@ -126,7 +131,7 @@ class _HomeShellState extends State<HomeShell>
   /// Width the Now Playing pane settles at, gutter included. [video] is true
   /// while the expanded card shows a song's picture, which widens it.
   double _paneSlotWidthFor(Size window, {required bool video}) =>
-      (_playerExpanded
+      (_expanded
           ? (video
                 ? NowPlayingPanel.videoPaneWidthFor(window.width)
                 : NowPlayingPanel.expandedPaneWidth)
@@ -250,7 +255,7 @@ class _HomeShellState extends State<HomeShell>
         _paneSlotWidthFor(
           size,
           video:
-              _playerExpanded &&
+              _expanded &&
               (context.watch<VideoService?>()?.showingFor(currentSong) ??
                   false),
         ) +
@@ -371,12 +376,14 @@ class _HomeShellState extends State<HomeShell>
                                         child: SafeArea(
                                           top: false,
                                           child: NowPlayingPanel(
-                                            expanded: _playerExpanded,
-                                            onToggleExpanded: () =>
-                                                setState(() {
-                                                  _playerExpanded =
-                                                      !_playerExpanded;
-                                                }),
+                                            expanded: _expanded,
+                                            onToggleExpanded:
+                                                HomeShell.isDesktopOs
+                                                    ? null
+                                                    : () => setState(() {
+                                                          _playerExpanded =
+                                                              !_playerExpanded;
+                                                        }),
                                           ),
                                         ),
                                       ),

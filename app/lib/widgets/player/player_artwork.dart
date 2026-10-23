@@ -1102,8 +1102,12 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
                 ? const EdgeInsets.all(7.5)
                 : const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              shape: widget.isCircle ? BoxShape.circle : BoxShape.rectangle,
-              borderRadius: widget.isCircle ? null : pillRadius,
+              shape: widget.isCircle && !PearStyles.spec.angular
+                  ? BoxShape.circle
+                  : BoxShape.rectangle,
+              borderRadius: widget.isCircle && !PearStyles.spec.angular
+                  ? null
+                  : pillRadius,
               color: bgColor,
               border: Border.all(
                 color: borderColor,

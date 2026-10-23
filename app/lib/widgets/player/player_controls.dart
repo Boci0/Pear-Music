@@ -15,6 +15,7 @@ import '../../theme/glass.dart';
 import '../../theme/tokens.dart';
 import '../live_seek_bar.dart';
 import '../tactile_button.dart';
+import 'console_parts.dart';
 
 /// Previous / play-pause / next transport buttons, flanked by shuffle and
 /// repeat controls.
@@ -31,6 +32,13 @@ class PlayerTransport extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (PearConsole.on) {
+      return ConsoleTransport(
+        player: player,
+        controller: controller,
+        accent: _signal(accent ?? Theme.of(context).colorScheme.primary),
+      );
+    }
     return ListenableBuilder(
       listenable: player,
       builder: (context, _) {
@@ -405,6 +413,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final effectiveAccent = _signal(widget.accent ?? colorScheme.primary);
+    if (PearConsole.on) {
+      return ConsoleSeekBar(
+        player: widget.player,
+        duration: widget.duration,
+        accent: effectiveAccent,
+      );
+    }
     final reducedEffects = context.select<AppController?, bool>(
       (c) => c?.identity.reducedEffects ?? false,
     );
@@ -747,13 +762,18 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
                 message: value > 0 ? 'Mute' : 'Unmute',
                 child: Padding(
                   padding: const EdgeInsets.only(left: 2, right: 10, top: 4, bottom: 4),
-                  child: Icon(
-                    volumeIcon,
-                    size: 19,
-                    color: value == 0
-                        ? scheme.onSurfaceVariant.withValues(alpha: 0.45)
-                        : scheme.onSurfaceVariant,
-                  ),
+                  child: PearConsole.on
+                      ? Text(
+                          value == 0 ? 'MUTE' : 'VOL',
+                          style: PearConsole.label(),
+                        )
+                      : Icon(
+                          volumeIcon,
+                          size: 19,
+                          color: value == 0
+                              ? scheme.onSurfaceVariant.withValues(alpha: 0.45)
+                              : scheme.onSurfaceVariant,
+                        ),
                 ),
               ),
             ),
@@ -862,11 +882,13 @@ class _PlayerVolumeSliderState extends State<PlayerVolumeSlider> {
             child: SizedBox(
               width: 42,
               child: Text(
-                pctText,
+                PearConsole.on ? '${(value * 100).round()}' : pctText,
                 maxLines: 1,
                 softWrap: false,
                 textAlign: TextAlign.right,
-                style: theme.textTheme.labelSmall?.copyWith(
+                style: PearConsole.on
+                    ? PearConsole.readout(color: scheme.onSurfaceVariant)
+                    : theme.textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -1088,7 +1110,7 @@ class _VolumeKnob extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
+          shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
           color: accent,
           boxShadow: [
             BoxShadow(

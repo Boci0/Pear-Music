@@ -15,6 +15,7 @@ import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
+import 'player/console_parts.dart';
 import 'player/player_controls.dart';
 import 'player/player_video_view.dart';
 import 'player/sleep_timer_dialog.dart';
@@ -183,13 +184,19 @@ class NowPlayingPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(6, 8, 8, 0),
           child: Row(
             children: [
-              TactileIconButton(
-                key: const ValueKey('pane_collapse'),
-                iconSize: 18,
-                icon: const Icon(Icons.close_fullscreen_rounded),
-                tooltip: 'Collapse player',
-                onPressed: () => _collapsePlayer(context),
-              ),
+              if (onToggleExpanded != null)
+                TactileIconButton(
+                  key: const ValueKey('pane_collapse'),
+                  iconSize: 18,
+                  icon: const Icon(Icons.close_fullscreen_rounded),
+                  tooltip: 'Collapse player',
+                  onPressed: () => _collapsePlayer(context),
+                ),
+              if (PearConsole.on)
+                Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: Text('NOW PLAYING', style: PearConsole.label()),
+                ),
               const Spacer(),
               PlaybackSpeedButton(player: player),
               SleepTimerButton(player: player),
@@ -465,7 +472,7 @@ class NowPlayingPanel extends StatelessWidget {
                                       width: 48,
                                       height: 48,
                                       decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
+                                        shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
                                         color: control,
                                       ),
                                       child: Icon(
@@ -704,7 +711,7 @@ class _ProgressLineState extends State<_ProgressLine> {
                                       height: 10,
                                       decoration: BoxDecoration(
                                         color: color,
-                                        shape: BoxShape.circle,
+                                        shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
                                       ),
                                     ),
                                   ),
@@ -972,13 +979,22 @@ class _QueueContextListState extends State<_QueueContextList> {
                                     color: control,
                                   )
                                 : Text(
-                                    '${i + 1}',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      fontSize: 11,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.35,
-                                      ),
-                                    ),
+                                    PearConsole.on
+                                        ? '${i + 1}'.padLeft(2, '0')
+                                        : '${i + 1}',
+                                    style: PearConsole.on
+                                        ? PearConsole.readout(
+                                            size: 11,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                          )
+                                        : theme.textTheme.labelSmall?.copyWith(
+                                            fontSize: 11,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.35,
+                                            ),
+                                          ),
                                   ),
                           ),
                           _QueueThumb(song: song),

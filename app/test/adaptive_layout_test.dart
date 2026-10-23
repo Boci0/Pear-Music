@@ -334,6 +334,27 @@ void main() {
     expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
   });
 
+  testWidgets('a desktop shows the expanded pane and no mini player', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    // Under the old 1250 breakpoint, where a desktop used to get the mini bar.
+    setViewport(tester, const Size(1100, 800));
+    final queue = [for (var i = 0; i < 3; i++) _song('d$i', 'Desk Song $i')];
+    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('now_playing_panel_expanded')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('pane_collapse')), findsNothing);
+    expect(find.byType(PlayerBar), findsNothing);
+
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('the pane keeps one content layout while the card grows', (
     tester,
   ) async {

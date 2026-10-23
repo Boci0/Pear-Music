@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../theme/glass.dart';
+import '../theme/pear_style.dart';
 import 'dart:math';
 
 import 'package:flutter/gestures.dart';
@@ -695,7 +696,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                       color: scheme.primary.withValues(
                                         alpha: 0.2,
                                       ),
-                                      shape: BoxShape.circle,
+                                      shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
                                     ),
                                     child: Icon(
                                       Icons.radio_rounded,

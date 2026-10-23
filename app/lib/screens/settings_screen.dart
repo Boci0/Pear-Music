@@ -440,7 +440,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             height: 8,
                             decoration: BoxDecoration(
                               color: Theme.of(context).colorScheme.error,
-                              shape: BoxShape.circle,
+                              shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
                             ),
                           ),
                           const SizedBox(width: 6),
