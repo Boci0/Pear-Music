@@ -15,7 +15,6 @@ import 'dart:math' as math;
 
 
 import 'package:flutter/foundation.dart';
-import 'pear_style.dart';
 
 import 'package:flutter/material.dart';
 
@@ -43,12 +42,11 @@ class PearSpacing {
 }
 
 /// Corner-radius roles. Pick by what the surface is, not by its size.
-/// Angular styles (Graphite) square every role off to a 2px soften.
+/// Graphite squares every role off to a 2px soften.
 class PearRadius {
   PearRadius._();
 
-  static double _style(double radius) =>
-      PearStyles.spec.angular ? math.min(radius, 2) : radius;
+  static double _style(double radius) => math.min(radius, 2);
 
   /// Small chips, badges, icon-button hit shapes.
   static double get chip => _style(8);

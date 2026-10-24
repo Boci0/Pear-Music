@@ -90,7 +90,7 @@ void main() {
     PlayerArtwork.showLyricsNotifier.value = true;
     await tester.pump(const Duration(milliseconds: 600));
 
-    await tester.tap(find.byType(BackButton));
+    await tester.tap(find.byTooltip('Close player'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/player_service.dart';
 import '../pear_popup.dart';
+import '../pear_sheet.dart';
 import '../tactile_button.dart';
 
 /// Modal dialog allowing the user to select or cancel a sleep timer.
@@ -21,134 +22,74 @@ Future<void> showSleepTimerDialog(
       return ListenableBuilder(
         listenable: player,
         builder: (context, _) {
-          final scheme = Theme.of(context).colorScheme;
-          final remaining = player.sleepTimerRemaining;
-          final isActive = player.isSleepTimerActive;
-
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.bedtime_rounded, color: scheme.primary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Sleep Timer',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                        ),
-                      ),
-                      if (isActive)
-                        TextButton(
-                          onPressed: () {
-                            player.cancelSleepTimer();
-                            Navigator.pop(context);
-                          },
-                          child: const Text('Turn Off'),
-                        ),
-                    ],
-                  ),
-                  if (isActive) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: scheme.primaryContainer.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
-                      ),
-                      child: Text(
-                        player.sleepTimerEndOfSong
-                            ? 'Stopping playback at the end of this song'
-                            : player.sleepTimerEndOfQueue
-                                ? 'Stopping playback at the end of the queue'
-                                : 'Stopping playback in ${(remaining?.inMinutes ?? 0) + 1} minutes',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  _timerTile(
-                    context,
-                    title: '15 minutes',
-                    onTap: () {
-                      player.setSleepTimer(const Duration(minutes: 15));
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _timerTile(
-                    context,
-                    title: '30 minutes',
-                    onTap: () {
-                      player.setSleepTimer(const Duration(minutes: 30));
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _timerTile(
-                    context,
-                    title: '45 minutes',
-                    onTap: () {
-                      player.setSleepTimer(const Duration(minutes: 45));
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _timerTile(
-                    context,
-                    title: '1 hour',
-                    onTap: () {
-                      player.setSleepTimer(const Duration(hours: 1));
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _timerTile(
-                    context,
-                    title: 'End of current song',
-                    onTap: () {
-                      player.setSleepTimer(null, endOfSong: true);
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _timerTile(
-                    context,
-                    title: 'End of queue / album',
-                    onTap: () {
-                      player.setSleepTimer(null, endOfQueue: true);
-                      Navigator.pop(context);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            ),
-          );
+          return _sheet(context, player);
         },
       );
     },
   );
 }
 
-Widget _timerTile(
-  BuildContext context, {
-  required String title,
-  required VoidCallback onTap,
-}) {
-  return ListTile(
-    dense: true,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(PearGlassTokens.r(12))),
-    leading: const Icon(Icons.timer_outlined, size: 20),
-    title: Text(title),
-    onTap: () {
-      TactileFeedback.selection();
-      onTap();
-    },
+/// The timers as chips, the running one filled.
+// The Off chip is the old Turn Off; the running timer shows as its subtitle.
+Widget _sheet(BuildContext context, PlayerService player) {
+  final remaining = player.sleepTimerRemaining;
+  final active = player.isSleepTimerActive;
+  final minutes = player.sleepTimerEndOfSong || player.sleepTimerEndOfQueue
+      ? null
+      : (remaining?.inMinutes ?? 0) + 1;
+  Widget chip(String label, VoidCallback set, {bool selected = false}) =>
+      PearSheetChip(
+        label: label,
+        selected: selected,
+        onTap: () {
+          TactileFeedback.selection();
+          set();
+          Navigator.pop(context);
+        },
+      );
+  return SafeArea(
+    child: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PearSheetTitle(
+            'Sleep timer',
+            subtitle: !active
+                ? null
+                : player.sleepTimerEndOfSong
+                    ? 'Stopping playback at the end of this song'
+                    : player.sleepTimerEndOfQueue
+                        ? 'Stopping playback at the end of the queue'
+                        : 'Stopping playback in $minutes minutes',
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                chip('Off', player.cancelSleepTimer, selected: !active),
+                for (final m in const [15, 30, 45])
+                  chip('$m min', () => player.setSleepTimer(Duration(minutes: m))),
+                chip('1 hour', () => player.setSleepTimer(const Duration(hours: 1))),
+                chip(
+                  'End of song',
+                  () => player.setSleepTimer(null, endOfSong: true),
+                  selected: player.sleepTimerEndOfSong,
+                ),
+                chip(
+                  'End of queue',
+                  () => player.setSleepTimer(null, endOfQueue: true),
+                  selected: player.sleepTimerEndOfQueue,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    ),
   );
 }
 

@@ -22,8 +22,6 @@ import 'package:peerm_app/services/player_theme.dart';
 import 'package:peerm_app/services/youtube_service.dart';
 import 'package:peerm_app/widgets/now_playing_panel.dart';
 import 'package:peerm_app/widgets/pear_app_bar.dart';
-import 'package:peerm_app/widgets/player/player_artwork.dart';
-import 'package:peerm_app/widgets/player/player_controls.dart';
 import 'package:peerm_app/widgets/player/queue_bottom_sheet.dart';
 import 'package:peerm_app/widgets/player_bar.dart';
 import 'package:provider/provider.dart';
@@ -38,28 +36,9 @@ Song _song(String id, String title) => Song(
   addedAt: DateTime(2026, 1, 1),
 );
 
-/// A one-minute song that records where it is asked to seek.
-class _SeekPlayer extends AudioPlayer {
-  _SeekPlayer() : super(handleAudioSessionActivation: false);
-
-  final List<Duration> seeks = [];
-
-  @override
-  Duration? get duration => const Duration(minutes: 1);
-
-  @override
-  Stream<Duration?> get durationStream =>
-      Stream.value(const Duration(minutes: 1));
-
-  @override
-  Future<void> seek(Duration? position, {int? index}) async {
-    if (position != null) seeks.add(position);
-  }
-}
-
 /// Guards the adaptive shell: below 900 logical px the phone shell with the
 /// bottom navigation bar is used; at 900 px and above the desktop shell with
-/// the side rail takes over.
+/// the wide rail takes over.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -77,8 +56,7 @@ void main() {
     int? playIndex,
     AudioPlayer? audio,
   }) async {
-    // These checks are about the Glass look (pill, pear mark, blur).
-    SharedPreferences.setMockInitialValues({'peerm_style': 'glass'});
+    SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
     final library = LibraryService();
@@ -125,8 +103,7 @@ void main() {
   }
 
   Future<({Widget app, PlayerService player})> buildPlayerApp() async {
-    // These checks are about the Glass look (pill, pear mark, blur).
-    SharedPreferences.setMockInitialValues({'peerm_style': 'glass'});
+    SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
     final library = LibraryService();
@@ -164,17 +141,17 @@ void main() {
     await tester.pumpAndSettle();
 
     final pane = tester.getSize(find.byKey(const ValueKey('now_playing_panel')));
-    expect(pane.width, NowPlayingPanel.compactPaneWidth);
+    expect(pane.width, NowPlayingPanel.expandedPaneWidth);
   });
 
-  testWidgets('wide windows use the side rail and hide the bottom nav', (
+  testWidgets('wide windows use the wide rail and hide the bottom nav', (
     tester,
   ) async {
     setViewport(tester, const Size(1000, 800));
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('side_rail')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wide_rail')), findsOneWidget);
     expect(find.byKey(const ValueKey('nav_bar')), findsNothing);
     expect(find.byType(PlayerBar), findsOneWidget);
     expect(find.byKey(const ValueKey('now_playing_panel')), findsNothing);
@@ -187,7 +164,7 @@ void main() {
       await tester.pumpWidget(await buildShell());
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('side_rail')), findsOneWidget);
+      expect(find.byKey(const ValueKey('wide_rail')), findsOneWidget);
       expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
       expect(find.byType(PlayerBar), findsNothing);
     },
@@ -239,11 +216,6 @@ void main() {
       );
     }
 
-    expectOwnLayer(
-      find.byKey(const ValueKey('pane_progress')),
-      find.byKey(const ValueKey('now_playing_panel')),
-      'pane progress line',
-    );
     final statusBar = find.byKey(const ValueKey('pear_status_bar'));
     expectOwnLayer(
       find.descendant(of: statusBar, matching: find.textContaining('Up Song 0')),
@@ -252,95 +224,13 @@ void main() {
     );
   });
 
-  testWidgets('the compact pane progress line seeks on click and drag', (
-    tester,
-  ) async {
-    setViewport(tester, const Size(1600, 900));
-    final audio = _SeekPlayer();
-    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
-    await tester.pumpWidget(
-      await buildShell(queue: queue, playIndex: 0, audio: audio),
-    );
-    await tester.pumpAndSettle();
-
-    final line = find.byKey(const ValueKey('pane_progress'));
-    expect(line, findsOneWidget);
-    final box = tester.getRect(line);
-
-    // A click halfway along jumps to the middle of the song.
-    await tester.tapAt(box.center);
-    await tester.pump();
-    expect(audio.seeks.single.inSeconds, closeTo(30, 1));
-
-    // A drag scrubs without seeking, then seeks once where it is released.
-    final gesture = await tester.startGesture(
-      Offset(box.left + box.width * 0.1, box.center.dy),
-    );
-    await gesture.moveBy(Offset(box.width * 0.3, 0));
-    await tester.pump();
-    await gesture.moveBy(Offset(box.width * 0.35, 0));
-    await tester.pump();
-    expect(audio.seeks, hasLength(1));
-    await gesture.up();
-    await tester.pump();
-    expect(audio.seeks, hasLength(2));
-    expect(audio.seeks.last.inSeconds, closeTo(45, 1));
-  });
-
-  testWidgets('the pane expands into the full player in place', (tester) async {
-    setViewport(tester, const Size(1600, 900));
-    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
-    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('now_playing_panel_expanded')),
-      findsNothing,
-    );
-
-    // The compact card itself is not a button: tapping its body must not
-    // expand the player.
-    await tester.tap(find.byKey(const ValueKey('now_playing_panel')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(
-      find.byKey(const ValueKey('now_playing_panel_expanded')),
-      findsNothing,
-    );
-
-    // The explicit expand button grows it in place; no full-screen route.
-    await tester.tap(find.byKey(const ValueKey('pane_expand')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-
-    expect(
-      find.byKey(const ValueKey('now_playing_panel_expanded')),
-      findsOneWidget,
-    );
-    expect(find.byType(PlayerScreen), findsNothing);
-    expect(find.byKey(const ValueKey('pane_collapse')), findsOneWidget);
-    expect(find.byType(PlayerVolumeRow), findsOneWidget);
-    expect(find.text('QUEUE'), findsOneWidget);
-
-    // The collapse button docks it back to the compact pane.
-    await tester.tap(find.byKey(const ValueKey('pane_collapse')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-
-    expect(
-      find.byKey(const ValueKey('now_playing_panel_expanded')),
-      findsNothing,
-    );
-    expect(find.byKey(const ValueKey('now_playing_panel')), findsOneWidget);
-  });
-
   testWidgets('a desktop shows the expanded pane and no mini player', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     // Under the old 1250 breakpoint, where a desktop used to get the mini bar.
-    setViewport(tester, const Size(1100, 800));
+    setViewport(tester, const Size(1280, 800));
     final queue = [for (var i = 0; i < 3; i++) _song('d$i', 'Desk Song $i')];
     await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
     await tester.pumpAndSettle();
@@ -349,80 +239,9 @@ void main() {
       find.byKey(const ValueKey('now_playing_panel_expanded')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('pane_collapse')), findsNothing);
     expect(find.byType(PlayerBar), findsNothing);
 
     debugDefaultTargetPlatformOverride = null;
-  });
-
-  testWidgets('the pane keeps one content layout while the card grows', (
-    tester,
-  ) async {
-    setViewport(tester, const Size(1600, 1000));
-    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
-    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
-    await tester.pumpAndSettle();
-
-    final panel = find.byKey(const ValueKey('now_playing_panel'));
-
-    // Settle the expanded state once to learn its final card and artwork
-    // sizes, then collapse again.
-    await tester.tap(find.byKey(const ValueKey('pane_expand')));
-    await tester.pumpAndSettle();
-    final settledCard = tester.getSize(panel);
-    final settledArtwork = tester.getSize(find.byType(PlayerArtwork));
-    expect(settledCard.width, NowPlayingPanel.expandedPaneWidth);
-
-    await tester.tap(find.byKey(const ValueKey('pane_collapse')));
-    await tester.pumpAndSettle();
-    expect(tester.getSize(panel).width, NowPlayingPanel.compactPaneWidth);
-
-    // Re-expand and sample mid-flight: the card is still growing while the
-    // content (artwork included) already sits at its final size. The glow
-    // texture keys off the artwork size, so this is what stops it from being
-    // re-rasterised on every animation frame.
-    await tester.tap(find.byKey(const ValueKey('pane_expand')));
-    await tester.pump();
-    await tester.pump(NowPlayingPanel.expandTransitionDuration ~/ 2);
-    final midCard = tester.getSize(panel);
-    expect(midCard.width, greaterThan(NowPlayingPanel.compactPaneWidth));
-    expect(midCard.width, lessThan(settledCard.width));
-    expect(tester.getSize(find.byType(PlayerArtwork)), settledArtwork);
-
-    await tester.pumpAndSettle();
-    expect(tester.getSize(panel), settledCard);
-  });
-
-  testWidgets('the tabs do not re-flow while the pane grows or shrinks', (
-    tester,
-  ) async {
-    setViewport(tester, const Size(1600, 1000));
-    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
-    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
-    await tester.pumpAndSettle();
-
-    final tabs = find.byType(IndexedStack).first;
-    final compactTabs = tester.getSize(tabs);
-
-    // Expanding: the tabs take their final width on the first frame and
-    // hold it, so only the pane card animates.
-    await tester.tap(find.byKey(const ValueKey('pane_expand')));
-    await tester.pump();
-    final expandedTabs = tester.getSize(tabs);
-    expect(expandedTabs.width, lessThan(compactTabs.width));
-    await tester.pump(NowPlayingPanel.expandTransitionDuration ~/ 2);
-    expect(tester.getSize(tabs), expandedTabs);
-    await tester.pumpAndSettle();
-    expect(tester.getSize(tabs), expandedTabs);
-
-    // Collapsing: same in reverse.
-    await tester.tap(find.byKey(const ValueKey('pane_collapse')));
-    await tester.pump();
-    expect(tester.getSize(tabs), compactTabs);
-    await tester.pump(NowPlayingPanel.expandTransitionDuration ~/ 2);
-    expect(tester.getSize(tabs), compactTabs);
-    await tester.pumpAndSettle();
-    expect(tester.getSize(tabs), compactTabs);
   });
 
   testWidgets('every tab shares one content width on a very wide window', (
@@ -459,9 +278,9 @@ void main() {
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('side_rail')), findsNothing);
+    expect(find.byKey(const ValueKey('wide_rail')), findsNothing);
     expect(find.byKey(const ValueKey('pear_menu_bar')), findsNothing);
-    expect(find.byKey(const ValueKey('nav_bar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('landscape_rail')), findsOneWidget);
   });
 
   testWidgets('wide shell shows the classic menu bar and status bar', (
@@ -475,8 +294,12 @@ void main() {
     expect(find.text('File'), findsOneWidget);
     expect(find.text('Playback'), findsOneWidget);
     expect(find.text('Help'), findsOneWidget);
-    expect(find.byKey(const ValueKey('pear_status_bar')), findsOneWidget);
-    expect(find.textContaining('songs'), findsOneWidget);
+    final statusBar = find.byKey(const ValueKey('pear_status_bar'));
+    expect(statusBar, findsOneWidget);
+    expect(
+      find.descendant(of: statusBar, matching: find.textContaining('songs')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('phone shell has no menu bar or status bar', (tester) async {
@@ -493,17 +316,24 @@ void main() {
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('side_rail')), findsNothing);
+    expect(find.byKey(const ValueKey('wide_rail')), findsNothing);
     expect(find.byKey(const ValueKey('nav_bar')), findsOneWidget);
   });
+
+  Future<void> openLibrary(WidgetTester tester) async {
+    HomeShell.requestTab(0);
+    await tester.pumpAndSettle();
+  }
 
   testWidgets('wide library lays songs out in multiple columns', (
     tester,
   ) async {
-    setViewport(tester, const Size(1600, 900));
+    // The open player panel leaves the list about 1150 px here.
+    setViewport(tester, const Size(1920, 1000));
     final songs = [for (var i = 0; i < 9; i++) _song('s$i', 'Song $i')];
     await tester.pumpWidget(await buildShell(songs: songs));
     await tester.pumpAndSettle();
+    await openLibrary(tester);
 
     expect(find.byType(SliverGrid), findsOneWidget);
   });
@@ -513,6 +343,7 @@ void main() {
     final songs = [for (var i = 0; i < 9; i++) _song('s$i', 'Song $i')];
     await tester.pumpWidget(await buildShell(songs: songs));
     await tester.pumpAndSettle();
+    await openLibrary(tester);
 
     expect(find.byType(SliverGrid), findsNothing);
   });
@@ -522,9 +353,9 @@ void main() {
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
 
-    final rail = find.byKey(const ValueKey('side_rail'));
+    final rail = find.byKey(const ValueKey('wide_rail'));
     await tester.tap(
-      find.descendant(of: rail, matching: find.text('Playlists')),
+      find.descendant(of: rail, matching: find.text('Playlists')).first,
     );
     await tester.pumpAndSettle();
 
@@ -541,26 +372,30 @@ void main() {
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
 
-    expect(find.byType(PearMark), findsOneWidget);
+    expect(find.byType(PearMark), findsNothing);
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('side_rail')),
-        matching: find.byType(PearMark),
+        of: find.byKey(const ValueKey('wide_rail')),
+        matching: find.text('PEAR'),
       ),
       findsOneWidget,
     );
   });
 
-  testWidgets('phones keep the pear mark in the tab title', (tester) async {
+  testWidgets('phone tab titles name the tab in capitals by the stripe mark', (
+    tester,
+  ) async {
     setViewport(tester, const Size(400, 800));
     await tester.pumpWidget(await buildShell());
     await tester.pumpAndSettle();
+    await openLibrary(tester);
 
+    final title = find.descendant(
+      of: find.byType(HomeScreen),
+      matching: find.byType(PearTabTitle),
+    );
     expect(
-      find.descendant(
-        of: find.byType(HomeScreen),
-        matching: find.byType(PearMark),
-      ),
+      find.descendant(of: title, matching: find.text('LIBRARY')),
       findsOneWidget,
     );
   });
@@ -606,39 +441,6 @@ void main() {
     expect(find.byType(ExpandableQueueSheet), findsOneWidget);
   });
 
-  testWidgets('the pane cross-fades between compact and expanded content', (
-    tester,
-  ) async {
-    setViewport(tester, const Size(1600, 900));
-    final queue = [for (var i = 0; i < 3; i++) _song('q$i', 'Up Song $i')];
-    await tester.pumpWidget(await buildShell(queue: queue, playIndex: 0));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('pane_content_compact')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('pane_content_expanded')),
-      findsNothing,
-    );
-
-    await tester.tap(find.byKey(const ValueKey('pane_expand')));
-    // Mid-transition both contents overlap while the switch fades.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 60));
-    expect(find.byKey(const ValueKey('pane_content_compact')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('pane_content_expanded')),
-      findsOneWidget,
-    );
-
-    // When the fade finishes only the expanded content is left.
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('pane_content_compact')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('pane_content_expanded')),
-      findsOneWidget,
-    );
-  });
-
   testWidgets(
     'widening the window hands the full-screen player to the expanded pane',
     (tester) async {
@@ -659,7 +461,7 @@ void main() {
 
       expect(find.byType(PlayerScreen), findsNothing);
       expect(
-        find.byKey(const ValueKey('pane_content_expanded')),
+        find.byKey(const ValueKey('now_playing_panel_expanded')),
         findsOneWidget,
       );
     },
@@ -681,7 +483,9 @@ void main() {
 
     expect(bodyFade().opacity.value, 1.0);
 
-    await tester.tap(find.text('Settings'));
+    await tester.tap(
+      find.byKey(const ValueKey('nav_tab_Library')),
+    );
     await tester.pump();
     // The new tab starts faded out, then reaches full opacity.
     expect(bodyFade().opacity.value, lessThan(1.0));
@@ -691,7 +495,7 @@ void main() {
     final shellStack = tester.widget<IndexedStack>(
       find.byType(IndexedStack).first,
     );
-    expect(shellStack.index, 4);
+    expect(shellStack.index, 0);
   });
 
   testWidgets('the Playback menu offers transport with shortcut hints', (

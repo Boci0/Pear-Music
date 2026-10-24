@@ -1,3 +1,4 @@
+import 'pear_sheet.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/app_controller.dart';
@@ -42,7 +43,7 @@ class _PlaylistPickerSheetState extends State<_PlaylistPickerSheet> {
     try {
       name = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => PearAlertDialog(
           title: const Text('New playlist'),
           content: TextField(
             controller: nameController,

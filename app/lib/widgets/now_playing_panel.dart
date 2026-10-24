@@ -1,4 +1,3 @@
-import '../theme/pear_style.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -16,46 +15,45 @@ import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
 import 'player/console_parts.dart';
+import 'player/lyrics_view.dart';
 import 'player/player_controls.dart';
+import 'player/player_stage_body.dart';
 import 'player/player_video_view.dart';
 import 'player/sleep_timer_dialog.dart';
-import 'player/stream_quality_info_dialog.dart';
 import 'live_seek_bar.dart';
 import 'tactile_button.dart';
 
-/// Old-school desktop "Now Playing" pane: big artwork, title, transport
-/// controls and a progress line, pinned to the right of the wide shell. The
-/// pane also IS the expanded player on wide windows: tapping it grows it in
-/// place into the full player stack (artwork hero with the visualizer and
-/// lyrics pills, song info, transport, waveform seek bar, volume and Up Next)
-/// instead of pushing a separate full-screen route.
+/// The wide shell's player panel: a header with the Cover / Video switch and
+/// the song's tools, the cover (click for Theater mode), song info, seek
+/// line, transport, volume and Up next / Lyrics tabs, pinned to the right of
+/// the window.
 class NowPlayingPanel extends StatelessWidget {
-  final bool expanded;
+  /// Folds the panel into [NowPlayingStrip].
+  final VoidCallback onCollapse;
 
-  /// Called when the compact pane is tapped or the expanded player's collapse
-  /// button is pressed. When null the pane falls back to pushing the
-  /// full-screen player route.
-  final VoidCallback? onToggleExpanded;
+  /// Clicking the cover opens Theater mode.
+  final VoidCallback onOpenTheater;
 
   const NowPlayingPanel({
     super.key,
-    this.expanded = false,
-    this.onToggleExpanded,
+    required this.onCollapse,
+    required this.onOpenTheater,
   });
 
-  /// Shared by the shell's width animation and the content cross-fade, so the
-  /// pane grows and swaps its content as one motion instead of two.
+  /// Width of the collapsed strip, gutter not included.
+  static const double stripWidth = 76;
+
+  /// Shared by the shell's width animation and the panel, so the pane grows
+  /// as one motion.
   static const Duration expandTransitionDuration = Duration(milliseconds: 220);
 
-  /// The pane card's docked widths. The shell animates between them, and the
-  /// pane lays its content out at the final width for the whole animation, so
-  /// expanding only moves the card's clip edge (see [_PaneLayoutWidth]).
-  static const double compactPaneWidth = 348;
+  /// The pane card's docked width. The pane lays its content out at the final
+  /// width for the whole animation, so a width change only moves the card's
+  /// clip edge (see [_PaneLayoutWidth]).
   static const double expandedPaneWidth = 508;
 
-  /// The expanded card's width while it shows a song's video: half the
-  /// window, within a range that keeps both the video and the page beside it
-  /// usable.
+  /// The card's width while it shows a song's video: half the window, within
+  /// a range that keeps both the video and the page beside it usable.
   static double videoPaneWidthFor(double windowWidth) =>
       (windowWidth * 0.5).clamp(640.0, 860.0);
 
@@ -67,105 +65,36 @@ class NowPlayingPanel extends StatelessWidget {
     final player = context.watch<PlayerService>();
     final song = player.currentSong;
     final theme = Theme.of(context);
-    final accent = song == null || song.artwork == null || song.artwork!.isEmpty
-        ? theme.colorScheme.primary
-        : ArtworkPalette.dominantSync(song);
     final showVideo =
-        expanded && (context.watch<VideoService?>()?.showingFor(song) ?? false);
-    final expandedWidth = showVideo
+        context.watch<VideoService?>()?.showingFor(song) ?? false;
+    final width = showVideo
         ? videoPaneWidthFor(MediaQuery.sizeOf(context).width)
         : expandedPaneWidth;
 
-    // The artwork wash fades in and out with the expand motion instead of
-    // popping on the first frame of the width animation.
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: expanded ? 1 : 0),
-      duration: expandTransitionDuration,
-      curve: Curves.easeOutCubic,
-      builder: (context, wash, child) => PearGlass(
-        key: const ValueKey('now_playing_panel'),
-        borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.sheet)),
-        child: Container(
-          // Inset by the rim so the content keeps the width it is laid out
-          // for (see [_kPaneBorder]).
-          padding: const EdgeInsets.all(_kPaneBorder),
-          decoration: BoxDecoration(
-            // Expanded mode carries a soft wash of the song's artwork colour
-            // from the top edge, the same gesture the full-screen player
-            // makes, so the pane reads as "the player" rather than a plain
-            // sidebar card.
-            gradient:
-                song != null && wash > 0.001 && PearStyles.spec.glowScale > 0
-                ? LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.center,
-                    colors: [
-                      accent.withValues(
-                        alpha: (0.16 * wash * PearStyles.spec.glowScale).clamp(
-                          0.0,
-                          1.0,
-                        ),
-                      ),
-                      Colors.transparent,
-                    ],
-                  )
-                : null,
-          ),
-          child: child,
-        ),
-      ),
-      child: song == null
+    return PearGlass(
+      key: const ValueKey('now_playing_panel'),
+      child: Padding(
+        // Inset by the rim so the content keeps the width it is laid out for
+        // (see [_kPaneBorder]).
+        padding: const EdgeInsets.all(_kPaneBorder),
+        child: song == null
           ? _buildEmptyState(theme)
-          : AnimatedSwitcher(
-              duration: expandTransitionDuration,
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              // Both states fill the pane, so give them tight constraints
-              // while they overlap: the default loose stack would break the
-              // Expanded-based expanded layout mid-transition.
-              layoutBuilder: (currentChild, previousChildren) => Stack(
-                fit: StackFit.expand,
-                children: [...previousChildren, ?currentChild],
-              ),
-              child: KeyedSubtree(
-                key: ValueKey(
-                  expanded ? 'pane_content_expanded' : 'pane_content_compact',
-                ),
-                // Lay the content out at the state's final width for the
-                // whole transition; the card's clip edge does the revealing.
-                // Without this the artwork size, its cached glow texture and
-                // the queue rows re-flow on every animation frame, which is
-                // what made the expand feel rough.
-                child: _PaneLayoutWidth(
-                  width: expanded
-                      ? expandedWidth - 2 * _kPaneBorder
-                      : compactPaneWidth - 2 * _kPaneBorder,
-                  child: expanded
-                      ? _buildExpandedState(
-                          context,
-                          player,
-                          song,
-                          theme,
-                          showVideo: showVideo,
-                        )
-                      : _buildPlayingState(context, player, song, theme),
-                ),
+          : _PaneLayoutWidth(
+              width: width - 2 * _kPaneBorder,
+              child: _buildExpandedState(
+                context,
+                player,
+                song,
+                theme,
+                showVideo: showVideo,
               ),
             ),
+      ),
     );
   }
 
-  void _collapsePlayer(BuildContext context) {
-    // Park the lyrics so they do not keep running once the pane is compact
-    // again. The visualizer is a setting and stays on.
-    PlayerArtwork.closeLyrics();
-    // The picture is only drawn in the expanded card, so it stops with it.
-    context.read<VideoService?>()?.hide();
-    onToggleExpanded?.call();
-  }
-
-  /// The expanded player: the same vertical stack as the compact pane, but
-  /// with the complete control set at a larger size.
+  /// The player: cover, song info, transport, seek bar and volume, with Up
+  /// next and Lyrics tabs under them.
   Widget _buildExpandedState(
     BuildContext context,
     PlayerService player,
@@ -184,23 +113,31 @@ class NowPlayingPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(6, 8, 8, 0),
           child: Row(
             children: [
-              if (onToggleExpanded != null)
-                TactileIconButton(
-                  key: const ValueKey('pane_collapse'),
-                  iconSize: 18,
-                  icon: const Icon(Icons.close_fullscreen_rounded),
-                  tooltip: 'Collapse player',
-                  onPressed: () => _collapsePlayer(context),
-                ),
-              if (PearConsole.on)
-                Padding(
-                  padding: const EdgeInsets.only(left: 12),
-                  child: Text('NOW PLAYING', style: PearConsole.label()),
-                ),
+              const SizedBox(width: 10),
+              PlayerViewTabs(song: song, accent: accent, lyrics: false),
               const Spacer(),
               PlaybackSpeedButton(player: player),
               SleepTimerButton(player: player),
-              StreamQualityInfoButton(player: player),
+              if (song.sourceDeviceId == 'stream')
+                TactileIconButton(
+                  icon: const Icon(Icons.download_rounded),
+                  tooltip: 'Save to library',
+                  onPressed: () => controller.saveStreamToLibrary(song),
+                )
+              else
+                TactileIconButton(
+                  icon: const Icon(Icons.sensors_rounded),
+                  tooltip: 'Start Radio mix',
+                  onPressed: () => controller.startRadio(song),
+                ),
+              PlayerMoreButton(song: song),
+              TactileIconButton(
+                key: const ValueKey('pane_fold'),
+                iconSize: 20,
+                icon: const Icon(Icons.chevron_right_rounded),
+                tooltip: 'Collapse panel',
+                onPressed: onCollapse,
+              ),
               const SizedBox(width: 4),
             ],
           ),
@@ -208,7 +145,7 @@ class NowPlayingPanel extends StatelessWidget {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final showQueue = !showVideo && player.queue.isNotEmpty;
+              final showQueue = !showVideo;
               // The player block takes what it needs and the queue gets the
               // rest, so no empty band opens between the seek bar and volume.
               // The artwork is the part that flexes: it gives way first so
@@ -221,11 +158,12 @@ class NowPlayingPanel extends StatelessWidget {
                     constraints.maxWidth - 44,
                     math.min(
                       constraints.maxHeight * 0.54,
-                      // Info, transport, seek bar and volume under the cover.
-                      constraints.maxHeight - queueRoom - 270,
+                      // Info, seek line, transport and volume under the cover.
+                      constraints.maxHeight - queueRoom - 300,
                     ),
                   )
                   .clamp(140.0, 520.0);
+              final lineWidth = showVideo ? constraints.maxWidth - 44 : artSize;
               final block = ConstrainedBox(
                 constraints: BoxConstraints(
                   maxHeight: constraints.maxHeight - queueMin,
@@ -246,33 +184,48 @@ class NowPlayingPanel extends StatelessWidget {
                                       maxWidth: constraints.maxWidth - 44,
                                       maxHeight: constraints.maxHeight * 0.6,
                                     )
-                                  : PlayerArtworkHero(
-                                      song: song,
-                                      size: artSize,
-                                      artwork: ArtworkPalette.cachedBytes(song),
-                                      accent: accent,
-                                      videoEnabled: true,
+                                  : MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      child: GestureDetector(
+                                        key: const ValueKey('pane_theater'),
+                                        onTap: onOpenTheater,
+                                        child: Tooltip(
+                                          message: 'Theater mode',
+                                          child: PlayerArtworkHero(
+                                            song: song,
+                                            size: artSize,
+                                            artwork: ArtworkPalette.cachedBytes(
+                                              song,
+                                            ),
+                                            accent: accent,
+                                            viewButtons: false,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                             ),
                             const SizedBox(height: 14),
-                            PlayerSongInfo(song: song, compact: true),
-                            const SizedBox(height: 4),
-                            PlayerTransport(
-                              player: player,
-                              controller: controller,
-                              accent: accent,
+                            // Title and seek line line up with the cover's
+                            // edges.
+                            SizedBox(
+                              width: lineWidth,
+                              child: StageSongInfo(song: song, accent: accent),
                             ),
-                            const SizedBox(height: 8),
-                            Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 18),
+                            const SizedBox(height: 6),
+                            SizedBox(
+                              width: lineWidth,
                               child: PlayerSeekBar(
                                 player: player,
                                 duration: player.duration ?? Duration.zero,
                                 accent: accent,
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 4),
+                            PlayerTransport(
+                              player: player,
+                              controller: controller,
+                              accent: accent,
+                            ),
                           ],
                         ),
                       ),
@@ -294,12 +247,10 @@ class NowPlayingPanel extends StatelessWidget {
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                        child: _QueueContextList(
+                        child: _UpNextOrLyrics(
                           player: player,
-                          // One accent with the rest of the app: the same
-                          // green the library's playing row uses, so the
-                          // playing row tints identically in every list.
-                          control: Theme.of(context).colorScheme.primary,
+                          song: song,
+                          accent: accent,
                           theme: theme,
                         ),
                       ),
@@ -368,178 +319,285 @@ class NowPlayingPanel extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildPlayingState(
-    BuildContext context,
-    PlayerService player,
-    Song song,
-    ThemeData theme,
-  ) {
-    final controller = context.read<AppController>();
-    final accent = ArtworkPalette.dominantSync(song);
-    final control = ArtworkPalette.controlAccent(accent);
-    final meta = song.sourceDeviceId == 'stream'
-        ? 'Stream'
-        : song.sourceDeviceId != null
-        ? 'Shared · ${song.sizeLabel}'
-        : 'Local · ${song.sizeLabel}';
+/// Up next and Lyrics as tabs over the space under the
+/// controls, the queue or the synced lyrics in it.
+class _UpNextOrLyrics extends StatefulWidget {
+  final PlayerService player;
+  final Song song;
+  final Color accent;
+  final ThemeData theme;
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final artSize = math
-                    .min(constraints.maxWidth, constraints.maxHeight - 380)
-                    .clamp(120.0, constraints.maxWidth);
-                // Decode the remote cover at the size it is painted instead of
-                // its full 640px thumbnail size.
-                final artCacheWidth =
-                    (artSize * MediaQuery.devicePixelRatioOf(context))
-                        .round()
-                        .clamp(96, 640);
-                final hasQueue = player.queue.isNotEmpty;
-                return Column(
-                  children: [
-                    // With a queue, the content sits just under the expand
-                    // button and the queue takes the spare height; a flexible
-                    // gap here left a tall window mostly empty above the art.
-                    // Without one, the content stays centred.
-                    if (hasQueue)
-                      const SizedBox(height: 28)
-                    else
-                      const Spacer(),
-                    SizedBox(
-                      width: artSize,
-                      height: artSize,
-                      child: _Artwork(song: song, cacheWidth: artCacheWidth),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      song.title,
-                      maxLines: 2,
-                      textAlign: TextAlign.center,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      meta,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontSize: 12.5,
-                        color: Colors.white.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        TactileIconButton(
-                          icon: Icon(Icons.skip_previous, color: control),
-                          iconSize: 28,
-                          tooltip: 'Previous',
-                          onPressed: () => controller.previousTrack(),
-                        ),
-                        const SizedBox(width: 4),
-                        TactileBounce(
-                          onTap: () => controller.togglePlayback(),
-                          scaleDown: 0.88,
-                          tooltip: player.playbackError != null
-                              ? 'Retry'
-                              : (player.playing ? 'Pause' : 'Play'),
-                          child: SizedBox(
-                            width: 52,
-                            height: 52,
-                            child: Center(
-                              child: player.isBuffering
-                                  ? SizedBox(
-                                      width: 34,
-                                      height: 34,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                        color: control,
-                                      ),
-                                    )
-                                  : Container(
-                                      width: 48,
-                                      height: 48,
-                                      decoration: BoxDecoration(
-                                        shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
-                                        color: control,
-                                      ),
-                                      child: Icon(
-                                        player.playing
-                                            ? Icons.pause_rounded
-                                            : Icons.play_arrow_rounded,
-                                        size: 30,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        TactileIconButton(
-                          icon: Icon(Icons.skip_next, color: control),
-                          iconSize: 28,
-                          tooltip: 'Next',
-                          onPressed: () => controller.nextTrack(),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    // Ticks 4 times a second while playing: its own layer,
-                    // so a tick repaints this strip, not the whole pane.
-                    RepaintBoundary(
-                      child: _ProgressLine(
-                        player: player,
-                        color: control,
-                        theme: theme,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    PlayerVolumeRow(accent: control),
-                    const SizedBox(height: 16),
-                    if (hasQueue)
-                      Expanded(
-                        child: _QueueContextList(
-                          player: player,
-                          control: Theme.of(context).colorScheme.primary,
-                          theme: theme,
-                        ),
-                      )
-                    else
-                      const Spacer(),
-                  ],
-                );
-              },
+  const _UpNextOrLyrics({
+    required this.player,
+    required this.song,
+    required this.accent,
+    required this.theme,
+  });
+
+  @override
+  State<_UpNextOrLyrics> createState() => _UpNextOrLyricsState();
+}
+
+class _UpNextOrLyricsState extends State<_UpNextOrLyrics> {
+  bool _lyrics = false;
+
+  Widget _tab(String label, bool selected, VoidCallback onTap) => Expanded(
+    child: InkWell(
+      mouseCursor: WidgetStateMouseCursor.clickable,
+      onTap: onTap,
+      child: Container(
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              width: 2,
+              color: selected ? widget.accent : Colors.transparent,
             ),
           ),
         ),
-        if (onToggleExpanded != null)
-          Positioned(
-            top: 10,
-            right: 10,
-            child: TactileIconButton(
-              key: const ValueKey('pane_expand'),
-              iconSize: 18,
-              icon: const Icon(Icons.open_in_full_rounded),
-              tooltip: 'Expand player',
-              onPressed: () {
-                TactileFeedback.click();
-                onToggleExpanded!();
-              },
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+            color: selected
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.55),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
             ),
           ),
+          child: Row(
+            children: [
+              _tab('Up next', !_lyrics, () => setState(() => _lyrics = false)),
+              _tab('Lyrics', _lyrics, () => setState(() => _lyrics = true)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _lyrics
+              ? LyricsView(
+                  key: ValueKey('pane_lyrics_${widget.song.id}'),
+                  song: widget.song,
+                  player: widget.player,
+                  accent: widget.accent,
+                  size: 300,
+                  scrolling: true,
+                )
+              : widget.player.queue.isEmpty
+              ? Center(
+                  child: Text(
+                    'Nothing queued',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
+                  ),
+                )
+              : _QueueContextList(
+                  player: widget.player,
+                  control: widget.theme.colorScheme.primary,
+                  theme: widget.theme,
+                ),
+        ),
       ],
+    );
+  }
+}
+
+/// The player panel folded to a slim strip on the window's
+/// right edge: expand, the cover (its tooltip names the song), previous,
+/// play or pause, next, and a vertical progress line to click or drag.
+class NowPlayingStrip extends StatelessWidget {
+  /// Opens the full player: the panel when there is room, else Theater.
+  final VoidCallback onExpand;
+
+  const NowPlayingStrip({super.key, required this.onExpand});
+
+  @override
+  Widget build(BuildContext context) {
+    final player = context.watch<PlayerService>();
+    final controller = context.read<AppController>();
+    final song = player.currentSong;
+    final accent = song == null
+        ? Theme.of(context).colorScheme.primary
+        : ArtworkPalette.controlAccent(ArtworkPalette.dominantSync(song));
+    return PearGlass(
+      key: const ValueKey('now_playing_strip'),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          TactileIconButton(
+            key: const ValueKey('pane_unfold'),
+            icon: const Icon(Icons.chevron_left_rounded),
+            tooltip: 'Expand player panel',
+            onPressed: onExpand,
+          ),
+          if (song != null) ...[
+            const SizedBox(height: 8),
+            Tooltip(
+              key: const ValueKey('strip_cover'),
+              message: song.title,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: onExpand,
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: _Artwork(song: song, cacheWidth: 96),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TactileIconButton(
+              tooltip: 'Previous',
+              icon: Icon(Icons.skip_previous_rounded, color: accent),
+              onPressed: () => controller.previousTrack(),
+            ),
+            TactileIconButton(
+              tooltip: player.playing ? 'Pause' : 'Play',
+              icon: Icon(
+                player.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: accent,
+              ),
+              iconSize: 28,
+              onPressed: () => controller.togglePlayback(),
+            ),
+            TactileIconButton(
+              tooltip: 'Next',
+              icon: Icon(Icons.skip_next_rounded, color: accent),
+              onPressed: () => controller.nextTrack(),
+            ),
+            const SizedBox(height: 12),
+            Flexible(child: _StripSeekLine(player: player, color: accent)),
+            const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The strip's progress, a thin vertical line filling from the bottom.
+/// Click or drag along it to seek, like the panel's line: it follows the
+/// drag and seeks on release. It thickens under the pointer.
+class _StripSeekLine extends StatefulWidget {
+  final PlayerService player;
+  final Color color;
+
+  const _StripSeekLine({required this.player, required this.color});
+
+  @override
+  State<_StripSeekLine> createState() => _StripSeekLineState();
+}
+
+class _StripSeekLineState extends State<_StripSeekLine> {
+  bool _hovered = false;
+
+  /// The dragged-to fraction; null when not dragging.
+  double? _drag;
+
+  int get _totalMs => widget.player.duration?.inMilliseconds ?? 0;
+
+  double _at(double dy, double height) => (1 - dy / height).clamp(0.0, 1.0);
+
+  Duration _to(double f) => Duration(milliseconds: (f * _totalMs).round());
+
+  void _scrub(double f) {
+    setState(() => _drag = f);
+    widget.player.setScrubbingPosition(_to(f));
+  }
+
+  void _commit(double f) {
+    widget.player.seek(_to(f));
+    widget.player.setScrubbingPosition(null);
+    setState(() => _drag = null);
+  }
+
+  void _cancel() {
+    widget.player.setScrubbingPosition(null);
+    setState(() => _drag = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 160),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final h = box.maxHeight;
+          // Live streams have no length to seek in.
+          final seekable = _totalMs > 0;
+          final thick = _hovered || _drag != null;
+          return MouseRegion(
+            cursor: seekable ? SystemMouseCursors.click : MouseCursor.defer,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              key: const ValueKey('strip_seek'),
+              behavior: HitTestBehavior.opaque,
+              onTapUp: seekable
+                  ? (d) => _commit(_at(d.localPosition.dy, h))
+                  : null,
+              onVerticalDragStart: seekable
+                  ? (d) => _scrub(_at(d.localPosition.dy, h))
+                  : null,
+              onVerticalDragUpdate: seekable
+                  ? (d) => _scrub(_at(d.localPosition.dy, h))
+                  : null,
+              onVerticalDragEnd: seekable ? (_) => _commit(_drag ?? 0) : null,
+              onVerticalDragCancel: seekable ? _cancel : null,
+              // A 28 px wide target around the thin line.
+              child: SizedBox(
+                width: 28,
+                height: h,
+                // Ticks while playing: its own layer.
+                child: RepaintBoundary(
+                  child: StreamBuilder<Duration>(
+                    stream: widget.player.uiPositionStream,
+                    initialData: widget.player.position ?? Duration.zero,
+                    builder: (context, snapshot) {
+                      final at = snapshot.data?.inMilliseconds ?? 0;
+                      final fraction = _drag ??
+                          (seekable ? (at / _totalMs).clamp(0.0, 1.0) : 0.0);
+                      final width = thick ? 5.0 : 3.0;
+                      return Center(
+                        child: Container(
+                          width: width,
+                          alignment: Alignment.bottomCenter,
+                          color: Colors.white.withValues(alpha: 0.18),
+                          child: FractionallySizedBox(
+                            heightFactor: fraction,
+                            child: Container(width: width, color: widget.color),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -711,7 +769,7 @@ class _ProgressLineState extends State<_ProgressLine> {
                                       height: 10,
                                       decoration: BoxDecoration(
                                         color: color,
-                                        shape: PearStyles.spec.angular ? BoxShape.rectangle : BoxShape.circle,
+                                        shape: BoxShape.rectangle,
                                       ),
                                     ),
                                   ),
@@ -936,6 +994,7 @@ class _QueueContextListState extends State<_QueueContextList> {
                   final isCurrent = i == index;
                   final isPlayed = i < index;
                   return InkWell(
+                    mouseCursor: WidgetStateMouseCursor.clickable,
                     borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
                     hoverColor: Colors.white.withValues(
                       alpha: PearOverlay.hover,
@@ -959,12 +1018,10 @@ class _QueueContextListState extends State<_QueueContextList> {
                         // Same card language as the lists and the queue sheet:
                         // artwork thumbnail per row, and the playing row carries
                         // the track accent.
-                        // Angular styles: a faint fill and the accent bar,
-                        // as the song lists draw their playing row.
+                        // A faint fill and the accent bar, as the song lists
+                        // draw their playing row.
                         color: isCurrent
-                            ? (PearStyles.spec.angular
-                                ? Colors.white.withValues(alpha: 0.05)
-                                : control.withValues(alpha: 0.28))
+                            ? Colors.white.withValues(alpha: 0.05)
                             : null,
 
                       ),

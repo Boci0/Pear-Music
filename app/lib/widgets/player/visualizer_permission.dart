@@ -1,3 +1,4 @@
+import '../pear_sheet.dart';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,10 @@ import '../../services/visualizer_feed.dart';
 /// own playback and gives back frequency levels for drawing bars. The
 /// explanation exists so that prompt is not taken for something it is not.
 class VisualizerPermission {
+  /// Shows the audio access question alone (the control port's /sheet check).
+  static Future<bool?> showExplainFor(BuildContext context) =>
+      showDialog<bool>(context: context, builder: (_) => const _ExplainDialog());
+
   VisualizerPermission._();
 
   static bool _askedThisRun = false;
@@ -93,7 +98,7 @@ class _ExplainDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PearAlertDialog(
       title: const Text('Allow audio access?'),
       content: const Column(
         mainAxisSize: MainAxisSize.min,
@@ -131,7 +136,7 @@ class _OpenSettingsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PearAlertDialog(
       title: const Text('Audio access is blocked'),
       content: const Text(
         'To use the visualizer, allow the Microphone permission for Pear '

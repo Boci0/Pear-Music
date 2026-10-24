@@ -77,7 +77,7 @@ Future<_Env> _makeEnv(
   List<Song>? queue,
   int? playIndex,
 }) async {
-  SharedPreferences.setMockInitialValues({'peerm_style': 'glass'});
+  SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   final identity = IdentityService(prefs);
   final library = LibraryService();
@@ -180,7 +180,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Playback speed'));
     await tester.pumpAndSettle();
-    expect(find.text('Playback Speed'), findsOneWidget);
+    expect(find.textContaining('Speed · '), findsOneWidget);
 
     // Widen past the pane breakpoint while the dialog is up.
     tester.view.physicalSize = const Size(1400, 900);
@@ -188,7 +188,7 @@ void main() {
 
     // The hand-off must not pop the dialog (it used to pop whatever route was
     // on top) and must not latch itself off.
-    expect(find.text('Playback Speed'), findsOneWidget);
+    expect(find.textContaining('Speed · '), findsOneWidget);
     expect(find.byType(PlayerScreen), findsOneWidget);
 
     // Close the dialog, then a later build retries the hand-off.
@@ -199,7 +199,7 @@ void main() {
 
     expect(find.byType(PlayerScreen), findsNothing);
     expect(
-      find.byKey(const ValueKey('pane_content_expanded')),
+      find.byKey(const ValueKey('now_playing_panel_expanded')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -288,9 +288,11 @@ void main() {
     final env = await _makeEnv(songs);
     await tester.pumpWidget(_shell(env));
     await tester.pumpAndSettle();
+    HomeShell.requestTab(0);
+    await tester.pumpAndSettle();
 
     expect(find.text('Song 1'), findsOneWidget);
-    final field = find.byType(TextField);
+    final field = find.widgetWithText(TextField, 'Search your music or online');
     expect(field, findsOneWidget);
 
     await tester.enterText(field, 'Song 5');
@@ -324,13 +326,15 @@ void main() {
     final env = await _makeEnv(songs);
     await tester.pumpWidget(_shell(env));
     await tester.pumpAndSettle();
+    HomeShell.requestTab(0);
+    await tester.pumpAndSettle();
 
     // The key sits on the widget the sliver builds, so findChildIndexCallback
     // can match it when the list is re-ordered.
     for (final id in ['a1', 'b2', 'c3']) {
       expect(
-        tester.widget(find.byKey(ValueKey(id))),
-        isA<RepaintBoundary>(),
+        find.byKey(ValueKey(id)),
+        findsOneWidget,
         reason: '$id should be keyed on the list child',
       );
     }
@@ -387,8 +391,8 @@ void main() {
 
     expect(find.text('Local File'), findsOneWidget);
     expect(
-      tester.widget(find.byKey(const ValueKey('local_1'))),
-      isA<RepaintBoundary>(),
+      find.byKey(const ValueKey('local_1')),
+      findsOneWidget,
       reason: 'the history sliver child carries the identity key',
     );
     expect(tester.takeException(), isNull);

@@ -58,10 +58,11 @@ void main() {
     return [for (final s in rich.children!) s.style!.color!.a];
   }
 
-  Future<void> pumpLyrics(
+  Future<_FakePlayer> pumpLyrics(
     WidgetTester tester, {
     Duration at = const Duration(seconds: 6, milliseconds: 500),
     double bottomInset = 0,
+    bool scrolling = false,
   }) async {
     final engine = _FakePlayer()..position_ = at;
     final player = PlayerService(LibraryService(), player: engine);
@@ -76,6 +77,7 @@ void main() {
               player: player,
               size: 320,
               bottomInset: bottomInset,
+              scrolling: scrolling,
             ),
           ),
         ),
@@ -83,7 +85,82 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    return engine;
   }
+
+  testWidgets('scrolling lyrics list every line around the sung one', (
+    tester,
+  ) async {
+    await pumpLyrics(tester, scrolling: true);
+    expect(find.text('Line one'), findsOneWidget);
+    expect(find.text('Line two has words'), findsOneWidget);
+    expect(find.text('Line three'), findsOneWidget);
+    // The sung line lights up word by word; the others are plain and dimmer,
+    // lines already sung more than the ones to come.
+    expect(
+      tester.widget<Text>(find.text('Line two has words')).textSpan,
+      isNotNull,
+    );
+    double alpha(String line) => tester
+        .widget<AnimatedDefaultTextStyle>(
+          find.ancestor(
+            of: find.text(line),
+            matching: find.byType(AnimatedDefaultTextStyle),
+          ),
+        )
+        .style
+        .color!
+        .a;
+    final before = alpha('Line one');
+    final after = alpha('Line three');
+    expect(before, lessThan(after));
+    expect(after, lessThan(1));
+  });
+
+  testWidgets('a line keeps its layout when it becomes the sung one', (
+    tester,
+  ) async {
+    // Changing the font size mid-change re-broke the words onto new lines
+    // ("rearranging mid transition"); the line is only scaled and lit now.
+    final engine = await pumpLyrics(tester, scrolling: true);
+    final before = tester.getSize(find.text('Line three'));
+    engine.position_ = const Duration(seconds: 11);
+    engine.positions.add(const Duration(seconds: 11));
+    await tester.pump();
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.getSize(find.text('Line three')), before);
+    }
+    expect(
+      tester.widget<Text>(find.text('Line three')).textSpan,
+      isNotNull,
+      reason: 'it is the sung line now',
+    );
+  });
+
+  testWidgets('the sung line has the same room above and below', (
+    tester,
+  ) async {
+    // The other lines shrank from their top, so all the room they freed sat
+    // under them: the line after the sung one ended up too close to it.
+    await pumpLyrics(tester, scrolling: true);
+    await tester.pump(const Duration(seconds: 1));
+    final above = tester.getRect(find.text('Line one'));
+    final sung = tester.getRect(find.text('Line two has words'));
+    final below = tester.getRect(find.text('Line three'));
+    final gapAbove = sung.top - above.bottom;
+    final gapBelow = below.top - sung.bottom;
+    expect(gapBelow, greaterThan(8));
+    expect((gapAbove - gapBelow).abs(), lessThan(2));
+  });
+
+  testWidgets('the sung line sits in the middle of the panel', (tester) async {
+    await pumpLyrics(tester, scrolling: true);
+    await tester.pump(const Duration(seconds: 1));
+    final panel = tester.getRect(find.byType(LyricsView));
+    final sung = tester.getRect(find.text('Line two has words'));
+    expect((sung.center.dy - panel.center.dy).abs(), lessThan(2));
+  });
 
   testWidgets('word timing tags are read, not shown', (tester) async {
     await pumpLyrics(tester);

@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/song.dart';
-import '../theme/pear_style.dart';
 import 'stream_cache_manager.dart';
 import 'youtube_search_service.dart';
 import 'debug_log.dart';
@@ -45,7 +44,12 @@ class IdentityService extends ChangeNotifier {
   static const _visualizerAudioExplainedKey = 'peerm_visualizer_audio_explained';
   static const _miniVisualizerKey = 'peerm_mini_visualizer';
   static const _videoQualityKey = 'peerm_video_quality';
+  /// The old Style setting (Glass, Frosted, Solid, Graphite). Graphite is now
+  /// the only look; the saved choice is cleared on start.
   static const _styleKey = 'peerm_style';
+  /// The old Settings > New design switch. The new design is now the only
+  /// look; the saved choice is cleared on start.
+  static const _newDesignKey = 'peerm_new_player';
 
   final SharedPreferences _prefs;
   late final String deviceId;
@@ -142,7 +146,8 @@ class IdentityService extends ChangeNotifier {
     // under them all through playback, which is the costly part.
     _miniVisualizer = _prefs.getBool(_miniVisualizerKey) ?? false;
     _videoQuality = _prefs.getInt(_videoQualityKey) ?? 0;
-    PearStyles.current.value = PearStyle.parse(_prefs.getString(_styleKey));
+    if (_prefs.containsKey(_styleKey)) _prefs.remove(_styleKey);
+    if (_prefs.containsKey(_newDesignKey)) _prefs.remove(_newDesignKey);
     _visualizerGlow = _prefs.getBool(_visualizerGlowKey) ?? true;
     _reducedEffects = _prefs.getBool(_reducedEffectsKey) ?? false;
     _autoRerollSeed = _prefs.getBool(_autoRerollSeedKey) ?? false;
@@ -350,17 +355,6 @@ class IdentityService extends ChangeNotifier {
 
   /// The tallest picture, in lines, a streamed video may be: 0 lets the app
   /// choose (lower on mobile data), or 360, 480, 720 or 1080.
-  /// The app's look (Glass, Frosted or Solid). The theme and the glass
-  /// surfaces follow [PearStyles.current], which this keeps in step.
-  PearStyle get style => PearStyles.current.value;
-
-  Future<void> setStyle(PearStyle value) async {
-    if (PearStyles.current.value == value) return;
-    PearStyles.current.value = value;
-    await _prefs.setString(_styleKey, value.name);
-    notifyListeners();
-  }
-
   int get videoQuality => _videoQuality;
 
   Future<void> setVideoQuality(int value) async {

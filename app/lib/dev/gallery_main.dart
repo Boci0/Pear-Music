@@ -3,7 +3,8 @@
 //
 // Run:   flutter run -d windows -t lib/dev/gallery_main.dart
 // Build: flutter build windows --release --no-pub -t lib/dev/gallery_main.dart
-// Args:  --sheet=parts|rows|panes|phone|desktop|players|screens  --style=glass|frosted|solid|graphite
+// Args:  --sheet=parts|rows|panes|phone|desktop|players|screens
+//        --tab=N (HomeShell tab to show)
 //        --song=<part of a title> (the song shown as playing)
 //
 // It reads a copy of the library index (real titles and covers) from a temp
@@ -37,14 +38,12 @@ import '../services/player_theme.dart';
 import '../services/youtube_search_service.dart';
 import '../services/youtube_service.dart';
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 import '../widgets/now_playing_panel.dart';
 import '../widgets/pear_backdrop.dart';
 import '../widgets/pear_status_bar.dart';
 import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/player_bar.dart';
-import '../widgets/side_rail.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/youtube_song_tile.dart';
 
@@ -56,6 +55,7 @@ const _sheets = [
   'desktop',
   'players',
   'screens',
+  'sideways',
 ];
 
 Future<void> main(List<String> args) async {
@@ -113,11 +113,17 @@ Future<void> main(List<String> args) async {
     }
     await ArtworkPalette.dominant(current);
   }
-  PearStyles.current.value = PearStyle.parse(arg('style', 'solid'));
   // Phone frames should lay out the player as a phone does, not as a narrow
   // Windows window.
   PlayerScreen.debugPhoneLayout = true;
   final theme = PlayerTheme(player);
+  final tab = int.tryParse(arg('tab', ''));
+  if (tab != null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      HomeShell.requestTab(tab);
+    });
+  }
 
   runApp(
     MultiProvider(
@@ -196,6 +202,7 @@ class _GalleryAppState extends State<_GalleryApp> {
     'desktop' => const _DesktopSheet(),
     'players' => const _PlayersSheet(),
     'screens' => const _ScreensSheet(),
+    'sideways' => const _SidewaysSheet(),
     _ => const _PartsSheet(),
   };
 }
@@ -220,18 +227,6 @@ class _TopBar extends StatelessWidget {
                 onSelected: (_) => onSheet(s),
               ),
             ),
-          const Spacer(),
-          ValueListenableBuilder<PearStyle>(
-            valueListenable: PearStyles.current,
-            builder: (context, style, _) => SegmentedButton<PearStyle>(
-              segments: [
-                for (final v in PearStyle.values)
-                  ButtonSegment(value: v, label: Text(v.name)),
-              ],
-              selected: {style},
-              onSelectionChanged: (v) => PearStyles.current.value = v.first,
-            ),
-          ),
         ],
       ),
     );
@@ -402,11 +397,6 @@ class _PartsSheet extends StatelessWidget {
           _Spec('volume', PlayerVolumeRow(accent: accent), width: 420),
         ]),
       _Section('Chrome', [
-        _Spec(
-          'side rail',
-          SideRail(selectedIndex: 0, onDestinationSelected: (_) {}),
-          height: 460,
-        ),
         _Spec('status bar', const PearStatusBar(), width: 900),
       ]),
     ]);
@@ -457,19 +447,13 @@ class _RowsSheet extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _Spec(
-          'cards (old)',
+          'plain',
           PearRowLook(child: Column(children: rowsAt(w))),
           width: w + 20,
         ),
         const SizedBox(width: 30),
         _Spec(
-          'flat',
-          PearRowLook(flat: true, child: Column(children: rowsAt(w))),
-          width: w + 20,
-        ),
-        const SizedBox(width: 30),
-        _Spec(
-          'flat + dividers (now)',
+          'with dividers (now)',
           PearRowLook(divided: true, child: Column(children: rowsAt(w))),
           width: w + 20,
         ),
@@ -494,14 +478,8 @@ class _PanesSheet extends StatelessWidget {
       ]),
       _Section('Now Playing pane', [
         _Spec(
-          'compact (345 x 740)',
-          NowPlayingPanel(expanded: false, onToggleExpanded: () {}),
-          width: 345,
-          height: 740,
-        ),
-        _Spec(
-          'expanded (500 x 740)',
-          NowPlayingPanel(expanded: true, onToggleExpanded: () {}),
+          'panel (500 x 740)',
+          NowPlayingPanel(onCollapse: () {}, onOpenTheater: () {}),
           width: 500,
           height: 740,
         ),
@@ -591,13 +569,19 @@ class _PhoneSheet extends StatelessWidget {
         scale: 0.9,
       ),
       _Frame('settings', Size(390, 844), SettingsScreen(), scale: 0.9),
-      _Frame(
-        'library, before (two pills, card rows)',
-        Size(390, 844),
-        PearRowLook(child: HomeShell(singleDock: false)),
-        scale: 0.9,
-      ),
       _Frame('sideways (844 x 390)', Size(844, 390), HomeShell(), scale: 0.9),
+    ]),
+  ]);
+}
+
+class _SidewaysSheet extends StatelessWidget {
+  const _SidewaysSheet();
+
+  @override
+  Widget build(BuildContext context) => const _Sheet([
+    _Section('Phone held sideways (844 x 390)', [
+      _Frame('shell', Size(844, 390), HomeShell()),
+      _Frame('player', Size(844, 390), PlayerScreen()),
     ]),
   ]);
 }
@@ -608,12 +592,6 @@ class _DesktopSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const _Sheet([
     _Section('Desktop', [
-      _Frame(
-        '1440 x 860, before (cards)',
-        Size(1440, 860),
-        PearRowLook(child: HomeShell()),
-        scale: 0.48,
-      ),
       _Frame('1440 x 860, now', Size(1440, 860), HomeShell(), scale: 0.48),
       _Frame('780 x 900', Size(780, 900), HomeShell(), scale: 0.62),
     ]),

@@ -7,9 +7,7 @@ import '../screens/player_screen.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../services/player_service.dart';
-import '../services/player_theme.dart';
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 import 'live_badge.dart';
 import 'pear_page_route.dart';
 import 'player/mini_visualizer.dart';
@@ -22,15 +20,6 @@ class PlayerBar extends StatelessWidget {
   /// Drawn inside the phone dock: no margins and no glass of its own.
   final bool embedded;
 
-  /// The mini player's surface tone for [song]: the card fill leaning to the
-  /// song's artwork colour. The dock uses it for its whole panel.
-  static Color tintFor(ThemeData theme, Song song) =>
-      Color.lerp(
-        PlayerTheme.cardFillOpaque(theme.colorScheme),
-        ArtworkPalette.wash(ArtworkPalette.dominantSync(song), lightness: 0.11),
-        0.45,
-      ) ??
-      PlayerTheme.cardFillOpaque(theme.colorScheme);
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +35,6 @@ class PlayerBar extends StatelessWidget {
     // the colour follows the music outside the full player.
     final accent = ArtworkPalette.dominantSync(song);
     final control = ArtworkPalette.controlAccent(accent);
-    final barColor = tintFor(theme, song);
 
     final screenWidth = MediaQuery.sizeOf(context).width;
     final hMargin = screenWidth < 380 ? 10.0 : 16.0;
@@ -80,26 +68,14 @@ class PlayerBar extends StatelessWidget {
           }
         },
         child: PearGlass(
-          borderRadius: BorderRadius.circular(PearGlassTokens.floatingRadius),
-          tint: barColor,
-          blur: true,
           surface: !embedded,
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               onTap: () => _openPlayer(context),
               child: Stack(
                 children: [
-                  Positioned.fill(
-                    // A live stream has no length: no progress fill, or it
-                    // would look like a track that can end.
-                    child: player.isLive
-                        ? const SizedBox.expand()
-                        : _MiniPlayerBackgroundProgress(
-                            player: player,
-                            color: control,
-                          ),
-                  ),
                   if (showVisualizer)
                     Positioned.fill(
                       child: IgnorePointer(
@@ -120,7 +96,7 @@ class PlayerBar extends StatelessWidget {
                           ),
                     child: Row(
                       children: [
-                        _Thumb(
+                        PlayerBarThumb(
                           song: song,
                           radius: PearGlassTokens.r(
                             embedded ? PearGlassTokens.dockInnerRadius : 8,
@@ -187,9 +163,9 @@ class PlayerBar extends StatelessWidget {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                              ] else if (PearStyles.spec.angular) ...[
-                                // Angular styles always carry a status line,
-                                // like a read-out under a module's name.
+                              ] else ...[
+                                // Always a status line, like a read-out under
+                                // a module's name.
                                 const SizedBox(height: 2),
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -273,7 +249,10 @@ class PlayerBar extends StatelessWidget {
 );
   }
 
-  void _openPlayer(BuildContext context) {
+  void _openPlayer(BuildContext context) => openPlayer(context);
+
+  /// Opens the full-screen player, as a tap on the bar does.
+  static void openPlayer(BuildContext context) {
     TactileFeedback.click();
     Navigator.of(context).push(
       PearPageRoute(
@@ -283,11 +262,11 @@ class PlayerBar extends StatelessWidget {
   }
 }
 
-/// 40x40 artwork thumb for the now-playing bar wrapped in a Hero tag.
-class _Thumb extends StatelessWidget {
+/// 40x40 artwork thumb for the now-playing bar (and the landscape rail).
+class PlayerBarThumb extends StatelessWidget {
   final Song song;
   final double radius;
-  const _Thumb({required this.song, this.radius = 8});
+  const PlayerBarThumb({super.key, required this.song, this.radius = 8});
 
   @override
   Widget build(BuildContext context) {
@@ -364,69 +343,6 @@ class _Thumb extends StatelessWidget {
     return imageWidget;
   }
 }
-
-/// Progress fill spanning the entire mini player capsule background from left to right.
-class _MiniPlayerBackgroundProgress extends StatelessWidget {
-  final PlayerService player;
-  final Color color;
-  const _MiniPlayerBackgroundProgress({
-    required this.player,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: StreamBuilder<Duration?>(
-        stream: player.durationStream,
-        initialData: player.duration,
-        builder: (context, durSnapshot) {
-          final totalMs =
-              (durSnapshot.data ?? player.duration ?? Duration.zero)
-                  .inMilliseconds
-                  .toDouble();
-          if (totalMs <= 0) {
-            return const SizedBox.expand();
-          }
-          return StreamBuilder<Duration>(
-            stream: player.uiPositionStream,
-            initialData: player.position ?? Duration.zero,
-            builder: (context, posSnapshot) {
-              final posMs =
-                  (posSnapshot.data ?? player.position ?? Duration.zero)
-                      .inMilliseconds
-                      .toDouble();
-              final fraction = (posMs / totalMs).clamp(0.0, 1.0);
-              // Angular styles: a thin accent line along the top edge, like a
-              // read-out, instead of a fill behind the title.
-              // Angular styles show progress in the pips by the status.
-              if (PearStyles.spec.angular) return const SizedBox.shrink();
-              return FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: fraction,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        color.withValues(alpha: 0.22),
-                        color.withValues(alpha: 0.08),
-                      ],
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                    ),
-                    // No edge line: it cut through the title, and the wave
-                    // along the bottom already marks the position.
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
 
 /// Progress as a row of pips after the PLAYING / PAUSED label: each lights in
 /// turn as the song plays, the current one partly; dimmer while paused.

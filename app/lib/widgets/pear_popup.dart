@@ -64,7 +64,7 @@ Future<T?> showPearPopup<T>({
           ),
           child: builder(ctx),
         );
-        // The dialog surface is a frosted glass card. Some content (the
+        // The dialog surface is a graphite card. Some content (the
         // Info pane) paints its own card, so it gets no surface at all.
         return Dialog(
           backgroundColor: Colors.transparent,
@@ -74,9 +74,6 @@ Future<T?> showPearPopup<T>({
           ),
           child: useDialogSurface
               ? PearGlass(
-                  borderRadius: BorderRadius.all(Radius.circular(PearGlassTokens.r(24))),
-                  blur: true,
-                  opacity: PearGlassTokens.popupAlpha,
                   child: Material(
                     type: MaterialType.transparency,
                     child: content,
@@ -97,8 +94,7 @@ Future<T?> showPearPopup<T>({
           child: builder(ctx),
         );
   }
-  // The phone sheet is a frosted glass panel rising from the bottom edge.
-  final sheetRadius = BorderRadius.vertical(top: Radius.circular(PearGlassTokens.r(24)));
+  // The phone sheet is a graphite panel rising from the bottom edge.
   final sheetBuilder = effectiveBuilder;
   return showModalBottomSheet<T>(
     context: context,
@@ -113,9 +109,6 @@ Future<T?> showPearPopup<T>({
     backgroundColor: Colors.transparent,
     elevation: 0,
     builder: (ctx) => PearGlass(
-      borderRadius: sheetRadius,
-      blur: true,
-      opacity: PearGlassTokens.popupAlpha,
       child: Material(
         type: MaterialType.transparency,
         child: showDragHandle
@@ -205,9 +198,6 @@ Future<T?> _showAnchoredPopup<T>({
         ),
       );
       final card = PearGlass(
-        borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
-        blur: true,
-        opacity: PearGlassTokens.popupAlpha,
         child: Material(
           type: MaterialType.transparency,
           child: ConstrainedBox(

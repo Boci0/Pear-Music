@@ -383,6 +383,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       _lastBackgroundFlushEpoch = now;
       debugPrint('[app] app backgrounded: flushing pending saves');
       library.flushSaveIndex();
+      player.flushSavedVolume();
       ArtworkPalette.compactMemory();
       LyricsService.compactMemory();
       PaintingBinding.instance.imageCache.clearLiveImages();
@@ -435,6 +436,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // Persist any queued library index changes before teardown; the debounced
     // saver would otherwise be cancelled with the write still pending.
     await library.flushSaveIndex();
+    await player.flushSavedVolume();
     player.dispose();
     library.dispose();
     LibraryService.killHashWorker();

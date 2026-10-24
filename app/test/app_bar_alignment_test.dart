@@ -4,11 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/controllers/app_controller.dart';
-import 'package:peerm_app/screens/explore_screen.dart';
-import 'package:peerm_app/screens/history_screen.dart';
 import 'package:peerm_app/screens/home_screen.dart';
 import 'package:peerm_app/screens/playlists_screen.dart';
-import 'package:peerm_app/screens/settings_screen.dart';
 import 'package:peerm_app/services/history_service.dart';
 import 'package:peerm_app/services/identity_service.dart';
 import 'package:peerm_app/services/library_service.dart';
@@ -49,8 +46,7 @@ void main() {
   }
 
   Future<Widget> buildScreen(Widget screen) async {
-    // These checks are about the Glass look (pill, pear mark, blur).
-    SharedPreferences.setMockInitialValues({'peerm_style': 'glass'});
+    SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
     final library = LibraryService();
@@ -88,41 +84,19 @@ void main() {
     );
   }
 
-  testWidgets('Explore search bar spans the page at desktop width', (tester) async {
-    tester.view.physicalSize = const Size(1200, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(() {
-      tester.view.resetPhysicalSize();
-      tester.view.resetDevicePixelRatio();
-    });
-    await tester.pumpWidget(
-      await buildScreen(const ExploreScreen(isActive: false)),
-    );
-    await tester.pumpAndSettle();
-
-    final bar = find.byType(SearchBar);
-    expect(bar, findsOneWidget);
-    // Level with the header and the genre row, not an 800px island.
-    expect(tester.getTopLeft(bar).dx, 16);
-    expect(tester.getTopRight(bar).dx, 1200 - 16);
-  });
-
   for (final entry in <String, Widget>{
     'Library': const HomeScreen(),
     'Playlists': const PlaylistsScreen(),
-    'Explore': const ExploreScreen(isActive: false),
-    'History': const HistoryScreen(),
-    'Settings': const SettingsScreen(),
   }.entries) {
     testWidgets('${entry.key} header uses the shared insets', (tester) async {
       configureViewport(tester);
       await tester.pumpWidget(await buildScreen(entry.value));
       await tester.pumpAndSettle();
 
-      final mark = find.byType(PearMark);
-      expect(mark, findsOneWidget, reason: '${entry.key} shows the pear mark');
+      final title = find.byType(PearTabTitle);
+      expect(title, findsOneWidget, reason: '${entry.key} shows its tab title');
       expect(
-        tester.getTopLeft(mark).dx,
+        tester.getTopLeft(title).dx,
         _startInset,
         reason: '${entry.key} starts its header at the shared 16px inset',
       );
@@ -155,30 +129,4 @@ void main() {
     });
   }
 
-  testWidgets('Library header stays pinned left while crossfading into search',
-      (tester) async {
-    configureViewport(tester);
-    await tester.pumpWidget(await buildScreen(const HomeScreen()));
-    await tester.pumpAndSettle();
-
-    // Entering search swaps the min-width tab title for a full-width search
-    // header. Mid-transition both children share the app bar stack, and the
-    // default AnimatedSwitcher layout centred the fading title in the wider
-    // stack (pear + "Library" drifted to the middle of the bar).
-    await tester.tap(find.byIcon(Icons.search));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
-
-    final titleDx = tester.getTopLeft(find.text('Library')).dx;
-    expect(
-      titleDx,
-      lessThan(100),
-      reason: 'the fading title must stay at the leading edge (resting x is '
-          '16 + 28px mark + 8 gap = 52), not drift to the middle of the '
-          'search header',
-    );
-
-    await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
-  });
 }

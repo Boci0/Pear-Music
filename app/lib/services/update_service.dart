@@ -1,3 +1,4 @@
+import '../widgets/pear_sheet.dart';
 import 'dart:convert';
 import '../theme/glass.dart';
 import 'dart:io';
@@ -86,6 +87,10 @@ class UpdateService {
     'https://github.com/Boci0/Pear-Music/releases/latest/download',
     'https://github.com/Boci0/pm-resolver-mirror/releases/download/app-update',
   ];
+
+  /// Shows the update dialog for [info] (the control port's /sheet check).
+  static Future<void> showUpdateDialogFor(BuildContext context, UpdateInfo info) =>
+      showDialog(context: context, builder: (_) => _UpdateDialog(info: info));
 
   static Future<UpdateInfo?> checkLatestRelease() async {
     final signed = await _checkSignedManifest();
@@ -499,7 +504,7 @@ class UpdateService {
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: const Text('Cannot verify update'),
         content: const Text(
           'This release does not include SHA-256 verification data '
@@ -536,7 +541,7 @@ class UpdateService {
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: const Text('Cannot verify update'),
         content: const Text(
           'This update could not be checked against its signature, so it '
@@ -726,7 +731,7 @@ class UpdateService {
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: const Text('Install Permission Required'),
         content: const Text(
           'Pear Music needs permission to install downloaded app updates. '
@@ -1179,7 +1184,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       buttonIcon = Icons.system_update;
     }
 
-    return AlertDialog(
+    return PearAlertDialog(
       title: Text('Update Available (${widget.info.latestVersion})'),
       // AlertDialog sizes to its content's intrinsic width, and the release
       // notes' unwrapped changelog lines would stretch it across the window.

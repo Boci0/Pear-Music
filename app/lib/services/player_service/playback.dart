@@ -1232,9 +1232,21 @@ mixin _PlayerPlayback
     volumeNotifier.value = clamped;
     await _player.setVolume(_effectiveVolume);
     _saveVolumeDebounceTimer?.cancel();
-    _saveVolumeDebounceTimer = Timer(const Duration(milliseconds: 400), () {
-      identity?.setPlaybackVolume(_userVolume);
-    });
+    _saveVolumeDebounceTimer = Timer(
+      const Duration(milliseconds: 400),
+      flushSavedVolume,
+    );
+  }
+
+  /// Saves a volume change still waiting out the save delay. Quitting right
+  /// after a change used to drop it and keep the value from before.
+  Future<void> flushSavedVolume() async {
+    final pending = _saveVolumeDebounceTimer;
+    _saveVolumeDebounceTimer = null;
+    // Nothing waiting: the volume may not be loaded yet, so never write it.
+    if (pending == null) return;
+    pending.cancel();
+    await identity?.setPlaybackVolume(_userVolume);
   }
 
   /// Android 13+ (API 33+) requires the POST_NOTIFICATIONS runtime permission

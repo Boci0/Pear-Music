@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 
-/// A settings row with an on/off switch. Angular styles draw a square toggle
-/// (a block that slides along a framed track); the other styles keep the
-/// standard [SwitchListTile].
+/// A settings row with an on/off switch, drawn as a square toggle (a block
+/// that slides along a framed track).
 class PearSwitchTile extends StatelessWidget {
   const PearSwitchTile({
     super.key,
@@ -24,15 +22,6 @@ class PearSwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!PearStyles.spec.angular) {
-      return SwitchListTile(
-        value: value,
-        onChanged: onChanged,
-        title: title,
-        subtitle: subtitle,
-        secondary: secondary,
-      );
-    }
     final enabled = onChanged != null;
     return MergeSemantics(
       child: ListTile(

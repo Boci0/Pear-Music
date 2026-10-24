@@ -236,30 +236,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Search library...'), findsOneWidget);
+    expect(find.text('Search your music or online'), findsOneWidget);
   });
 
-  testWidgets('phone library header hides the search field behind the icon', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(() {
-      tester.view.resetPhysicalSize();
-      tester.view.resetDevicePixelRatio();
-    });
-
-    final env = await createEnvironment();
-    await tester.pumpWidget(
-      buildHarness(
-        controller: env.controller,
-        player: env.player,
-        child: const HomeScreen(),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Search library...'), findsNothing);
-    expect(find.byIcon(Icons.search), findsOneWidget);
-  });
 }

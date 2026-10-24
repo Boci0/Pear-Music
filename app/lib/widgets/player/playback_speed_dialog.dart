@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/glass.dart';
 import '../../services/player_service.dart';
 import '../pear_popup.dart';
+import '../pear_sheet.dart';
 import '../tactile_button.dart';
 
 /// Modal bottom sheet allowing the user to select playback speed.
@@ -17,80 +18,54 @@ Future<void> showPlaybackSpeedDialog(
     showDragHandle: true,
     maxWidth: 420,
     builder: (context) {
-      final scheme = Theme.of(context).colorScheme;
       final currentSpeed = player.speed;
-
+      // shortcut: the board's Fine tune slider and 0.5x-2.0x in 5 steps; the
+      // player only has these seven speeds, so no slider.
       return SafeArea(
         child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.speed_rounded, color: scheme.primary),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Playback Speed',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ),
-                  if ((currentSpeed - 1.0).abs() > 0.01)
-                    TactileBounce(
-                      onTap: () {
-                        player.setSpeed(1.0);
-                        Navigator.pop(context);
-                      },
-                      child: TextButton(
-                        onPressed: () {
-                          player.setSpeed(1.0);
+              PearSheetTitle(
+                'Speed · ${currentSpeed}x',
+                trailing: (currentSpeed - 1.0).abs() > 0.01
+                    ? SizedBox(
+                        width: 96,
+                        child: PearSheetButton(
+                          label: 'Reset',
+                          height: 36,
+                          onTap: () {
+                            player.setSpeed(1.0);
+                            Navigator.pop(context);
+                          },
+                        ),
+                      )
+                    : null,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final s in speeds)
+                      PearSheetChip(
+                        label: '${s}x',
+                        selected: (currentSpeed - s).abs() < 0.01,
+                        onTap: () {
+                          TactileFeedback.selection();
+                          player.setSpeed(s);
                           Navigator.pop(context);
                         },
-                        child: const Text('Reset'),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              ...speeds.map((s) {
-                final isSelected = (currentSpeed - s).abs() < 0.01;
-                final label = s == 1.0 ? '1.0x (Normal)' : '${s}x';
-
-                return ListTile(
-                  dense: true,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
-                  ),
-                  selected: isSelected,
-                  selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.35),
-                  title: Text(
-                    label,
-                    style: TextStyle(
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? scheme.primary : scheme.onSurface,
-                    ),
-                  ),
-                  trailing: isSelected
-                      ? Icon(Icons.check_rounded, color: scheme.primary)
-                      : null,
-                  onTap: () {
-                    TactileFeedback.selection();
-                    player.setSpeed(s);
-                    Navigator.pop(context);
-                  },
-                );
-              }),
-              const SizedBox(height: 12),
             ],
           ),
         ),
-      ),
-    );
+      );
     },
   );
 }

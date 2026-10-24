@@ -133,7 +133,7 @@ void main() {
     expect(sheetController.size, closeTo(0.50, 0.01));
 
     // Tap to collapse
-    await tester.tap(find.text('Queue'));
+    await tester.tap(find.text('QUEUE'));
     await tester.pumpAndSettle();
     expect(sheetController.isExpanded, isFalse);
     expect(sheetController.size, closeTo(0.08, 0.01));
@@ -322,7 +322,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(sheetController.progress, greaterThan(0.30));
-    await tester.tap(find.text('Queue'));
+    await tester.tap(find.text('QUEUE'));
     await tester.pumpAndSettle();
 
     expect(sheetController.isExpanded, isFalse);

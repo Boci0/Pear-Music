@@ -1,3 +1,4 @@
+import '../pear_empty_state.dart';
 import 'dart:typed_data';
 import '../../theme/glass.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +62,9 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
     final controller = widget.controller;
 
     return Drawer(
+      backgroundColor: PearGlassTokens.angularPanel,
+      surfaceTintColor: Colors.transparent,
+      shape: PearGlassTokens.angularShape(),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -76,9 +80,11 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      _selectedTab == 0 ? 'Playing Queue' : 'Library',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+                      _selectedTab == 0 ? 'QUEUE' : 'LIBRARY',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        letterSpacing: 2.4,
+                        fontWeight: FontWeight.w600,
                       ),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
@@ -93,6 +99,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                             ? 'Auto-reroll seed: ON (tap to turn OFF)'
                             : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
                         child: InkWell(
+                          mouseCursor: WidgetStateMouseCursor.clickable,
                           onTap: () => player.toggleAutoRerollSeed(),
                           onLongPress: () => player.rerollUpcomingQueue(),
                           borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
@@ -197,7 +204,12 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           keys.add(n == 0 ? s.id : '${s.id}#${n + 1}');
         }
         if (queue.isEmpty) {
-          return const Center(child: Text('Queue is empty'));
+          // shortcut: no Start a radio button, a radio needs a seed song.
+          return const PearEmptyState(
+            icon: Icons.queue_music_rounded,
+            title: 'Queue is empty',
+            message: 'Songs you add with Play next or Add to queue show here.',
+          );
         }
 
         return ListView.builder(

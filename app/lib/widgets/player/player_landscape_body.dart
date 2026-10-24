@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import '../../theme/pear_style.dart';
 import '../../theme/glass.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -146,10 +145,9 @@ class PlayerLandscapeBody extends StatelessWidget {
                           ],
                           if (onOpenQueue != null) ...[
                             const SizedBox(height: 4),
-                            PearStyles.spec.angular
-                                // Angular styles: the UP NEXT label and count
-                                // block the portrait sheet uses.
-                                ? TextButton(
+                            // The UP NEXT label and count block the
+                            // portrait sheet uses.
+                            TextButton(
                                     key: const ValueKey('up_next_button'),
                                     onPressed: onOpenQueue,
                                     child: Row(
@@ -178,12 +176,6 @@ class PlayerLandscapeBody extends StatelessWidget {
                                         ),
                                       ],
                                     ),
-                                  )
-                                : TextButton.icon(
-                                    key: const ValueKey('up_next_button'),
-                                    onPressed: onOpenQueue,
-                                    icon: const Icon(Icons.queue_music_rounded),
-                                    label: const Text('Up Next'),
                                   ),
                           ],
                         ],

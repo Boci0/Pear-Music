@@ -8,11 +8,10 @@ import '../../models/song.dart';
 import '../../services/artwork_palette.dart';
 import '../../services/artwork_service.dart';
 import '../../services/player_service.dart';
-import '../../services/player_theme.dart';
 import '../../theme/glass.dart';
-import '../../theme/pear_style.dart';
 import '../../theme/tokens.dart';
 import '../live_badge.dart';
+import '../pear_empty_state.dart';
 import '../tactile_button.dart';
 
 /// Height of one queue row including its vertical padding. The list's
@@ -25,6 +24,9 @@ class QueueSheetController extends ChangeNotifier {
   double _progress = 0.0;
   double _minChildSize = 0.08;
   double _expandedSize = 0.50;
+
+  /// The sheet currently mounted, for the control port.
+  static QueueSheetController? active;
 
   void Function()? _collapseCallback;
   void Function()? _expandCallback;
@@ -55,11 +57,13 @@ class QueueSheetController extends ChangeNotifier {
     _expandCallback = onExpand;
     _toggleCallback = onToggle;
     _jumpCallback = onJump;
+    active = this;
     _minChildSize = minSize;
     _expandedSize = maxSize;
   }
 
   void detach() {
+    if (identical(active, this)) active = null;
     _collapseCallback = null;
     _expandCallback = null;
     _toggleCallback = null;
@@ -391,14 +395,6 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
             lerpDouble(peek, maxH, _curvedAnimation.value)!;
         final isExpanded = _animController.value > 0.30;
 
-        // The mini player's own tone (card fill leaning to the song's colour),
-        // so the sheet matches the bars around it instead of reading near black.
-        final tone = Color.lerp(
-              PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme),
-              ArtworkPalette.wash(widget.accent, lightness: 0.11),
-              0.45,
-            ) ??
-            PlayerTheme.cardFillOpaque(Theme.of(context).colorScheme);
 
         final t = _curvedAnimation.value;
         // The radius no longer follows the animation: a radius that changes
@@ -410,32 +406,23 @@ class _ExpandableQueueSheetState extends State<ExpandableQueueSheet>
         final radius = BorderRadius.vertical(
           top: Radius.circular(PearGlassTokens.r(24)),
         );
-        // Collapsed it is the mini player's own glass; opening it fades to
-        // opaque so the queue stays readable over the player behind it.
-        final glass = PearGlass.fill(
-          Theme.of(context).colorScheme,
-          reduced: pearReducedEffects(context) || PearStyles.spec.flat,
-          // Angular styles keep their panels neutral graphite.
-          tint: PearStyles.spec.angular ? PearGlassTokens.angularPanel : tone,
-          borderRadius: radius,
-          opacity: lerpDouble(PearGlassTokens.baseAlpha, 1.0, t),
-          grainScale: MediaQuery.devicePixelRatioOf(context),
-        );
 
         return Container(
           height: currentHeight,
           // No clip: the panel's height animates, so any rounded clip would
           // rebuild a mask every frame, and nothing in the sheet paints past
           // its own bounds (the list viewport clips its rows).
-          decoration: glass.copyWith(
+          decoration: BoxDecoration(
+            // Neutral graphite, a touch lighter than the panels around it.
+            color: Color.alphaBlend(
+              Colors.white.withValues(alpha: 0.05),
+              PearGlassTokens.angularPanel,
+            ),
+            borderRadius: radius,
             border: Border(
               top: BorderSide(
                 color: Colors.white.withValues(
-                  alpha: lerpDouble(
-                    PearGlassTokens.edgeTop,
-                    PearGlassTokens.edge,
-                    t,
-                  )!,
+                  alpha: lerpDouble(0.14, PearGlassTokens.edge, t)!,
                 ),
                 width: 1,
               ),
@@ -636,33 +623,28 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
       children: [
         Icon(Icons.queue_music_rounded, size: 20, color: _readableAccent),
         const SizedBox(width: 8),
+        // shortcut: the board's Save as playlist and Clear buttons, and the
+        // greyed Suggested rows under Endless Play, have no feature behind
+        // them in the queue sheet yet.
         Text(
-          'Queue',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.2,
+          'QUEUE',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: 2,
               ),
         ),
-        const SizedBox(width: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: _readableAccent.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(PearGlassTokens.r(6)),
-          ),
-          child: Text(
-            '$queueLength',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: _readableAccent,
-            ),
-          ),
-        ),
-        const Spacer(),
-
-        // Autoplay toggle chip
+        const SizedBox(width: 8),
+        PearCountChip('$queueLength', color: _readableAccent),
+        // Autoplay toggle chip; shrinks to fit a narrow phone.
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child:
         InkWell(
+          mouseCursor: WidgetStateMouseCursor.clickable,
           onTap: () {
             TactileFeedback.selection();
             widget.player.setAutoplay(!widget.player.autoplay);
@@ -701,6 +683,9 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
             ),
           ),
         ),
+            ),
+          ),
+        ),
 
         const SizedBox(width: 4),
 
@@ -714,6 +699,7 @@ class _QueueHeaderWidgetState extends State<_QueueHeaderWidget> {
                   ? 'Auto-reroll seed: ON (tap to turn OFF)'
                   : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
               child: InkWell(
+                mouseCursor: WidgetStateMouseCursor.clickable,
                 onTap: () {
                   TactileFeedback.click();
                   widget.player.toggleAutoRerollSeed();
@@ -782,27 +768,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
     return Container(
       key: const ValueKey('queue_panel'),
       clipBehavior: Clip.antiAlias,
-      decoration: PearStyles.spec.angular
-          ? const BoxDecoration(color: PearGlassTokens.angularPanel)
-          : BoxDecoration(
-        color: PlayerTheme.cardFillOpaque(theme.colorScheme),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color.alphaBlend(
-              Colors.white.withValues(alpha: PearGlassTokens.sheenTop),
-              PlayerTheme.cardFillOpaque(theme.colorScheme),
-            ),
-            PlayerTheme.cardFillOpaque(theme.colorScheme),
-          ],
-          stops: const [0, 0.35],
-        ),
-        borderRadius: BorderRadius.circular(PearGlassTokens.r(PearRadius.card)),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: PearGlassTokens.edge),
-        ),
-      ),
+      decoration: const BoxDecoration(color: PearGlassTokens.angularPanel),
       child: Column(
         children: [
           Padding(
@@ -837,6 +803,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
 
                     // Endless Play toggle
                     InkWell(
+                      mouseCursor: WidgetStateMouseCursor.clickable,
                       onTap: () {
                         TactileFeedback.selection();
                         widget.player.setAutoplay(!autoplay);
@@ -890,6 +857,7 @@ class _PlayerQueuePanelState extends State<PlayerQueuePanel> {
                               ? 'Auto-reroll seed: ON (tap to turn OFF)'
                               : 'Auto-reroll seed: OFF (tap to turn ON; long press to reroll once)',
                           child: InkWell(
+                            mouseCursor: WidgetStateMouseCursor.clickable,
                             onTap: () {
                               TactileFeedback.click();
                               widget.player.toggleAutoRerollSeed();
@@ -971,11 +939,10 @@ class _QueueListView extends StatelessWidget {
         final currentIndex = player.queueIndex;
 
         if (queue.isEmpty) {
-          return Center(
-            child: Text(
-              'Queue is empty',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white54),
-            ),
+          return const PearEmptyState(
+            icon: Icons.queue_music_rounded,
+            title: 'Queue is empty',
+            message: 'Songs you add with Play next or Add to queue show here.',
           );
         }
 
@@ -1046,6 +1013,7 @@ class _QueueRow extends StatelessWidget {
         // raster slice used to show up in the gaps while the queue scrolled.
         clipBehavior: Clip.antiAlias,
         child: InkWell(
+          mouseCursor: WidgetStateMouseCursor.clickable,
           onTap: () {
             TactileFeedback.click();
             onTap();
@@ -1057,28 +1025,9 @@ class _QueueRow extends StatelessWidget {
           highlightColor: Colors.white.withValues(alpha: 0.06),
           child: Container(
             height: 64,
-            decoration: PearStyles.spec.angular
-                // Angular styles: the song lists' flat row and accent bar.
-                ? BoxDecoration(
-                    color: isCurrent
-                        ? Colors.white.withValues(alpha: 0.05)
-                        : null,
-                  )
-                : BoxDecoration(
-              borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
-              // Same card body as the library rows: a faint glass fill when
-              // idle, the accent gradient while this one is playing.
-              gradient: isCurrent
-                  ? LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [
-                        readableAccent.withValues(alpha: 0.36),
-                        readableAccent.withValues(alpha: 0.10),
-                      ],
-                    )
-                  : PearGlassTokens.cardSheen,
-              border: Border.all(color: PearGlassTokens.cardRim),
+            // The song lists' flat row and accent bar.
+            decoration: BoxDecoration(
+              color: isCurrent ? Colors.white.withValues(alpha: 0.05) : null,
             ),
             child: Row(
               children: [

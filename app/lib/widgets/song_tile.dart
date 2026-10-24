@@ -1,3 +1,4 @@
+import 'pear_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +8,6 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 import '../theme/tokens.dart';
 import 'live_badge.dart';
 import 'pear_popup.dart';
@@ -33,8 +33,8 @@ class SongTile extends StatelessWidget {
   /// Null keeps the plain source/size label.
   final String? metaSuffix;
 
-  /// Position in its list, from 1. Angular styles show it as "01" before the
-  /// cover; null draws no column.
+  /// Position in its list, from 1, shown as "01" before the cover; null draws
+  /// no column.
   final int? number;
 
 
@@ -55,6 +55,17 @@ class SongTile extends StatelessWidget {
     this.metaSuffix,
   });
 
+  /// Opens the options sheet for [song] (the control port's /sheet check).
+  static Future<void> showMenuFor(BuildContext context, Song song) =>
+      SongTile(song: song)._showMenu(context);
+
+  /// The right-click menu at [position]; the control port opens it this way.
+  static Future<void> showContextMenuFor(
+    BuildContext context,
+    Song song,
+    Offset position,
+  ) => SongTile(song: song)._showContextMenu(context, position);
+
   Future<void> _showMenu(BuildContext context, {Offset? anchor}) async {
     final controller = context.read<AppController>();
     final isFav = controller.isFavorite(song.id);
@@ -65,81 +76,7 @@ class SongTile extends StatelessWidget {
       maxWidth: 340,
       anchor: anchor,
       anchorAlignRight: true,
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: Text(
-                  song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(ctx).textTheme.titleSmall,
-                ),
-                dense: true,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.sensors_rounded),
-                title: const Text('Start Radio'),
-                onTap: () => Navigator.pop(ctx, 'radio'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.playlist_play_rounded),
-                title: const Text('Play next'),
-                onTap: () => Navigator.pop(ctx, 'play_next'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.queue_music_rounded),
-                title: const Text('Add to queue'),
-                onTap: () => Navigator.pop(ctx, 'add_to_queue'),
-              ),
-              if (song.sourceDeviceId == 'stream')
-                ListTile(
-                  leading: const Icon(Icons.download_rounded),
-                  title: const Text('Save to library'),
-                  onTap: () => Navigator.pop(ctx, 'save_stream'),
-                ),
-              ListTile(
-                leading: Icon(
-                  isFav ? Icons.favorite : Icons.favorite_border,
-                  color: isFav ? Theme.of(ctx).colorScheme.primary : null,
-                ),
-                title: Text(
-                  isFav ? 'Remove from favorites' : 'Add to favorites',
-                ),
-                onTap: () => Navigator.pop(ctx, 'favorite'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.playlist_add),
-                title: const Text('Add to playlist'),
-                onTap: () => Navigator.pop(ctx, 'playlist'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.copy_rounded),
-                title: const Text('Copy title'),
-                onTap: () => Navigator.pop(ctx, 'copy_title'),
-              ),
-              if (song.sourceDeviceId != 'stream')
-                ListTile(
-                  leading: Icon(
-                    Icons.delete_outline,
-                    color: Theme.of(ctx).colorScheme.error,
-                  ),
-                  title: Text(
-                    'Remove from library',
-                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(ctx).colorScheme.error,
-                    ),
-                  ),
-                  onTap: () => Navigator.pop(ctx, 'remove'),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
+      builder: (ctx) => _menu(ctx, isFav),
     );
     if (!context.mounted) return;
     if (action != null) {
@@ -147,74 +84,119 @@ class SongTile extends StatelessWidget {
     }
   }
 
+  /// The options sheet: the song, three quick actions, then flat rows.
+  // shortcut: no Download audio / video, Track info or Remove from playlist
+  // rows here, the song menu has no such actions; online songs get those on
+  // their own tile.
+  Widget _menu(BuildContext ctx, bool isFav) {
+    final scheme = Theme.of(ctx).colorScheme;
+    void pick(String a) => Navigator.pop(ctx, a);
+    Widget quick(String label, IconData icon, String id) => Expanded(
+          child: PearSheetButton(label: label, icon: icon, onTap: () => pick(id)),
+        );
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            PearSheetTitle(
+              song.title,
+              leading: _Artwork(song: song, isCurrent: false),
+              subtitle: [
+                if (song.artist?.isNotEmpty ?? false) song.artist!,
+                ?song.durationLabel,
+              ].join(' · '),
+              trailing: IconButton(
+                tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
+                icon: Icon(
+                  isFav ? Icons.favorite : Icons.favorite_border,
+                  color: isFav ? scheme.primary : null,
+                ),
+                onPressed: () => pick('favorite'),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Row(
+                children: [
+                  quick('Next', Icons.playlist_play_rounded, 'play_next'),
+                  const SizedBox(width: 8),
+                  quick('Queue', Icons.queue_music_rounded, 'add_to_queue'),
+                  const SizedBox(width: 8),
+                  quick('Radio', Icons.sensors_rounded, 'radio'),
+                ],
+              ),
+            ),
+            PearSheetRow(
+              label: 'Add to playlist',
+              icon: Icons.playlist_add_rounded,
+              chevron: true,
+              onTap: () => pick('playlist'),
+            ),
+            if (song.sourceDeviceId == 'stream')
+              PearSheetRow(
+                label: 'Save to library',
+                icon: Icons.download_rounded,
+                onTap: () => pick('save_stream'),
+              ),
+            PearSheetRow(
+              label: 'Copy title',
+              icon: Icons.copy_rounded,
+              onTap: () => pick('copy_title'),
+            ),
+            if (song.sourceDeviceId != 'stream')
+              PearSheetRow(
+                label: 'Remove from library',
+                icon: Icons.delete_outline_rounded,
+                danger: true,
+                onTap: () => pick('remove'),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Right-click context menu: the desktop native equivalent of the long-press
   /// sheet, anchored at the pointer with the same actions.
   Future<void> _showContextMenu(BuildContext context, Offset position) async {
     final controller = context.read<AppController>();
     final isFav = controller.isFavorite(song.id);
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (overlay == null) return;
-    final selected = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        position & const Size(1, 1),
-        Offset.zero & overlay.size,
+    final scheme = Theme.of(context).colorScheme;
+    final selected = await showPearContextMenu(context, position, [
+      const PearMenuEntry('radio', 'Start Radio'),
+      const PearMenuEntry('play_next', 'Play next'),
+      const PearMenuEntry(
+        'add_to_queue',
+        'Add to queue',
       ),
-      items: [
-        _menuItem('radio', Icons.sensors_rounded, 'Start Radio'),
-        _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
-        _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
-        if (song.sourceDeviceId == 'stream')
-          _menuItem('save_stream', Icons.download_rounded, 'Save to library'),
-        _menuItem(
-          'favorite',
-          isFav ? Icons.favorite : Icons.favorite_border,
-          isFav ? 'Remove from favorites' : 'Add to favorites',
-          color: isFav ? Theme.of(context).colorScheme.primary : null,
+      if (song.sourceDeviceId == 'stream')
+        const PearMenuEntry(
+          'save_stream',
+          'Save to library',
         ),
-        _menuItem('playlist', Icons.playlist_add, 'Add to playlist'),
-        _menuItem('copy_title', Icons.copy_rounded, 'Copy title'),
-        if (song.sourceDeviceId != 'stream')
-          _menuItem(
-            'remove',
-            Icons.delete_outline,
-            'Remove from library',
-            color: Theme.of(context).colorScheme.error,
-          ),
-      ],
-    );
+      PearMenuEntry(
+        'favorite',
+        isFav ? 'Remove from favorites' : 'Add to favorites',
+        color: isFav ? scheme.primary : null,
+        separatorBefore: true,
+      ),
+      const PearMenuEntry('playlist', 'Add to playlist'),
+      const PearMenuEntry('copy_title', 'Copy title'),
+      if (song.sourceDeviceId != 'stream')
+        PearMenuEntry(
+          'remove',
+          'Remove from library',
+          color: scheme.error,
+          separatorBefore: true,
+        ),
+    ]);
     if (!context.mounted) return;
     if (selected != null) {
       await _applyAction(context, controller, selected);
     }
-  }
-
-  PopupMenuItem<String> _menuItem(
-    String value,
-    IconData icon,
-    String label, {
-    Color? color,
-  }) {
-    return PopupMenuItem<String>(
-      value: value,
-      height: 42,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              label,
-              softWrap: false,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: color),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   /// Runs a menu choice. Shared by the long-press sheet and the right-click
@@ -260,7 +242,7 @@ class SongTile extends StatelessWidget {
   ) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: Text('Remove "${song.title}"?'),
         content: const Text(
           'This permanently deletes the song from this device and removes it from '
@@ -327,6 +309,7 @@ class SongTile extends StatelessWidget {
             onSecondaryTapDown: (details) =>
                 _showContextMenu(context, details.globalPosition),
             child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               onTap: () {
                 TactileFeedback.click();
                 if (isSelecting) {
@@ -400,8 +383,7 @@ class SongTile extends StatelessWidget {
                                   ),
                                   const SizedBox(width: 6),
                                 ],
-                                if (number != null &&
-                                    PearStyles.spec.angular)
+                                if (number != null)
                                   SizedBox(
                                     width: PearRowLook.numberWidth,
                                     child: Text(

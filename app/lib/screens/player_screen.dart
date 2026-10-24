@@ -1,4 +1,5 @@
 
+import '../widgets/pear_empty_state.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -13,7 +14,7 @@ import '../widgets/pear_app_bar.dart';
 import '../widgets/player/player_artwork.dart';
 import '../widgets/player/player_desktop_body.dart';
 import '../widgets/player/player_landscape_body.dart';
-import '../widgets/player/player_portrait_body.dart';
+import '../widgets/player/player_stage_body.dart';
 import '../widgets/player/playback_speed_dialog.dart';
 import '../widgets/player/queue_bottom_sheet.dart';
 import '../widgets/player/sleep_timer_dialog.dart';
@@ -190,42 +191,80 @@ class _PlayerScreenState extends State<PlayerScreen> {
             defaultTargetPlatform == TargetPlatform.iOS) &&
         MediaQuery.orientationOf(context) == Orientation.landscape;
 
-    final appBar = AppBar(
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      scrolledUnderElevation: 0,
-      elevation: 0,
-      notificationPredicate: (_) => false,
-      titleSpacing: 0,
-      title: compactLandscape && song != null
-          ? PlayerSongInfo(song: song, compact: true)
-          : null,
-      leading: BackButton(
-        onPressed: () {
-          TactileFeedback.click();
-          if (_sheetController.progress > 0.001) {
-            _sheetController.collapse();
-          } else {
-            // The lyrics are parked in dispose(), after the close
-            // animation: switching them off here would swap the artwork in
-            // the middle of the transition.
-            Navigator.of(context).pop();
-          }
-        },
-      ),
-      actions: [
-        PlaybackSpeedButton(player: player),
-        SleepTimerButton(player: player),
-        StreamQualityInfoButton(player: player),
-        const SizedBox(width: kAppBarActionInset),
-      ],
+    // The stage body upright. A phone held sideways (under 500 dp tall) gets
+    // its own split of it; car screens and tablets keep the classic landscape
+    // body.
+    final sidewaysStage = landscape &&
+        !useQueuePanel &&
+        MediaQuery.sizeOf(context).height < 500;
+    final stage = !landscape || sidewaysStage;
+
+    void close() {
+      TactileFeedback.click();
+      if (_sheetController.progress > 0.001) {
+        _sheetController.collapse();
+      } else {
+        // The lyrics are parked in dispose(), after the close
+        // animation: switching them off here would swap the artwork in
+        // the middle of the transition.
+        Navigator.of(context).pop();
+      }
+    }
+
+    final closeButton = IconButton(
+      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
+      tooltip: 'Close player',
+      onPressed: close,
     );
+    // Sideways the close and more buttons sit beside the switch instead.
+    final PreferredSizeWidget? appBar = sidewaysStage && song != null
+        ? null
+        : stage
+        ? AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            elevation: 0,
+            notificationPredicate: (_) => false,
+            centerTitle: true,
+            title: song == null
+                ? null
+                : PlayerViewTabs(song: song, accent: targetAccent),
+            leading: closeButton,
+            actions: [
+              if (song != null) PlayerMoreButton(song: song),
+              const SizedBox(width: kAppBarActionInset),
+            ],
+          )
+        : AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            elevation: 0,
+            notificationPredicate: (_) => false,
+            titleSpacing: 0,
+            title: compactLandscape && song != null
+                ? PlayerSongInfo(song: song, compact: true)
+                : null,
+            leading: BackButton(onPressed: close),
+            actions: [
+              PlaybackSpeedButton(player: player),
+              SleepTimerButton(player: player),
+              StreamQualityInfoButton(player: player),
+              const SizedBox(width: kAppBarActionInset),
+            ],
+          );
 
     if (song == null) {
       return Scaffold(
         key: _scaffoldKey,
         appBar: appBar,
-        body: const Center(child: Text('Nothing is playing')),
+        // shortcut: no Resume last song button, there is no stored last song.
+        body: const PearEmptyState(
+          icon: Icons.music_note_rounded,
+          title: 'Nothing is playing',
+          message: 'Pick a song from your library, or find something new in Explore.',
+        ),
       );
     }
 
@@ -288,12 +327,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 Positioned.fill(
                   child: Column(
                     children: [
-                      appBar,
+                      ?appBar,
                       Expanded(
                         child: SafeArea(
                           top: false,
                           bottom: false,
-                          child: landscape
+                          child: sidewaysStage
+                              ? PlayerStageLandscapeBody(
+                                  controller: controller,
+                                  player: player,
+                                  song: song,
+                                  duration: duration,
+                                  accent: targetAccent,
+                                  onOpenQueue: () =>
+                                      _openQueueSheet(player, targetAccent),
+                                  leading: closeButton,
+                                  trailing: PlayerMoreButton(song: song),
+                                )
+                              : landscape
                               ? Padding(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 24, vertical: 8),
@@ -325,12 +376,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                               : null,
                                         ),
                                 )
-                              : PlayerPortraitBody(
+                              : PlayerStageBody(
                                   controller: controller,
                                   player: player,
                                   song: song,
                                   duration: duration,
                                   accent: targetAccent,
+                                  onOpenQueue: _sheetController.expand,
                                 ),
                         ),
                       ),

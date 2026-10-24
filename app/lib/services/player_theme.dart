@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 import '../theme/tokens.dart';
 import 'artwork_palette.dart';
 import 'player_service.dart';
@@ -18,7 +17,6 @@ class PlayerTheme extends ChangeNotifier {
   PlayerTheme(PlayerService player) : _player = player {
     _player.addListener(_onPlayerChanged);
     ArtworkPalette.paletteNotifier.addListener(_onPaletteUpdated);
-    PearStyles.current.addListener(_onStyleChanged);
     _onPlayerChanged();
   }
 
@@ -31,7 +29,7 @@ class PlayerTheme extends ChangeNotifier {
   /// but the colour only needs to change when the SONG changes.
   String? _appliedSongId;
 
-  static final Map<(Color, PearStyle), ThemeData> _cache = {};
+  static final Map<Color, ThemeData> _cache = {};
   static const int _cacheMax = 32;
 
   /// Builds the app theme around [scheme]: the fixed dark structure (scaffold,
@@ -40,17 +38,6 @@ class PlayerTheme extends ChangeNotifier {
   /// colours (primaryColor, textTheme, iconTheme, inputDecorationTheme, ...)
   /// always match the scheme being shown. That keeps the transition a smooth
   /// fade instead of a snap at the halfway point.
-  /// Blends the song accent into a neutral colour: the single place the
-  /// "music colours the room" strength lives. Used by the theme itself and by
-  /// the shell chrome (menu strip, status bar) so everything tints together.
-  static Color ambientBlend(
-    ColorScheme scheme,
-    Color base, {
-    double alpha = 0.08,
-  }) {
-    return Color.alphaBlend(scheme.primary.withValues(alpha: alpha), base);
-  }
-
   /// Opaque equivalent of the translucent card fill, for chrome that floats
   /// over scrolling content (nav bar, mini player, side rail): the cards' own
   /// tone, but nothing shows through.
@@ -60,31 +47,23 @@ class PlayerTheme extends ChangeNotifier {
   );
 
   static ThemeData buildFromScheme(ColorScheme scheme) {
-    // Night ramp: canvas, card and chrome sit a whisker apart so a deep, quiet
-    // room still reads in layers. The accent tint below is what moves.
-    const baseBg = Color(0xFF0A0A0C);
-    const baseSurface = Color(0xFF121215);
-    const baseHighlight = Color(0xFF18181B);
-
-    // The music colours the room: the canvas and every neutral surface pick up
-    // a whisper of the song's accent, so the whole window follows the artwork
-    // instead of staying pure grey. Idle uses the emerald fallback accent.
-    final ambient = PearStyles.spec.ambient;
-    final bgDark = ambientBlend(scheme, baseBg, alpha: ambient);
-    final surfaceDark =
-        ambientBlend(scheme, baseSurface, alpha: ambient * 0.75);
-    final surfaceHighlight =
-        ambientBlend(scheme, baseHighlight, alpha: ambient * 0.75);
+    // Neutral graphite ramp: canvas, card and chrome sit a whisker apart so
+    // the room reads in layers. Only the accent follows the song.
+    const bgDark = Color(0xFF0A0A0C);
+    const surfaceDark = Color(0xFF121215);
+    const surfaceHighlight = Color(0xFF18181B);
 
     return ThemeData(
       useMaterial3: true,
-      hoverColor: Colors.white.withValues(alpha: 0.04),
+      // Hover and press fills: plain enough to stay calm, strong enough that
+      // every click visibly lands.
+      hoverColor: Colors.white.withValues(alpha: 0.06),
       // Keyboard focus gets its own subtle fill (plus the Material focus
       // overlay on icon buttons) so tabbing through the desktop shell is
       // visible without being loud.
       focusColor: Colors.white.withValues(alpha: 0.06),
-      splashColor: scheme.primary.withValues(alpha: 0.08),
-      highlightColor: Colors.transparent,
+      splashColor: scheme.primary.withValues(alpha: 0.12),
+      highlightColor: Colors.white.withValues(alpha: 0.06),
       colorScheme: scheme.copyWith(
         surface: bgDark,
         surfaceContainerLow: const Color(0xFF0E0E10),
@@ -97,6 +76,7 @@ class PlayerTheme extends ChangeNotifier {
       scaffoldBackgroundColor: Colors.transparent,
       iconButtonTheme: IconButtonThemeData(
         style: ButtonStyle(
+          mouseCursor: _hand,
           overlayColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.pressed)) {
               return scheme.primary.withValues(alpha: 0.14);
@@ -301,6 +281,7 @@ class PlayerTheme extends ChangeNotifier {
       // bordered control joins the app's chip language.
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: ButtonStyle(
+          mouseCursor: _hand,
           side: const WidgetStatePropertyAll(BorderSide.none),
           backgroundColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
@@ -361,7 +342,22 @@ class PlayerTheme extends ChangeNotifier {
           borderRadius: BorderRadius.vertical(top: Radius.circular(PearGlassTokens.r(24))),
         ),
       ),
+      // Desktop Flutter shows an arrow over buttons by default; the hand
+      // tells the user every one of them is clickable.
+      textButtonTheme: const TextButtonThemeData(
+        style: ButtonStyle(mouseCursor: _hand),
+      ),
+      filledButtonTheme: const FilledButtonThemeData(
+        style: ButtonStyle(mouseCursor: _hand),
+      ),
+      outlinedButtonTheme: const OutlinedButtonThemeData(
+        style: ButtonStyle(mouseCursor: _hand),
+      ),
+      elevatedButtonTheme: const ElevatedButtonThemeData(
+        style: ButtonStyle(mouseCursor: _hand),
+      ),
       listTileTheme: ListTileThemeData(
+        mouseCursor: WidgetStateMouseCursor.clickable,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(PearGlassTokens.r(8))),
       ),
       iconTheme: IconThemeData(color: scheme.onSurface),
@@ -370,43 +366,29 @@ class PlayerTheme extends ChangeNotifier {
   }
 
   static ThemeData _build(Color accent) {
-    final key = (accent, PearStyles.current.value);
-    final cached = _cache[key];
+    final cached = _cache[accent];
     if (cached != null) return cached;
     var scheme = ColorScheme.fromSeed(
       seedColor: accent,
       brightness: Brightness.dark,
     );
-    // Signal-colour styles use the vivid accent exactly, with ink that reads
-    // on it (dark on bright colours, white on deep ones).
-    if (PearStyles.spec.vividAccent) {
-      final vivid = ArtworkPalette.vivid(accent);
-      scheme = scheme.copyWith(
-        primary: vivid,
-        onPrimary: vivid.computeLuminance() > 0.35
-            ? const Color(0xFF15161A)
-            : Colors.white,
-      );
-    }
+    // The vivid accent exactly, with ink that reads on it (dark on bright
+    // colours, white on deep ones).
+    final vivid = ArtworkPalette.vivid(accent);
+    scheme = scheme.copyWith(
+      primary: vivid,
+      onPrimary: vivid.computeLuminance() > 0.35
+          ? const Color(0xFF15161A)
+          : Colors.white,
+    );
     final built = buildFromScheme(scheme);
     // Bounded cache: evict the oldest accent so the cache can't grow without
     // bound as more songs with distinct artwork colours are played.
     if (_cache.length >= _cacheMax) {
       _cache.remove(_cache.keys.first);
     }
-    _cache[key] = built;
+    _cache[accent] = built;
     return built;
-  }
-
-  /// A new style changes the theme's own numbers (card fill, rims), so build
-  /// the current song's theme again under it.
-  void _onStyleChanged() {
-    final song = _player.currentSong;
-    _apply(
-      song != null && ArtworkPalette.hasResolved(song)
-          ? ArtworkPalette.dominantSync(song)
-          : ArtworkPalette.fallback,
-    );
   }
 
   void _onPaletteUpdated() {
@@ -452,7 +434,6 @@ class PlayerTheme extends ChangeNotifier {
   void dispose() {
     _player.removeListener(_onPlayerChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
-    PearStyles.current.removeListener(_onStyleChanged);
     super.dispose();
   }
 }
@@ -479,3 +460,7 @@ class _FastFadePageTransitionsBuilder extends PageTransitionsBuilder {
     );
   }
 }
+
+/// The pointing hand over anything enabled to click, the arrow when disabled
+/// (a WidgetStateMouseCursor is itself a WidgetStateProperty).
+const WidgetStateMouseCursor _hand = WidgetStateMouseCursor.clickable;

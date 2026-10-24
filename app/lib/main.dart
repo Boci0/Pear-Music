@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'controllers/app_controller.dart';
+import 'theme/glass.dart';
 import 'screens/home_shell.dart';
 import 'services/debug_control.dart';
 import 'services/test_control.dart';
@@ -223,7 +224,16 @@ class PearMusicApp extends StatelessWidget {
       // song changes so the colour shift is graceful, not a hard snap.
       child: Builder(
         builder: (context) {
-          final theme = context.watch<PlayerTheme>().theme;
+          final baseTheme = context.watch<PlayerTheme>().theme;
+          // Notices (Removed, Undo, saved...) use the Graphite panel like the
+          // dialogs.
+          final theme = baseTheme.copyWith(
+            snackBarTheme: baseTheme.snackBarTheme.copyWith(
+              backgroundColor: PearGlassTokens.angularPanel,
+              actionTextColor: baseTheme.colorScheme.primary,
+              shape: PearGlassTokens.angularShape(),
+            ),
+          );
           return MaterialApp(
             title: 'Pear Music',
             debugShowCheckedModeBanner: false,
@@ -235,7 +245,12 @@ class PearMusicApp extends StatelessWidget {
             // playback.
             builder: (context, child) {
               final mediaQuery = MediaQuery.of(context);
-              final width = mediaQuery.size.width;
+              // A phone held sideways scales its text like the same phone
+              // upright, not like a 900 px wide window.
+              final sideways = mediaQuery.size.height < 500;
+              final width = sideways
+                  ? mediaQuery.size.shortestSide
+                  : mediaQuery.size.width;
 
               // Responsive text and layout scaling:
               // Standard mobile reference width is ~392 logical px.
@@ -251,6 +266,16 @@ class PearMusicApp extends StatelessWidget {
               );
 
               Widget appChild = child ?? const SizedBox.shrink();
+              // The short screen gets a lower top bar.
+              if (sideways) {
+                final theme = Theme.of(context);
+                appChild = Theme(
+                  data: theme.copyWith(
+                    appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: 44),
+                  ),
+                  child: appChild,
+                );
+              }
 
               // The room behind every route: the ambient canvas plus a faint
               // pear watermark, painted once by PearBackdrop. Screens keep

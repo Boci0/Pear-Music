@@ -209,7 +209,7 @@ void main() {
       // Verify bottom sheet content
       expect(find.text('Play all'), findsOneWidget);
       expect(find.text('Shuffle'), findsOneWidget);
-      expect(find.text('Rename playlist'), findsOneWidget);
+      expect(find.text('Rename'), findsOneWidget);
       expect(find.text('Delete playlist'), findsOneWidget);
     });
   });
@@ -343,7 +343,7 @@ void main() {
       await tester.tap(find.byType(StreamQualityInfoButton));
       await tester.pumpAndSettle();
 
-      expect(find.text('Info'), findsOneWidget);
+      expect(find.text('Track info'), findsOneWidget);
       expect(find.text('TRACK & FILE PROPERTIES'), findsOneWidget);
       expect(find.text('STREAM & RESOLVER DIAGNOSTICS'), findsOneWidget);
     });

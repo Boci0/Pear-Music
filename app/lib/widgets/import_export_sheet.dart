@@ -1,11 +1,10 @@
+import 'pear_sheet.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/app_controller.dart';
 import '../services/youtube_service.dart';
-import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'pear_popup.dart';
-import 'tactile_button.dart';
 
 /// What the user picked on the import & export sheet.
 enum ImportExportAction { exportLibrary, importLibrary, importPlaylists }
@@ -51,23 +50,8 @@ class _ImportExportSheet extends StatelessWidget {
             if (hearts > 0) _plural(hearts, 'favorite'),
           ].join(' · ');
 
-    Widget sectionLabel(String text) => Padding(
-          padding: const EdgeInsets.fromLTRB(
-            PearSpacing.xl,
-            PearSpacing.lg,
-            PearSpacing.xl,
-            PearSpacing.sm,
-          ),
-          child: Text(
-            text.toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: muted,
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        );
-
+    // shortcut: the board's in-sheet progress card is not built; imports
+    // keep their own progress dialog.
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
@@ -76,189 +60,62 @@ class _ImportExportSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                PearSpacing.xl,
-                PearSpacing.md,
-                PearSpacing.xl,
-                0,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Import & export',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: PearSpacing.xs),
-                  Text(
-                    'Move your music to another device or player.',
-                    style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-                  ),
-                ],
-              ),
-            ),
-            sectionLabel('Library backup'),
-            _OptionCard(
+            const PearSheetTitle('Import and export'),
+            const PearSheetLabel('Backup'),
+            PearSheetRow(
               key: const ValueKey('import_export_export_library'),
-              icon: Icons.ios_share_rounded,
-              title: 'Export backup',
+              label: 'Export backup',
               detail: exportDetail,
-              enabled: !backupEmpty,
-              onTap: () =>
-                  Navigator.pop(context, ImportExportAction.exportLibrary),
+              onTap: backupEmpty
+                  ? null
+                  : () => Navigator.pop(
+                        context,
+                        ImportExportAction.exportLibrary,
+                      ),
             ),
-            _OptionCard(
+            PearSheetRow(
               key: const ValueKey('import_export_import_library'),
-              icon: Icons.settings_backup_restore_rounded,
-              title: 'Restore backup',
+              label: 'Restore backup',
               detail: controller.isProfileImporting
                   ? 'A restore is already running'
                   : 'Downloads every song in a backup and restores its hearts',
-              enabled: !controller.isProfileImporting,
-              onTap: () =>
-                  Navigator.pop(context, ImportExportAction.importLibrary),
+              onTap: controller.isProfileImporting
+                  ? null
+                  : () => Navigator.pop(
+                        context,
+                        ImportExportAction.importLibrary,
+                      ),
             ),
             if (summary.localOnly > 0)
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  PearSpacing.xl,
-                  PearSpacing.xs,
-                  PearSpacing.xl,
-                  0,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline_rounded, size: 14, color: muted),
-                    const SizedBox(width: PearSpacing.sm),
-                    Expanded(
-                      child: Text(
-                        '${_plural(summary.localOnly, 'song')} added from '
-                        'files stay on this device and are not in the backup.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: muted,
-                        ),
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Text(
+                  '${_plural(summary.localOnly, 'song')} added from files '
+                  'stay on this device and are not in the backup.',
+                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
                 ),
               ),
-            sectionLabel('Playlists'),
-            _OptionCard(
+            const PearSheetLabel('Bring in'),
+            PearSheetRow(
               key: const ValueKey('import_export_import_playlists'),
-              icon: Icons.playlist_add_rounded,
-              title: 'Import playlists',
-              detail: '.m3u or .m3u8 files from Pear Music or any other player',
-              enabled: !controller.isPlaylistImporting,
-              onTap: () =>
-                  Navigator.pop(context, ImportExportAction.importPlaylists),
+              label: 'Import playlists',
+              detail:
+                  '.m3u or .m3u8 files from Pear Music or any other player',
+              onTap: controller.isPlaylistImporting
+                  ? null
+                  : () => Navigator.pop(
+                        context,
+                        ImportExportAction.importPlaylists,
+                      ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(
-                PearSpacing.xl,
-                PearSpacing.xs,
-                PearSpacing.xl,
-                0,
-              ),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               child: Text(
                 'To export a playlist, open its ⋮ menu in the Playlists tab.',
                 style: theme.textTheme.bodySmall?.copyWith(color: muted),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// One tappable option: a tinted icon, a title and a line saying exactly
-/// what happens.
-class _OptionCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String detail;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _OptionCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.detail,
-    required this.onTap,
-    this.enabled = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final card = Container(
-      padding: const EdgeInsets.all(PearSpacing.md),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: PearGlassTokens.cardFill),
-        borderRadius: PearRadius.rowAll,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.14),
-              borderRadius: PearRadius.rowAll,
-            ),
-            child: Icon(icon, color: scheme.primary, size: 22),
-          ),
-          const SizedBox(width: PearSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  detail,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: PearSpacing.sm),
-          Icon(
-            Icons.chevron_right_rounded,
-            color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-          ),
-        ],
-      ),
-    );
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: PearSpacing.lg,
-        vertical: PearSpacing.xs,
-      ),
-      child: Opacity(
-        opacity: enabled ? 1 : 0.45,
-        child: TactileBounce(
-          scaleDown: 0.97,
-          borderRadius: PearRadius.rowAll,
-          onTap: enabled ? onTap : null,
-          child: Semantics(button: true, enabled: enabled, child: card),
         ),
       ),
     );
@@ -330,7 +187,7 @@ class _PlaylistImportDialogState extends State<_PlaylistImportDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return AlertDialog(
+    return PearAlertDialog(
       title: const Text('Importing playlists'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

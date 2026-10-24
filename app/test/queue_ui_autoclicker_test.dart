@@ -114,8 +114,8 @@ void main() {
       await tester.tap(moreButton);
       await tester.pumpAndSettle();
 
-      // Find and click 'Start Radio'
-      final startRadioTile = find.text('Start Radio');
+      // Find and click 'Radio'
+      final startRadioTile = find.text('Radio');
       expect(startRadioTile, findsOneWidget);
       await tester.tap(startRadioTile);
       await tester.pumpAndSettle();
@@ -161,8 +161,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
 
-      // Click 'Play next' once
-      final playNextOption = find.text('Play next');
+      // Click 'Next' once
+      final playNextOption = find.text('Next');
       expect(playNextOption, findsOneWidget);
       await tester.tap(playNextOption);
       await tester.pumpAndSettle();
@@ -204,8 +204,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
 
-      // Click 'Play next' once
-      final playNextOption = find.text('Play next');
+      // Click 'Next' once
+      final playNextOption = find.text('Next');
       expect(playNextOption, findsOneWidget);
       await tester.tap(playNextOption);
       await tester.pumpAndSettle();
@@ -247,7 +247,7 @@ void main() {
       env.player.currentSong = songA;
       expect(env.player.queueIndex, 0);
 
-      // Add songC via SongTile context menu -> 'Add to queue'
+      // Add songC via SongTile options sheet -> 'Queue'
       await tester.pumpWidget(
         buildHarness(
           controller: env.controller,
@@ -260,7 +260,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
 
-      final addToQueueOption = find.text('Add to queue');
+      final addToQueueOption = find.text('Queue');
       expect(addToQueueOption, findsOneWidget);
       await tester.tap(addToQueueOption);
       await tester.pumpAndSettle();

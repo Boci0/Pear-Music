@@ -1,3 +1,4 @@
+import '../widgets/pear_sheet.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -12,7 +13,6 @@ import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 import '../theme/tokens.dart';
 import '../widgets/filter_pill.dart';
 import '../widgets/import_export_sheet.dart';
@@ -21,24 +21,42 @@ import '../widgets/pear_popup.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/tactile_button.dart';
 import '../widgets/glow_room.dart';
+import '../widgets/pear_empty_state.dart';
+import '../widgets/pear_page_route.dart';
+import 'explore_screen.dart';
+import 'home_feed_screen.dart';
+import 'home_shell.dart';
+import 'playlists_screen.dart';
 
 /// Library tab: drag & drop (Windows) or picker, then play.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
+  static final ValueNotifier<String> _searchRequests = ValueNotifier('');
+
+  /// Fills the library search with [query], as typing it does. The wide
+  /// rail's search field calls this, then switches to this tab.
+  static void requestSearch(String query) {
+    // Cleared first so asking for the same query twice still notifies.
+    _searchRequests.value = '';
+    _searchRequests.value = query;
+  }
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver {
   /// Wait after the last keystroke before the query reaches the list. Filtering
   /// and sorting the whole library is not worth doing for every character, and
   /// the list stays one frame behind the caret for at most this long.
   static const Duration _searchDebounceDelay = Duration(milliseconds: 180);
 
   bool _isSelecting = false;
-  bool _isSearching = false;
-  bool _showOnlyFavorites = false;
+
+  /// Which chip is on.
+  _LibraryView _view = _LibraryView.all;
   String _searchQuery = '';
   Timer? _searchDebounce;
   final TextEditingController _searchController = TextEditingController();
@@ -46,8 +64,35 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _selectedIds = {};
   int? _lastClickedIndex;
 
+  /// Whether the on-screen keyboard is up. Read from the window: the shell's
+  /// Scaffold has already taken the keyboard out of this tab's MediaQuery.
+  bool _keyboardUp = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    HomeScreen._searchRequests.addListener(_onSearchRequest);
+  }
+
+  void _onSearchRequest() {
+    final query = HomeScreen._searchRequests.value.trim();
+    if (query.isEmpty || !mounted) return;
+    _cancelSearchDebounce();
+    _searchController.text = query;
+    setState(() => _searchQuery = query);
+  }
+
+  @override
+  void didChangeMetrics() {
+    final up = View.of(context).viewInsets.bottom > 0;
+    if (up != _keyboardUp) setState(() => _keyboardUp = up);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    HomeScreen._searchRequests.removeListener(_onSearchRequest);
     _searchDebounce?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -125,7 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final count = selectedSongs.length;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: Text('Remove $count ${count == 1 ? "song" : "songs"}?'),
         content: const Text(
           'This permanently deletes the selected songs from this device and '
@@ -271,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final name = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => PearAlertDialog(
           title: const Text('New Playlist'),
           content: TextField(
             controller: nameController,
@@ -353,6 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         },
         onShiftTap: () => _selectRangeTo(songs, index),
+        metaSuffix: song.sizeLabel,
       ),
     );
   }
@@ -416,7 +462,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Shared search field: the phone header shows it only in search mode while
   /// wide desktop headers keep it visible all the time.
-  Widget _buildLibrarySearchField({required bool autofocus}) {
+  Widget _buildLibrarySearchField({
+    required bool autofocus,
+    String hint = 'Search library...',
+  }) {
     final theme = Theme.of(context);
     return SizedBox(
       height: 40,
@@ -426,7 +475,7 @@ class _HomeScreenState extends State<HomeScreen> {
         autofocus: autofocus,
         style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Search library...',
+          hintText: hint,
           hintStyle: theme.textTheme.bodyMedium?.copyWith(
             fontSize: 14,
             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
@@ -474,9 +523,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    List<Song> rawSongs = _showOnlyFavorites
-        ? controller.favoriteSongs
-        : controller.songs;
+    // Same cut as the shell's sideways dock.
+    final tall = MediaQuery.sizeOf(context).height >= 500;
+    List<Song> rawSongs = controller.songs;
 
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
@@ -485,215 +534,11 @@ class _HomeScreenState extends State<HomeScreen> {
           .toList();
     }
 
-    final songs = controller.getSortedSongs(
-      rawSongs,
-      favorites: _showOnlyFavorites,
-    );
+    final songs = controller.getSortedSongs(rawSongs);
     final theme = Theme.of(context);
     final currentSongId = controller.player.currentSong?.id;
 
-    final Widget content;
-    if (_isSearching) {
-      content = CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          if (songs.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Text(
-                  _showOnlyFavorites
-                      ? 'No matching favorites'
-                      : 'No matching songs in library',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.only(bottom: 24, top: 8),
-              sliver: _songsSliver(
-                songs,
-                currentSongId,
-                sourceId: 'search',
-                sourceTitle: 'Search',
-              ),
-            ),
-        ],
-      );
-    } else {
-      content = CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            // The selected pill's glow reaches past the row: let it spill
-            // above and below (the list's own top edge needs the 12 px).
-            child: GlowRoom(
-              // The row scrolls sideways: fade its right edge so a clipped
-              // pill reads as "more this way", not as a cut-off bug.
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (rect) => LinearGradient(
-                  colors: const [Colors.white, Colors.white, Colors.transparent],
-                  stops: [0, 1 - 16 / rect.width, 1],
-                ).createShader(rect),
-                child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              clipBehavior: Clip.none,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-              child: Row(
-                children: [
-                  FilterPill(
-                    key: const ValueKey('pill_all'),
-                    label: 'All (${controller.songs.length})',
-                    isSelected: !_showOnlyFavorites,
-                    onTap: () => setState(() => _showOnlyFavorites = false),
-                  ),
-                  const SizedBox(width: 6),
-                  FilterPill(
-                    key: const ValueKey('pill_favorites'),
-                    icon: _showOnlyFavorites
-                        ? Icons.favorite
-                        : Icons.favorite_border,
-                    label: 'Favorites (${controller.favoriteSongs.length})',
-                    isSelected: _showOnlyFavorites,
-                    onTap: () => setState(() => _showOnlyFavorites = true),
-                  ),
-                  const SizedBox(width: 6),
-                  Builder(
-                    builder: (sortContext) => FilterPill(
-                      key: const ValueKey('pill_sort'),
-                      icon: Icons.sort_rounded,
-                      label: _sortLabel(controller.sortOption),
-                      isSelected: false,
-                      onTap: () => _showSortSheet(
-                        context,
-                        controller,
-                        anchor: popupAnchorBelowLeft(sortContext),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  if (songs.isNotEmpty) ...[
-                    FilterPill(
-                      key: const ValueKey('pill_shuffle'),
-                      icon: Icons.shuffle_rounded,
-                      label: 'Shuffle',
-                      isSelected: false,
-                      onTap: () {
-                        TactileFeedback.click();
-                        final list = List<Song>.from(songs);
-                        list.shuffle();
-                        if (!controller.player.shuffle) {
-                          controller.player.toggleShuffle();
-                        }
-                        controller.playSong(
-                          list[Random().nextInt(list.length)],
-                          queue: list,
-                          sourceId: _showOnlyFavorites
-                              ? 'favorites'
-                              : 'library',
-                          sourceTitle: _showOnlyFavorites
-                              ? 'Favorites'
-                              : 'Library',
-                        );
-                      },
-                    ),
-                  ],
-                  const SizedBox(width: 6),
-                  FilterPill(
-                    key: const ValueKey('pill_select'),
-                    icon: Icons.checklist_rounded,
-                    label: _isSelecting ? 'Done' : null,
-                    tooltip: _isSelecting ? 'Finish selecting' : 'Select songs',
-                    isSelected: _isSelecting,
-                    onTap: () {
-                      setState(() {
-                        _isSelecting = !_isSelecting;
-                        if (!_isSelecting) _selectedIds.clear();
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-              ),
-            ),
-          ),
-          if (PearStyles.spec.angular)
-            const SliverToBoxAdapter(child: PearSpecRule()),
-          if (songs.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _showOnlyFavorites
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 76,
-                              height: 76,
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primary.withValues(
-                                  alpha: 0.12,
-                                ),
-                                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: theme.colorScheme.primary.withValues(
-                                      alpha: 0.16,
-                                    ),
-                                    blurRadius: 24,
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                Icons.favorite_border_rounded,
-                                size: 36,
-                                color: theme.colorScheme.primary,
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                            Text(
-                              'No favorite songs yet',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Tap the heart icon on any local or online song to add it to your favorites.',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.7),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : _EmptyState(onAdd: () => controller.addFilesFromPicker()),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.only(bottom: 140),
-              sliver: _songsSliver(
-                songs,
-                currentSongId,
-                sourceId: _showOnlyFavorites ? 'favorites' : 'library',
-                sourceTitle: _showOnlyFavorites ? 'Favorites' : 'Library',
-              ),
-            ),
-        ],
-      );
-    }
+    final Widget content = _libraryList(controller, songs, currentSongId);
 
     Widget body = content;
     if (_isDesktop) {
@@ -709,28 +554,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final Widget headerContent;
     var headerActions = const <Widget>[];
-    if (_isSearching) {
-      headerContent = Row(
-        key: const ValueKey('header_search'),
-        children: [
-          TactileIconButton(
-            tooltip: 'Close search',
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              FocusScope.of(context).unfocus();
-              _cancelSearchDebounce();
-              setState(() {
-                _isSearching = false;
-                _searchQuery = '';
-                _searchController.clear();
-              });
-            },
-          ),
-          const SizedBox(width: 4),
-          Expanded(child: _buildLibrarySearchField(autofocus: true)),
-        ],
-      );
-    } else if (_isSelecting) {
+    if (_isSelecting) {
       headerContent = Row(
         key: const ValueKey('header_selecting'),
         children: [
@@ -792,44 +616,22 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ];
     } else {
-      final isWideHeader = MediaQuery.sizeOf(context).width >= 900;
-      if (isWideHeader) {
-        // Desktop keeps the search field in the header at all times instead of
-        // hiding it behind an icon.
-        headerContent = Row(
-          key: const ValueKey('header_default'),
-          children: [
-            // The title keeps its full width; the search field is the one
-            // that narrows when the pane leaves little room.
-            PearTabTitle('Library', tag: '${songs.length} TRACKS'),
-            const SizedBox(width: 24),
-            Flexible(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 360),
-                child: _buildLibrarySearchField(autofocus: false),
-              ),
-            ),
-          ],
-        );
-      } else {
-        headerContent = PearTabTitle(
-          'Library',
-          tag: '${songs.length} TRACKS',
-          key: const ValueKey('header_default'),
-        );
-      }
+      // The search field sits in the list, always in view; Add music is the
+      // floating button.
+      headerContent = PearTabTitle(
+        'Library',
+        tag: '${songs.length} TRACKS',
+        key: const ValueKey('header_default'),
+      );
       headerActions = [
-        if (!isWideHeader)
+        // A phone held sideways has no height to spare for the floating
+        // button, so Add music moves up here.
+        if (!tall)
           TactileIconButton(
-            tooltip: 'Search library',
-            icon: const Icon(Icons.search),
-            onPressed: () => setState(() => _isSearching = true),
+            tooltip: 'Add music',
+            icon: const Icon(Icons.add),
+            onPressed: () => controller.addFilesFromPicker(),
           ),
-        TactileIconButton(
-          tooltip: 'Add audio files',
-          icon: const Icon(Icons.add),
-          onPressed: () => controller.addFilesFromPicker(),
-        ),
         Builder(
           builder: (buttonContext) => TactileIconButton(
             tooltip: 'Import & export',
@@ -845,11 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Desktop conveniences: Ctrl+F focuses the library search field and
         // Escape backs out of search or selection, like a native window.
         const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
-          if (MediaQuery.sizeOf(context).width >= 900) {
-            _searchFocusNode.requestFocus();
-          } else if (!_isSearching) {
-            setState(() => _isSearching = true);
-          }
+          _searchFocusNode.requestFocus();
         },
         const SingleActivator(LogicalKeyboardKey.keyA, control: true): () {
           if (songs.isEmpty) return;
@@ -881,8 +679,6 @@ class _HomeScreenState extends State<HomeScreen> {
               _searchQuery = '';
               _searchController.clear();
             });
-          } else if (_isSearching) {
-            setState(() => _isSearching = false);
           }
         },
       },
@@ -917,94 +713,317 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: headerActions,
         ),
         body: body,
+        // Hidden while typing so it does not sit over the search results.
+        floatingActionButton: !_isSelecting && tall && !_keyboardUp
+            ? Padding(
+                // The shell's dock overlays this tab; lift the button over it.
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.paddingOf(context).bottom,
+                ),
+                child: FloatingActionButton.extended(
+                  key: const ValueKey('add_music'),
+                  onPressed: () => controller.addFilesFromPicker(),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Add music'),
+                ),
+              )
+            : null,
       ),
+    );
+  }
+
+  /// The search field, chips for All, Playlists, Downloads and
+  /// History, and the rows the chip picks. A query filters playlists and
+  /// songs here first and offers the same search online in Explore.
+  ///
+  /// shortcut: no offline mark per row, every library song is already a file
+  /// on this device; add one when songs can be kept online only.
+  Widget _libraryList(
+    AppController controller,
+    List<Song> songs,
+    String? currentSongId,
+  ) {
+    final theme = Theme.of(context);
+    final query = _searchQuery.trim();
+    final lower = query.toLowerCase();
+    final showPlaylists =
+        _view == _LibraryView.all || _view == _LibraryView.playlists;
+    final showSongs =
+        _view == _LibraryView.all || _view == _LibraryView.downloads;
+    final playlists = [
+      for (final p in controller.playlists)
+        if (p.name.toLowerCase().contains(lower)) p,
+    ];
+    final history = _view != _LibraryView.history
+        ? const <Song>[]
+        : [
+            for (final s in controller.historySongs)
+              if (s.lowerTitle.contains(lower) ||
+                  s.lowerArtist.contains(lower))
+                s,
+          ];
+    // Room for the Add music button above the dock at the end of the list.
+    final listEnd = EdgeInsets.only(
+      // Sideways the landscape rail has no dock to clear and no button here.
+      bottom: MediaQuery.sizeOf(context).height < 500 ? 16 : 210,
+    );
+
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        // Sideways there is no height for two rows: search and chips share one.
+        if (MediaQuery.sizeOf(context).height < 500)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 0, 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 280,
+                    child: _buildLibrarySearchField(
+                      autofocus: false,
+                      hint: 'Search your music or online',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.only(right: 16),
+                      child: Row(
+                        children: [
+                          for (final v in _LibraryView.values) ...[
+                            FilterPill(
+                              key: ValueKey('chip_${v.name}'),
+                              label: v.label,
+                              isSelected: _view == v,
+                              onTap: () => setState(() => _view = v),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else ...[
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: _buildLibrarySearchField(
+              autofocus: false,
+              hint: 'Search your music or online',
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: GlowRoom(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              clipBehavior: Clip.none,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+              child: Row(
+                children: [
+                  for (final v in _LibraryView.values) ...[
+                    FilterPill(
+                      key: ValueKey('chip_${v.name}'),
+                      label: v.label,
+                      isSelected: _view == v,
+                      onTap: () => setState(() => _view = v),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        ],
+        const SliverToBoxAdapter(child: PearSpecRule()),
+        if (query.isNotEmpty)
+          SliverToBoxAdapter(
+            child: ListTile(
+              key: const ValueKey('search_online'),
+              leading: const Icon(Icons.travel_explore_rounded),
+              title: Text('Search online for "$query"'),
+              onTap: () {
+                ExploreScreen.requestSearch(query);
+                HomeShell.requestTab(2);
+              },
+            ),
+          ),
+        if (showPlaylists)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+            sliver: SliverList.list(
+              children: [
+                if (query.isEmpty)
+                  SizedBox(
+                    height: 72,
+                    child: PlaylistsScreen.newPlaylistTile(context, controller),
+                  ),
+                if ('liked songs'.contains(lower))
+                  ListTile(
+                    key: const ValueKey('library_liked'),
+                    leading: Icon(
+                      Icons.favorite_rounded,
+                      color: theme.colorScheme.primary,
+                    ),
+                    title: const Text('Liked songs'),
+                    subtitle: Text('${controller.favoriteSongs.length} songs'),
+                    onTap: () => Navigator.of(
+                      context,
+                    ).push(PearPageRoute(builder: (_) => const LikedPage())),
+                  ),
+                for (final p in playlists)
+                  SizedBox(
+                    height: 72,
+                    child: PlaylistsScreen.playlistTile(context, controller, p),
+                  ),
+              ],
+            ),
+          ),
+        if (showSongs) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${songs.length} songs',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Builder(
+                    builder: (sortContext) => FilterPill(
+                      key: const ValueKey('pill_sort'),
+                      icon: Icons.sort_rounded,
+                      label: 'Sort: ${_sortLabel(controller.sortOption)}',
+                      isSelected: false,
+                      onTap: () => showLibrarySortSheet(
+                        context,
+                        controller,
+                        anchor: popupAnchorBelowLeft(sortContext),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (songs.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: query.isEmpty
+                  ? _EmptyState(onAdd: () => controller.addFilesFromPicker())
+                  : PearEmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'Nothing in your library matches',
+                    message:
+                        'Check the spelling, or search online when you are connected.',
+                    actionLabel: 'Search online',
+                    onAction: () {
+                      ExploreScreen.requestSearch(query);
+                      HomeShell.requestTab(2);
+                    },
+                  ),
+            )
+          else
+            SliverPadding(
+              padding: listEnd,
+              sliver: _songsSliver(
+                songs,
+                currentSongId,
+                sourceId: 'library',
+                sourceTitle: 'Library',
+              ),
+            ),
+        ],
+        if (_view == _LibraryView.history)
+          if (history.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: PearEmptyState(
+                icon: Icons.history_rounded,
+                title: 'Nothing played yet',
+                message: 'Songs you play show up here, newest first.',
+              ),
+            )
+          else
+            SliverPadding(
+              padding: listEnd,
+              sliver: SliverFixedExtentList.builder(
+                itemExtent: PearRow.extent,
+                itemCount: history.length,
+                itemBuilder: (context, i) => SongTile(
+                  key: ValueKey('history_${history[i].id}'),
+                  song: history[i],
+                  queue: history,
+                  sourceId: 'history',
+                  sourceTitle: 'History',
+                  isCurrent: history[i].id == currentSongId,
+                ),
+              ),
+            ),
+        if (_view == _LibraryView.playlists)
+          const SliverToBoxAdapter(child: SizedBox(height: 140)),
+      ],
     );
   }
 }
 
-void _showSortSheet(
+/// The Library's chips.
+enum _LibraryView {
+  all('All'),
+  playlists('Playlists'),
+  downloads('Downloads'),
+  history('History');
+
+  const _LibraryView(this.label);
+  final String label;
+}
+
+void showLibrarySortSheet(
   BuildContext context,
   AppController controller, {
   Offset? anchor,
 }) {
-  final theme = Theme.of(context);
-  final primary = theme.colorScheme.primary;
-
   showPearPopup<void>(
     context: context,
     showDragHandle: true,
     maxWidth: 360,
     anchor: anchor,
     builder: (ctx) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Text(
-                'Sort Library',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: Icon(
-                Icons.calendar_today_rounded,
-                color: controller.sortOption == SortOption.dateAdded
-                    ? primary
-                    : null,
-              ),
-              title: const Text('Date Added'),
-              trailing: controller.sortOption == SortOption.dateAdded
-                  ? Icon(Icons.check_rounded, color: primary)
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const PearSheetTitle('SORT LIBRARY'),
+          for (final (option, label) in [
+            (SortOption.dateAdded, 'Date added'),
+            (SortOption.size, 'File size'),
+            (SortOption.title, 'Title (A-Z)'),
+          ])
+            PearSheetRow(
+              label: label,
+              selected: controller.sortOption == option,
+              icon: controller.sortOption == option
+                  ? Icons.check_rounded
                   : null,
               onTap: () {
                 TactileFeedback.selection();
-                controller.setSortOption(SortOption.dateAdded);
+                controller.setSortOption(option);
                 Navigator.pop(ctx);
               },
             ),
-            ListTile(
-              leading: Icon(
-                Icons.sort_by_alpha_rounded,
-                color: controller.sortOption == SortOption.title
-                    ? primary
-                    : null,
-              ),
-              title: const Text('Title (A-Z)'),
-              trailing: controller.sortOption == SortOption.title
-                  ? Icon(Icons.check_rounded, color: primary)
-                  : null,
-              onTap: () {
-                TactileFeedback.selection();
-                controller.setSortOption(SortOption.title);
-                Navigator.pop(ctx);
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.data_usage_rounded,
-                color: controller.sortOption == SortOption.size
-                    ? primary
-                    : null,
-              ),
-              title: const Text('File Size'),
-              trailing: controller.sortOption == SortOption.size
-                  ? Icon(Icons.check_rounded, color: primary)
-                  : null,
-              onTap: () {
-                TactileFeedback.selection();
-                controller.setSortOption(SortOption.size);
-                Navigator.pop(ctx);
-              },
-            ),
-          ],
-        ),
+          const SizedBox(height: 8),
+        ],
       ),
     ),
   );
@@ -1027,75 +1046,12 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primary = theme.colorScheme.primary;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
-                boxShadow: PearStyles.spec.angular ? null : [
-                  BoxShadow(
-                    color: primary.withValues(alpha: 0.16),
-                    blurRadius: 24,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.library_music_rounded,
-                size: 38,
-                color: primary,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Your music library is empty',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap "Add music" to pick audio files.\nOn Windows you can also drag & drop files here.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.7,
-                ),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 22),
-            TactileBounce(
-              onTap: onAdd,
-              scaleDown: 0.94,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                ),
-                onPressed: null,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add music'),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return PearEmptyState(
+      icon: Icons.library_music_rounded,
+      title: 'Your music library is empty',
+      message: 'Add audio files from this device to fill it.',
+      actionLabel: 'Add music',
+      onAction: onAdd,
     );
   }
 }
@@ -1283,7 +1239,7 @@ class _LibraryProfileImportDialogState
   Future<void> _recommendRestart(NavigatorState navigator, int added) async {
     final restart = await showDialog<bool>(
       context: navigator.context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => PearAlertDialog(
         title: const Text('Import complete'),
         content: Text(
           'Added $added ${added == 1 ? 'song' : 'songs'}. Restart the app now '
@@ -1313,7 +1269,7 @@ class _LibraryProfileImportDialogState
     final small = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    return AlertDialog(
+    return PearAlertDialog(
       title: const Text('Restoring library backup'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

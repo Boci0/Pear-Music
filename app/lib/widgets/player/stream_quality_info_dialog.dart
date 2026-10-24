@@ -9,6 +9,7 @@ import '../../models/song.dart';
 import '../../services/player_service.dart';
 import '../../theme/glass.dart';
 import '../pear_popup.dart';
+import '../pear_sheet.dart';
 import '../tactile_button.dart';
 
 /// Top bar button displaying a simple info icon next to the sleep timer.
@@ -175,15 +176,8 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
     final copyTarget = filePath ?? (currentSong?.id ?? '');
     _checkCanOpen(filePath);
 
-    final cardRadius = widget.desktop
-        ? BorderRadius.circular(PearGlassTokens.r(24))
-        : BorderRadius.vertical(top: Radius.circular(PearGlassTokens.r(24)));
-
     return RepaintBoundary(
       child: PearGlass(
-        borderRadius: cardRadius,
-        blur: true,
-        opacity: PearGlassTokens.popupAlpha,
         child: Material(
         type: MaterialType.transparency,
       child: SafeArea(
@@ -214,32 +208,11 @@ class _StreamQualityInfoDialogState extends State<StreamQualityInfoDialog> {
                   ),
 
                 // Header
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.info_outline_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Info',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
+                PearSheetTitle(
+                  'Track info',
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
                   ),
                 ),
 

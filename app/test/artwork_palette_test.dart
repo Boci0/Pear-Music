@@ -58,15 +58,20 @@ void main() {
     expect(ArtworkPalette.bytes(song), isNull);
   });
 
-  test('readableAccent lifts near-black and dark colors for contrast', () {
+  test('readableAccent gives a grey cover the signal yellow', () {
+    // Nearly no colour to follow, so the accent falls back to one signal.
     const nearBlack = Color(0xFF101014);
-    final lifted = ArtworkPalette.readableAccent(nearBlack);
-    final hsl = HSLColor.fromColor(lifted);
+    expect(ArtworkPalette.readableAccent(nearBlack), const Color(0xFFF5C518));
+  });
 
-    // Lightness must be lifted above 0.65 for visibility on dark background
-    expect(hsl.lightness, greaterThanOrEqualTo(0.65));
-    // Color should have noticeable saturation
-    expect(hsl.saturation, greaterThanOrEqualTo(0.35));
+  test('readableAccent keeps a dark colour hue but makes it bright', () {
+    const deepBlue = Color(0xFF1A237E);
+    final result = HSLColor.fromColor(ArtworkPalette.readableAccent(deepBlue));
+    final source = HSLColor.fromColor(deepBlue);
+
+    expect(result.hue, closeTo(source.hue, 1));
+    expect(result.saturation, greaterThanOrEqualTo(0.8));
+    expect(result.toColor().computeLuminance(), greaterThanOrEqualTo(0.25));
   });
 
   test('readableAccent keeps already bright colors legible', () {

@@ -40,7 +40,7 @@ void main() {
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Import & export'), findsOneWidget);
+      expect(find.text('Import and export'), findsOneWidget);
       expect(find.text('Export backup'), findsOneWidget);
       expect(find.text('Restore backup'), findsOneWidget);
       // An empty library has nothing to back up yet.
@@ -54,7 +54,7 @@ void main() {
       await tester.tap(find.text('Import playlists'));
       await tester.pumpAndSettle();
       expect(picked, ImportExportAction.importPlaylists);
-      expect(find.text('Import & export'), findsNothing);
+      expect(find.text('Import and export'), findsNothing);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );

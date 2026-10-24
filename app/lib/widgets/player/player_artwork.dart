@@ -2,8 +2,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../theme/glass.dart';
-import '../../theme/pear_style.dart';
-import '../../theme/tokens.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -17,7 +15,6 @@ import '../../services/screen_awake.dart';
 import '../../services/video_service.dart';
 import 'lyric_sync_sheet.dart';
 import 'lyrics_view.dart';
-import 'rhythm_pulse.dart';
 import 'visual_synthesizer_bar.dart';
 import '../tactile_button.dart';
 
@@ -38,6 +35,10 @@ class PlayerArtwork extends StatefulWidget {
   /// Offers the video button for a song that has a picture. Only the layouts
   /// that can show the video in the artwork's place turn this on.
   final bool videoEnabled;
+
+  /// The video and lyrics buttons in the corner. Off where the page has its
+  /// own view tabs (the new player).
+  final bool viewButtons;
   const PlayerArtwork({
     super.key,
     this.song,
@@ -46,6 +47,7 @@ class PlayerArtwork extends StatefulWidget {
     this.size = 240,
     this.accent,
     this.videoEnabled = false,
+    this.viewButtons = true,
   });
 
   @override
@@ -68,7 +70,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       vsync: this,
       duration: const Duration(milliseconds: 140),
       reverseDuration: const Duration(milliseconds: 110),
-      value: PlayerArtwork.showLyricsNotifier.value ? 1.0 : 0.0,
+      value: _lyricsShown ? 1.0 : 0.0,
     );
 
     // Snappy, front-loaded curves:
@@ -110,9 +112,15 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
       mounted &&
           widget.song != null &&
           LyricsDisplay.keepScreenOn.value &&
-          (_useSynthesizer || PlayerArtwork.showLyricsNotifier.value),
+          (_useSynthesizer || _lyricsShown),
     );
   }
+
+  /// Whether this card shows the lyrics. A page with its own view tabs (the
+  /// new player) shows them elsewhere, so its card stays the cover and does
+  /// no lyrics work, even while it slides out as the lyrics come in.
+  bool get _lyricsShown =>
+      widget.viewButtons && PlayerArtwork.showLyricsNotifier.value;
 
   void _onPaletteUpdated() {
     if (mounted) setState(() {});
@@ -121,7 +129,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   void _onLyricsVisibilityChanged() {
     if (!mounted) return;
     _updateScreenAwake();
-    if (PlayerArtwork.showLyricsNotifier.value) {
+    if (_lyricsShown) {
       _lyricsAnimController.forward();
     } else {
       _lyricsAnimController.reverse();
@@ -142,7 +150,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(PearGlassTokens.r(PearRadius.sheet));
+    final radius = BorderRadius.circular(10);
     final size = widget.size;
     final song = widget.song;
     final networkUrl = widget.networkUrl;
@@ -159,9 +167,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
     final useSynthesizer = context.select<AppController?, bool>(
       (c) => c?.identity.synthesizerBar ?? false,
-    );
-    final reducedEffects = context.select<AppController?, bool>(
-      (c) => c?.identity.reducedEffects ?? false,
     );
     _useSynthesizer = useSynthesizer;
     _updateScreenAwake();
@@ -280,43 +285,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
     );
 
     final playerService = context.read<PlayerService?>();
-    // The glow is what the feathered edge dissolves into, so without it (or
-    // with reduced effects, which also saves the mask layers) keep the card.
-    final angular = PearStyles.spec.angular;
-    final feathered = playerService != null && !reducedEffects && !angular;
-
-    final Widget glowWidget;
-    if (angular) {
-      // Angular styles frame the cover with a thin line (drawn over it, at
-      // the end of the stack) instead of a glow.
-      glowWidget = const SizedBox.shrink();
-    } else if (playerService != null && !reducedEffects) {
-      glowWidget = RhythmPulseBuilder(
-        player: playerService,
-        builder: (context, aura, child) => _GlowHalo(
-          size: size,
-          radius: radius,
-          color: baseShadowColor,
-          alpha: (0.28 + (0.44 * aura)).clamp(0.0, 1.0),
-        ),
-      );
-    } else if (playerService != null) {
-      // Reduced effects: the same halo, parked at a fixed mid brightness.
-      glowWidget = _GlowHalo(
-        size: size,
-        radius: radius,
-        color: baseShadowColor,
-        alpha: 0.66,
-      );
-    } else {
-      glowWidget = _GlowHalo(
-        size: size,
-        radius: radius,
-        color: baseShadowColor,
-        alpha: 1.0,
-      );
-    }
-
     // Whether there is a real cover to work with. Songs without artwork fall
     // back to [_placeholder], and blurring that placeholder glyph for the
     // lyrics backdrop smeared it into two soft blobs that read as a glow
@@ -346,19 +314,12 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
 
     return Stack(
       alignment: Alignment.center,
-      // The halo and the angular corner brackets reach past the cover.
-      clipBehavior: Clip.none,
       children: [
-        glowWidget,
         RepaintBoundary(
           child: Container(
             width: size,
             height: size,
-            // A feathered card has no outline or drop shadow of its own: the
-            // accent halo behind it is what its edge dissolves into.
-            decoration: feathered
-                ? null
-                : BoxDecoration(
+            decoration: BoxDecoration(
               borderRadius: radius,
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.18),
@@ -380,7 +341,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                 child: glassBackdrop,
                 builder: (context, cachedBackdrop) {
                   final isLyricsActive = _lyricsAnimController.value > 0.0;
-                  final isLyricsFullyOpen = PlayerArtwork.showLyricsNotifier.value;
+                  final isLyricsFullyOpen = _lyricsShown;
                   final visualizer = playerService == null
                       ? const SizedBox.shrink()
                       : ArtworkVisualizer(
@@ -395,9 +356,7 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                     fit: StackFit.expand,
                     children: [
                       RepaintBoundary(
-                        child: _feather(
-                          feathered,
-                          Stack(
+                        child: Stack(
                             fit: StackFit.expand,
                             children: [
                       crossfadeImage,
@@ -441,7 +400,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           ),
                         ),
                             ],
-                          ),
                         ),
                       ),
                       // Equalizer spectrum visualizer stacked behind lyrics and border.
@@ -496,7 +454,6 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                           ),
                         ),
                       // Razor-thin crisp border framing the big artwork
-                      if (!feathered)
                       Positioned.fill(
                         child: IgnorePointer(
                           child: Container(
@@ -562,7 +519,9 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
                             ),
                           ),
                         ),
-                      if (song != null && playerService != null)
+                      if (song != null &&
+                          playerService != null &&
+                          widget.viewButtons)
                         Positioned(
                           top: 10,
                           right: 10,
@@ -629,19 +588,10 @@ class _PlayerArtworkState extends State<PlayerArtwork> with SingleTickerProvider
             ),
           ),
         ),
-        if (angular)
-          IgnorePointer(
-            child: PearCornerBrackets(
-              child: SizedBox(width: size, height: size),
-            ),
-          ),
       ],
     );
 
   }
-
-  static Widget _feather(bool on, Widget child) =>
-      on ? EdgeFeather(child: child) : child;
 
   Widget _placeholder(ColorScheme scheme) {
     final size = widget.size;
@@ -667,6 +617,7 @@ class PlayerArtworkHero extends StatelessWidget {
   final double size;
   final Color? accent;
   final bool videoEnabled;
+  final bool viewButtons;
 
   const PlayerArtworkHero({
     super.key,
@@ -675,6 +626,7 @@ class PlayerArtworkHero extends StatelessWidget {
     this.size = 240,
     this.accent,
     this.videoEnabled = false,
+    this.viewButtons = true,
   });
 
   @override
@@ -689,6 +641,7 @@ class PlayerArtworkHero extends StatelessWidget {
         size: size,
         accent: accent,
         videoEnabled: videoEnabled,
+        viewButtons: viewButtons,
       ),
     );
   }
@@ -742,6 +695,7 @@ class PlayerSongInfo extends StatelessWidget {
             ),
           Expanded(
             child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
               onTap: () => _copyTitle(context, song.title),
               onLongPress: () => _copyTitle(context, song.title),
@@ -787,10 +741,9 @@ class PlayerSongInfo extends StatelessWidget {
       );
     }
 
-    // Angular styles put a small read-out above the title, like a status
-    // line on a console: stripe mark, NOW PLAYING and the queue position.
-    final kicker =
-        PearStyles.spec.angular && MediaQuery.sizeOf(context).height >= 600;
+    // A small read-out above the title, like a status line on a console:
+    // stripe mark, NOW PLAYING and the queue position.
+    final kicker = MediaQuery.sizeOf(context).height >= 600;
     final queueLength = context.select<PlayerService, int>(
       (p) => p.queue.length,
     );
@@ -809,8 +762,6 @@ class PlayerSongInfo extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const PearStripes(width: 18, height: 7),
-                  const SizedBox(width: 8),
                   Text(
                     // The figure is the place in the queue, not the list
                     // number, so it says so.
@@ -882,6 +833,7 @@ class PlayerSongInfo extends StatelessWidget {
                   child: Tooltip(
                     message: 'Tap or long-press to copy title',
                     child: InkWell(
+                      mouseCursor: WidgetStateMouseCursor.clickable,
                       borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
                       onTap: () => _copyTitle(context, song.title),
                       onLongPress: () => _copyTitle(context, song.title),
@@ -1102,12 +1054,8 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
                 ? const EdgeInsets.all(7.5)
                 : const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              shape: widget.isCircle && !PearStyles.spec.angular
-                  ? BoxShape.circle
-                  : BoxShape.rectangle,
-              borderRadius: widget.isCircle && !PearStyles.spec.angular
-                  ? null
-                  : pillRadius,
+              shape: BoxShape.rectangle,
+              borderRadius: pillRadius,
               color: bgColor,
               border: Border.all(
                 color: borderColor,
@@ -1133,182 +1081,6 @@ class _PlayerPillButtonState extends State<PlayerPillButton> {
     return button;
   }
 }
-
-/// Padding around the artwork card that fits both blurred shadows.
-const double _kGlowPad = 110.0;
-
-/// BoxShadow converts a blur radius into a sigma with this factor (plus 0.5).
-/// Matching it keeps the cached halo identical to the live shadows.
-const double _kGlowSigma1 = 36.0 * 0.57735 + 0.5;
-const double _kGlowSigma2 = 18.0 * 0.57735 + 0.5;
-
-/// Ambient accent glow for the artwork card. The two blurred shadows are
-/// rasterised once per size/radius/colour into a texture, and every frame then
-/// draws that texture with the breathing alpha in the paint. This removes two
-/// full gaussian blurs plus an opacity layer from each frame of the player
-/// scene while keeping the look identical.
-class _GlowHalo extends StatefulWidget {
-  final double size;
-  final BorderRadius radius;
-  final Color color;
-  final double alpha;
-
-  const _GlowHalo({
-    required this.size,
-    required this.radius,
-    required this.color,
-    required this.alpha,
-  });
-
-  @override
-  State<_GlowHalo> createState() => _GlowHaloState();
-}
-
-class _GlowHaloState extends State<_GlowHalo> {
-  ui.Image? _image;
-  int _generation = 0;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_image == null) _render();
-  }
-
-  @override
-  void didUpdateWidget(covariant _GlowHalo oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.size != widget.size ||
-        oldWidget.radius != widget.radius ||
-        oldWidget.color != widget.color) {
-      _render();
-    }
-  }
-
-  @override
-  void dispose() {
-    _generation++;
-    _image?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _render() async {
-    final generation = ++_generation;
-    // Half device resolution is plenty for a soft halo and keeps the cached
-    // texture around 2 MB instead of roughly 9 MB at this card size.
-    final scale = (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) * 0.5;
-    final width = widget.size + _kGlowPad * 2;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    canvas.scale(scale);
-    final rrect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(_kGlowPad, _kGlowPad, widget.size, widget.size),
-      widget.radius.topLeft,
-    );
-    canvas.drawRRect(
-      rrect.inflate(2).shift(const Offset(0, 10)),
-      Paint()
-        ..color = widget.color.withValues(alpha: 0.45)
-        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma1),
-    );
-    canvas.drawRRect(
-      rrect.inflate(1).shift(const Offset(0, 4)),
-      Paint()
-        ..color = widget.color.withValues(alpha: 0.28)
-        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma2),
-    );
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(
-      (width * scale).round(),
-      (width * scale).round(),
-    );
-    picture.dispose();
-    if (!mounted || generation != _generation) {
-      image.dispose();
-      return;
-    }
-    setState(() {
-      _image?.dispose();
-      _image = image;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: CustomPaint(
-        size: Size(widget.size, widget.size),
-        painter: _GlowPainter(
-          image: _image,
-          color: widget.color,
-          radius: widget.radius,
-          alpha: widget.alpha,
-        ),
-      ),
-    );
-  }
-}
-
-class _GlowPainter extends CustomPainter {
-  final ui.Image? image;
-  final Color color;
-  final BorderRadius radius;
-  final double alpha;
-
-  _GlowPainter({
-    required this.image,
-    required this.color,
-    required this.radius,
-    required this.alpha,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final image = this.image;
-    final a = alpha.clamp(0.0, 1.0).toDouble();
-    if (image != null) {
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-        Rect.fromLTWH(
-          -_kGlowPad,
-          -_kGlowPad,
-          size.width + _kGlowPad * 2,
-          size.height + _kGlowPad * 2,
-        ),
-        Paint()
-          ..filterQuality = FilterQuality.low
-          ..color = Color.fromRGBO(255, 255, 255, a),
-      );
-      return;
-    }
-    // First frame(s) before the texture is ready: draw the live shadows so
-    // there is no flash of missing glow.
-    final rrect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      radius.topLeft,
-    );
-    canvas.drawRRect(
-      rrect.inflate(2).shift(const Offset(0, 10)),
-      Paint()
-        ..color = color.withValues(alpha: 0.45 * a)
-        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma1),
-    );
-    canvas.drawRRect(
-      rrect.inflate(1).shift(const Offset(0, 4)),
-      Paint()
-        ..color = color.withValues(alpha: 0.28 * a)
-        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, _kGlowSigma2),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _GlowPainter oldDelegate) =>
-      oldDelegate.image != image ||
-      oldDelegate.color != color ||
-      oldDelegate.alpha != alpha ||
-      oldDelegate.radius != radius;
-}
-
 
 /// Fades the outer [width] pixels of [child] to transparent on all four sides,
 /// so a card dissolves into the glow and page behind it instead of ending in a

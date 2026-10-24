@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
-import 'pear_popup.dart';
 
 /// The pear mark shown at the start of every tab header.
 class PearMark extends StatelessWidget {
@@ -20,47 +18,18 @@ class PearMark extends StatelessWidget {
   }
 }
 
-/// Pear mark + tab label, the default [PearAppBar] title.
+/// The default [PearAppBar] title: the tab's name in spaced capitals, a
+/// short stripe block and a faint tag, like a label on equipment.
 class PearTabTitle extends StatelessWidget {
   final String label;
 
-  /// A short status read-out ("14 TRACKS") angular styles set beside the
-  /// title, like a menu's code tag.
+  /// A short status read-out ("14 TRACKS") beside the title, like a menu's
+  /// code tag.
   final String? tag;
   const PearTabTitle(this.label, {super.key, this.tag});
 
   @override
   Widget build(BuildContext context) {
-    // At rail widths the side rail already carries the mark, so repeating it
-    // in every tab title reads as clutter. Phones and narrow windows keep it
-    // (they have no rail).
-    if (PearStyles.spec.angular) return _labelTitle(context);
-    final size = MediaQuery.sizeOf(context);
-    final showMark =
-        size.width < 900 || !(isDesktopPopupPlatform || size.shortestSide >= 600);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (showMark) ...[
-          const PearMark(),
-          const SizedBox(width: 8),
-        ],
-        Text(
-          label,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
-extension on PearTabTitle {
-  /// Angular styles: the name in spaced capitals, a short stripe block and a
-  /// faint tag, like a label on equipment.
-  Widget _labelTitle(BuildContext context) {
     final theme = Theme.of(context);
     // On narrow bars the tag gives way first, then the title shortens; the
     // stripe mark stays.
@@ -81,8 +50,6 @@ extension on PearTabTitle {
             ),
           ),
         ),
-        const SizedBox(width: 12),
-        const PearStripes(),
         // The tag shows whole or not at all: a clipped "14 TR" reads as a
         // bug, on a phone or beside the expanded pane alike.
         if (tag != null) ...[
@@ -131,6 +98,9 @@ class PearMenuButton<T> extends StatelessWidget {
         icon: Icon(icon),
         onSelected: onSelected,
         itemBuilder: itemBuilder,
+        color: PearGlassTokens.angularPanel,
+        surfaceTintColor: Colors.transparent,
+        shape: PearGlassTokens.angularShape(),
       ),
     );
   }
@@ -168,7 +138,9 @@ class PearAppBar extends StatelessWidget implements PreferredSizeWidget {
             'PearAppBar needs a label or a title');
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  // AppBar's own size, so the Scaffold takes the theme's toolbar height (the
+  // lower bar on a short screen) instead of a fixed 56.
+  Size get preferredSize => AppBar().preferredSize;
 
   @override
   Widget build(BuildContext context) {

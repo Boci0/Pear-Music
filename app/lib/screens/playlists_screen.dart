@@ -1,3 +1,5 @@
+import '../widgets/pear_empty_state.dart';
+import '../widgets/pear_sheet.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,7 +10,6 @@ import '../models/song.dart';
 import '../services/artwork_palette.dart';
 import '../services/artwork_service.dart';
 import '../theme/glass.dart';
-import '../theme/pear_style.dart';
 import '../widgets/import_export_sheet.dart';
 import '../widgets/pear_app_bar.dart';
 import '../widgets/pear_popup.dart';
@@ -26,7 +27,6 @@ class PlaylistsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
     final playlists = controller.playlists;
-    final currentSongId = controller.player.currentSong?.id;
 
     return Scaffold(
       appBar: PearAppBar(
@@ -40,7 +40,7 @@ class PlaylistsScreen extends StatelessWidget {
           TactileIconButton(
             tooltip: 'New playlist',
             icon: const Icon(Icons.add),
-            onPressed: () => _createPlaylist(context, controller),
+            onPressed: () => createPlaylist(context, controller),
           ),
         ],
       ),
@@ -49,8 +49,7 @@ class PlaylistsScreen extends StatelessWidget {
       bottomNavigationBar: showPlayerBar ? const PlayerBar() : null,
       body: playlists.isEmpty
           ? _EmptyPlaylists(
-              onCreate: () => _createPlaylist(context, controller),
-              onImport: () => showPlaylistImportDialog(context, controller),
+              onCreate: () => createPlaylist(context, controller),
             )
           : LayoutBuilder(
               builder: (context, constraints) {
@@ -61,40 +60,12 @@ class PlaylistsScreen extends StatelessWidget {
                   3,
                 );
 
-                Widget tileAt(int i) {
-                  final pl = playlists[i];
-                  final isCurrentPlaylist =
-                      controller.player.queueSourceId == 'playlist:${pl.id}' ||
-                      (currentSongId != null &&
-                          pl.songIds.contains(currentSongId));
-                  final isPlayingThisPlaylist =
-                      isCurrentPlaylist && controller.player.playing;
-
-                  return _PlaylistTile(
-                    key: ValueKey(pl.id),
-                    playlist: pl,
-                    isActive: isCurrentPlaylist,
-                    isPlaying: isPlayingThisPlaylist,
-                    onPlay: () {
-                      if (isPlayingThisPlaylist) {
-                        controller.player.pause();
-                      } else if (isCurrentPlaylist &&
-                          controller.player.currentSong != null) {
-                        controller.player.resume();
-                      } else {
-                        controller.playPlaylist(pl);
-                      }
-                    },
-                    onRename: () => _renamePlaylist(context, controller, pl),
-                    onDelete: () => _confirmDelete(context, controller, pl),
-                  );
-                }
+                Widget tileAt(int i) =>
+                    playlistTile(context, controller, playlists[i]);
 
                 Widget itemAt(int i) => i < playlists.length
                     ? tileAt(i)
-                    : _NewPlaylistTile(
-                        onTap: () => _createPlaylist(context, controller),
-                      );
+                    : newPlaylistTile(context, controller);
 
                 if (columns <= 1) {
                   return ListView.builder(
@@ -119,7 +90,46 @@ class PlaylistsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _createPlaylist(
+  /// One playlist row with play, rename and delete, as this tab lists it.
+  /// The Library shows the same rows.
+  static Widget playlistTile(
+    BuildContext context,
+    AppController controller,
+    Playlist pl,
+  ) {
+    final currentSongId = controller.player.currentSong?.id;
+    final isCurrentPlaylist =
+        controller.player.queueSourceId == 'playlist:${pl.id}' ||
+        (currentSongId != null && pl.songIds.contains(currentSongId));
+    final isPlayingThisPlaylist =
+        isCurrentPlaylist && controller.player.playing;
+
+    return _PlaylistTile(
+      key: ValueKey(pl.id),
+      playlist: pl,
+      isActive: isCurrentPlaylist,
+      isPlaying: isPlayingThisPlaylist,
+      onPlay: () {
+        if (isPlayingThisPlaylist) {
+          controller.player.pause();
+        } else if (isCurrentPlaylist && controller.player.currentSong != null) {
+          controller.player.resume();
+        } else {
+          controller.playPlaylist(pl);
+        }
+      },
+      onRename: () => _renamePlaylist(context, controller, pl),
+      onDelete: () => _confirmDelete(context, controller, pl),
+    );
+  }
+
+  /// The "New playlist" card that ends the list.
+  static Widget newPlaylistTile(
+    BuildContext context,
+    AppController controller,
+  ) => _NewPlaylistTile(onTap: () => createPlaylist(context, controller));
+
+  static Future<void> createPlaylist(
     BuildContext context,
     AppController controller,
   ) async {
@@ -128,7 +138,7 @@ class PlaylistsScreen extends StatelessWidget {
       final name = await showDialog<String>(
         context: context,
         useRootNavigator: true,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => PearAlertDialog(
           title: const Text('New playlist'),
           content: TextField(
             controller: nameController,
@@ -159,7 +169,7 @@ class PlaylistsScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _confirmDelete(
+  static Future<void> _confirmDelete(
     BuildContext context,
     AppController controller,
     Playlist playlist,
@@ -167,7 +177,7 @@ class PlaylistsScreen extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       useRootNavigator: true,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: Text('Delete "${playlist.name}"?'),
         content: const Text(
           'The songs stay in your library; only the playlist '
@@ -193,7 +203,7 @@ class PlaylistsScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _renamePlaylist(
+  static Future<void> _renamePlaylist(
     BuildContext context,
     AppController controller,
     Playlist playlist,
@@ -203,7 +213,7 @@ class PlaylistsScreen extends StatelessWidget {
       final name = await showDialog<String>(
         context: context,
         useRootNavigator: true,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => PearAlertDialog(
           title: const Text('Rename playlist'),
           content: TextField(
             controller: nameController,
@@ -250,6 +260,7 @@ class _NewPlaylistTile extends StatelessWidget {
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
         child: InkWell(
+          mouseCursor: WidgetStateMouseCursor.clickable,
           onTap: onTap,
           borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
           hoverColor: Colors.white.withValues(alpha: 0.055),
@@ -285,6 +296,16 @@ class _NewPlaylistTile extends StatelessWidget {
   }
 }
 
+/// Opens a playlist's options sheet (the control port's /sheet check).
+Future<void> showPlaylistOptionsFor(BuildContext context, Playlist playlist) =>
+    _PlaylistTile(
+      playlist: playlist,
+      isActive: false,
+      onPlay: () {},
+      onRename: () {},
+      onDelete: () {},
+    )._showMenu(context);
+
 class _PlaylistTile extends StatelessWidget {
   final Playlist playlist;
   final bool isActive;
@@ -308,15 +329,7 @@ class _PlaylistTile extends StatelessWidget {
     final theme = Theme.of(context);
     final controller = context.read<AppController>();
 
-    // Find the first valid song for playlist artwork preview
-    Song? firstSong;
-    for (final id in playlist.songIds) {
-      final s = controller.findSongById(id);
-      if (s != null) {
-        firstSong = s;
-        break;
-      }
-    }
+    final firstSong = PlaylistArtwork.firstSongOf(controller, playlist);
 
     return RepaintBoundary(
       child: Padding(
@@ -328,41 +341,29 @@ class _PlaylistTile extends StatelessWidget {
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
+            mouseCursor: WidgetStateMouseCursor.clickable,
             onTap: () {
               TactileFeedback.click();
               Navigator.of(context).push(
                 PearPageRoute(
                   builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                  // Lets the wide rail light this playlist.
+                  settings: RouteSettings(name: playlist.id),
                 ),
               );
             },
             hoverColor: Colors.white.withValues(alpha: 0.055),
             child: Ink(
-              decoration: PearStyles.spec.angular
-                  // Angular styles: a square graphite tile with a thin edge.
-                  ? BoxDecoration(
-                      color: isActive
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.white.withValues(alpha: 0.025),
-                      border: Border.all(
-                        color: isActive
-                            ? theme.colorScheme.primary
-                            : PearGlassTokens.cardRim,
-                      ),
-                    )
-                  : BoxDecoration(
-                borderRadius: BorderRadius.circular(PearGlassTokens.r(14)),
-                gradient: isActive
-                    ? LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.34),
-                          theme.colorScheme.primary.withValues(alpha: 0.10),
-                        ],
-                      )
-                    : PearGlassTokens.cardSheen,
-                border: Border.all(color: PearGlassTokens.cardRim),
+              // A square graphite tile with a thin edge.
+              decoration: BoxDecoration(
+                color: isActive
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.white.withValues(alpha: 0.025),
+                border: Border.all(
+                  color: isActive
+                      ? theme.colorScheme.primary
+                      : PearGlassTokens.cardRim,
+                ),
               ),
               child: SizedBox(
                 height: 64,
@@ -373,7 +374,7 @@ class _PlaylistTile extends StatelessWidget {
                       padding: const EdgeInsets.only(left: 14, right: 8),
                       child: Row(
                         children: [
-                          _PlaylistArtwork(
+                          PlaylistArtwork(
                             firstSong: firstSong,
                             isActive: isActive,
                           ),
@@ -464,7 +465,6 @@ class _PlaylistTile extends StatelessWidget {
 
   Future<void> _showMenu(BuildContext context, {Offset? anchor}) async {
     final controller = context.read<AppController>();
-    final theme = Theme.of(context);
     final action = await showPearPopup<String>(
       context: context,
       useRootNavigator: true,
@@ -476,55 +476,49 @@ class _PlaylistTile extends StatelessWidget {
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ListTile(
-                title: Text(
-                  playlist.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall,
+              // shortcut: no cover, total time or Keep offline switch on the
+              // board's header; playlists have none of that yet.
+              PearSheetTitle(
+                playlist.name,
+                subtitle:
+                    '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: PearSheetButton(
+                        label: 'Play all',
+                        icon: Icons.play_arrow_rounded,
+                        filled: true,
+                        onTap: () => Navigator.pop(ctx, 'play'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: PearSheetButton(
+                        label: 'Shuffle',
+                        icon: Icons.shuffle_rounded,
+                        onTap: () => Navigator.pop(ctx, 'shuffle'),
+                      ),
+                    ),
+                  ],
                 ),
-                subtitle: Text(
-                  '${playlist.songIds.length} track${playlist.songIds.length == 1 ? '' : 's'}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                dense: true,
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.play_arrow_rounded),
-                title: const Text('Play all'),
-                onTap: () => Navigator.pop(ctx, 'play'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.shuffle_rounded),
-                title: const Text('Shuffle'),
-                onTap: () => Navigator.pop(ctx, 'shuffle'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Rename playlist'),
+              PearSheetRow(
+                label: 'Rename',
                 onTap: () => Navigator.pop(ctx, 'rename'),
               ),
-              ListTile(
-                leading: const Icon(Icons.file_upload_outlined),
-                title: const Text('Export playlist'),
-                subtitle: const Text('Save as an .m3u8 file'),
+              PearSheetRow(
+                label: 'Export as .m3u8',
                 onTap: () => Navigator.pop(ctx, 'export'),
               ),
-              ListTile(
-                leading: Icon(
-                  Icons.delete_outline_rounded,
-                  color: theme.colorScheme.error,
-                ),
-                title: Text(
-                  'Delete playlist',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.error,
-                  ),
-                ),
+              PearSheetRow(
+                label: 'Delete playlist',
+                danger: true,
                 onTap: () => Navigator.pop(ctx, 'delete'),
               ),
               const SizedBox(height: 8),
@@ -551,11 +545,35 @@ class _PlaylistTile extends StatelessWidget {
   }
 }
 
-class _PlaylistArtwork extends StatelessWidget {
+/// A playlist's thumbnail: its first song's cover, or the playlist icon
+/// when it has none. Shared by the Playlists list and the wide rail.
+class PlaylistArtwork extends StatelessWidget {
   final Song? firstSong;
   final bool isActive;
+  final double size;
 
-  const _PlaylistArtwork({required this.firstSong, required this.isActive});
+  /// Corner radius; null is the list's rounded 10.
+  final double? radius;
+
+  const PlaylistArtwork({
+    super.key,
+    required this.firstSong,
+    this.isActive = false,
+    this.size = 46,
+    this.radius,
+  });
+
+  /// The playlist's first song still in the library, for its cover.
+  static Song? firstSongOf(AppController controller, Playlist playlist) {
+    for (final id in playlist.songIds) {
+      final s = controller.findSongById(id);
+      if (s != null) return s;
+    }
+    return null;
+  }
+
+  BorderRadius get _corners =>
+      BorderRadius.circular(radius ?? PearGlassTokens.r(10));
 
   @override
   Widget build(BuildContext context) {
@@ -565,16 +583,16 @@ class _PlaylistArtwork extends StatelessWidget {
     Widget content;
     if (firstSong == null) {
       content = Container(
-        width: 46,
-        height: 46,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
+          borderRadius: _corners,
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
         ),
         child: Icon(
           Icons.queue_music_rounded,
           color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-          size: 22,
+          size: size * 0.48,
         ),
       );
     } else {
@@ -591,13 +609,13 @@ class _PlaylistArtwork extends StatelessWidget {
           song.artwork != null && song.artwork!.startsWith('http');
       if (isNetwork) {
         content = ClipRRect(
-          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
+          borderRadius: _corners,
           child: Image.network(
             ArtworkService.optimizeArtworkUrl(song.artwork!),
             key: ValueKey('pl_net_${song.id}'),
-            width: 46,
-            height: 46,
-            cacheWidth: 96,
+            width: size,
+            height: size,
+            cacheWidth: (size * 2).round(),
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => _fallback(scheme),
@@ -605,13 +623,13 @@ class _PlaylistArtwork extends StatelessWidget {
         );
       } else if (bytes != null && bytes.isNotEmpty) {
         content = ClipRRect(
-          borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
+          borderRadius: _corners,
           child: Image.memory(
             bytes,
             key: ValueKey('pl_mem_${song.id}'),
-            width: 46,
-            height: 46,
-            cacheWidth: 96,
+            width: size,
+            height: size,
+            cacheWidth: (size * 2).round(),
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => _fallback(scheme),
@@ -626,13 +644,13 @@ class _PlaylistArtwork extends StatelessWidget {
             final b = snap.data ?? bytes;
             if (b != null && b.isNotEmpty) {
               return ClipRRect(
-                borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
+                borderRadius: _corners,
                 child: Image.memory(
                   b,
                   key: ValueKey('pl_mem_${song.id}'),
-                  width: 46,
-                  height: 46,
-                  cacheWidth: 96,
+                  width: size,
+                  height: size,
+                  cacheWidth: (size * 2).round(),
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   errorBuilder: (_, _, _) => _fallback(scheme),
@@ -647,10 +665,10 @@ class _PlaylistArtwork extends StatelessWidget {
 
     if (!isActive) return content;
     return Container(
-      width: 46,
-      height: 46,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
+        borderRadius: _corners,
         border: Border.all(
           color: scheme.primary.withValues(alpha: 0.65),
           width: 1.5,
@@ -662,10 +680,10 @@ class _PlaylistArtwork extends StatelessWidget {
 
   Widget _fallback(ColorScheme scheme) {
     return Container(
-      width: 46,
-      height: 46,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(PearGlassTokens.r(10)),
+        borderRadius: _corners,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -678,7 +696,7 @@ class _PlaylistArtwork extends StatelessWidget {
       child: Icon(
         Icons.queue_music_rounded,
         color: scheme.onPrimaryContainer,
-        size: 22,
+        size: size * 0.48,
       ),
     );
   }
@@ -686,131 +704,18 @@ class _PlaylistArtwork extends StatelessWidget {
 
 class _EmptyPlaylists extends StatelessWidget {
   final VoidCallback onCreate;
-  final VoidCallback onImport;
-  const _EmptyPlaylists({required this.onCreate, required this.onImport});
+  const _EmptyPlaylists({required this.onCreate});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      // Scrolls so a short (landscape) screen can still reach the buttons.
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(PearGlassTokens.r(24)),
-                boxShadow: PearStyles.spec.angular ? null : [
-                  BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.16),
-                    blurRadius: 24,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.queue_music_rounded,
-                size: 38,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'No playlists yet',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                fontSize: 17,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Group your favorite songs into collections, or import .m3u / .m3u8 playlists from any player.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.7,
-                ),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 12,
-              runSpacing: 10,
-              alignment: WrapAlignment.center,
-              children: [
-                TactileBounce(
-                  onTap: onCreate,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: theme.colorScheme.primary,
-                      foregroundColor: theme.colorScheme.onPrimary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 12,
-                      ),
-                    ),
-                    onPressed: onCreate,
-                    icon: Icon(
-                      Icons.add_rounded,
-                      size: 20,
-                      color: theme.colorScheme.onPrimary,
-                    ),
-                    label: Text(
-                      'New playlist',
-                      style: TextStyle(
-                        color: theme.colorScheme.onPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-                TactileBounce(
-                  onTap: onImport,
-                  child: FilledButton.tonalIcon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor:
-                          theme.colorScheme.surfaceContainerHighest,
-                      foregroundColor: theme.colorScheme.onSurface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(PearGlassTokens.r(20)),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 12,
-                      ),
-                    ),
-                    onPressed: onImport,
-                    icon: Icon(
-                      Icons.file_download_outlined,
-                      size: 20,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                    label: Text(
-                      'Import playlists',
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    // shortcut: only New playlist here, Import lives in the Import and export
+    // sheet; PearEmptyState takes one action.
+    return PearEmptyState(
+      icon: Icons.queue_music_rounded,
+      title: 'No playlists created yet',
+      message: 'Make one, or bring playlists in from another app.',
+      actionLabel: 'New playlist',
+      onAction: onCreate,
     );
   }
 }

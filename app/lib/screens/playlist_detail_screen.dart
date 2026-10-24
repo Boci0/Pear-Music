@@ -1,3 +1,5 @@
+import '../widgets/pear_empty_state.dart';
+import '../widgets/pear_sheet.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -26,11 +28,20 @@ class PlaylistDetailScreen extends StatefulWidget {
 class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   List<String>? _optimisticIds;
 
+  // The in-playlist filter (always shown on wide windows, behind
+  // the Filter button on phones).
+  final _filterController = TextEditingController();
+  bool _showFilter = false;
+
+  @override
+  void dispose() {
+    _filterController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    final theme = Theme.of(context);
-    final player = controller.player;
     final playlist = controller.playlists
         .where((p) => p.id == widget.playlistId)
         .firstOrNull;
@@ -39,7 +50,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     if (playlist == null) {
       return Scaffold(
         appBar: PearAppBar(title: const Text('Playlist'), showBackButton: true),
-        body: const Center(child: Text('This playlist no longer exists')),
+        body: PearEmptyState(
+          icon: Icons.link_off_rounded,
+          title: 'This playlist no longer exists',
+          message: 'It may have been deleted on this device.',
+          actionLabel: 'Back to library',
+          onAction: () => Navigator.of(context).maybePop(),
+        ),
       );
     }
 
@@ -62,197 +79,205 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       if (s != null) songs.add(s);
     }
 
-    return Scaffold(
-      appBar: PearAppBar(
-        title: Text(playlist.name),
-        showBackButton: true,
-        actions: [
-          TactileIconButton(
-            tooltip: 'Export playlist (.m3u8)',
-            icon: const Icon(Icons.file_upload_outlined),
-            onPressed: () => controller.exportPlaylistToM3u(playlist),
-          ),
-          TactileIconButton(
-            tooltip: 'Rename',
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: () => _rename(context, controller, playlist),
-          ),
-          TactileIconButton(
-            tooltip: 'Delete playlist',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () => _confirmDelete(context, controller, playlist),
-          ),
-        ],
+    return _buildPage(context, controller, playlist, songs);
+  }
+
+  Widget _row(
+    AppController controller,
+    Playlist playlist,
+    List<Song> songs,
+    int i, {
+    required List<Song> queue,
+    bool table = false,
+  }) {
+    final player = controller.player;
+    final song = songs[i];
+    final isCurrent = song.id == player.currentSong?.id;
+    final isPlaying = isCurrent && player.playing;
+    return _SongRow(
+      key: ValueKey(song.id),
+      song: song,
+      isCurrent: isCurrent,
+      isPlaying: isPlaying,
+      index: i,
+      table: table,
+      onPlay: isPlaying
+          ? () => controller.togglePlayback()
+          : () => controller.player.playSong(
+              song,
+              queue: queue,
+              sourceId: 'playlist:${playlist.id}',
+              sourceTitle: playlist.name,
+            ),
+      onRemove: () => controller.removeSongFromPlaylist(playlist.id, song.id),
+    );
+  }
+
+  /// A cover header with Play, Shuffle and a more menu, a filter inside the
+  /// playlist, then the rows.
+  Widget _buildPage(
+    BuildContext context,
+    AppController controller,
+    Playlist playlist,
+    List<Song> songs,
+  ) {
+    final theme = Theme.of(context);
+    final q = _filterController.text.trim().toLowerCase();
+    final shown = q.isEmpty
+        ? songs
+        : [
+            for (final s in songs)
+              if (s.lowerTitle.contains(q) || s.lowerArtist.contains(q)) s,
+          ];
+
+    void play() => controller.playPlaylist(playlist);
+    void shuffle() {
+      if (!controller.player.shuffle) controller.player.toggleShuffle();
+      controller.playPlaylist(playlist);
+    }
+
+    // shortcut: no "Keep offline" action yet, there is no backend for
+    // keeping a playlist downloaded; add it to this menu once there is.
+    final menu = PearMenuButton<String>(
+      tooltip: 'More',
+      icon: Icons.more_vert_rounded,
+      onSelected: (v) {
+        switch (v) {
+          case 'export':
+            controller.exportPlaylistToM3u(playlist);
+          case 'rename':
+            _rename(context, controller, playlist);
+          case 'delete':
+            _confirmDelete(context, controller, playlist);
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: 'export', child: Text('Export playlist (.m3u8)')),
+        PopupMenuItem(value: 'rename', child: Text('Rename')),
+        PopupMenuItem(value: 'delete', child: Text('Delete playlist')),
+      ],
+    );
+
+    final filterField = TextField(
+      key: const ValueKey('playlist_filter'),
+      controller: _filterController,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: 'Filter this playlist',
+        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+        suffixIcon: _filterController.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear filter',
+                icon: const Icon(Icons.close_rounded, size: 18),
+                onPressed: () => setState(_filterController.clear),
+              ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
+        ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+    );
+
+    return Scaffold(
+      appBar: PearAppBar(title: const SizedBox.shrink(), showBackButton: true),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 900;
+          final inset = wide ? 24.0 : 16.0;
+          final header = Padding(
+            padding: EdgeInsets.fromLTRB(inset, 4, inset, 10),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer.withValues(
-                          alpha: 0.3,
-                        ),
-                        borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.queue_music_rounded,
-                            size: 15,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${songs.length} song${songs.length == 1 ? '' : 's'}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                _PlaylistHeader(
+                  playlist: playlist,
+                  songs: songs,
+                  wide: wide,
+                  onPlay: songs.isEmpty ? null : play,
+                  onShuffle: songs.isEmpty ? null : shuffle,
+                  menu: menu,
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TactileBounce(
-                        onTap: songs.isEmpty
-                            ? null
-                            : () => controller.playPlaylist(playlist),
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: theme.colorScheme.onPrimary,
-                            minimumSize: const Size.fromHeight(44),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
-                            ),
-                          ),
-                          onPressed: songs.isEmpty
-                              ? null
-                              : () => controller.playPlaylist(playlist),
-                          icon: Icon(
-                            Icons.play_arrow_rounded,
-                            size: 22,
-                            color: theme.colorScheme.onPrimary,
-                          ),
-                          label: Text(
-                            'Play all',
-                            style: TextStyle(
-                              color: theme.colorScheme.onPrimary,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
+                if (!wide) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      // shortcut: a playlist only has its own (dragged)
+                      // order; offer sort options here once the library has
+                      // some to reuse.
+                      Expanded(
+                        child: Text(
+                          'SORTED BY  CUSTOM ORDER',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            letterSpacing: 1.6,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    TactileBounce(
-                      onTap: songs.isEmpty
-                          ? null
-                          : () {
-                              if (!controller.player.shuffle) {
-                                controller.player.toggleShuffle();
-                              }
-                              controller.playPlaylist(playlist);
-                            },
-                      child: IconButton.filledTonal(
-                        tooltip: 'Shuffle playlist',
-                        style: IconButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
-                          ),
-                          minimumSize: const Size(44, 44),
-                        ),
-                        onPressed: songs.isEmpty
-                            ? null
-                            : () {
-                                if (!controller.player.shuffle) {
-                                  controller.player.toggleShuffle();
-                                }
-                                controller.playPlaylist(playlist);
-                              },
-                        icon: const Icon(Icons.shuffle_rounded, size: 20),
+                      TextButton.icon(
+                        onPressed: () => setState(() {
+                          _showFilter = !_showFilter;
+                          if (!_showFilter) _filterController.clear();
+                        }),
+                        icon: const Icon(Icons.tune_rounded, size: 18),
+                        label: const Text('Filter'),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
+                if (wide || _showFilter) ...[
+                  SizedBox(height: wide ? 20 : 6),
+                  filterField,
+                ],
+                if (wide && shown.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _TableHeader(),
+                ],
               ],
             ),
-          ),
-          Expanded(
-            child: songs.isEmpty
-                ? const _EmptyPlaylist()
-                : ReorderableListView.builder(
-                    padding: const EdgeInsets.only(bottom: 140),
-                    itemExtent: PearRow.extent,
-                    buildDefaultDragHandles: false,
-                    itemCount: songs.length,
-                    onReorderItem: (oldIndex, newIndex) => _reorder(
-                      controller,
-                      playlist,
-                      songs,
-                      oldIndex,
-                      newIndex,
-                    ),
-                    proxyDecorator: (child, index, animation) {
-                      return AnimatedBuilder(
-                        animation: animation,
-                        builder: (context, child) {
-                          final t = Curves.easeInOut.transform(animation.value);
-                          return Material(
-                            color: const Color(0xFF1B1B20),
-                            elevation: 8 * t,
-                            shadowColor: Colors.black.withValues(alpha: 0.65),
-                            borderRadius: BorderRadius.circular(PearGlassTokens.r(12)),
-                            child: child,
-                          );
-                        },
-                        child: child,
-                      );
-                    },
-                    itemBuilder: (context, i) {
-                      final song = songs[i];
-                      final isCurrent = song.id == player.currentSong?.id;
-                      final isPlaying = isCurrent && player.playing;
-                      return _SongRow(
-                        key: ValueKey(song.id),
-                        song: song,
-                        isCurrent: isCurrent,
-                        isPlaying: isPlaying,
-                        index: i,
-                        onPlay: isPlaying
-                            ? () => controller.togglePlayback()
-                            : () => controller.player.playSong(
-                                song,
-                                queue: songs,
-                                sourceId: 'playlist:${playlist.id}',
-                                sourceTitle: playlist.name,
-                              ),
-                        onRemove: () => controller.removeSongFromPlaylist(
-                          playlist.id,
-                          song.id,
+          );
+
+          if (shown.isEmpty) {
+            return ListView(
+              padding: const EdgeInsets.only(bottom: 140),
+              children: [
+                header,
+                songs.isEmpty
+                    ? const _EmptyPlaylist()
+                    : Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(
+                          'No songs in this playlist match "$q"',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+                      ),
+              ],
+            );
+          }
+          return ReorderableListView.builder(
+            header: header,
+            padding: EdgeInsets.fromLTRB(wide ? 14 : 0, 0, wide ? 14 : 0, 140),
+            itemExtent: PearRow.extent,
+            buildDefaultDragHandles: false,
+            itemCount: shown.length,
+            // A drag while filtered moves only the shown songs; _reorder
+            // keeps the hidden ones where they are.
+            onReorderItem: (oldIndex, newIndex) =>
+                _reorder(controller, playlist, shown, oldIndex, newIndex),
+            proxyDecorator: (child, index, animation) => Material(
+              color: PearGlassTokens.angularPanel,
+              elevation: 8,
+              child: child,
+            ),
+            itemBuilder: (context, i) =>
+                _row(controller, playlist, shown, i, queue: songs, table: wide),
+          );
+        },
       ),
     );
   }
@@ -296,7 +321,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     try {
       final name = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => PearAlertDialog(
           title: const Text('Rename playlist'),
           content: TextField(
             controller: controller_,
@@ -331,7 +356,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   ) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => PearAlertDialog(
         title: Text('Delete "${playlist.name}"?'),
         content: const Text(
           'The songs stay in your library; only the playlist is removed.',
@@ -366,6 +391,9 @@ class _SongRow extends StatelessWidget {
   final VoidCallback onPlay;
   final VoidCallback onRemove;
 
+  /// A wide window: Artist and Offline columns, like a table.
+  final bool table;
+
   const _SongRow({
     super.key,
     required this.song,
@@ -374,6 +402,7 @@ class _SongRow extends StatelessWidget {
     required this.index,
     required this.onPlay,
     required this.onRemove,
+    this.table = false,
   });
 
   @override
@@ -482,6 +511,7 @@ class _SongRow extends StatelessWidget {
             onSecondaryTapDown: (details) =>
                 _showContextMenu(context, details.globalPosition),
             child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               onTap: () {
                 TactileFeedback.click();
                 onPlay();
@@ -507,11 +537,17 @@ class _SongRow extends StatelessWidget {
                             // Wide rows move the size into a right-aligned column
                             // so the row reads like a table on desktop.
                             final wideRow = constraints.maxWidth >= 620;
+                            final tableRow = table && wideRow;
+                            final muted = theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: 12.5,
+                            );
                             return Row(
                               children: [
                                 artworkWidget,
                                 const SizedBox(width: 12),
                                 Expanded(
+                                  flex: tableRow ? 2 : 1,
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     crossAxisAlignment:
@@ -547,7 +583,30 @@ class _SongRow extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                                if (wideRow)
+                                if (tableRow) ...[
+                                  Expanded(
+                                    child: Text(
+                                      song.artist ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: muted,
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: _TableHeader.offlineWidth,
+                                    child: _OfflineMark(song: song),
+                                  ),
+                                  SizedBox(
+                                    width: _TableHeader.sizeWidth,
+                                    child: Text(
+                                      song.sizeLabel,
+                                      maxLines: 1,
+                                      textAlign: TextAlign.right,
+                                      style: muted,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ] else if (wideRow)
                                   Padding(
                                     padding: const EdgeInsets.only(right: 18),
                                     child: Text(
@@ -612,27 +671,20 @@ class _SongRow extends StatelessWidget {
   /// Right-click context menu for a playlist row.
   Future<void> _showContextMenu(BuildContext context, Offset position) async {
     final controller = context.read<AppController>();
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (overlay == null) return;
-    final selected = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        position & const Size(1, 1),
-        Offset.zero & overlay.size,
+    final selected = await showPearContextMenu(context, position, [
+      const PearMenuEntry('play', 'Play'),
+      const PearMenuEntry('play_next', 'Play next'),
+      const PearMenuEntry(
+        'add_to_queue',
+        'Add to queue',
       ),
-      items: [
-        _menuItem('play', Icons.play_arrow_rounded, 'Play'),
-        _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
-        _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
-        _menuItem(
-          'remove',
-          Icons.remove_circle_outline_rounded,
-          'Remove from playlist',
-          color: Theme.of(context).colorScheme.error,
-        ),
-      ],
-    );
+      PearMenuEntry(
+        'remove',
+        'Remove from playlist',
+        color: Theme.of(context).colorScheme.error,
+        separatorBefore: true,
+      ),
+    ]);
     if (!context.mounted || selected == null) return;
     switch (selected) {
       case 'play':
@@ -644,33 +696,6 @@ class _SongRow extends StatelessWidget {
       case 'remove':
         onRemove();
     }
-  }
-
-  PopupMenuItem<String> _menuItem(
-    String value,
-    IconData icon,
-    String label, {
-    Color? color,
-  }) {
-    return PopupMenuItem<String>(
-      value: value,
-      height: 42,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              label,
-              softWrap: false,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: color),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _placeholder(ColorScheme scheme) {
@@ -697,36 +722,301 @@ class _SongRow extends StatelessWidget {
   }
 }
 
+/// "12 songs · 1 hr 4 min"; the length is left off while no song has one.
+String playlistSummary(List<Song> songs) {
+  final count = '${songs.length} song${songs.length == 1 ? '' : 's'}';
+  final total = Duration(
+    milliseconds: songs.fold<int>(0, (t, s) => t + (s.durationMs ?? 0)),
+  );
+  final h = total.inHours;
+  final m = total.inMinutes % 60;
+  final length = [if (h > 0) '$h hr', if (m > 0) '$m min'].join(' ');
+  return length.isEmpty ? count : '$count · $length';
+}
+
+/// Column labels over the wide table rows, lined up with [_SongRow]'s
+/// columns.
+class _TableHeader extends StatelessWidget {
+  const _TableHeader();
+
+  static const double offlineWidth = 96;
+  static const double sizeWidth = 72;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextStyle(
+      fontSize: 10.5,
+      letterSpacing: 2,
+      fontWeight: FontWeight.w600,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
+    // The rows sit 14 further in than this header on the left (list and
+    // row padding) and 6 on the right; the 64 is the remove and drag
+    // buttons.
+    return Container(
+      padding: EdgeInsets.fromLTRB(14 + PearRow.cover + 12, 0, 6 + 64 + 8, 8),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text('TITLE', style: style)),
+          Expanded(child: Text('ARTIST', style: style)),
+          SizedBox(width: offlineWidth, child: Text('OFFLINE', style: style)),
+          SizedBox(
+            width: sizeWidth,
+            child: Text('SIZE', textAlign: TextAlign.right, style: style),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// SAVED for a song that is a file on this device, ONLINE for one that
+/// plays from the internet.
+///
+/// shortcut: an online song whose downloaded copy is also in the library
+/// still reads ONLINE; look the copy up by video id if that confuses.
+class _OfflineMark extends StatelessWidget {
+  const _OfflineMark({required this.song});
+
+  final Song song;
+
+  @override
+  Widget build(BuildContext context) {
+    final online = song.sourceDeviceId == 'stream';
+    final color = online
+        ? Theme.of(context).colorScheme.onSurfaceVariant
+        : Theme.of(context).colorScheme.primary;
+    return Row(
+      children: [
+        Icon(
+          online ? Icons.cloud_outlined : Icons.download_done_rounded,
+          size: 15,
+          color: color,
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            online ? 'ONLINE' : 'SAVED',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 10.5, letterSpacing: 1.4, color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaylistHeader extends StatelessWidget {
+  final Playlist playlist;
+  final List<Song> songs;
+  final bool wide;
+  final VoidCallback? onPlay;
+  final VoidCallback? onShuffle;
+  final Widget menu;
+
+  const _PlaylistHeader({
+    required this.playlist,
+    required this.songs,
+    required this.wide,
+    required this.onPlay,
+    required this.onShuffle,
+    required this.menu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final square = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(PearGlassTokens.r(8)),
+    );
+    final playButton = wide
+        ? FilledButton.icon(
+            onPressed: onPlay,
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+              minimumSize: const Size(120, 48),
+              shape: square,
+            ),
+            icon: const Icon(Icons.play_arrow_rounded, size: 24),
+            label: const Text(
+              'PLAY',
+              style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 2),
+            ),
+          )
+        : IconButton.filled(
+            tooltip: 'Play',
+            onPressed: onPlay,
+            style: IconButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+              minimumSize: const Size(48, 48),
+              shape: square,
+            ),
+            icon: const Icon(Icons.play_arrow_rounded, size: 26),
+          );
+    final buttons = Row(
+      children: [
+        playButton,
+        const SizedBox(width: 10),
+        IconButton.outlined(
+          tooltip: 'Shuffle',
+          onPressed: onShuffle,
+          style: IconButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            shape: square,
+            side: BorderSide(
+              color: Colors.white.withValues(alpha: PearGlassTokens.edge * 2),
+            ),
+          ),
+          icon: const Icon(Icons.shuffle_rounded, size: 20),
+        ),
+        if (wide) const SizedBox(width: 6) else const Spacer(),
+        menu,
+      ],
+    );
+
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Text(
+              'PLAYLIST',
+              style: theme.textTheme.labelSmall?.copyWith(
+                letterSpacing: 2.4,
+                fontWeight: FontWeight.w700,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: wide ? 10 : 6),
+        Text(
+          playlist.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: (wide
+                  ? theme.textTheme.displaySmall
+                  : theme.textTheme.headlineSmall)
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        SizedBox(height: wide ? 10 : 6),
+        Text(
+          playlistSummary(songs),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        if (wide) ...[const SizedBox(height: 20), buttons],
+      ],
+    );
+
+    final cover = _PlaylistCover(
+      song: songs.firstOrNull,
+      size: wide ? 200 : 132,
+    );
+    if (wide) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [cover, const SizedBox(width: 28), Expanded(child: info)],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [cover, const SizedBox(width: 16), Expanded(child: info)],
+        ),
+        const SizedBox(height: 14),
+        buttons,
+      ],
+    );
+  }
+}
+
+/// The playlist's cover: its first song's artwork in a Graphite cut-corner
+/// frame, or a plain panel when there is none.
+class _PlaylistCover extends StatelessWidget {
+  final Song? song;
+  final double size;
+
+  const _PlaylistCover({required this.song, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = PearGlassTokens.angularShape();
+    final blank = Container(
+      key: const ValueKey('playlist_cover_blank'),
+      decoration: ShapeDecoration(
+        color: PearGlassTokens.angularPanel,
+        shape: shape,
+      ),
+      child: Icon(
+        Icons.queue_music_rounded,
+        size: size * 0.3,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    );
+    final s = song;
+    final cacheWidth = (size * 2).round();
+    Widget image;
+    if (s == null) {
+      image = blank;
+    } else if (s.artwork?.startsWith('http') ?? false) {
+      image = Image.network(
+        ArtworkService.optimizeArtworkUrl(s.artwork!),
+        cacheWidth: cacheWidth,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => blank,
+      );
+    } else {
+      image = FutureBuilder<Uint8List?>(
+        key: ValueKey('playlist_cover_${s.id}'),
+        initialData: ArtworkPalette.cachedBytes(s),
+        future: ArtworkPalette.bytesAsync(s),
+        builder: (context, snap) {
+          final bytes = snap.data;
+          if (bytes == null || bytes.isEmpty) return blank;
+          return Image.memory(
+            bytes,
+            cacheWidth: cacheWidth,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => blank,
+          );
+        },
+      );
+    }
+    return SizedBox.square(
+      dimension: size,
+      child: ClipPath(
+        clipper: ShapeBorderClipper(shape: shape),
+        child: image,
+      ),
+    );
+  }
+}
+
 class _EmptyPlaylist extends StatelessWidget {
   const _EmptyPlaylist();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.music_off,
-              size: 56,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 12),
-            Text('This playlist is empty', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              'Long-press a song in your library to add it here.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
+    // shortcut: no Add songs button, songs come in from the library's menu.
+    return const PearEmptyState(
+      icon: Icons.music_off_rounded,
+      title: 'This playlist is empty',
+      message: 'Long-press a song in your library to add it here.',
     );
   }
 }

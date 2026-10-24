@@ -12,6 +12,7 @@ import '../../services/loudness_service.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/player_service.dart';
 import '../pear_popup.dart';
+import '../pear_sheet.dart';
 
 /// Modal bottom sheet allowing users to fine-tune lyrics synchronization timing
 /// or search and select alternate lyrics from LRCLIB.
@@ -565,44 +566,17 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.tune_rounded, color: scheme.primary, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Lyrics Options',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      key: const ValueKey('lyrics_options_close'),
-                      tooltip: 'Close',
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 36,
-                        height: 36,
-                      ),
-                      padding: EdgeInsets.zero,
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Padding(
-                  // Line up under the title, past the icon.
-                  padding: const EdgeInsets.only(left: 30, right: 8),
-                  child: Text(
-                    widget.song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
+                // shortcut: the board's three-button Earlier / Playing line /
+                // Later row is the existing nudge rows below; same actions.
+                PearSheetTitle(
+                  'Lyric timing',
+                  subtitle: widget.song.title,
+                  padding: const EdgeInsets.only(top: 4, bottom: 2),
+                  trailing: IconButton(
+                    key: const ValueKey('lyrics_options_close'),
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -755,6 +729,7 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       InkWell(
+                        mouseCursor: WidgetStateMouseCursor.clickable,
                         onTap: () {
                           setState(() {
                             _isSearchExpanded = !_isSearchExpanded;
@@ -1237,9 +1212,13 @@ class _LyricSyncSheetContentState extends State<_LyricSyncSheetContent> {
           borderRadius: BorderRadius.circular(PearGlassTokens.r(16)),
         ),
       ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          label,
+          maxLines: 1,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11.5),
+        ),
       ),
     );
   }

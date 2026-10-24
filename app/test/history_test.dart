@@ -216,99 +216,115 @@ void main() {
     });
   });
 
+
   group('HistoryScreen', () {
-    Widget buildHarness(
+    Future<void> pumpAt(
+      WidgetTester tester,
+      Size size,
       AppController controller,
       HistoryService history,
-    ) {
-      return MultiProvider(
-        providers: [
-          ChangeNotifierProvider<AppController>.value(value: controller),
-          ChangeNotifierProvider<PlayerService>.value(
-            value: controller.player,
-          ),
-          ChangeNotifierProvider<HistoryService>.value(value: history),
-        ],
-        child: const MaterialApp(home: HistoryScreen()),
-      );
-    }
-
-    testWidgets('lists played songs newest first and clears on confirm',
-        (tester) async {
-      tester.view.physicalSize = const Size(1280, 1000);
+    ) async {
+      tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
-
-      final env = await createEnvironment();
-      final local = _song('local_1', 'Local File');
-      env.library.setSongsForTesting([local]);
-      final streamSong = _song(
-        'stream_abc123',
-        'Online Stream Song',
-        sourceDeviceId: 'stream',
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AppController>.value(value: controller),
+            ChangeNotifierProvider<PlayerService>.value(
+              value: controller.player,
+            ),
+            ChangeNotifierProvider<HistoryService>.value(value: history),
+          ],
+          child: const MaterialApp(home: HistoryScreen()),
+        ),
       );
-      await env.identity.registerOnlineSongs([streamSong]);
-
-      env.history.record(local);
-      env.history.record(streamSong);
-
-      await tester.pumpWidget(buildHarness(env.controller, env.history));
       await tester.pumpAndSettle();
+    }
 
-      expect(find.text('Online Stream Song'), findsOneWidget);
-      expect(find.text('Local File'), findsOneWidget);
-      // Newest first in reading order. Wide layouts may place the two songs
-      // side by side in a grid, so only fall back to the x axis then.
-      final firstPos = tester.getTopLeft(find.text('Online Stream Song'));
-      final secondPos = tester.getTopLeft(find.text('Local File'));
-      final newestFirst = firstPos.dy < secondPos.dy ||
-          (firstPos.dy == secondPos.dy && firstPos.dx < secondPos.dx);
-      expect(newestFirst, isTrue);
+    // Three plays on three days: today, yesterday and five days back.
+    Future<
+        ({
+          AppController controller,
+          HistoryService history,
+          DateTime older,
+        })> playedOverThreeDays() async {
+      final env = await createEnvironment();
+      final today = _song('t', 'Played Today');
+      final yesterday = _song('y', 'Played Yesterday');
+      final older = _song('o', 'Played Earlier');
+      env.library.setSongsForTesting([today, yesterday, older]);
+      final now = DateTime.now();
+      final olderAt = now.subtract(const Duration(days: 5));
+      env.history.record(older, at: olderAt);
+      env.history.record(yesterday, at: now.subtract(const Duration(days: 1)));
+      env.history.record(today, at: now);
+      return (
+        controller: env.controller,
+        history: env.history,
+        older: olderAt,
+      );
+    }
+
+    for (final size in const [Size(430, 920), Size(1440, 900)]) {
+      testWidgets('groups plays under day headers at ${size.width.toInt()} px',
+          (tester) async {
+        final env = await playedOverThreeDays();
+        await pumpAt(tester, size, env.controller, env.history);
+
+        expect(find.text('HISTORY'), findsOneWidget);
+        expect(find.byIcon(Icons.delete_sweep_outlined), findsOneWidget);
+        final olderLabel = historyDayLabel(env.older, DateTime.now());
+        final order = [
+          'TODAY',
+          'Played Today',
+          'YESTERDAY',
+          'Played Yesterday',
+          olderLabel,
+          'Played Earlier',
+        ].map((t) => tester.getTopLeft(find.text(t)).dy).toList();
+        for (var i = 1; i < order.length; i++) {
+          expect(order[i], greaterThan(order[i - 1]));
+        }
+        // The old "3 h ago" meta is replaced by the time of day.
+        expect(find.textContaining('ago'), findsNothing);
+      });
+    }
+
+    testWidgets('clear history empties the list into the empty state',
+        (tester) async {
+      final env = await playedOverThreeDays();
+      await pumpAt(tester, const Size(430, 920), env.controller, env.history);
 
       await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
       await tester.pumpAndSettle();
-      expect(find.text('Clear listening history?'), findsOneWidget);
-
       await tester.tap(find.text('Clear'));
       await tester.pumpAndSettle();
 
       expect(env.history.isEmpty, isTrue);
-      expect(find.text('Nothing played yet'), findsOneWidget);
+      expect(find.text('NOTHING PLAYED YET'), findsOneWidget);
     });
 
-    testWidgets('shows the empty state when nothing has played', (tester) async {
-      final env = await createEnvironment();
-      await tester.pumpWidget(buildHarness(env.controller, env.history));
-      await tester.pumpAndSettle();
+    for (final size in const [Size(430, 920), Size(1440, 900)]) {
+      testWidgets('empty state at ${size.width.toInt()} px', (tester) async {
+        final env = await createEnvironment();
+        await pumpAt(tester, size, env.controller, env.history);
 
-      expect(find.text('Nothing played yet'), findsOneWidget);
-      // No clear action while the list is empty.
-      expect(find.byIcon(Icons.delete_sweep_outlined), findsNothing);
-    });
-
-    testWidgets('rows show when each song was played', (tester) async {
-      tester.view.physicalSize = const Size(1280, 1000);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(() {
-        tester.view.resetPhysicalSize();
-        tester.view.resetDevicePixelRatio();
+        expect(find.text('NOTHING PLAYED YET'), findsOneWidget);
+        expect(find.text('GO TO LIBRARY'), findsOneWidget);
+        expect(find.byIcon(Icons.delete_sweep_outlined), findsNothing);
       });
+    }
 
-      final env = await createEnvironment();
-      final local = _song('local_1', 'Local File');
-      env.library.setSongsForTesting([local]);
-      env.history.record(
-        local,
-        at: DateTime.now().subtract(const Duration(hours: 3)),
-      );
-
-      await tester.pumpWidget(buildHarness(env.controller, env.history));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('3 h ago'), findsOneWidget);
+    test('day labels count calendar days', () {
+      final now = DateTime(2026, 9, 30, 1, 0);
+      expect(historyDayLabel(DateTime(2026, 9, 30, 0, 10), now), 'TODAY');
+      expect(historyDayLabel(DateTime(2026, 9, 29, 23, 0), now), 'YESTERDAY');
+      expect(historyDayLabel(DateTime(2026, 9, 28, 23, 0), now), '28 SEP');
+      expect(historyDayLabel(DateTime(2025, 9, 28), now), '28 SEP 2025');
     });
   });
 

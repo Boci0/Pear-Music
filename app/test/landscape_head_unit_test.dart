@@ -16,6 +16,7 @@ import 'package:peerm_app/services/video_service.dart';
 import 'package:peerm_app/services/youtube_service.dart';
 import 'package:peerm_app/widgets/player/player_artwork.dart';
 import 'package:peerm_app/widgets/player/player_fullscreen.dart';
+import 'package:peerm_app/widgets/player/player_stage_body.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -46,11 +47,8 @@ void main() {
   Future<Widget> build(
     Widget home, {
     VideoService Function(PlayerService, LibraryService)? makeVideo,
-    String? style,
   }) async {
-    SharedPreferences.setMockInitialValues(
-      style == null ? {} : {'peerm_style': style},
-    );
+    SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final identity = IdentityService(prefs);
     final library = LibraryService();
@@ -145,14 +143,11 @@ void main() {
     Size(844, 390),
     Size(915, 412),
   ]) {
-    // Graphite (the default) and Glass: a car screen must fit either style.
-    for (final style in const ['graphite', 'glass']) {
     for (final entry in <String, Widget>{
       'shell': const HomeShell(),
       'player': const PlayerScreen(),
     }.entries) {
-      testWidgets('${entry.key} lays out at ${size.width}x${size.height} '
-          'in $style', (
+      testWidgets('${entry.key} lays out at ${size.width}x${size.height}', (
         tester,
       ) async {
         tester.view.physicalSize = size;
@@ -161,7 +156,7 @@ void main() {
           tester.view.resetPhysicalSize();
           tester.view.resetDevicePixelRatio();
         });
-        await tester.pumpWidget(await build(entry.value, style: style));
+        await tester.pumpWidget(await build(entry.value));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
 
@@ -170,13 +165,44 @@ void main() {
         if (entry.key == 'shell' &&
             !HomeShell.usesWideShell(size) &&
             size.height < 500) {
-          // Short phone shell: the nav bar shares a row with the mini player
-          // instead of stacking under it.
-          final nav = tester.getSize(find.byKey(const ValueKey('nav_bar')));
-          expect(nav.width, lessThanOrEqualTo(size.width * 0.5));
+          // Short phone shell: a left rail instead of the bottom dock.
+          expect(find.byKey(const ValueKey('landscape_rail')), findsOneWidget);
+          expect(find.byKey(const ValueKey('nav_bar')), findsNothing);
+          // Home: the shortcut tiles stack in a narrow column on the left,
+          // the recent plays take the rest of the width.
+          final liked = tester.getRect(find.byKey(const ValueKey('home_liked')));
+          final history = tester.getRect(
+            find.byKey(const ValueKey('home_history')),
+          );
+          expect(history.top, greaterThan(liked.bottom));
+          expect(
+            tester.getTopLeft(find.text('RECENTLY PLAYED')).dx,
+            greaterThan(liked.right),
+          );
         }
 
-        if (entry.key == 'player') {
+        if (entry.key == 'player' && size.height < 500) {
+          // A phone held sideways gets the split player; its Queue tool
+          // opens the queue sheet.
+          expect(find.byType(PlayerStageLandscapeBody), findsOneWidget);
+          // No top bar: close sits beside the tabs, and the whole column
+          // down to the tools row fits on the screen.
+          expect(find.byType(AppBar), findsNothing);
+          expect(find.byTooltip('Close player'), findsOneWidget);
+          expect(
+            tester.getBottomLeft(find.byTooltip('Queue').first).dy,
+            lessThanOrEqualTo(size.height),
+          );
+          await tester.tap(find.byTooltip('Queue').first);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 600));
+          expect(find.byKey(const ValueKey('queue_panel')), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
+
+        // Car screens and tablets (500 or taller) keep the classic landscape
+        // player.
+        if (entry.key == 'player' && size.height >= 500) {
           // Landscape has no pull-up queue sheet, so Up Next is a labelled
           // button on the player itself.
           await tester.tap(find.byKey(const ValueKey('up_next_button')));
@@ -186,7 +212,7 @@ void main() {
           expect(tester.takeException(), isNull);
         }
 
-        if (entry.key == 'player') {
+        if (entry.key == 'player' && size.height >= 500) {
           // The artwork square uses the room the title block leaves.
           final art = tester.getSize(find.byType(PlayerArtwork).first);
           expect(art.width, greaterThanOrEqualTo(150));
@@ -211,15 +237,11 @@ void main() {
         }
 
         if (entry.key == 'shell') {
-          // Visit every tab, in the phone shell's nav bar or the side rail.
-          for (final tab in const [
-            'Playlists',
-            'Explore',
-            'History',
-            'Settings',
-            'Library',
-          ]) {
-            // Any case: angular styles draw tab labels in capitals.
+          // Visit every tab, in the sideways rail or the wide rail.
+          for (final tab in HomeShell.usesWideShell(size)
+              ? const ['Playlists', 'Explore', 'History', 'Settings', 'Library']
+              : const ['Explore', 'Library', 'Home']) {
+            // Any case: tab labels are drawn in capitals.
             await tester.tap(
               find
                   .byWidgetPredicate(
@@ -235,7 +257,6 @@ void main() {
           }
         }
       });
-    }
     }
   }
 }

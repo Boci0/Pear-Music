@@ -2,14 +2,28 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../controllers/app_controller.dart';
 import '../main.dart' show PearMusicApp;
 import '../screens/home_shell.dart';
 import '../screens/player_screen.dart';
-import '../theme/pear_style.dart';
+import '../screens/playlist_detail_screen.dart';
+import '../widgets/import_export_sheet.dart';
 import '../widgets/pear_page_route.dart';
+import '../widgets/pear_sheet.dart';
+import '../widgets/player/lyric_sync_sheet.dart';
+import '../widgets/player/playback_speed_dialog.dart';
+import '../widgets/player/queue_bottom_sheet.dart';
+import '../widgets/player/sleep_timer_dialog.dart';
+import '../widgets/player/stream_quality_info_dialog.dart';
+import '../widgets/player/visualizer_permission.dart';
+import '../widgets/song_tile.dart';
+import '../screens/home_screen.dart';
+import '../screens/playlists_screen.dart';
+import 'update_service.dart';
+import '../widgets/player/player_artwork.dart';
 import 'debug_log.dart';
 import 'video_service.dart';
 import 'visualizer_feed.dart';
@@ -44,12 +58,14 @@ import 'youtube_search_service.dart';
 ///   /viz?hold=1|0           what the visualizer feed saw since the last call
 ///                           (hold=1 keeps a client on the feed, hold=0 drops it)
 ///   /log?n=60               the last lines of the debug log
-///   /style?v=glass|frosted|solid  switch the look; the reply is the style in use
 ///   /player                 open the full player screen, as tapping the bar does
 ///   /tab?i=0..4             switch tab (Library, Playlists, Explore, History,
 ///                           Settings), as a tap on the bar does
 ///   /pop                    close the top page, sheet or dialog if there is
 ///                           one (a page inside Playlists last); never quits
+///   /sheet?name=           open a menu, sheet or dialog on the current page:
+///                           song|menu (x=,y=)|sort|queue|sleep|speed|playlist|import|lyrics|
+///                           trackinfo|confirm|update|audio (/pop closes it)
 ///   /quit                   exit the app
 class ControlSettings {
   const ControlSettings(this.port, this.token);
@@ -316,6 +332,11 @@ Future<HttpServer?> startTestControl(
               if (q['on'] == '0') video.hide();
               body = video.status;
             }
+          case '/lyrics':
+            // The player's Lyrics view, as its tab or button would switch it.
+            if (q['on'] == '1') PlayerArtwork.showLyricsNotifier.value = true;
+            if (q['on'] == '0') PlayerArtwork.closeLyrics();
+            body = {'lyrics': PlayerArtwork.isLyricsShowing};
           case '/viz':
             // hold=1 stands in for a mounted visualizer widget (so capture can
             // run with no player view open); hold=0 lets it go.
@@ -330,12 +351,6 @@ Future<HttpServer?> startTestControl(
           case '/log':
             final n = int.tryParse(q['n'] ?? '') ?? 60;
             body = {'lines': await _logTail(n)};
-          case '/style':
-            final wanted = q['v'];
-            if (wanted != null) {
-              await controller.identity.setStyle(PearStyle.parse(wanted));
-            }
-            body = {'style': controller.identity.style.name};
           case '/player':
             // Opens the full player screen the way a tap on the playing bar
             // does, so a check can measure or screenshot that screen.
@@ -351,15 +366,51 @@ Future<HttpServer?> startTestControl(
               );
               body = {'player': 'opened'};
             }
+          case '/playlist':
+            // Lists the playlists, or with ?i= opens one the way a tap on its
+            // row does, so a check can screenshot the playlist page.
+            final playlists = controller.playlists;
+            final index = int.tryParse(q['i'] ?? '');
+            final navigator = PearMusicApp.navigatorKey.currentState;
+            if (index == null) {
+              body = [
+                for (var i = 0; i < playlists.length; i++)
+                  {'i': i, 'name': playlists[i].name},
+              ];
+            } else if (index < 0 || index >= playlists.length) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no such playlist'};
+            } else if (navigator == null) {
+              res.statusCode = HttpStatus.serviceUnavailable;
+              body = {'error': 'no navigator yet'};
+            } else {
+              final id = playlists[index].id;
+              unawaited(
+                navigator.push(
+                  PearPageRoute(
+                    builder: (_) => PlaylistDetailScreen(playlistId: id),
+                  ),
+                ),
+              );
+              body = {'playlist': playlists[index].name};
+            }
           case '/tab':
             final index = int.tryParse(q['i'] ?? '');
-            if (index == null || index < 0 || index > 4) {
+            if (index == null || index < 0 || index > 5) {
               res.statusCode = HttpStatus.badRequest;
-              body = {'error': 'i must be 0 to 4'};
+              body = {'error': 'i must be 0 to 5 (5 is Home)'};
             } else {
               HomeShell.requestTab(index);
               body = {'tab': index};
             }
+          case '/panel':
+            // Wide shell: theater=1|0 and fold=1|0.
+            bool? flag(String k) => q[k] == null ? null : q[k] == '1';
+            HomeShell.requestPanel(
+              theater: flag('theater'),
+              folded: flag('fold'),
+            );
+            body = {'theater': flag('theater'), 'fold': flag('fold')};
           case '/pop':
             final navigator = PearMusicApp.navigatorKey.currentState;
             if (navigator != null && navigator.canPop()) {
@@ -370,10 +421,107 @@ Future<HttpServer?> startTestControl(
             } else {
               body = {'popped': 'nothing'};
             }
+          case '/sheet':
+            final ctx = PearMusicApp.navigatorKey.currentContext;
+            final song = player.currentSong ??
+                (controller.library.songs.isEmpty
+                    ? null
+                    : controller.library.songs.first);
+            final name = q['name'];
+            if (ctx == null) {
+              res.statusCode = HttpStatus.serviceUnavailable;
+              body = {'error': 'no navigator yet'};
+            } else if (name == null ||
+                (song == null &&
+                    const {'song', 'menu', 'lyrics'}.contains(name))) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'needs name= and, for song/lyrics, a song'};
+            } else if (name == 'playlist' && controller.playlists.isEmpty) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no playlist'};
+            } else {
+              switch (name) {
+                case 'song':
+                  unawaited(SongTile.showMenuFor(ctx, song!));
+                case 'menu':
+                  unawaited(
+                    SongTile.showContextMenuFor(
+                      ctx,
+                      song!,
+                      Offset(
+                        double.tryParse(q['x'] ?? '') ?? 500,
+                        double.tryParse(q['y'] ?? '') ?? 250,
+                      ),
+                    ),
+                  );
+                case 'sort':
+                  showLibrarySortSheet(ctx, controller);
+                case 'queue':
+                  QueueSheetController.active?.expand();
+                case 'sleep':
+                  unawaited(showSleepTimerDialog(ctx, player));
+                case 'speed':
+                  unawaited(showPlaybackSpeedDialog(ctx, player));
+                case 'playlist':
+                  unawaited(
+                    showPlaylistOptionsFor(ctx, controller.playlists.first),
+                  );
+                case 'import':
+                  unawaited(showImportExportSheet(ctx, controller));
+                case 'lyrics':
+                  unawaited(
+                    showLyricSyncSheet(ctx, song: song!, player: player),
+                  );
+                case 'trackinfo':
+                  unawaited(StreamQualityInfoDialog.show(ctx));
+                case 'confirm':
+                  unawaited(
+                    showDialog<bool>(
+                      context: ctx,
+                      builder: (c) => PearAlertDialog(
+                        title: const Text('Delete "Road trip"?'),
+                        content: const Text(
+                          'This removes the playlist from your library.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(c, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(c, true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                case 'update':
+                  unawaited(
+                    UpdateService.showUpdateDialogFor(
+                      ctx,
+                      const UpdateInfo(
+                        hasUpdate: true,
+                        currentVersion: '5.1.2',
+                        latestVersion: '5.2.0',
+                        releaseNotes: '- Example one\n- Example two',
+                        htmlUrl: 'https://example.invalid',
+                      ),
+                    ),
+                  );
+                case 'audio':
+                  unawaited(VisualizerPermission.showExplainFor(ctx));
+                default:
+                  res.statusCode = HttpStatus.badRequest;
+                  body = {'error': 'unknown sheet'};
+              }
+              body ??= {'sheet': name};
+            }
           case '/quit':
             res.headers.contentType = ContentType.json;
             res.write(jsonEncode({'quitting': true}));
             await res.close();
+            await player.flushSavedVolume();
             exit(0);
           default:
             res.statusCode = HttpStatus.notFound;

@@ -25,6 +25,10 @@ class LyricsView extends StatefulWidget {
   /// line is centred in what is left above it.
   final double bottomInset;
 
+  /// Every line in a list that follows the song (the new player's full-height
+  /// lyrics), instead of the one line in the card. Tap a line to jump to it.
+  final bool scrolling;
+
   const LyricsView({
     super.key,
     required this.song,
@@ -33,6 +37,7 @@ class LyricsView extends StatefulWidget {
     required this.size,
     this.isVisible = true,
     this.bottomInset = 0,
+    this.scrolling = false,
   });
 
   @override
@@ -184,10 +189,8 @@ class _LyricsViewState extends State<LyricsView>
   /// running ticker makes the device draw every frame, which is wasted when
   /// the whole line is simply lit.
   void _syncSweepTicker() {
-    final run = _sweeping &&
-        _positionSub != null &&
-        _isForeground &&
-        widget.isVisible;
+    final run =
+        _sweeping && _positionSub != null && _isForeground && widget.isVisible;
     if (run && !_sweepTicker.isActive) {
       _sweepTicker.start();
     } else if (!run && _sweepTicker.isActive) {
@@ -242,7 +245,10 @@ class _LyricsViewState extends State<LyricsView>
     var size = start;
     while (true) {
       final painter = TextPainter(
-        text: TextSpan(text: text, style: style.copyWith(fontSize: size)),
+        text: TextSpan(
+          text: text,
+          style: style.copyWith(fontSize: size),
+        ),
         textAlign: TextAlign.center,
         textDirection: Directionality.of(context),
         textScaler: MediaQuery.textScalerOf(context),
@@ -513,66 +519,49 @@ class _LyricsViewState extends State<LyricsView>
       );
     }
 
+    if (widget.scrolling) return _buildScrollingLyricsView(glowColor);
     return _buildPopLyricsView(glowColor, isLight: isLight);
   }
 
-  Widget _buildPopLyricsView(Color glowColor, {required bool isLight}) {
-    final active = (_activeIndex >= 0 && _activeIndex < _lyrics.length)
-        ? _lyrics[_activeIndex]
-        : (_lyrics.isNotEmpty ? _lyrics[0] : null);
+  /// White letters with a glow in the song accent; dark letters with a soft
+  /// white halo (see [_buildPopLyricsView]).
+  List<Shadow> _glow(
+    Color glowColor,
+    double strength, {
+    required bool isLight,
+  }) => isLight
+      ? [
+          Shadow(
+            color: Colors.white.withValues(alpha: 0.85 * strength),
+            blurRadius: 10.0,
+          ),
+          Shadow(
+            color: Colors.white.withValues(alpha: 0.55 * strength),
+            blurRadius: 4.0,
+          ),
+        ]
+      : [
+          Shadow(
+            color: glowColor.withValues(alpha: 0.85 * strength),
+            blurRadius: 8.0,
+          ),
+          Shadow(
+            color: glowColor.withValues(alpha: 0.45 * strength),
+            blurRadius: 4.0,
+          ),
+        ];
 
-    final text = (active == null || active.text.isEmpty) ? '···' : active.text;
-
-    final scale = (widget.size / 280.0).clamp(0.85, 1.25);
-    final double baseFontSize;
-    if (text.length <= 20) {
-      baseFontSize = 24.0;
-    } else if (text.length <= 45) {
-      baseFontSize = 21.0;
-    } else if (text.length <= 70) {
-      baseFontSize = 19.0;
-    } else {
-      baseFontSize = 16.5;
-    }
-    final fontSize =
-        (baseFontSize * scale * LyricsDisplay.textScale.value).roundToDouble();
-
-    final isScrubbing = widget.player.scrubbingPosition != null;
-    final textColor = isLight ? const Color(0xFF141416) : Colors.white;
-    final baseStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
-      fontSize: fontSize,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0.2,
-      wordSpacing: 1.0,
-      height: 1.40,
-      color: textColor,
-    );
-    // White text glows in the song accent. A coloured glow is lost behind
-    // dark letters, so dark text instead lights up in a deep shade of the
-    // accent with a soft white halo, which reads on bright covers.
-    final sungColor = isLight ? _deepInk(glowColor, textColor) : textColor;
-    List<Shadow> glow(double strength) => isLight
-        ? [
-            Shadow(
-              color: Colors.white.withValues(alpha: 0.85 * strength),
-              blurRadius: 10.0,
-            ),
-            Shadow(
-              color: Colors.white.withValues(alpha: 0.55 * strength),
-              blurRadius: 4.0,
-            ),
-          ]
-        : [
-            Shadow(
-              color: glowColor.withValues(alpha: 0.85 * strength),
-              blurRadius: 8.0,
-            ),
-            Shadow(
-              color: glowColor.withValues(alpha: 0.45 * strength),
-              blurRadius: 4.0,
-            ),
-          ];
-
+  /// The sung line's text: lit letter by letter when it has timing and Word
+  /// Glow is on, otherwise lit as a whole. Also keeps the per-frame clock
+  /// running only while a line is sweeping.
+  Widget Function(TextStyle?) _activeLine({
+    required String text,
+    required LyricLine? active,
+    required Color textColor,
+    required Color sungColor,
+    required List<Shadow> Function(double) glow,
+    TextAlign align = TextAlign.center,
+  }) {
     final lineIndex = _activeIndex >= 0 && _activeIndex < _lyrics.length
         ? _activeIndex
         : 0;
@@ -599,13 +588,11 @@ class _LyricsViewState extends State<LyricsView>
       _syncSweepTicker();
     }
 
-    // The whole line always shows: a long one (a fast rap verse) gets a
-    // smaller font until it fits the card, instead of being cut off.
-    Widget lineText(TextStyle? style) {
+    return (TextStyle? style) {
       if (!canSweep) {
         return Text(
           text,
-          textAlign: TextAlign.center,
+          textAlign: align,
           style: style?.copyWith(shadows: glow(1)),
         );
       }
@@ -638,11 +625,169 @@ class _LyricsViewState extends State<LyricsView>
                 }(),
             ],
           ),
-          textAlign: TextAlign.center,
+          textAlign: align,
           style: style,
         ),
       );
+    };
+  }
+
+  /// The line the list last brought to the middle, and the key on the line
+  /// being sung, so a new line scrolls into place once.
+  int _scrolledIndex = -1;
+
+  /// How long a new line takes to grow, light up and glide to the middle.
+  static const Duration _lineEase = Duration(milliseconds: 520);
+
+  /// Lines other than the sung one, drawn at this size of it.
+  static const double _otherLineScale = 0.8;
+  final GlobalKey _activeLineKey = GlobalKey();
+
+  Widget _buildScrollingLyricsView(Color glowColor) {
+    final activeIndex = _activeIndex >= 0 && _activeIndex < _lyrics.length
+        ? _activeIndex
+        : 0;
+    final scale = LyricsDisplay.textScale.value;
+    final theme = Theme.of(context);
+    // One font for every line, so a line's breaks never change when it
+    // becomes the sung one: lines are drawn smaller and dimmer around it
+    // instead of being laid out again in another size.
+    final lineStyle = (theme.textTheme.headlineMedium ?? const TextStyle())
+        .copyWith(
+          fontSize: (26 * scale).roundToDouble(),
+          fontWeight: FontWeight.w700,
+          height: 1.3,
+          color: Colors.white,
+        );
+    final active = _lyrics[activeIndex];
+    final lineText = _activeLine(
+      text: active.text.isEmpty ? '···' : active.text,
+      active: active,
+      textColor: Colors.white,
+      sungColor: Colors.white,
+      glow: (s) => _glow(glowColor, s, isLight: false),
+      align: TextAlign.start,
+    );
+
+    if (_scrolledIndex != activeIndex) {
+      final jump = _scrolledIndex < 0;
+      _scrolledIndex = activeIndex;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _activeLineKey.currentContext;
+        if (target == null || !mounted) return;
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.5,
+          duration: jump || widget.player.scrubbingPosition != null
+              ? Duration.zero
+              : _lineEase,
+          curve: Curves.easeInOutCubic,
+        );
+      });
     }
+
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          constraints.maxHeight * 0.5,
+          20,
+          constraints.maxHeight * 0.5,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < _lyrics.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  // Plain lyrics have placeholder times: nothing to jump to.
+                  onTap: _lyrics[i].timed
+                      ? () => widget.player.seek(_lyrics[i].timestamp)
+                      : null,
+                  // Size and brightness ease from line to line instead of
+                  // switching at once, while the list glides.
+                  child: AnimatedScale(
+                    scale: i == activeIndex ? 1 : _otherLineScale,
+                    // From the middle, so the room a smaller line frees is
+                    // shared above and below it, not all left under it.
+                    alignment: Alignment.centerLeft,
+                    duration: _lineEase,
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedDefaultTextStyle(
+                      duration: _lineEase,
+                      curve: Curves.easeOutCubic,
+                      style: i == activeIndex
+                          ? lineStyle
+                          : lineStyle.copyWith(
+                              color: Colors.white.withValues(
+                                alpha: i < activeIndex ? 0.32 : 0.5,
+                              ),
+                            ),
+                      child: i == activeIndex
+                          ? KeyedSubtree(
+                              key: _activeLineKey,
+                              child: lineText(const TextStyle()),
+                            )
+                          : Text(
+                              _lyrics[i].text.isEmpty ? '···' : _lyrics[i].text,
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPopLyricsView(Color glowColor, {required bool isLight}) {
+    final active = (_activeIndex >= 0 && _activeIndex < _lyrics.length)
+        ? _lyrics[_activeIndex]
+        : (_lyrics.isNotEmpty ? _lyrics[0] : null);
+
+    final text = (active == null || active.text.isEmpty) ? '···' : active.text;
+
+    final scale = (widget.size / 280.0).clamp(0.85, 1.25);
+    final double baseFontSize;
+    if (text.length <= 20) {
+      baseFontSize = 24.0;
+    } else if (text.length <= 45) {
+      baseFontSize = 21.0;
+    } else if (text.length <= 70) {
+      baseFontSize = 19.0;
+    } else {
+      baseFontSize = 16.5;
+    }
+    final fontSize = (baseFontSize * scale * LyricsDisplay.textScale.value)
+        .roundToDouble();
+
+    final isScrubbing = widget.player.scrubbingPosition != null;
+    final textColor = isLight ? const Color(0xFF141416) : Colors.white;
+    final baseStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
+      fontSize: fontSize,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+      wordSpacing: 1.0,
+      height: 1.40,
+      color: textColor,
+    );
+    // White text glows in the song accent. A coloured glow is lost behind
+    // dark letters, so dark text instead lights up in a deep shade of the
+    // accent with a soft white halo, which reads on bright covers.
+    final sungColor = isLight ? _deepInk(glowColor, textColor) : textColor;
+    // The whole line always shows: a long one (a fast rap verse) gets a
+    // smaller font until it fits the card, instead of being cut off.
+    final lineText = _activeLine(
+      text: text,
+      active: active,
+      textColor: textColor,
+      sungColor: sungColor,
+      glow: (s) => _glow(glowColor, s, isLight: isLight),
+    );
 
     return Padding(
       // The line stays at the card's centre whether or not the visualizer is

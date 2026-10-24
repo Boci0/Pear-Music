@@ -10,6 +10,7 @@ import '../../controllers/app_controller.dart';
 import '../../models/song.dart';
 import '../../services/player_service.dart';
 import '../../services/video_service.dart';
+import '../system_bars.dart';
 import 'player_controls.dart';
 import 'player_video_view.dart';
 
@@ -80,7 +81,7 @@ class _PlayerFullscreenPageState extends State<PlayerFullscreenPage> {
   void dispose() {
     _hideTimer?.cancel();
     if (_immersive) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemBars.restore();
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     }
     super.dispose();

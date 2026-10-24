@@ -12,6 +12,7 @@ import '../services/youtube_search_service.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import 'live_badge.dart';
+import 'pear_sheet.dart';
 import 'pear_popup.dart';
 import 'tactile_button.dart';
 
@@ -88,172 +89,96 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
     AppController controller, {
     Offset? anchor,
   }) {
-    final theme = Theme.of(context);
     showPearPopup<void>(
       context: context,
       showDragHandle: true,
       maxWidth: 380,
       anchor: anchor,
       anchorAlignRight: true,
-      builder: (ctx) => SafeArea(
+      builder: (ctx) => _options(ctx, context, controller),
+    );
+  }
+
+  /// The stream-or-download choice as flat rows under a title.
+  // shortcut: no "Remember my choice" switch, there is no stored default.
+  Widget _options(
+    BuildContext ctx,
+    BuildContext context,
+    AppController controller,
+  ) {
+    final song = widget.result.toSong();
+    final isFav = controller.isFavorite(song.id);
+    void run(VoidCallback action) {
+      Navigator.of(ctx).pop();
+      action();
+    }
+
+    return SafeArea(
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              leading: ClipRRect(
-                // Thumbnails in rows share the row-thumbnail radius, even at
-                // this menu's 48px size.
-                borderRadius: PearRadius.thumbAll,
-                child: widget.result.thumbnailUrl != null
-                    ? Image.network(
-                        ArtworkService.optimizeArtworkUrl(
-                          widget.result.thumbnailUrl!,
-                        ),
-                        width: 48,
-                        height: 48,
-                        cacheWidth: 100,
-                        fit: BoxFit.cover,
-                        alignment: Alignment.center,
-                        errorBuilder: (_, _, _) => Image.network(
-                          widget.result.thumbnailUrl!,
-                          width: 48,
-                          height: 48,
-                          cacheWidth: 100,
-                          fit: BoxFit.cover,
-                          alignment: Alignment.center,
-                          errorBuilder: (_, _, _) => Container(
-                            width: 48,
-                            height: 48,
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            child: const Icon(Icons.music_note),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        width: 48,
-                        height: 48,
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        child: const Icon(Icons.music_note),
-                      ),
-              ),
-              title: Text(
-                widget.result.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              subtitle: Text(
-                widget.result.author,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+            PearSheetTitle(
+              widget.result.title,
+              leading: _artwork(Theme.of(ctx)),
+              subtitle: widget.result.author,
             ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.play_circle_outline),
-              title: const Text('Stream Now'),
-              subtitle: const Text('Instant streaming playback'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _streamAndPlay(context, controller);
-              },
+            PearSheetRow(
+              label: 'Stream now',
+              detail: 'Instant streaming playback',
+              icon: Icons.play_circle_outline,
+              onTap: () => run(() => _streamAndPlay(context, controller)),
             ),
-            ListTile(
-              leading: const Icon(Icons.playlist_play_rounded),
-              title: const Text('Play next'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                final song = widget.result.toSong();
-                controller.playNext(song);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.queue_music_rounded),
-              title: const Text('Add to queue'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                final song = widget.result.toSong();
-                controller.addToQueue(song);
-              },
-            ),
-            ListTile(
-              leading: _isDownloading
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.download),
-              title: const Text('Download audio'),
-              subtitle: const Text(
-                'Save for offline listening without interrupting playback',
-              ),
+            PearSheetRow(
+              label: 'Download audio',
+              detail: 'Keeps the song on this device',
+              icon: Icons.download,
               onTap: _isDownloading
                   ? null
-                  : () {
-                      Navigator.of(ctx).pop();
-                      _downloadToLibrary(context, controller);
-                    },
+                  : () => run(() => _downloadToLibrary(context, controller)),
             ),
             if (VideoService.canImportVideoFiles)
-              ListTile(
-                leading: const Icon(Icons.movie_outlined),
-                title: Text('Download video (${_videoHeight(controller)}p)'),
-                subtitle: const Text('A larger file that plays its own picture'),
+              PearSheetRow(
+                label: 'Download video (${_videoHeight(controller)}p)',
+                detail: 'A larger file that plays its own picture',
+                icon: Icons.movie_outlined,
                 onTap: _isDownloading
                     ? null
-                    : () {
-                        Navigator.of(ctx).pop();
-                        _downloadToLibrary(
-                          context,
-                          controller,
-                          videoHeight: _videoHeight(controller),
-                        );
-                      },
+                    : () => run(
+                          () => _downloadToLibrary(
+                            context,
+                            controller,
+                            videoHeight: _videoHeight(controller),
+                          ),
+                        ),
               ),
-            Builder(
-              builder: (ctx) {
-                final song = widget.result.toSong();
-                final isFav = controller.isFavorite(song.id);
-                return ListTile(
-                  leading: Icon(
-                    isFav ? Icons.favorite : Icons.favorite_border,
-                    color: isFav ? theme.colorScheme.primary : null,
-                  ),
-                  title: Text(
-                    isFav ? 'Remove from favorites' : 'Add to favorites',
-                  ),
-                  onTap: () async {
-                    Navigator.of(ctx).pop();
-                    await controller.toggleFavorite(song.id, song: song);
-                  },
-                );
-              },
+            PearSheetRow(
+              label: 'Play next',
+              icon: Icons.playlist_play_rounded,
+              onTap: () => run(() => controller.playNext(song)),
             ),
-            ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: const Text('Copy title'),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                await Clipboard.setData(
-                  ClipboardData(text: widget.result.title),
-                );
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Copied "${widget.result.title}" to clipboard',
-                      ),
-                      duration: const Duration(seconds: 2),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              },
+            PearSheetRow(
+              label: 'Add to queue',
+              icon: Icons.queue_music_rounded,
+              onTap: () => run(() => controller.addToQueue(song)),
             ),
+            PearSheetRow(
+              label: isFav ? 'Remove from favorites' : 'Add to favorites',
+              icon: isFav ? Icons.favorite : Icons.favorite_border,
+              selected: isFav,
+              onTap: () => run(
+                () => controller.toggleFavorite(song.id, song: song),
+              ),
+            ),
+            PearSheetRow(
+              label: 'Copy title',
+              icon: Icons.copy_rounded,
+              onTap: () => run(() {
+                Clipboard.setData(ClipboardData(text: widget.result.title));
+              }),
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -264,36 +189,35 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
   Future<void> _showContextMenu(BuildContext context, Offset position) async {
     final controller = context.read<AppController>();
     final isFav = controller.isFavorite('stream_${widget.result.videoId}');
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (overlay == null) return;
-    final selected = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        position & const Size(1, 1),
-        Offset.zero & overlay.size,
+    final selected = await showPearContextMenu(context, position, [
+      const PearMenuEntry(
+        'stream',
+        'Stream Now',
       ),
-      items: [
-        _menuItem('stream', Icons.play_circle_outline, 'Stream Now'),
-        _menuItem('play_next', Icons.playlist_play_rounded, 'Play next'),
-        _menuItem('add_to_queue', Icons.queue_music_rounded, 'Add to queue'),
-        if (!_isDownloading)
-          _menuItem('download', Icons.download, 'Download audio'),
-        if (!_isDownloading && VideoService.canImportVideoFiles)
-          _menuItem(
-            'download_video',
-            Icons.movie_outlined,
-            'Download video (${_videoHeight(controller)}p)',
-          ),
-        _menuItem(
-          'favorite',
-          isFav ? Icons.favorite : Icons.favorite_border,
-          isFav ? 'Remove from favorites' : 'Add to favorites',
-          color: isFav ? Theme.of(context).colorScheme.primary : null,
+      const PearMenuEntry('play_next', 'Play next'),
+      const PearMenuEntry(
+        'add_to_queue',
+        'Add to queue',
+      ),
+      if (!_isDownloading)
+        const PearMenuEntry(
+          'download',
+          'Download audio',
+          separatorBefore: true,
         ),
-        _menuItem('copy_title', Icons.copy_rounded, 'Copy title'),
-      ],
-    );
+      if (!_isDownloading && VideoService.canImportVideoFiles)
+        PearMenuEntry(
+          'download_video',
+          'Download video (${_videoHeight(controller)}p)',
+        ),
+      PearMenuEntry(
+        'favorite',
+        isFav ? 'Remove from favorites' : 'Add to favorites',
+        color: isFav ? Theme.of(context).colorScheme.primary : null,
+        separatorBefore: true,
+      ),
+      const PearMenuEntry('copy_title', 'Copy title'),
+    ]);
     if (!context.mounted || selected == null) return;
     final song = widget.result.toSong();
     switch (selected) {
@@ -329,33 +253,6 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
           );
         }
     }
-  }
-
-  PopupMenuItem<String> _menuItem(
-    String value,
-    IconData icon,
-    String label, {
-    Color? color,
-  }) {
-    return PopupMenuItem<String>(
-      value: value,
-      height: 42,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              label,
-              softWrap: false,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: color),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   /// The picture height a video download uses: the Video quality setting.
@@ -473,6 +370,7 @@ class _YouTubeSongTileState extends State<YouTubeSongTile> {
             onSecondaryTapDown: (details) =>
                 _showContextMenu(context, details.globalPosition),
             child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               borderRadius: BorderRadius.circular(PearRowLook.radius()),
               onHover: _onHover,
               onTap: () {
