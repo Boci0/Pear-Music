@@ -109,6 +109,27 @@ void main() {
         onReroll: () {},
       );
 
+  testWidgets('the clear button leaves Live and returns to discovery', (
+    tester,
+  ) async {
+    await pump(tester, const ExploreScreen(isActive: false));
+    await tester.tap(find.text('LIVE'));
+    await tester.pump();
+    ExploreChip live() => tester.widget<ExploreChip>(
+          find.widgetWithText(ExploreChip, 'LIVE'),
+        );
+    expect(live().selected, isTrue);
+
+    await tester.enterText(find.byType(TextField), 'lofi');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Clear search'));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(live().selected, isFalse);
+    expect(find.text('lofi'), findsNothing);
+    expect(find.byTooltip('Clear search'), findsNothing);
+  });
+
   for (final size in [phone, wide]) {
     final label = size == phone ? 'phone' : 'wide';
 

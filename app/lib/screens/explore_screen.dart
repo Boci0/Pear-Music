@@ -229,7 +229,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _debounceTimer?.cancel();
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
+      _searchToken++;
       setState(() {
+        _liveOnly = false;
         _results = [];
         _lastQuery = '';
         _isLoading = false;
@@ -331,11 +333,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _clearSearch() {
+    _debounceTimer?.cancel();
+    _searchToken++; // drop a search still in flight so it cannot refill the page
     _searchController.clear();
     setState(() {
       _results = [];
       _lastQuery = '';
       _selectedGenre = null;
+      _liveOnly = false;
+      _isLoading = false;
+      _error = null;
     });
   }
 
