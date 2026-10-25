@@ -43,8 +43,8 @@ Windows and Android. No account, no cloud, no ads.
 ### Play your music
 
 - Plays the audio files already on your device, even with no internet
-- Full-size artwork with background colours taken from the cover
-- Waveform seek bar and an optional visualizer
+- A cover-first player with background colours taken from the artwork: floating navigation on phones, a sidebar with your playlists on Windows
+- Seek bar and an optional visualizer
 - **Video**: a button next to the lyrics shows the picture of a song (streamed songs, and video files on Windows). A quality setting keeps mobile data use low
 - Sleep timer: end of song, countdown, or end of queue
 - Speed from 0.5x to 2x, plus volume levelling between songs
@@ -78,7 +78,7 @@ Windows and Android. No account, no cloud, no ads.
 
 ### Sing along
 
-- Lyrics that follow the song line by line
+- Lyrics that follow the song line by line, with an optional word-by-word glow
 - Uses your own `.lrc` files first, then looks them up online
 - Colour options that stay readable on busy artwork
 - Timing sheet to fix lyrics that run early or late
