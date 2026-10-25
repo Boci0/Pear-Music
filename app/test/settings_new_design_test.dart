@@ -133,7 +133,17 @@ void main() {
       await tester.tap(find.text('Discovery & Search'));
       await tester.pumpAndSettle();
       final top = tester.getTopLeft(_sectionTitle('Discovery & Search')).dy;
-      expect(top, inInclusiveRange(0, 60));
+      // Hosts without the Windows or Android only sections have a shorter list
+      // that cannot scroll the section all the way up; it then stops at the end.
+      final position = Scrollable.of(
+        tester.element(_sectionTitle('Discovery & Search')),
+      ).position;
+      expect(
+        top <= 60 || position.pixels >= position.maxScrollExtent - 1,
+        isTrue,
+        reason: 'top $top, scrolled ${position.pixels} of ${position.maxScrollExtent}',
+      );
+      expect(position.pixels, greaterThan(0));
       expect(_marked(tester, 'Discovery & Search'), isTrue);
       expect(_marked(tester, 'Audio & Playback'), isFalse);
 
