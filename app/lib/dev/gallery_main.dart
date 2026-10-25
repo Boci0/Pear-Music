@@ -6,6 +6,10 @@
 // Args:  --sheet=parts|rows|panes|phone|desktop|players|screens
 //        --tab=N (HomeShell tab to show)
 //        --song=<part of a title> (the song shown as playing)
+//        --index=<path> (use this index.json, e.g. a made-up demo library,
+//          instead of a copy of the app's own)
+//        --bare=home|player|phone-home|phone-player (no sheet: that screen alone, filling the window,
+//          for README screenshots)
 //
 // It reads a copy of the library index (real titles and covers) from a temp
 // folder and uses in-memory settings, so it never writes the app's own data.
@@ -71,8 +75,11 @@ Future<void> main(List<String> args) async {
   final prefs = await SharedPreferences.getInstance();
   final tmp = await Directory.systemTemp.createTemp('pear_gallery');
   final appData = Platform.environment['APPDATA'];
+  final indexArg = arg('index', '');
   if (appData != null) {
-    final index = File(p.join(appData, 'com.peerm', 'peerm_app', 'index.json'));
+    final index = indexArg.isNotEmpty
+        ? File(indexArg)
+        : File(p.join(appData, 'com.peerm', 'peerm_app', 'index.json'));
     if (await index.exists()) {
       await index.copy(p.join(tmp.path, 'index.json'));
       // The library drops songs whose audio file is missing, so give each one
@@ -138,14 +145,22 @@ Future<void> main(List<String> args) async {
       child: _GalleryApp(
         initialSheet: arg('sheet', 'parts'),
         open: arg('open', ''),
+        bare: arg('bare', ''),
       ),
     ),
   );
 }
 
 class _GalleryApp extends StatefulWidget {
-  const _GalleryApp({required this.initialSheet, this.open = ''});
+  const _GalleryApp({
+    required this.initialSheet,
+    this.open = '',
+    this.bare = '',
+  });
   final String initialSheet;
+
+  /// Show one screen alone instead of a sheet (see the header).
+  final String bare;
 
   /// A dialog to open once the window is up: sleep, speed or info.
   final String open;
@@ -182,7 +197,9 @@ class _GalleryAppState extends State<_GalleryApp> {
         fit: StackFit.expand,
         children: [const PearBackdrop(), child ?? const SizedBox()],
       ),
-      home: Scaffold(
+      home: widget.bare.isNotEmpty
+          ? _bareScreen(widget.bare)
+          : Scaffold(
         backgroundColor: Colors.transparent,
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -190,6 +207,36 @@ class _GalleryAppState extends State<_GalleryApp> {
             _TopBar(sheet: _sheet, onSheet: (s) => setState(() => _sheet = s)),
             Expanded(child: _sheetBody(_sheet)),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// One screen alone. 'phone-home' and 'phone-player' draw a 390 x 844 phone
+  /// scaled to fill the window, like a sheet frame but sharp.
+  Widget _bareScreen(String name) => switch (name) {
+    'phone-home' => _phoneFill(const HomeShell()),
+    'phone-player' => _phoneFill(const PlayerScreen()),
+    'player' => const _FrameNavigator(PlayerScreen()),
+    _ => const HomeShell(),
+  };
+
+  Widget _phoneFill(Widget child) {
+    const size = Size(390, 844);
+    return Builder(
+      builder: (context) => FittedBox(
+        child: SizedBox.fromSize(
+          size: size,
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              size: size,
+              padding: EdgeInsets.zero,
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [const PearBackdrop(), _FrameNavigator(child)],
+            ),
+          ),
         ),
       ),
     );
