@@ -187,6 +187,38 @@ void main() {
     expect(tester.binding.hasScheduledFrame, isTrue);
   });
 
+  testWidgets('lyrics rest while their page slides away', (tester) async {
+    final engine = _FakePlayer()..position_ = const Duration(seconds: 6);
+    final player = PlayerService(LibraryService(), player: engine);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(navigatorKey: navigator, home: const SizedBox()),
+    );
+    navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          body: LyricsView(song: song, player: player, size: 320, scrolling: true),
+        ),
+      ),
+    );
+    // The sweep never lets the page settle, so wait out the slide in by time.
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.widget<Text>(find.text('Line three')).textSpan, isNull);
+
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    engine.position_ = const Duration(seconds: 11);
+    engine.positions.add(const Duration(seconds: 11));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(
+      tester.widget<Text>(find.text('Line three')).textSpan,
+      isNull,
+      reason: 'the sung line stays put while the page leaves',
+    );
+  });
+
   testWidgets('a line without word timing falls back to estimated word by '
       'word', (tester) async {
     await pumpLyrics(tester, at: const Duration(seconds: 11));

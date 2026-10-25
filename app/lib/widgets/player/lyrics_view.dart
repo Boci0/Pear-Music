@@ -70,6 +70,29 @@ class _LyricsViewState extends State<LyricsView>
   List<({String text, Duration at})> _glyphs = const [];
   bool _isForeground = true;
 
+  /// The page this view sits on is sliding away. The per-frame sweep and the
+  /// line changes would compete with the close animation for frames, so they
+  /// rest until the page is gone (or comes back, if the close is cancelled).
+  bool _closing = false;
+  Animation<double>? _routeAnimation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation == _routeAnimation) return;
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    _routeAnimation = animation;
+    animation?.addStatusListener(_onRouteStatus);
+  }
+
+  void _onRouteStatus(AnimationStatus status) {
+    final closing = status == AnimationStatus.reverse;
+    if (closing == _closing) return;
+    _closing = closing;
+    _syncSweepTicker();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -190,7 +213,11 @@ class _LyricsViewState extends State<LyricsView>
   /// the whole line is simply lit.
   void _syncSweepTicker() {
     final run =
-        _sweeping && _positionSub != null && _isForeground && widget.isVisible;
+        _sweeping &&
+        !_closing &&
+        _positionSub != null &&
+        _isForeground &&
+        widget.isVisible;
     if (run && !_sweepTicker.isActive) {
       _sweepTicker.start();
     } else if (!run && _sweepTicker.isActive) {
@@ -283,6 +310,7 @@ class _LyricsViewState extends State<LyricsView>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
     widget.player.scrubbingPositionNotifier.removeListener(_onScrubbingChanged);
     ArtworkPalette.paletteNotifier.removeListener(_onPaletteUpdated);
     LyricsDisplay.mode.removeListener(_onPaletteUpdated);
@@ -379,7 +407,11 @@ class _LyricsViewState extends State<LyricsView>
   }
 
   void _onPositionUpdate(Duration position, {bool isScrubbing = false}) {
-    if (_lyrics.isEmpty || !mounted || !widget.isVisible || !_isForeground) {
+    if (_lyrics.isEmpty ||
+        !mounted ||
+        !widget.isVisible ||
+        !_isForeground ||
+        _closing) {
       return;
     }
 
@@ -599,7 +631,9 @@ class _LyricsViewState extends State<LyricsView>
       // Each letter brightens smoothly over a moment once it is sung, so the
       // light travels through the line like a soft wave instead of switching
       // a whole word on at once; letters not yet sung wait dimmed.
-      return ValueListenableBuilder<Duration>(
+      // Its own layer: the per-frame glow repaints only the line, not the page.
+      return RepaintBoundary(
+        child: ValueListenableBuilder<Duration>(
         valueListenable: _sweepPosition,
         builder: (context, position, _) => Text.rich(
           TextSpan(
@@ -627,6 +661,7 @@ class _LyricsViewState extends State<LyricsView>
           ),
           textAlign: align,
           style: style,
+        ),
         ),
       );
     };
