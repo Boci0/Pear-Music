@@ -28,7 +28,7 @@ Windows and Android. No account, no cloud, no ads.
 
 <img src=".github/screenshots/phone.png" alt="Pear Music on Android: the library with the mini player" width="25%">
 &nbsp;&nbsp;&nbsp;
-<img src=".github/screenshots/phone-player.png" alt="Pear Music on Android: the player with the Video and Lyrics buttons" width="25%">
+<img src=".github/screenshots/phone-player.png" alt="Pear Music on Android: the player with its Cover and Lyrics tabs" width="25%">
 
 </div>
 
