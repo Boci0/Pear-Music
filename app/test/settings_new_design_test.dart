@@ -30,10 +30,7 @@ const _settings = [
   'About Pear Music',
 ];
 
-Future<void> _pump(
-  WidgetTester tester, {
-  required Size size,
-}) async {
+Future<void> _pump(WidgetTester tester, {required Size size}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
@@ -124,66 +121,69 @@ void main() {
     expect(find.text('Discovery & Search'), findsNothing);
   });
 
-  testWidgets(
-    'wide: the section list scrolls to its section and marks it',
-    (tester) async {
-      await _pump(tester, size: const Size(1440, 900));
-      expect(_marked(tester, 'Audio & Playback'), isTrue);
+  testWidgets('wide: the section list scrolls to its section and marks it', (
+    tester,
+  ) async {
+    await _pump(tester, size: const Size(1440, 900));
+    expect(_marked(tester, 'Audio & Playback'), isTrue);
 
-      await tester.tap(find.text('Discovery & Search'));
-      await tester.pumpAndSettle();
-      final top = tester.getTopLeft(_sectionTitle('Discovery & Search')).dy;
-      // Hosts without the Windows or Android only sections have a shorter list
-      // that cannot scroll the section all the way up; it then stops at the end.
-      final position = Scrollable.of(
-        tester.element(_sectionTitle('Discovery & Search')),
-      ).position;
-      expect(
-        top <= 60 || position.pixels >= position.maxScrollExtent - 1,
-        isTrue,
-        reason: 'top $top, scrolled ${position.pixels} of ${position.maxScrollExtent}',
-      );
-      expect(position.pixels, greaterThan(0));
-      expect(_marked(tester, 'Discovery & Search'), isTrue);
-      expect(_marked(tester, 'Audio & Playback'), isFalse);
+    await tester.tap(find.text('Discovery & Search'));
+    await tester.pumpAndSettle();
+    final top = tester.getTopLeft(_sectionTitle('Discovery & Search')).dy;
+    // Hosts without the Windows or Android only sections have a shorter list
+    // that cannot scroll the section all the way up; it then stops at the end.
+    final position = Scrollable.of(
+      tester.element(_sectionTitle('Discovery & Search')),
+    ).position;
+    expect(
+      top <= 60 || position.pixels >= position.maxScrollExtent - 1,
+      isTrue,
+      reason:
+          'top $top, scrolled ${position.pixels} of ${position.maxScrollExtent}',
+    );
+    expect(position.pixels, greaterThan(0));
+    expect(_marked(tester, 'Discovery & Search'), isTrue);
+    expect(_marked(tester, 'Audio & Playback'), isFalse);
 
-      // Scrolling by hand moves the mark too.
-      await tester.drag(find.text('Check for updates'), const Offset(0, -3000));
-      await tester.pumpAndSettle();
-      expect(_marked(tester, 'About & Updates'), isTrue);
-      await tester.drag(find.text('Check for updates'), const Offset(0, 3000));
-      await tester.pumpAndSettle();
-      expect(_marked(tester, 'Audio & Playback'), isTrue);
-    },
-  );
+    // Scrolling by hand moves the mark too.
+    // Top first: on a short list the jump may already have reached the end.
+    await tester.drag(find.text('Check for updates'), const Offset(0, 3000));
+    await tester.pumpAndSettle();
+    expect(_marked(tester, 'Audio & Playback'), isTrue);
+    await tester.drag(
+      _sectionTitle('Audio & Playback'),
+      const Offset(0, -3000),
+    );
+    await tester.pumpAndSettle();
+    expect(_marked(tester, 'About & Updates'), isTrue);
+  });
 
-  testWidgets(
-    'wide: the section in view stands out and a picked one flashes',
-    (tester) async {
-      await _pump(tester, size: const Size(1440, 900));
-      final accent = Theme.of(
-        tester.element(find.byType(SettingsScreen)),
-      ).colorScheme.primary;
-      expect(_titleColor(tester, 'Audio & Playback'), accent);
-      expect(_titleColor(tester, 'Discovery & Search'), isNot(accent));
-      expect(_edge(tester, 0), accent);
-      expect(_edge(tester, 2), Colors.transparent);
+  testWidgets('wide: the section in view stands out and a picked one flashes', (
+    tester,
+  ) async {
+    await _pump(tester, size: const Size(1440, 900));
+    final accent = Theme.of(
+      tester.element(find.byType(SettingsScreen)),
+    ).colorScheme.primary;
+    expect(_titleColor(tester, 'Audio & Playback'), accent);
+    expect(_titleColor(tester, 'Discovery & Search'), isNot(accent));
+    expect(_edge(tester, 0), accent);
+    expect(_edge(tester, 2), Colors.transparent);
 
-      await tester.tap(find.text('Discovery & Search'));
-      // The scroll takes 320 ms, then the panel flashes.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump(const Duration(milliseconds: 50));
-      expect(_tint(tester, 2), greaterThan(0.12));
-      await tester.pumpAndSettle();
-      // Settled: the faint tint of the section in view stays.
-      expect(_tint(tester, 2), closeTo(0.05, 0.01));
-      expect(_tint(tester, 0), 0);
-      expect(_titleColor(tester, 'Discovery & Search'), accent);
-      expect(_edge(tester, 2), accent);
-      expect(_edge(tester, 0), Colors.transparent);
-    },
-  );
+    await tester.tap(find.text('Discovery & Search'));
+    // The scroll takes 320 ms, then the panel flashes.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(_tint(tester, 2), greaterThan(0.12));
+    await tester.pumpAndSettle();
+    // Settled: the faint tint of the section in view stays.
+    expect(_tint(tester, 2), closeTo(0.05, 0.01));
+    expect(_tint(tester, 0), 0);
+    expect(_titleColor(tester, 'Discovery & Search'), accent);
+    expect(_edge(tester, 2), accent);
+    expect(_edge(tester, 0), Colors.transparent);
+  });
 
   testWidgets('section headings are larger than the rows', (tester) async {
     await _pump(tester, size: const Size(1440, 900));
@@ -213,4 +213,3 @@ Color _edge(WidgetTester tester, int i) {
 
 double _tint(WidgetTester tester, int i) =>
     tester.widget<Material>(find.byKey(ValueKey('settings_tint_$i'))).color!.a;
-
