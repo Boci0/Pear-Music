@@ -98,6 +98,16 @@ void main() {
     expect(find.byType(PlayerScreen), findsOneWidget);
     expect(identity.synthesizerBar, isTrue);
     expect(PlayerArtwork.isLyricsShowing, isTrue);
+    // The leaving page is a still picture, not live video or lyrics.
+    final still = tester.widget<SnapshotWidget>(
+      find
+          .ancestor(
+            of: find.byType(PlayerScreen),
+            matching: find.byType(SnapshotWidget),
+          )
+          .first,
+    );
+    expect(still.controller.allowSnapshotting, isTrue);
 
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();

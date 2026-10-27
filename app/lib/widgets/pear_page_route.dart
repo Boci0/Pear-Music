@@ -87,11 +87,61 @@ class PearPageRoute<T> extends PageRoute<T> {
             ).animate(content),
             child: ScaleTransition(
               scale: Tween<double>(begin: 0.97, end: 1).animate(content),
-              child: child,
+              child: _StillWhileLeaving(animation: animation, child: child),
             ),
           ),
         ),
       ],
     );
   }
+}
+
+/// A leaving page is drawn as a still picture of itself: a playing video or
+/// the blurred lyrics backdrop would otherwise be redrawn under the fade on
+/// every frame of the close, which stuttered on phones.
+class _StillWhileLeaving extends StatefulWidget {
+  final Animation<double> animation;
+  final Widget child;
+
+  const _StillWhileLeaving({required this.animation, required this.child});
+
+  @override
+  State<_StillWhileLeaving> createState() => _StillWhileLeavingState();
+}
+
+class _StillWhileLeavingState extends State<_StillWhileLeaving> {
+  final _snapshot = SnapshotController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.animation.addStatusListener(_onStatus);
+  }
+
+  @override
+  void didUpdateWidget(_StillWhileLeaving oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation == widget.animation) return;
+    oldWidget.animation.removeStatusListener(_onStatus);
+    widget.animation.addStatusListener(_onStatus);
+  }
+
+  // A cancelled close (back swipe let go) goes forward again: live once more.
+  void _onStatus(AnimationStatus status) =>
+      _snapshot.allowSnapshotting = status == AnimationStatus.reverse;
+
+  @override
+  void dispose() {
+    widget.animation.removeStatusListener(_onStatus);
+    _snapshot.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SnapshotWidget(
+    controller: _snapshot,
+    // A platform view cannot be captured; such a page just leaves live.
+    mode: SnapshotMode.permissive,
+    child: widget.child,
+  );
 }
