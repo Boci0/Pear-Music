@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/lyrics_service.dart';
@@ -318,6 +321,51 @@ First stanza line
       expect(lines.single.text, 'Hello');
       expect(asked, 0);
       LyricsService.clearMemoryCache();
+    });
+
+    test('a second request while one runs shares its lookup', () async {
+      final song = Song(
+        id: 'shared_lookup_song',
+        title: 'Shared',
+        fileName: 'shared.mp3',
+        size: 0,
+        checksum: 'x',
+        addedAt: DateTime(2026, 10, 30),
+      );
+      final answer = Completer<String?>();
+      var lookups = 0;
+      LyricsService.onlineLyricsForTesting = (_, {duration}) {
+        lookups++;
+        return answer.future;
+      };
+      addTearDown(() {
+        LyricsService.onlineLyricsForTesting = null;
+        LyricsService.clearMemoryCache();
+      });
+      // The player's lookup as the song starts, then the Lyrics tab opening.
+      final fromPlayer = LyricsService.getLyrics(song);
+      final fromView = LyricsService.getLyrics(song);
+      answer.complete('[00:01.00] Hello');
+      expect((await fromPlayer).single.text, 'Hello');
+      expect((await fromView).single.text, 'Hello');
+      expect(lookups, 1);
+      await LyricsService.getLyrics(song);
+      expect(lookups, 1, reason: 'later requests use the memory cache');
+    });
+
+    test('a failing lookup gives no lyrics instead of throwing', () async {
+      final song = Song(
+        id: 'failing_lookup_song',
+        title: 'Failing',
+        fileName: 'failing.mp3',
+        size: 0,
+        checksum: 'x',
+        addedAt: DateTime(2026, 10, 30),
+      );
+      LyricsService.onlineLyricsForTesting =
+          (_, {duration}) async => throw const SocketException('offline');
+      addTearDown(() => LyricsService.onlineLyricsForTesting = null);
+      expect(await LyricsService.getLyrics(song), isEmpty);
     });
   });
 

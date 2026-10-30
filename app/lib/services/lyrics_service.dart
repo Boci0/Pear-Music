@@ -697,7 +697,37 @@ class LyricsService {
   /// [durationLookup] is asked for the song's length only when the lyrics
   /// have to be looked up online (where the length picks the right version),
   /// so cached lyrics show without waiting for the song to load.
+  ///
+  /// A lookup already running for the same song is shared, so the player's
+  /// lookup as the song starts and the Lyrics tab opening at the same moment
+  /// ask online only once.
   static Future<List<LyricLine>> getLyrics(
+    Song song, {
+    String? localAudioPath,
+    Duration? duration,
+    Future<Duration?> Function()? durationLookup,
+  }) {
+    final running = _lookups[song.id];
+    if (running != null) return running;
+    final lookup = _getLyrics(
+      song,
+      localAudioPath: localAudioPath,
+      duration: duration,
+      durationLookup: durationLookup,
+    );
+    _lookups[song.id] = lookup;
+    lookup.whenComplete(() => _lookups.remove(song.id)).ignore();
+    return lookup;
+  }
+
+  static final Map<String, Future<List<LyricLine>>> _lookups = {};
+
+  /// Stands in for the LRCLIB and NetEase lookups in tests.
+  @visibleForTesting
+  static Future<String?> Function(Song, {Duration? duration})?
+      onlineLyricsForTesting;
+
+  static Future<List<LyricLine>> _getLyrics(
     Song song, {
     String? localAudioPath,
     Duration? duration,
@@ -752,9 +782,13 @@ class LyricsService {
       if (duration == null && durationLookup != null) {
         duration = await durationLookup();
       }
-      var fetchedLrc = await _fetchFromLrclib(song, duration: duration);
+      final testLookup = onlineLyricsForTesting;
+      var fetchedLrc = testLookup != null
+          ? await testLookup(song, duration: duration)
+          : await _fetchFromLrclib(song, duration: duration);
       var source = 'lrclib';
-      if (fetchedLrc == null || !hasWordTiming(fetchedLrc)) {
+      if (testLookup == null &&
+          (fetchedLrc == null || !hasWordTiming(fetchedLrc))) {
         final netease = await NeteaseLyrics.fetch(
           song,
           duration: duration,

@@ -121,6 +121,22 @@ mixin _PlayerPlayback
     return true;
   }
 
+  /// Looks up [song]'s lyrics once it has loaded, not only when the Lyrics
+  /// tab opens, so they are saved for the tab and for desktop companions that
+  /// read the lyrics cache. Never waits on or fails playback.
+  void _prefetchLyrics(Song song) {
+    final localAudioPath =
+        library.hasSongFile(song) ? library.songFile(song).path : null;
+    LyricsService.getLyrics(
+      song,
+      localAudioPath: localAudioPath,
+      duration: _player.duration,
+    ).catchError((Object e) {
+      DebugLog.write('[player] Lyrics lookup failed for ${song.id}: $e');
+      return const <LyricLine>[];
+    }).ignore();
+  }
+
   /// Logs [song] as played. Stream songs are also registered as known online
   /// songs so the history row can still resolve its title/artwork later (they
   /// are not in the library until the user saves them).
@@ -572,6 +588,7 @@ mixin _PlayerPlayback
       }
       unawaited(_player.play());
       _levelSong(song, token, pendingDownload);
+      _prefetchLyrics(song);
       if (LoudnessService.isMeasured(song)) _levelNextSong();
       _maybeCompactMemory();
       if (targetVol > 0.01) {
