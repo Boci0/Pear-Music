@@ -97,10 +97,23 @@ class GrowingFileAudioSource extends StreamAudioSource {
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {
+    if (_closed) throw StateError('source closed');
     final file = await _open();
     final total = expectedLength;
     final from = start ?? 0;
     final to = end ?? total;
+    // A download that ended short has nothing left at this offset. Promising
+    // a length and sending no bytes makes just_audio's proxy throw an
+    // uncaught error on every retry; failing here sends it a clean 500.
+    if (_finished && to != null && from < to) {
+      final available = await _lock.synchronized(file.length);
+      if (from >= available) {
+        throw FileSystemException(
+          'the download ended at $available bytes, before $from',
+          path,
+        );
+      }
+    }
     return StreamAudioResponse(
       rangeRequestsSupported: total != null,
       sourceLength: total,

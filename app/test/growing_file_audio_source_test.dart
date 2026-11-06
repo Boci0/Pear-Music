@@ -99,6 +99,21 @@ void main() {
     await src.close();
   });
 
+  test('a range past the end of a download that ended short fails at once',
+      () async {
+    final path = p.join(dir.path, 'short.webm');
+    File(path).writeAsBytesSync([1, 2, 3]);
+    final done = Completer<void>()..complete();
+    final src = source(path, done, expectedLength: 10);
+    await Future<void>.delayed(Duration.zero);
+
+    await expectLater(src.request(5), throwsA(isA<FileSystemException>()));
+    expect(await (await src.request(0, 3)).stream.expand((b) => b).toList(),
+        [1, 2, 3], reason: 'what is on disk still plays');
+    await src.close();
+    await expectLater(src.request(0, 3), throwsA(isA<StateError>()));
+  });
+
   test('a download that ends without a file fails the request', () async {
     final path = p.join(dir.path, 'missing.m4a');
     final done = Completer<void>();
