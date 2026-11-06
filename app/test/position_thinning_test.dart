@@ -12,7 +12,7 @@ void main() {
   Future<List<Duration>> run(List<Duration> input) async {
     final source = StreamController<Duration>.broadcast();
     final seen = <Duration>[];
-    final sub = thinPositions(source.stream).listen(seen.add);
+    final sub = positionSeconds(source.stream).listen(seen.add);
     for (final d in input) {
       source.add(d);
     }
@@ -24,14 +24,15 @@ void main() {
 
   Duration ms(int v) => Duration(milliseconds: v);
 
-  test('playback at 15 updates a second comes out at about 4', () async {
+  test('playback at 15 updates a second comes out once a second', () async {
     // Ten seconds of playback reported every ~66 ms.
     final input = [for (var t = 0; t <= 10000; t += 66) ms(t)];
     final out = await run(input);
     expect(input.length, greaterThan(150));
-    expect(out.length, inInclusiveRange(38, 42));
-    for (var i = 1; i < out.length; i++) {
-      expect(out[i] - out[i - 1], greaterThanOrEqualTo(ms(250)));
+    // One per second, each the first report in its second.
+    expect(out.map((d) => d.inSeconds), [for (var s = 0; s <= 9; s++) s]);
+    for (final d in out) {
+      expect(d.inMilliseconds % 1000, lessThan(66));
     }
   });
 
@@ -47,7 +48,7 @@ void main() {
 
   test('a new listener after all left starts fresh', () async {
     final source = StreamController<Duration>.broadcast();
-    final thinned = thinPositions(source.stream);
+    final thinned = positionSeconds(source.stream);
     final first = <Duration>[];
     final a = thinned.listen(first.add);
     source.add(ms(1000));

@@ -293,6 +293,35 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   bool _showRemaining = true;
   bool _isHovered = false;
 
+  /// The position, passed on only when it changes what the bar shows: the
+  /// time read-out's second, or the line by half a pixel. The engine reports
+  /// position about 15 times a second, and on Windows each rebuild redraws
+  /// the whole window, while a 3 minute song moves a 200 px line about one
+  /// pixel a second.
+  late Stream<Duration> _positions = _visible(widget.player);
+  double _trackWidth = 300;
+  (int, int)? _shown;
+
+  Stream<Duration> _visible(PlayerService player) =>
+      player.positionStream.where((p) {
+        final totalMs = widget.duration.inMilliseconds;
+        final halfPx = totalMs > 0
+            ? (p.inMilliseconds / totalMs * _trackWidth * 2).floor()
+            : 0;
+        final key = (p.inSeconds, halfPx);
+        if (key == _shown) return false;
+        _shown = key;
+        return true;
+      });
+
+  @override
+  void didUpdateWidget(covariant PlayerSeekBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      _positions = _visible(widget.player);
+    }
+  }
+
   @override
   void dispose() {
     _dragNotifier.dispose();
@@ -321,7 +350,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     final totalMs = widget.duration.inMilliseconds.toDouble();
 
     return StreamBuilder<Duration>(
-      stream: widget.player.positionStream,
+      stream: _positions,
       initialData: widget.player.position ?? Duration.zero,
       builder: (context, snapshot) {
         final pos = snapshot.data ?? Duration.zero;
@@ -353,6 +382,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final width = constraints.maxWidth;
+                      if (width.isFinite && width > 0) _trackWidth = width;
                       double msAt(double dx) =>
                           (dx / width).clamp(0.0, 1.0) * maxMs;
                       void scrub(double dx) {

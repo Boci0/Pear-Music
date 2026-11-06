@@ -916,14 +916,15 @@ class PlayerService extends ChangeNotifier with
     maxPeriod: const Duration(milliseconds: 250),
   );
 
-  /// [positionStream] thinned to about four updates a second (seeks still at
-  /// once), for read-outs that only show where the song is: the status bar
-  /// time, the Now Playing pane's progress line and the mini player's fill.
-  /// The engine also reports position on every playback event, about 15 times
-  /// a second on desktop, and each report redraws the window; see
-  /// [thinPositions]. Lyrics and the visualizer, which need fine timing, keep
-  /// the full-rate [positionStream].
-  late final Stream<Duration> uiPositionStream = thinPositions(positionStream);
+  /// [positionStream] thinned to one update a second, on the second (seeks
+  /// still at once), for read-outs that only show where the song is: the
+  /// status bar time, the Now Playing pane's progress line and the mini
+  /// player's fill. The engine also reports position on every playback event,
+  /// about 15 times a second on desktop, and each report redraws the window;
+  /// see [positionSeconds]. Lyrics and the visualizer, which need fine
+  /// timing, keep the full-rate [positionStream].
+  late final Stream<Duration> uiPositionStream =
+      positionSeconds(positionStream);
 
   /// Live duration stream from underlying audio player.
   Stream<Duration?> get durationStream => _player.durationStream;
