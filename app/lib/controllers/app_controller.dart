@@ -1389,6 +1389,24 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> updateColorGrade(int val) async {
+    if (identity.colorGrade == val) return;
+    await identity.setColorGrade(val);
+    notifyListeners();
+  }
+
+  Future<void> updateSoftBlur(bool val) async {
+    if (identity.softBlur == val) return;
+    await identity.setSoftBlur(val);
+    notifyListeners();
+  }
+
+  Future<void> updateBeatSplit(bool val) async {
+    if (identity.beatSplit == val) return;
+    await identity.setBeatSplit(val);
+    notifyListeners();
+  }
+
   Future<void> updateVisualizerGlow(bool val) async {
     await identity.setVisualizerGlow(val);
     notifyListeners();

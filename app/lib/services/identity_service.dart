@@ -43,6 +43,12 @@ class IdentityService extends ChangeNotifier {
   static const _fastEngineKey = 'peerm_fast_engine';
   static const _visualizerAudioExplainedKey = 'peerm_visualizer_audio_explained';
   static const _miniVisualizerKey = 'peerm_mini_visualizer';
+  // Kept from when the hit also shook the app, so the setting carries over.
+  static const _beatSplitKey = 'peerm_beat_shake';
+  static const _oldSplitOnlyKey = 'peerm_beat_split_only';
+  static const _colorGradeKey = 'peerm_color_grade';
+  static const _softBlurKey = 'peerm_soft_blur';
+  static const _oldImmersionKey = 'peerm_immersion_filter';
   static const _videoQualityKey = 'peerm_video_quality';
   /// The old Style setting (Glass, Frosted, Solid, Graphite). Graphite is now
   /// the only look; the saved choice is cleared on start.
@@ -73,6 +79,9 @@ class IdentityService extends ChangeNotifier {
   late bool _fastEngine;
   late bool _visualizerAudioExplained;
   late bool _miniVisualizer;
+  late bool _beatSplit;
+  late int _colorGrade;
+  late bool _softBlur;
   late int _videoQuality;
 
   IdentityService(this._prefs) {
@@ -145,6 +154,12 @@ class IdentityService extends ChangeNotifier {
     // Off by default: bars behind the mini player redraw the blurred glass
     // under them all through playback, which is the costly part.
     _miniVisualizer = _prefs.getBool(_miniVisualizerKey) ?? false;
+    // Off by default: shaking the screen is not for everyone.
+    _beatSplit = _prefs.getBool(_beatSplitKey) ?? false;
+    _prefs.remove(_oldSplitOnlyKey);
+    _colorGrade = (_prefs.getInt(_colorGradeKey) ?? 0).clamp(0, 5);
+    _softBlur = _prefs.getBool(_softBlurKey) ?? false;
+    if (_prefs.containsKey(_oldImmersionKey)) _prefs.remove(_oldImmersionKey);
     _videoQuality = _prefs.getInt(_videoQualityKey) ?? 0;
     if (_prefs.containsKey(_styleKey)) _prefs.remove(_styleKey);
     if (_prefs.containsKey(_newDesignKey)) _prefs.remove(_newDesignKey);
@@ -373,6 +388,37 @@ class IdentityService extends ChangeNotifier {
     if (_miniVisualizer == value) return;
     _miniVisualizer = value;
     await _prefs.setBool(_miniVisualizerKey, value);
+    notifyListeners();
+  }
+
+  /// Whether the whole app splits its colours on kicks and snares. Needs
+  /// [synthesizerBar] as well.
+  bool get beatSplit => _beatSplit;
+
+  Future<void> setBeatSplit(bool value) async {
+    if (_beatSplit == value) return;
+    _beatSplit = value;
+    await _prefs.setBool(_beatSplitKey, value);
+    notifyListeners();
+  }
+
+  /// The whole-app colour filter, an index into [ColorGrade.labels].
+  int get colorGrade => _colorGrade;
+
+  Future<void> setColorGrade(int value) async {
+    if (_colorGrade == value) return;
+    _colorGrade = value;
+    await _prefs.setInt(_colorGradeKey, value);
+    notifyListeners();
+  }
+
+  /// Whether the whole app is drawn slightly out of focus.
+  bool get softBlur => _softBlur;
+
+  Future<void> setSoftBlur(bool value) async {
+    if (_softBlur == value) return;
+    _softBlur = value;
+    await _prefs.setBool(_softBlurKey, value);
     notifyListeners();
   }
 

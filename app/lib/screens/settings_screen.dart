@@ -16,6 +16,7 @@ import '../widgets/pear_switch_tile.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/audio_engine_card.dart';
 import '../widgets/player/player_controls.dart';
+import '../widgets/immersion_filter.dart';
 import '../widgets/player/visualizer_permission.dart';
 import '../widgets/tactile_button.dart';
 
@@ -257,6 +258,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     await controller.updateMiniVisualizer(val);
                   }
                 : null,
+          ),
+          const Divider(height: 1),
+          PearSwitchTile(
+            secondary: const Icon(Icons.blur_linear_rounded),
+            title: const Text('Colour split on the beat'),
+            subtitle: const Text(
+              'Red and blue pull apart across the app on kicks and snares',
+            ),
+            value: identity.beatSplit,
+            onChanged: identity.synthesizerBar
+                ? (val) async {
+                    TactileFeedback.selection();
+                    await controller.updateBeatSplit(val);
+                  }
+                : null,
+          ),
+          const Divider(height: 1),
+          ListenableBuilder(
+            listenable: identity,
+            builder: (context, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const ListTile(
+                  leading: Icon(Icons.filter_vintage_rounded),
+                  title: Text('Colour filter'),
+                  subtitle: Text('A photo-style colour filter over the whole app'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: SegmentedButton<int>(
+                    expandedInsets: EdgeInsets.zero,
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(
+                      padding: WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 2),
+                      ),
+                    ),
+                    segments: [
+                      for (var i = 0; i < ColorGrade.labels.length; i++)
+                        ButtonSegment(value: i, label: Text(ColorGrade.labels[i])),
+                    ],
+                    selected: {identity.colorGrade},
+                    onSelectionChanged: (picked) async {
+                      TactileFeedback.selection();
+                      await controller.updateColorGrade(picked.first);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          PearSwitchTile(
+            secondary: const Icon(Icons.blur_on_rounded),
+            title: const Text('Soft blur'),
+            subtitle: const Text('The whole app slightly out of focus'),
+            value: identity.softBlur,
+            onChanged: (val) async {
+              TactileFeedback.selection();
+              await controller.updateSoftBlur(val);
+            },
           ),
           const Divider(height: 1),
           // Same shape as Crossfade: the text, then the control under it,

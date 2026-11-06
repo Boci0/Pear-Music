@@ -32,6 +32,8 @@ import 'services/window_focus.dart';
 import 'services/window_occlusion.dart';
 import 'services/window_title.dart';
 import 'services/youtube_service.dart';
+import 'widgets/beat_split.dart';
+import 'widgets/immersion_filter.dart';
 import 'widgets/pear_backdrop.dart';
 import 'widgets/playback_shortcuts.dart';
 
@@ -265,6 +267,12 @@ class PearMusicApp extends StatelessWidget {
                 maxScaleFactor: 1.25 * dynamicScale,
               );
 
+              final grade = context.select<AppController, int>(
+                (c) => c.identity.colorGrade,
+              );
+              final softBlur = context.select<AppController, bool>(
+                (c) => c.identity.softBlur,
+              );
               Widget appChild = child ?? const SizedBox.shrink();
               // The short screen gets a lower top bar.
               if (sideways) {
@@ -284,9 +292,26 @@ class PearMusicApp extends StatelessWidget {
               return MediaQuery(
                 data: mediaQuery.copyWith(textScaler: clampedTextScaler),
                 child: PlaybackShortcuts(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [const PearBackdrop(), appChild],
+                  // The filter sits over everything, the beat colour split
+                  // included.
+                  child: ImmersionFilter(
+                    grade: grade,
+                    softBlur: softBlur,
+                    child: Builder(
+                      builder: (context) => BeatSplit(
+                        enabled: context.select<AppController, bool>(
+                          (c) =>
+                              c.identity.synthesizerBar &&
+                              c.identity.beatSplit &&
+                              !c.identity.reducedEffects,
+                        ),
+                        player: context.read<AppController>().player,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [const PearBackdrop(), appChild],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               );
