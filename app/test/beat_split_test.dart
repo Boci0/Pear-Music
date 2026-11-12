@@ -36,6 +36,14 @@ void main() {
     expect(e.level, 0);
   });
 
+  test('the first sample after a reset is not a hit', () {
+    final e = BeatEnvelope();
+    expect(e.step(0.8, 1), 0);
+    expect(e.hit, isFalse);
+    e.reset();
+    expect(e.step(0.8, 1), 0);
+  });
+
   testWidgets('the colours split on a kick and only while switched on', (
     tester,
   ) async {
@@ -95,5 +103,55 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     bass(0);
+  });
+
+  testWidgets('a rise outside the kick and snare bands splits the colours', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final name in [
+      'system_audio_visualizer/methods',
+      'system_audio_visualizer/fft',
+    ]) {
+      messenger.setMockMethodCallHandler(
+        MethodChannel(name),
+        (_) async => null,
+      );
+    }
+    final feed = VisualizerFeed.instance;
+    final player = _FakePlayer();
+    double split() =>
+        (tester.state(find.byType(BeatSplit)) as dynamic).debugSplit as double;
+    Future<void> pump(int n) async {
+      for (var i = 0; i < n; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    feed.debugSetNativeFft(true);
+    addTearDown(() => feed.debugSetNativeFft(false));
+
+    await tester.pumpWidget(
+      BeatSplit(
+        enabled: true,
+        player: player,
+        child: const SizedBox(width: 10, height: 10),
+      ),
+    );
+    feed.targetBins.fillRange(0, feed.targetBins.length, 0.1);
+    await pump(40);
+    expect(split(), 0, reason: 'steady: no split');
+
+    feed.targetBins.fillRange(14, 20, 0.9);
+    await pump(2);
+    expect(split(), greaterThan(0), reason: 'a high-band rise splits');
+
+    feed.targetBins.fillRange(14, 20, 0.1);
+    await pump(60);
+    expect(split(), 0, reason: 'and fades back');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    feed.targetBins.fillRange(0, feed.targetBins.length, 0);
   });
 }

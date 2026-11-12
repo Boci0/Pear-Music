@@ -23,6 +23,7 @@ class BeatEnvelope {
   final double decay;
 
   double _avg = 0;
+  bool _primed = false;
   double level = 0;
 
   /// True when the last [step] started a new hit rather than decaying one.
@@ -31,6 +32,11 @@ class BeatEnvelope {
   /// [bass] is 0..1; [frames] is how many 60 Hz frames passed since the last step.
   double step(double bass, double frames) {
     final f = frames.clamp(0.0, 4.0);
+    if (!_primed) {
+      // Seeded from the first sample, or resuming would look like a huge hit.
+      _primed = true;
+      _avg = bass;
+    }
     _avg += (bass - _avg) * (1 - math.pow(0.94, f));
     final onset = ((bass - _avg - 0.04) * gain).clamp(0.0, 1.0);
     final decayed = level * math.pow(decay, f);
@@ -42,6 +48,7 @@ class BeatEnvelope {
 
   void reset() {
     _avg = 0;
+    _primed = false;
     level = 0;
     hit = false;
   }
@@ -84,6 +91,13 @@ class _BeatSplitState extends State<BeatSplit>
   final BeatEnvelope _kick = BeatEnvelope();
   // Snares and claps sit in the low mids. Faster to fade than a kick.
   final BeatEnvelope _snare = BeatEnvelope(gain: 3, decay: 0.84);
+  // Any sudden rise across the whole spectrum: claps, vocals, high kicks, and
+  // the only listener that works on outputs with no deep bass.
+  final BeatEnvelope _flux = BeatEnvelope(gain: 11, decay: 0.86);
+  final List<double> _prevBins = List<double>.filled(
+    VisualizerFeed.barCount,
+    0,
+  );
   final ValueNotifier<int> _repaint = ValueNotifier<int>(0);
   final GlobalKey _boundary = GlobalKey();
   final math.Random _rng = math.Random();
@@ -97,18 +111,31 @@ class _BeatSplitState extends State<BeatSplit>
   Offset _splitDir = const Offset(1, 0);
   double _shownKick = 0;
   double _shownSnare = 0;
+  double _shownFlux = 0;
   bool _acquired = false;
   bool _calm = false;
   ui.Image? _frame;
 
+  // Below this the split is under 2 px at 12% opacity: invisible, so it is not
+  // worth a window redraw per frame.
+  static const double _floor = 0.12;
+
   /// For tests: how far the colours are split, 0..1.
   @visibleForTesting
-  double get debugSplit => _split;
+  double get debugSplit => _drawn;
 
   @override
   void initState() {
     super.initState();
     _feed.changes.addListener(_sync);
+    _sync();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // People who turned animations off in the system get no split.
+    _calm = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     _sync();
   }
 
@@ -125,7 +152,7 @@ class _BeatSplitState extends State<BeatSplit>
   void _sync() {
     if (!mounted) return;
     final player = widget.player;
-    final on = widget.enabled && player != null;
+    final on = widget.enabled && player != null && !_calm;
     if (on && !_acquired) {
       _feed.acquire(player);
       _acquired = true;
@@ -146,14 +173,17 @@ class _BeatSplitState extends State<BeatSplit>
       if (_ticker.isActive) _ticker.stop();
       _kick.reset();
       _snare.reset();
+      _flux.reset();
       _shownKick = 0;
       _shownSnare = 0;
+      _shownFlux = 0;
+      _prevBins.fillRange(0, _prevBins.length, 0);
       _setFrame(null);
       _repaint.value++;
     }
   }
 
-  bool get _moving => _shownKick > 0 || _shownSnare > 0;
+  bool get _moving => _drawn > 0;
 
   void _onListen() {
     if (_ticker.isActive) return; // the ticker is stepping already
@@ -177,11 +207,12 @@ class _BeatSplitState extends State<BeatSplit>
 
   void _paint() {
     final wasSplit = _frame != null;
-    final splitNow = _split > 0.05 && !_calm;
+    final splitNow = _drawn > 0;
     // One snapshot per hit, reused while it fades: a snapshot every frame was
     // a second full render of the window per frame. Hits closer together
     // than [_snapGap] share one, since the app has barely changed in between.
-    final newHit = (_kick.hit || _snare.hit) && _sinceSnap.elapsed > _snapGap;
+    final newHit =
+        (_kick.hit || _snare.hit || _flux.hit) && _sinceSnap.elapsed > _snapGap;
     if (splitNow && (!wasSplit || newHit)) {
       _setFrame(_snapshot());
       _sinceSnap.reset();
@@ -199,7 +230,13 @@ class _BeatSplitState extends State<BeatSplit>
       (bins[8] + bins[9] + bins[10] + bins[11]) / 4,
       frames,
     );
-    if (_kick.hit || _snare.hit) {
+    var rise = 0.0;
+    for (var i = 0; i < _prevBins.length; i++) {
+      rise += math.max(0.0, bins[i] - _prevBins[i]);
+      _prevBins[i] = bins[i];
+    }
+    final flux = _flux.step(rise / VisualizerFeed.barCount, frames);
+    if (_kick.hit || _snare.hit || _flux.hit) {
       // Mostly sideways, up to 35 degrees off, either way round, so two hits
       // in a row do not split the same way.
       final a =
@@ -211,10 +248,18 @@ class _BeatSplitState extends State<BeatSplit>
     if (_shownKick < 0.01) _shownKick = 0;
     _shownSnare += (snare - _shownSnare) * (snare > _shownSnare ? 0.75 : 1.0);
     if (_shownSnare < 0.01) _shownSnare = 0;
+    _shownFlux += (flux - _shownFlux) * (flux > _shownFlux ? 0.75 : 1.0);
+    if (_shownFlux < 0.01) _shownFlux = 0;
   }
 
-  /// How far the colours split, 0..1: kicks and snares alike.
-  double get _split => math.min(1.0, _shownSnare + _shownKick);
+  /// How far the colours split, 0..1: the louder of kick plus snare and the
+  /// whole-spectrum rise.
+  double get _split =>
+      math.min(1.0, math.max(_shownSnare + _shownKick, _shownFlux));
+
+  /// The split as drawn: nothing below [_floor], then rising from 0 so it
+  /// fades out instead of popping off.
+  double get _drawn => _split <= _floor ? 0 : (_split - _floor) / (1 - _floor);
 
   /// The app as it was last drawn, at 40% resolution, or null if it cannot
   /// be taken right now.
@@ -259,14 +304,12 @@ class _BeatSplitState extends State<BeatSplit>
 
   @override
   Widget build(BuildContext context) {
-    // People who turned animations off in the system get no split.
-    _calm = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     final app = RepaintBoundary(key: _boundary, child: widget.child);
     return ValueListenableBuilder<int>(
       valueListenable: _repaint,
       child: app,
       builder: (context, _, app) {
-        final split = _calm ? 0.0 : _split;
+        final split = _drawn;
         // Sized by the app; the split copy is laid exactly over it.
         return Stack(
           alignment: Alignment.topLeft,
