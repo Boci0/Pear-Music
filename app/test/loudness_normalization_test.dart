@@ -73,7 +73,11 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (_) async => sandbox.path);
   });
-  tearDownAll(() => sandbox.deleteSync(recursive: true));
+  tearDownAll(() {
+    try {
+      if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+    } catch (_) {}
+  });
   setUp(() {
     LoudnessService.resetForTesting();
     PlayerService.debugCubicVolumeOverride = false;
