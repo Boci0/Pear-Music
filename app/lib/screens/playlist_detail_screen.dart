@@ -131,10 +131,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           ];
 
     void play() => controller.playPlaylist(playlist);
-    void shuffle() {
-      if (!controller.player.shuffle) controller.player.toggleShuffle();
-      controller.playPlaylist(playlist);
-    }
+    void shuffle() => controller.playPlaylist(playlist, shuffle: true);
 
     // shortcut: no "Keep offline" action yet, there is no backend for
     // keeping a playlist downloaded; add it to this menu once there is.

@@ -15,6 +15,7 @@ import '../theme/tokens.dart';
 import 'player/playback_speed_dialog.dart';
 import 'player/player_artwork.dart';
 import 'player/console_parts.dart';
+import 'player/lyric_sync_sheet.dart';
 import 'player/lyrics_view.dart';
 import 'player/player_controls.dart';
 import 'player/player_stage_body.dart';
@@ -342,6 +343,7 @@ class _UpNextOrLyrics extends StatefulWidget {
 
 class _UpNextOrLyricsState extends State<_UpNextOrLyrics> {
   bool _lyrics = false;
+  int _lyricsVersion = 0;
 
   Widget _tab(String label, bool selected, VoidCallback onTap) => Expanded(
     child: InkWell(
@@ -393,13 +395,59 @@ class _UpNextOrLyricsState extends State<_UpNextOrLyrics> {
         const SizedBox(height: 8),
         Expanded(
           child: _lyrics
-              ? LyricsView(
-                  key: ValueKey('pane_lyrics_${widget.song.id}'),
-                  song: widget.song,
-                  player: widget.player,
-                  accent: widget.accent,
-                  size: 300,
-                  scrolling: true,
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      height: 34,
+                      alignment: Alignment.centerRight,
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                      ),
+                      child: TextButton.icon(
+                        key: const ValueKey('pane_lyrics_options'),
+                        onPressed: () => showLyricSyncSheet(
+                          context,
+                          song: widget.song,
+                          player: widget.player,
+                          onLyricsUpdated: () {
+                            if (mounted) setState(() => _lyricsVersion++);
+                          },
+                        ),
+                        icon: const Icon(Icons.tune_rounded, size: 15),
+                        label: const Text(
+                          'Options',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white.withValues(alpha: 0.75),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ClipRect(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => LyricsView(
+                            key: ValueKey(
+                              'pane_lyrics_${widget.song.id}_$_lyricsVersion',
+                            ),
+                            song: widget.song,
+                            player: widget.player,
+                            accent: widget.accent,
+                            size: constraints.maxWidth,
+                            scrolling: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 )
               : widget.player.queue.isEmpty
               ? Center(

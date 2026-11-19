@@ -97,10 +97,8 @@ class PlaylistsScreen extends StatelessWidget {
     AppController controller,
     Playlist pl,
   ) {
-    final currentSongId = controller.player.currentSong?.id;
     final isCurrentPlaylist =
-        controller.player.queueSourceId == 'playlist:${pl.id}' ||
-        (currentSongId != null && pl.songIds.contains(currentSongId));
+        controller.player.queueSourceId == 'playlist:${pl.id}';
     final isPlayingThisPlaylist =
         isCurrentPlaylist && controller.player.playing;
 
@@ -531,10 +529,7 @@ class _PlaylistTile extends StatelessWidget {
     if (action == 'play') {
       onPlay();
     } else if (action == 'shuffle') {
-      if (!controller.player.shuffle) {
-        controller.player.toggleShuffle();
-      }
-      controller.playPlaylist(playlist);
+      controller.playPlaylist(playlist, shuffle: true);
     } else if (action == 'rename') {
       onRename();
     } else if (action == 'export') {

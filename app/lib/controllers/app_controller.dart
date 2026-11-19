@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
@@ -1323,7 +1324,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     return 'Download failed: $e';
   }
 
-  Future<void> playPlaylist(Playlist playlist) async {
+  Future<void> playPlaylist(
+    Playlist playlist, {
+    bool shuffle = false,
+    math.Random? random,
+  }) async {
     final songs = [
       for (final id in playlist.songIds)
         if (findSongById(id) != null) findSongById(id)!,
@@ -1332,9 +1337,19 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       _postMessage('This playlist is empty.');
       return;
     }
+    var startIndex = 0;
+    if (shuffle) {
+      if (!player.shuffle) {
+        player.toggleShuffle();
+      }
+      if (songs.length > 1) {
+        startIndex = (random ?? math.Random()).nextInt(songs.length);
+      }
+    }
     await player.playSong(
-      songs.first,
+      songs[startIndex],
       queue: songs,
+      initialIndex: startIndex,
       sourceId: 'playlist:${playlist.id}',
       sourceTitle: playlist.name,
     );
