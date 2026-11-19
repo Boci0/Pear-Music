@@ -12,6 +12,7 @@ import '../controllers/app_controller.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/identity_service.dart';
+import '../services/library_profile.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import '../widgets/filter_pill.dart';
@@ -526,6 +527,11 @@ class _HomeScreenState extends State<HomeScreen>
     // Same cut as the shell's sideways dock.
     final tall = MediaQuery.sizeOf(context).height >= 500;
     List<Song> rawSongs = controller.songs;
+    if (_view == _LibraryView.downloads) {
+      rawSongs = rawSongs
+          .where((s) => LibraryProfile.videoIdOf(s) != null)
+          .toList();
+    }
 
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
@@ -797,7 +803,13 @@ class _HomeScreenState extends State<HomeScreen>
                               key: ValueKey('chip_${v.name}'),
                               label: v.label,
                               isSelected: _view == v,
-                              onTap: () => setState(() => _view = v),
+                              onTap: () => setState(() {
+                                _view = v;
+                                if (_isSelecting) {
+                                  _isSelecting = false;
+                                  _selectedIds.clear();
+                                }
+                              }),
                             ),
                             const SizedBox(width: 6),
                           ],
@@ -832,7 +844,13 @@ class _HomeScreenState extends State<HomeScreen>
                       key: ValueKey('chip_${v.name}'),
                       label: v.label,
                       isSelected: _view == v,
-                      onTap: () => setState(() => _view = v),
+                      onTap: () => setState(() {
+                        _view = v;
+                        if (_isSelecting) {
+                          _isSelecting = false;
+                          _selectedIds.clear();
+                        }
+                      }),
                     ),
                     const SizedBox(width: 6),
                   ],
@@ -921,7 +939,18 @@ class _HomeScreenState extends State<HomeScreen>
             SliverFillRemaining(
               hasScrollBody: false,
               child: query.isEmpty
-                  ? _EmptyState(onAdd: () => controller.addFilesFromPicker())
+                  ? (_view == _LibraryView.downloads
+                        ? PearEmptyState(
+                            icon: Icons.download_done_rounded,
+                            title: 'No downloaded songs yet',
+                            message:
+                                'Songs you download from Explore show up here.',
+                            actionLabel: 'Explore music',
+                            onAction: () => HomeShell.requestTab(2),
+                          )
+                        : _EmptyState(
+                            onAdd: () => controller.addFilesFromPicker(),
+                          ))
                   : PearEmptyState(
                     icon: Icons.search_off_rounded,
                     title: 'Nothing in your library matches',

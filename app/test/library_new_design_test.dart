@@ -14,10 +14,10 @@ import 'package:peerm_app/services/youtube_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Song _song(String id, String title) => Song(
+Song _song(String id, String title, {String? fileName}) => Song(
       id: id,
       title: title,
-      fileName: '$title.mp3',
+      fileName: fileName ?? '$title.mp3',
       size: 7 * 1024 * 1024,
       checksum: 'chk_$id',
       durationMs: 3 * 60 * 1000,
@@ -71,7 +71,7 @@ void main() {
       library = LibraryService()..debugBaseDirectory = tempDir;
       await library.init();
       library.setSongsForTesting([
-        _song('a', 'Alpha'),
+        _song('a', 'Alpha', fileName: 'Alpha [dQw4w9WgXcQ].m4a'),
         _song('b', 'Bravo'),
         _song('c', 'Charlie'),
       ]);
@@ -156,6 +156,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Late night drive'), findsNothing);
     expect(find.text('Alpha'), findsOneWidget);
+    expect(find.text('Bravo'), findsNothing);
 
     await tester.ensureVisible(chip('history'));
     await tester.tap(chip('history'));

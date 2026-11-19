@@ -282,16 +282,21 @@ class SongTile extends StatelessWidget {
         : fromPeer
         ? 'Shared · $amount'
         : 'Local · $amount';
-    final metaLabel = metaSuffix == null
+    final effectiveSuffix =
+        metaSuffix == null ||
+            (song.durationLabel == null && metaSuffix == song.sizeLabel)
+        ? null
+        : metaSuffix;
+    final metaLabel = effectiveSuffix == null
         ? baseMeta
-        : '$baseMeta · $metaSuffix';
+        : '$baseMeta · $effectiveSuffix';
     // The wide column shows the length, which says more than the file size.
     final length = song.durationLabel;
     final wideMeta = length == null
         ? metaLabel
-        : metaSuffix == null
+        : effectiveSuffix == null
         ? length
-        : '$length · $metaSuffix';
+        : '$length · $effectiveSuffix';
 
     return RepaintBoundary(
       child: PearRowRule(child: Padding(
