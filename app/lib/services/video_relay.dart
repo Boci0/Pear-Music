@@ -135,13 +135,17 @@ class VideoRelay {
   }
 
   Future<HttpClientResponse> _open(int from, int to) async {
+    final usedUrl = _url;
     var res = await _request(from, to);
     final denied = res.statusCode == HttpStatus.forbidden ||
         res.statusCode == HttpStatus.gone;
     if (denied && _relink != null) {
       await res.drain<void>();
-      // One lookup serves every request that was refused at the same time.
-      final relinked = await (_relinking ??= _relinkOnce());
+      // If another request already switched the link while ours was in flight,
+      // retry on the new link before asking for another lookup.
+      final relinked = _url != usedUrl
+          ? true
+          : await (_relinking ??= _relinkOnce());
       if (relinked) res = await _request(from, to);
     }
     return res;
@@ -171,6 +175,8 @@ class VideoRelay {
     } catch (e) {
       DebugLog.write('[video] could not get a new picture link: $e');
       return false;
+    } finally {
+      _relinking = null;
     }
   }
 

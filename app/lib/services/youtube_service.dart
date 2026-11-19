@@ -1135,6 +1135,7 @@ class YoutubeService {
     LibraryService library,
     String url, {
     String? preferredArtwork,
+    String? artist,
     YoutubeStatusCallback? onStatus,
     YoutubeProgressCallback? onProgress,
     DownloadCancellation? cancel,
@@ -1234,6 +1235,7 @@ class YoutubeService {
         audioFile,
         title: title,
         artwork: artwork,
+        artist: artist,
       );
     } on TimeoutException {
       throw Exception('yt-dlp timed out. Try again later.');

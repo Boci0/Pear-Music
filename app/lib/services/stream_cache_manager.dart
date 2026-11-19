@@ -12,6 +12,7 @@ import 'backup_audio_engine.dart';
 import 'debug_log.dart';
 import 'innertube_audio_engine.dart';
 import 'library_service.dart';
+import 'recommendation_service.dart';
 import 'resolved_link_cache.dart';
 import 'youtube_service.dart';
 import 'ytdlp_prewarmer.dart';
@@ -1863,9 +1864,17 @@ class StreamCacheManager {
 
   /// Saves an ephemeral stream track permanently into the user's local [library].
   /// If already in stream cache, copies the file into library instantly in 0 ms.
-  static Future<Song?> saveToLibrary(Song streamSong, LibraryService library) async {
+  static Future<Song?> saveToLibrary(
+    Song streamSong,
+    LibraryService library, {
+    YoutubeService? youtube,
+    @visibleForTesting bool? useEmbeddedYtDlp,
+  }) async {
     try {
-      final videoId = streamSong.id.replaceFirst('stream_', '');
+      final videoId =
+          RecommendationService.extractVideoId(streamSong.id) ??
+          RecommendationService.extractVideoId(streamSong.fileName) ??
+          streamSong.id.replaceFirst('stream_', '');
       final cached = await getCachedFile(videoId);
 
       if (cached != null && await cached.exists()) {
@@ -1889,7 +1898,17 @@ class StreamCacheManager {
       }
 
       final ytUrl = 'https://www.youtube.com/watch?v=$videoId';
-      final youtubeService = YoutubeService();
+      final youtubeService = youtube ?? YoutubeService();
+      final embedded =
+          useEmbeddedYtDlp ?? YoutubeService.isEmbeddedYtDlpSupported;
+
+      if (embedded) {
+        return await youtubeService.scrapeAndAddWithEmbeddedYtDlp(
+          library,
+          ytUrl,
+          artist: streamSong.artist,
+        );
+      }
 
       return await youtubeService.scrapeAndAddWithYtDlp(
         library,
@@ -1897,6 +1916,7 @@ class StreamCacheManager {
         artist: streamSong.artist,
       );
     } catch (e) {
+      DebugLog.write('[StreamCacheManager] Failed to save stream song: $e');
       debugPrint('[StreamCacheManager] Failed to save stream song: $e');
       return null;
     }
