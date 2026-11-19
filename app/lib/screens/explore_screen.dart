@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io' show HandshakeException, HttpException, SocketException;
 import '../theme/glass.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http show ClientException;
 import 'package:provider/provider.dart';
 
 import '../controllers/app_controller.dart';
@@ -247,11 +249,26 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
+  static String _friendlySearchError(Object e) {
+    if (e is SocketException ||
+        e is HandshakeException ||
+        e is http.ClientException ||
+        e is HttpException) {
+      return 'Could not reach the server. Check your internet connection.';
+    }
+    if (e is TimeoutException) {
+      return 'Search timed out. Check your connection and try again.';
+    }
+    return 'Could not complete search. Try again.';
+  }
+
   Future<void> _performSearch(String query) async {
     _debounceTimer?.cancel();
     final trimmed = query.trim();
     if (trimmed.isEmpty) return;
     final live = _liveOnly;
+    final isDirectLink =
+        YouTubeSearchService.extractDirectVideoId(trimmed) != null;
     if (trimmed == _lastQuery &&
         live == _lastSearchLive &&
         _results.isNotEmpty) {
@@ -268,13 +285,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     try {
       // The first 20 show as soon as they land; later pages fill in after.
-      final results = live
-          ? await YouTubeSearchService.searchLive(trimmed)
+      final results = live && !isDirectLink
+          ? await YouTubeSearchService.searchLive(trimmed, throwOnError: true)
           : await YouTubeSearchService.search(
               trimmed,
               limit: 60,
               // Streams that are on now are mixed in among the first results.
               includeLive: true,
+              throwOnError: true,
               onFirstPage: (page) {
                 if (!mounted || token != _searchToken) return;
                 setState(() {
@@ -290,9 +308,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
         });
       }
     } catch (e) {
+      DebugLog.write('[explore] search failed: $e');
       if (mounted && token == _searchToken) {
         setState(() {
-          _error = 'Search failed: $e';
+          _results = [];
+          _error = _friendlySearchError(e);
           _isLoading = false;
         });
       }
@@ -405,7 +425,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
           query: _searchController.text.trim(),
           isSearching: _isLoading,
           error: _error,
-          onRetry: () => _performSearch(_lastQuery),
+          onRetry: () => _performSearch(
+            _lastQuery.isNotEmpty ? _lastQuery : _searchController.text.trim(),
+          ),
           results: _results,
           recommended: _recommendedResults,
           isLoadingRecommendations: _isLoadingRecommendations,
