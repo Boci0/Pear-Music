@@ -11,21 +11,13 @@ audio, but it can drive the Windows build through the control port, see Working 
    - **What landed on `main` (unreleased):**
      - RAM-buffered streaming downloads (`RamAudioBuffer` / `RamAudioSource`, 25 MB per-track cap, bounded 4-track / 32 MB LRU RAM cache) with single atomic disk flush only on completed playback (`_onNaturalEnd`), crossfade handover, or `saveToLibrary`. Eliminates Windows 2x `.tmp.copy` writes and disk writes for skipped or unused preloaded tracks.
      - 14 Tier M audit fixes across streaming, player/crossfade, data persistence, and UI (`ST-01`..`ST-08`, `ST-10`, `PL-01`..`PL-06`, `PL-08`, `DU-01`, `DU-02`, `DU-04`..`DU-06`, `DU-08`, `DU-09`) plus 10 regression tests in `app/test/audit_v613_fixes_test.dart`.
-     - Verified with pinned Flutter 3.44.9 (`dart analyze lib test` clean, `flutter test --no-pub`: `+834 ~1`, 1 pre-existing Windows-only POSIX skip). RAM playback and flush-on-complete verified live via control port on Windows x64 and Android arm64 (`10AFBH2K7M006Q4`).
+     - All 7 deferred audit findings (`DU-03`, `DU-07`, `DU-10`, `PL-07`, `PL-09`, `PL-10`, `ST-09`) fixed and covered by regression tests in `app/test/audit_v613_deferred_test.dart`.
+     - Verified with pinned Flutter 3.44.9 (`dart analyze lib test` clean, `flutter test --no-pub`). RAM playback and flush-on-complete verified live via control port on Windows x64 and Android arm64 (`10AFBH2K7M006Q4`).
    - **Remaining steps to ship v6.1.3:**
-     1. Optionally review/fix deferred audit items below before bumping versions.
-     2. Bump `app/pubspec.yaml` (`6.1.3+11443`), `app/lib/services/update_service.dart` (`6.1.3`), and `tool/installer.iss` (`6.1.3`).
-     3. Build Windows release with pinned Flutter 3.44.9 (using Low-Integrity NuGet temp-copy workaround) and run the `--control-port` verification gate (local play, RAM streaming + flush, rapid skip cancellation, version string check, clean `/quit`).
-     4. Rebuild plain Android arm64 APK without `--dart-define=PEAR_CONTROL_FILE=true` and reinstall over the check build currently on `10AFBH2K7M006Q4`.
-     5. Commit the 3 version files (`release: v6.1.3 - ...`), create annotated tag `v6.1.3`, push `main` and tag, watch CI, and verify `draft: false` on GitHub Release.
-   - **Deferred audit findings for next higher-effort session:**
-     - `DU-03` (`app/lib/services/lyrics_service.dart:774`): dedup `getLyrics` per `song.id` and use unique temp filenames in `_writeFileAtomically` so concurrent `upgradeWordTiming` cannot race on `.lrc.tmp`.
-     - `DU-07` (`app/lib/services/update_service.dart:1104`): `_UpdateDialogState._handleUpdate` pops the dialog `context` before awaiting hash verification prompts.
-     - `DU-10` (`app/lib/widgets/player/lyrics_view.dart:733`): virtualize `_buildScrollingLyricsView` / limit per-line implicit animations while keeping desktop scrollbar suppression and two-pass `ensureVisible`.
-     - `PL-07` (`app/lib/services/media_session.dart:82-122`): coalesce overlapping `pushState()` calls, stop firing `pushTimeline()` on unrelated notifications, and cancel the periodic timer on dispose.
-     - `PL-09` (`app/lib/services/player_service/live.dart:83`): route `_openLive` through `_openSource` so hung live reopens reset the engine on timeout.
-     - `PL-10` (`app/lib/services/player_service.dart:823`): throttle/deduplicate `playbackEventStream` notification pushes.
-     - `ST-09` (`app/lib/services/video_relay.dart:170-269`): tag `_head` cache with relink generation, require `range != null` before serving from `_head`, and handle overlapping range fills.
+     1. Bump `app/pubspec.yaml` (`6.1.3+11443`), `app/lib/services/update_service.dart` (`6.1.3`), and `tool/installer.iss` (`6.1.3`).
+     2. Build Windows release with pinned Flutter 3.44.9 (using Low-Integrity NuGet temp-copy workaround) and run the `--control-port` verification gate (local play, RAM streaming + flush, rapid skip cancellation, version string check, clean `/quit`).
+     3. Rebuild plain Android arm64 APK without `--dart-define=PEAR_CONTROL_FILE=true` and reinstall over the check build currently on `10AFBH2K7M006Q4`.
+     4. Commit the 3 version files (`release: v6.1.3 - ...`), create annotated tag `v6.1.3`, push `main` and tag, watch CI, and verify `draft: false` on GitHub Release.
 
 0. **Video player (merged to main 2026-10-14, not released).** A camera button
    next to the lyrics button shows the picture of a video file or a streamed
