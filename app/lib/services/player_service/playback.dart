@@ -46,6 +46,7 @@ mixin _PlayerPlayback
   /// behind it: no song would play again until a restart. Stopping swaps in a
   /// fresh engine. An open that a newer one took over throws
   /// [PlayerInterruptedException], so it is not reported as a broken file.
+  @override
   Future<void> _openSource(
     AudioSource source, {
     Duration? timeout,
@@ -70,6 +71,7 @@ mixin _PlayerPlayback
   /// Called before a new song touches the engine. If the previous song is
   /// still opening, the engine may be stuck on it (see [_openSource]) and
   /// would hold the new song's calls behind it for good, so it is reset.
+  @override
   Future<void> _abandonPendingOpen() async {
     if (!_openPending) return;
     _openAttempt++;
@@ -104,7 +106,7 @@ mixin _PlayerPlayback
         refresh: () async =>
             (await StreamCacheManager.resolveLiveLink(videoId))?.url,
       ));
-      await _openSource(source, timeout: PlayerService._earlyStreamOpenTimeout);
+      await _openSource(source, timeout: PlayerService.earlyStreamOpenTimeout);
     } catch (e) {
       DebugLog.write('[player] Live stream $videoId would not play: $e');
       return token != _playRequestToken;
@@ -409,7 +411,7 @@ mixin _PlayerPlayback
                 ramSource ??
                     growing ??
                     AudioSource.uri(Uri.parse(link.url), headers: link.headers),
-                timeout: PlayerService._earlyStreamOpenTimeout,
+                timeout: PlayerService.earlyStreamOpenTimeout,
               );
               unawaited(opening.catchError((Object _) {}));
               // A fetch that ends with nothing (a 403, a dropped connection)
@@ -1279,17 +1281,72 @@ mixin _PlayerPlayback
     }
   }
 
+  DateTime? _lastNotifAt;
+  bool? _lastNotifPlaying;
+  ProcessingState? _lastNotifProcessing;
+  Duration _lastNotifPosition = Duration.zero;
+  Duration _lastNotifBuffered = Duration.zero;
+  double? _lastNotifSpeed;
+  LoopSetting? _lastNotifLoop;
+  bool? _lastNotifShuffle;
+  int? _lastNotifQueueIndex;
+
   /// Keep the notification's repeat / shuffle icons and playback state in sync with our state.
-  void _publishNotificationState() {
-    audioHandler?.updateState(
-      playing: _player.playing,
-      processingState: _player.processingState,
-      position: _player.position,
-      bufferedPosition: _player.bufferedPosition,
-      speed: _player.speed,
+  void _publishNotificationState({bool fromPlaybackEvent = false}) {
+    final handler = audioHandler;
+    if (handler == null) return;
+
+    final playing = _player.playing;
+    final processingState = _player.processingState;
+    final position = _player.position;
+    final bufferedPosition = _player.bufferedPosition;
+    final speed = _player.speed;
+    final queueIndex = _queueIndex >= 0 ? _queueIndex : null;
+    final now = DateTime.now();
+
+    if (fromPlaybackEvent && _lastNotifAt != null) {
+      final discreteChanged =
+          playing != _lastNotifPlaying ||
+          processingState != _lastNotifProcessing ||
+          speed != _lastNotifSpeed ||
+          _loopMode != _lastNotifLoop ||
+          _shuffle != _lastNotifShuffle ||
+          queueIndex != _lastNotifQueueIndex;
+      final elapsed = now.difference(_lastNotifAt!);
+      final expectedPos = _lastNotifPlaying == true
+          ? _lastNotifPosition +
+                Duration(microseconds: (elapsed.inMicroseconds * speed).round())
+          : _lastNotifPosition;
+      final positionJumped =
+          (position - expectedPos).abs() >= const Duration(milliseconds: 750);
+      final bufferedProgressed =
+          elapsed >= const Duration(seconds: 1) &&
+          (bufferedPosition - _lastNotifBuffered).abs() >=
+              const Duration(seconds: 1);
+      if (!discreteChanged && !positionJumped && !bufferedProgressed) {
+        return;
+      }
+    }
+
+    _lastNotifAt = now;
+    _lastNotifPlaying = playing;
+    _lastNotifProcessing = processingState;
+    _lastNotifPosition = position;
+    _lastNotifBuffered = bufferedPosition;
+    _lastNotifSpeed = speed;
+    _lastNotifLoop = _loopMode;
+    _lastNotifShuffle = _shuffle;
+    _lastNotifQueueIndex = queueIndex;
+
+    handler.updateState(
+      playing: playing,
+      processingState: processingState,
+      position: position,
+      bufferedPosition: bufferedPosition,
+      speed: speed,
       loopMode: _loopMode,
       shuffle: _shuffle,
-      queueIndex: _queueIndex >= 0 ? _queueIndex : null,
+      queueIndex: queueIndex,
     );
   }
 

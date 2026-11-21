@@ -42,6 +42,7 @@ class VideoRelay {
   final BytesBuilder _head = BytesBuilder();
   int _headTotal = 0;
   String _headType = 'video/mp4';
+  int _generation = 0;
 
   /// Bytes moved over the network for the current picture; 0 for each new one.
   static final ValueNotifier<int> bytesUsed = ValueNotifier<int>(0);
@@ -134,8 +135,12 @@ class VideoRelay {
     );
   }
 
-  Future<HttpClientResponse> _open(int from, int to) async {
+  Future<({HttpClientResponse response, int generation})> _open(
+    int from,
+    int to,
+  ) async {
     final usedUrl = _url;
+    var gen = _generation;
     var res = await _request(from, to);
     final denied = res.statusCode == HttpStatus.forbidden ||
         res.statusCode == HttpStatus.gone;
@@ -146,9 +151,12 @@ class VideoRelay {
       final relinked = _url != usedUrl
           ? true
           : await (_relinking ??= _relinkOnce());
-      if (relinked) res = await _request(from, to);
+      if (relinked) {
+        gen = _generation;
+        res = await _request(from, to);
+      }
     }
-    return res;
+    return (response: res, generation: gen);
   }
 
   Future<HttpClientResponse> _request(int from, int to) async {
@@ -167,6 +175,7 @@ class VideoRelay {
       // The cached start belongs to the old file. A new lookup can pick a
       // different format, whose init segment and length are not the same, so
       // byte 0 of one is not byte 0 of the other.
+      _generation++;
       _head.clear();
       _headTotal = 0;
       _headType = 'video/mp4';
@@ -196,7 +205,10 @@ class VideoRelay {
           ? pos + _window - 1
           : math.min(range!.end!, pos + _window - 1);
       final started = Stopwatch()..start();
-      if (pos == 0 && _head.length >= headMin && want >= _head.length - 1) {
+      if (range != null &&
+          pos == 0 &&
+          _head.length >= headMin &&
+          want >= _head.length - 1) {
         final head = _head.toBytes();
         res.statusCode = HttpStatus.partialContent;
         res.headers
@@ -210,7 +222,9 @@ class VideoRelay {
         await res.flush();
         return;
       }
-      final upstream = await _open(pos, want);
+      final opened = await _open(pos, want);
+      final upstream = opened.response;
+      final gen = opened.generation;
       if (upstream.statusCode != 200 && upstream.statusCode != 206) {
         await upstream.drain<void>();
         res.statusCode = HttpStatus.badGateway;
@@ -261,11 +275,25 @@ class VideoRelay {
         final room = last - at + 1;
         if (room <= 0) break;
         final out = piece.length > room ? piece.sublist(0, room) : piece;
-        if (!wholeFile && at == _head.length && at < windowBytes) {
-          _head.add(out.length > windowBytes - at ? out.sublist(0, windowBytes - at) : out);
-          _headTotal = total;
-          _headType =
-              upstream.headers.value(HttpHeaders.contentTypeHeader) ?? 'video/mp4';
+        if (!wholeFile && gen == _generation && _head.length < windowBytes) {
+          final headLen = _head.length;
+          final chunkEnd = at + out.length;
+          if (at <= headLen && chunkEnd > headLen) {
+            final skip = headLen - at;
+            final maxTake = windowBytes - headLen;
+            final take = math.min(out.length - skip, maxTake);
+            if (take > 0) {
+              _head.add(
+                skip == 0 && take == out.length
+                    ? out
+                    : out.sublist(skip, skip + take),
+              );
+              _headTotal = total;
+              _headType =
+                  upstream.headers.value(HttpHeaders.contentTypeHeader) ??
+                  'video/mp4';
+            }
+          }
         }
         res.add(out);
         at += out.length;

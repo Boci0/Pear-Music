@@ -246,6 +246,13 @@ class LyricsService {
 
   static Directory? _cacheDir;
   static HttpClient? _httpClient;
+  static final Map<String, Future<List<LyricLine>>> _inFlightGetLyrics = {};
+  static final Map<String, Future<void>> _atomicWriteLocks = {};
+  static int _atomicWriteSeq = 0;
+
+  @visibleForTesting
+  static Future<String?> Function(Song, {Duration? duration})?
+      fetchLrclibForTesting;
 
   /// LRCLIB asks clients to identify themselves.
   static const String _userAgent =
@@ -710,6 +717,38 @@ class LyricsService {
       return cached;
     }
 
+    final inFlight = _inFlightGetLyrics[cacheKey];
+    if (inFlight != null) return inFlight;
+
+    final future = _loadLyricsUncached(
+      song,
+      localAudioPath: localAudioPath,
+      duration: duration,
+      durationLookup: durationLookup,
+    );
+    _inFlightGetLyrics[cacheKey] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_inFlightGetLyrics[cacheKey], future)) {
+        _inFlightGetLyrics.remove(cacheKey);
+      }
+    }
+  }
+
+  static Future<List<LyricLine>> _loadLyricsUncached(
+    Song song, {
+    String? localAudioPath,
+    Duration? duration,
+    Future<Duration?> Function()? durationLookup,
+  }) async {
+    final cacheKey = song.id;
+    if (_memoryCache.containsKey(cacheKey)) {
+      final cached = _memoryCache.remove(cacheKey)!;
+      _memoryCache[cacheKey] = cached;
+      return cached;
+    }
+
     // 1. Check companion local .lrc file
     if (localAudioPath != null && localAudioPath.isNotEmpty) {
       try {
@@ -752,7 +791,9 @@ class LyricsService {
       if (duration == null && durationLookup != null) {
         duration = await durationLookup();
       }
-      var fetchedLrc = await _fetchFromLrclib(song, duration: duration);
+      var fetchedLrc = fetchLrclibForTesting != null
+          ? await fetchLrclibForTesting!(song, duration: duration)
+          : await _fetchFromLrclib(song, duration: duration);
       var source = 'lrclib';
       if (fetchedLrc == null || !hasWordTiming(fetchedLrc)) {
         final netease = await NeteaseLyrics.fetch(
@@ -771,7 +812,7 @@ class LyricsService {
           final saved =
               '$fetchedLrc\n$wordTimingCheckedMark\n${sourceMark(source)}\n$spacingCheckedMark';
           _setMemoryCache(cacheKey, parsed, rawContent: saved);
-          _saveToDiskCache(song.id, saved);
+          await _saveToDiskCache(song.id, saved);
           return parsed;
         }
       }
@@ -1497,18 +1538,37 @@ class LyricsService {
   /// instead of a truncated file. The direct-write fallback keeps Windows
   /// working when a scanner or another process holds the target during the
   /// rename.
-  static Future<void> _writeFileAtomically(String path, String contents) async {
-    final tmp = File('$path.tmp');
-    await tmp.writeAsString(contents, flush: true);
-    try {
-      await tmp.rename(path);
-    } catch (_) {
-      await File(path).writeAsString(contents, flush: true);
+  static Future<void> _writeFileAtomically(String path, String contents) {
+    final prev = _atomicWriteLocks[path] ?? Future<void>.value();
+    final next = prev.catchError((_) {}).then((_) async {
+      final seq = ++_atomicWriteSeq;
+      final tmp = File('$path.$pid.$seq.tmp');
       try {
-        await tmp.delete();
-      } catch (_) {}
-    }
+        await tmp.writeAsString(contents, flush: true);
+        try {
+          await tmp.rename(path);
+        } catch (_) {
+          await File(path).writeAsString(contents, flush: true);
+        }
+      } finally {
+        try {
+          if (await tmp.exists()) await tmp.delete();
+        } catch (_) {}
+      }
+    });
+    _atomicWriteLocks[path] = next;
+    return next.whenComplete(() {
+      if (identical(_atomicWriteLocks[path], next)) {
+        _atomicWriteLocks.remove(path);
+      }
+    });
   }
+
+  @visibleForTesting
+  static Future<void> writeFileAtomicallyForTesting(
+    String path,
+    String contents,
+  ) => _writeFileAtomically(path, contents);
 
   static Future<void> _saveToDiskCache(String songId, String lrcContent) async {
     try {
@@ -1533,5 +1593,6 @@ class LyricsService {
   static void clearMemoryCache() {
     _memoryCache.clear();
     _rawLrcCache.clear();
+    _inFlightGetLyrics.clear();
   }
 }

@@ -90,7 +90,10 @@ class UpdateService {
 
   /// Shows the update dialog for [info] (the control port's /sheet check).
   static Future<void> showUpdateDialogFor(BuildContext context, UpdateInfo info) =>
-      showDialog(context: context, builder: (_) => _UpdateDialog(info: info));
+      showDialog(
+        context: context,
+        builder: (_) => _UpdateDialog(info: info, hostContext: context),
+      );
 
   static Future<UpdateInfo?> checkLatestRelease() async {
     final signed = await _checkSignedManifest();
@@ -482,7 +485,7 @@ class UpdateService {
     if (info.hasUpdate) {
       showDialog(
         context: context,
-        builder: (ctx) => _UpdateDialog(info: info),
+        builder: (ctx) => _UpdateDialog(info: info, hostContext: context),
       );
     } else {
       if (!quiet) {
@@ -820,7 +823,9 @@ class UpdateService {
     final zipUrl = info.zipUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     if (!info.verified) {
-      await _showUnverifiedDialog(context, info);
+      if (context.mounted) {
+        await _showUnverifiedDialog(context, info);
+      }
       return;
     }
 
@@ -996,7 +1001,9 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
     final apkUrl = info.apkUrl!;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     if (!info.verified) {
-      await _showUnverifiedDialog(context, info);
+      if (context.mounted) {
+        await _showUnverifiedDialog(context, info);
+      }
       return;
     }
 
@@ -1004,7 +1011,9 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
     final expected = _findExpectedHash(info, p.basename(apkUrl));
     if (expected == null || expected.isEmpty) {
       debugPrint('[UpdateService] No SHA-256 data for ${p.basename(apkUrl)}');
-      await _showMissingHashDialog(context, info);
+      if (context.mounted) {
+        await _showMissingHashDialog(context, info);
+      }
       return;
     }
 
@@ -1073,7 +1082,8 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
 
 class _UpdateDialog extends StatefulWidget {
   final UpdateInfo info;
-  const _UpdateDialog({required this.info});
+  final BuildContext hostContext;
+  const _UpdateDialog({required this.info, required this.hostContext});
 
   @override
   State<_UpdateDialog> createState() => _UpdateDialogState();
@@ -1081,6 +1091,7 @@ class _UpdateDialog extends StatefulWidget {
 
 class _UpdateDialogState extends State<_UpdateDialog> {
   File? _cachedFile;
+  bool _handling = false;
 
   @override
   void initState() {
@@ -1098,64 +1109,85 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   }
 
   Future<void> _handleUpdate(BuildContext context) async {
-    if (defaultTargetPlatform == TargetPlatform.windows &&
-        widget.info.zipUrl != null &&
-        widget.info.verified) {
-      Navigator.pop(context);
-      await UpdateService.downloadAndApplyWindowsZip(context, widget.info);
-      return;
-    }
-
-    if (defaultTargetPlatform == TargetPlatform.android &&
-        widget.info.apkUrl != null &&
-        widget.info.verified) {
-      if (_cachedFile != null) {
-        final canInstall = await UpdateService.canRequestPackageInstalls();
-        if (!canInstall) {
-          if (context.mounted) {
-            await UpdateService.showPermissionPrompt(context);
-          }
-          return;
-        }
-        if (!context.mounted) return;
+    if (_handling) return;
+    _handling = true;
+    final hostContext = widget.hostContext;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.windows &&
+          widget.info.zipUrl != null &&
+          widget.info.verified) {
         Navigator.pop(context);
-        try {
-          await UpdateService.installApkDirectly(_cachedFile!.path);
-        } catch (e) {
-          debugPrint('[UpdateService] Direct cached APK install failed: $e');
+        if (hostContext.mounted) {
+          await UpdateService.downloadAndApplyWindowsZip(
+            hostContext,
+            widget.info,
+          );
         }
         return;
       }
-      Navigator.pop(context);
-      await UpdateService.downloadAndInstallAndroidApk(context, widget.info);
-      return;
-    }
 
-    String targetUrl = widget.info.htmlUrl;
-    if (defaultTargetPlatform == TargetPlatform.windows && widget.info.verified) {
-      if (widget.info.setupUrl != null) {
-        targetUrl = widget.info.setupUrl!;
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          widget.info.apkUrl != null &&
+          widget.info.verified) {
+        if (_cachedFile != null) {
+          final canInstall = await UpdateService.canRequestPackageInstalls();
+          if (!canInstall) {
+            if (context.mounted) {
+              await UpdateService.showPermissionPrompt(context);
+            } else if (hostContext.mounted) {
+              await UpdateService.showPermissionPrompt(hostContext);
+            }
+            return;
+          }
+          if (context.mounted) {
+            Navigator.pop(context);
+          }
+          try {
+            await UpdateService.installApkDirectly(_cachedFile!.path);
+          } catch (e) {
+            debugPrint('[UpdateService] Direct cached APK install failed: $e');
+          }
+          return;
+        }
+        Navigator.pop(context);
+        if (hostContext.mounted) {
+          await UpdateService.downloadAndInstallAndroidApk(
+            hostContext,
+            widget.info,
+          );
+        }
+        return;
       }
-    }
 
-    try {
-      final uri = Uri.parse(targetUrl);
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched) {
-        final fallbackUri = Uri.parse(widget.info.htmlUrl);
-        await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+      String targetUrl = widget.info.htmlUrl;
+      if (defaultTargetPlatform == TargetPlatform.windows &&
+          widget.info.verified) {
+        if (widget.info.setupUrl != null) {
+          targetUrl = widget.info.setupUrl!;
+        }
       }
-    } catch (e) {
-      debugPrint('[UpdateService] Failed to launch $targetUrl: $e');
+
       try {
-        final fallbackUri = Uri.parse(widget.info.htmlUrl);
-        await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
-      } catch (_) {}
+        final uri = Uri.parse(targetUrl);
+        final launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!launched) {
+          final fallbackUri = Uri.parse(widget.info.htmlUrl);
+          await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        }
+      } catch (e) {
+        debugPrint('[UpdateService] Failed to launch $targetUrl: $e');
+        try {
+          final fallbackUri = Uri.parse(widget.info.htmlUrl);
+          await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
+      if (context.mounted) Navigator.pop(context);
+    } finally {
+      _handling = false;
     }
-    if (context.mounted) Navigator.pop(context);
   }
 
   @override

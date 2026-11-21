@@ -826,7 +826,7 @@ class PlayerService extends ChangeNotifier with
       notifyListeners();
     }));
     _subs.add(_player.playbackEventStream.listen((event) {
-      _publishNotificationState();
+      _publishNotificationState(fromPlaybackEvent: true);
     }));
     _subs.add(positionStream.listen(_onPosition));
     // Auto-advance (loop / shuffle aware) when a track finishes.
@@ -958,7 +958,8 @@ class PlayerService extends ChangeNotifier with
   int _playRequestToken = 0;
 
   /// How long opening a stream's direct link may take before falling back.
-  static const Duration _earlyStreamOpenTimeout = Duration(seconds: 10);
+  @visibleForTesting
+  static Duration earlyStreamOpenTimeout = const Duration(seconds: 10);
 
   /// How long opening a file on disk may take; a local file opens in well
   /// under a second, so this only catches one the engine is stuck on.

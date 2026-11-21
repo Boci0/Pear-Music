@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -320,6 +321,7 @@ class _LyricsViewState extends State<LyricsView>
     _positionSub?.cancel();
     _sweepTicker.dispose();
     _sweepPosition.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -329,6 +331,8 @@ class _LyricsViewState extends State<LyricsView>
       _isLoading = true;
       _lyrics = const [];
       _activeIndex = -1;
+      _previousActiveIndex = -1;
+      _scrolledIndex = -1;
       _spansIndex = -1;
       _sweeping = false;
     });
@@ -391,6 +395,9 @@ class _LyricsViewState extends State<LyricsView>
     final index = LyricsService.findActiveIndex(_lyrics, currentPos);
     if (index >= 0 && mounted) {
       setState(() {
+        if (index != _activeIndex) {
+          _previousActiveIndex = _activeIndex;
+        }
         _activeIndex = index;
       });
     }
@@ -422,6 +429,7 @@ class _LyricsViewState extends State<LyricsView>
     final newIndex = LyricsService.findActiveIndex(_lyrics, position);
     if (newIndex != _activeIndex) {
       setState(() {
+        _previousActiveIndex = _activeIndex;
         _activeIndex = newIndex;
       });
     }
@@ -670,6 +678,8 @@ class _LyricsViewState extends State<LyricsView>
   /// The line the list last brought to the middle, and the key on the line
   /// being sung, so a new line scrolls into place once.
   int _scrolledIndex = -1;
+  int _previousActiveIndex = -1;
+  final ScrollController _scrollController = ScrollController();
 
   /// How long a new line takes to grow, light up and glide to the middle.
   static const Duration _lineEase = Duration(milliseconds: 520);
@@ -677,6 +687,61 @@ class _LyricsViewState extends State<LyricsView>
   /// Lines other than the sung one, drawn at this size of it.
   static const double _otherLineScale = 0.8;
   final GlobalKey _activeLineKey = GlobalKey();
+
+  double _estimateOffsetForIndex(
+    int targetIndex, {
+    required double fontSize,
+    required double viewportWidth,
+  }) {
+    final contentWidth = (viewportWidth - 40).clamp(100.0, double.infinity);
+    final lineHeight = fontSize * 1.3;
+    var offset = 0.0;
+    final limit = targetIndex.clamp(0, _lyrics.length);
+    for (var j = 0; j < limit; j++) {
+      final wrappedLines =
+          (_lyrics[j].text.length * fontSize * 0.55 / contentWidth)
+              .ceil()
+              .clamp(1, 5);
+      offset += wrappedLines * lineHeight + 12.0;
+    }
+    return offset;
+  }
+
+  void _scrollToActiveLine(
+    int targetIndex, {
+    required double estimatedOffset,
+    required bool instant,
+    int pass = 0,
+  }) {
+    if (!mounted || _scrolledIndex != targetIndex) return;
+    final target = _activeLineKey.currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: instant ? Duration.zero : _lineEase,
+        curve: Curves.easeInOutCubic,
+      );
+      return;
+    }
+    if (_scrollController.hasClients && pass < 3) {
+      final pos = _scrollController.position;
+      final clamped = estimatedOffset
+          .clamp(pos.minScrollExtent, pos.maxScrollExtent)
+          .toDouble();
+      _scrollController.jumpTo(clamped);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToActiveLine(
+          targetIndex,
+          estimatedOffset: pass == 0
+              ? estimatedOffset
+              : estimatedOffset + pos.viewportDimension * 0.5,
+          instant: instant,
+          pass: pass + 1,
+        );
+      });
+    }
+  }
 
   Widget _buildScrollingLyricsView(Color glowColor) {
     final activeIndex = _activeIndex >= 0 && _activeIndex < _lyrics.length
@@ -687,9 +752,10 @@ class _LyricsViewState extends State<LyricsView>
     // One font for every line, so a line's breaks never change when it
     // becomes the sung one: lines are drawn smaller and dimmer around it
     // instead of being laid out again in another size.
+    final fontSize = (26 * scale).roundToDouble();
     final lineStyle = (theme.textTheme.headlineMedium ?? const TextStyle())
         .copyWith(
-          fontSize: (26 * scale).roundToDouble(),
+          fontSize: fontSize,
           fontWeight: FontWeight.w700,
           height: 1.3,
           color: Colors.white,
@@ -704,37 +770,56 @@ class _LyricsViewState extends State<LyricsView>
       align: TextAlign.start,
     );
 
-    if (_scrolledIndex != activeIndex) {
-      final jump = _scrolledIndex < 0;
-      _scrolledIndex = activeIndex;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final target = _activeLineKey.currentContext;
-        if (target == null || !mounted) return;
-        Scrollable.ensureVisible(
-          target,
-          alignment: 0.5,
-          duration: jump || widget.player.scrubbingPosition != null
-              ? Duration.zero
-              : _lineEase,
-          curve: Curves.easeInOutCubic,
-        );
-      });
-    }
+    return ScrollConfiguration(
+      behavior: _LyricsScrollBehavior(ScrollConfiguration.of(context)),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (_scrolledIndex != activeIndex) {
+            final jump = _scrolledIndex < 0;
+            _scrolledIndex = activeIndex;
+            final estimatedOffset = _estimateOffsetForIndex(
+              activeIndex,
+              fontSize: fontSize,
+              viewportWidth: constraints.maxWidth,
+            );
+            final instant = jump || widget.player.scrubbingPosition != null;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _scrollToActiveLine(
+                activeIndex,
+                estimatedOffset: estimatedOffset,
+                instant: instant,
+              );
+            });
+          }
 
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(
-          20,
-          constraints.maxHeight * 0.5,
-          20,
-          constraints.maxHeight * 0.5,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < _lyrics.length; i++)
-              Padding(
+          return ListView.builder(
+            controller: _scrollController,
+            physics: const ClampingScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              constraints.maxHeight * 0.5,
+              20,
+              constraints.maxHeight * 0.5,
+            ),
+            itemCount: _lyrics.length,
+            itemBuilder: (context, i) {
+              final isActive = i == activeIndex;
+              final animateLine =
+                  (i - activeIndex).abs() <= 1 || i == _previousActiveIndex;
+              final style = isActive
+                  ? lineStyle
+                  : lineStyle.copyWith(
+                      color: Colors.white.withValues(
+                        alpha: i < activeIndex ? 0.32 : 0.5,
+                      ),
+                    );
+              final content = isActive
+                  ? KeyedSubtree(
+                      key: _activeLineKey,
+                      child: lineText(const TextStyle()),
+                    )
+                  : Text(_lyrics[i].text.isEmpty ? '···' : _lyrics[i].text);
+              return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -743,38 +828,33 @@ class _LyricsViewState extends State<LyricsView>
                       ? () => widget.player.seek(_lyrics[i].timestamp)
                       : null,
                   // Size and brightness ease from line to line instead of
-                  // switching at once, while the list glides.
-                  child: AnimatedScale(
-                    scale: i == activeIndex ? 1 : _otherLineScale,
-                    // From the middle, so the room a smaller line frees is
-                    // shared above and below it, not all left under it.
-                    alignment: Alignment.centerLeft,
-                    duration: _lineEase,
-                    curve: Curves.easeOutCubic,
-                    child: AnimatedDefaultTextStyle(
-                      duration: _lineEase,
-                      curve: Curves.easeOutCubic,
-                      style: i == activeIndex
-                          ? lineStyle
-                          : lineStyle.copyWith(
-                              color: Colors.white.withValues(
-                                alpha: i < activeIndex ? 0.32 : 0.5,
-                              ),
-                            ),
-                      child: i == activeIndex
-                          ? KeyedSubtree(
-                              key: _activeLineKey,
-                              child: lineText(const TextStyle()),
-                            )
-                          : Text(
-                              _lyrics[i].text.isEmpty ? '···' : _lyrics[i].text,
-                            ),
-                    ),
-                  ),
+                  // switching at once, while the list glides; distant rows
+                  // stay static so long songs keep animation counts bounded.
+                  child: animateLine
+                      ? AnimatedScale(
+                          scale: isActive ? 1 : _otherLineScale,
+                          // From the middle, so the room a smaller line frees is
+                          // shared above and below it, not all left under it.
+                          alignment: Alignment.centerLeft,
+                          duration: _lineEase,
+                          curve: Curves.easeOutCubic,
+                          child: AnimatedDefaultTextStyle(
+                            duration: _lineEase,
+                            curve: Curves.easeOutCubic,
+                            style: style,
+                            child: content,
+                          ),
+                        )
+                      : Transform.scale(
+                          scale: _otherLineScale,
+                          alignment: Alignment.centerLeft,
+                          child: DefaultTextStyle(style: style, child: content),
+                        ),
                 ),
-              ),
-          ],
-        ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -872,4 +952,26 @@ class _LyricsViewState extends State<LyricsView>
       ),
     );
   }
+}
+
+class _LyricsScrollBehavior extends ScrollBehavior {
+  final ScrollBehavior parent;
+  const _LyricsScrollBehavior(this.parent);
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => parent.dragDevices;
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => child;
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => parent.buildOverscrollIndicator(context, child, details);
 }

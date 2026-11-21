@@ -18,6 +18,7 @@ import '../services/identity_service.dart';
 import '../services/library_profile.dart';
 import '../services/library_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/media_session.dart';
 import '../services/player_service.dart';
 import '../services/playlist_file.dart';
 import '../services/recommendation_service.dart';
@@ -438,6 +439,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     // saver would otherwise be cancelled with the write still pending.
     await library.flushSaveIndex();
     await player.flushSavedVolume();
+    MediaSession.dispose();
     player.dispose();
     library.dispose();
     LibraryService.killHashWorker();

@@ -8,6 +8,8 @@ mixin _PlayerLive on ChangeNotifier {
   set _lastInteraction(DateTime value);
   int get _volumeFadeToken;
   set _volumeFadeToken(int value);
+  Future<void> _openSource(AudioSource source, {Duration? timeout});
+  Future<void> _abandonPendingOpen();
 
   /// Playing a live stream: no length, and it is rewound with [seekLive]
   /// rather than [seek].
@@ -80,9 +82,16 @@ mixin _PlayerLive on ChangeNotifier {
     // A seek takes over from any fade in progress, as [seek] does.
     _volumeFadeToken++;
     try {
-      await _player
-          .setAudioSource(AudioSource.uri(uri))
-          .timeout(PlayerService._earlyStreamOpenTimeout);
+      await _abandonPendingOpen();
+      if (token != _liveSeekToken ||
+          playToken != _playRequestToken ||
+          !_isLive) {
+        return;
+      }
+      await _openSource(
+        AudioSource.uri(uri),
+        timeout: PlayerService.earlyStreamOpenTimeout,
+      );
     } catch (e) {
       DebugLog.write('[player] Live stream would not reopen $behind s back: $e');
       if (token == _liveSeekToken && playToken == _playRequestToken) {

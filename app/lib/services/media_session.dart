@@ -17,6 +17,9 @@ class MediaSession {
 
   static const MethodChannel _channel = MethodChannel('peerm/media_session');
   static bool _initialized = false;
+  static Timer? _timelineTimer;
+  static PlayerService? _player;
+  static VoidCallback? _listener;
 
   static bool get _supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -25,6 +28,19 @@ class MediaSession {
   static void init(PlayerService player) {
     if (_initialized || !_supported) return;
     _initialized = true;
+
+    String? lastSongId;
+    String? lastStatus;
+    int? lastDurationMs;
+    var pushing = false;
+    var dirty = false;
+
+    Future<void> pushTimeline() async {
+      await _invoke('setTimeline', {
+        'positionMs': (player.position ?? Duration.zero).inMilliseconds,
+        'endMs': (player.duration ?? Duration.zero).inMilliseconds,
+      });
+    }
 
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -43,20 +59,11 @@ class MediaSession {
           final ms = call.arguments;
           if (ms is int && ms >= 0) {
             await player.seek(Duration(milliseconds: ms));
+            unawaited(pushTimeline());
           }
       }
       return null;
     });
-
-    String? lastSongId;
-    String? lastStatus;
-
-    Future<void> pushTimeline() async {
-      await _invoke('setTimeline', {
-        'positionMs': (player.position ?? Duration.zero).inMilliseconds,
-        'endMs': (player.duration ?? Duration.zero).inMilliseconds,
-      });
-    }
 
     // Loads the cover off the UI thread (large local covers decode in an
     // isolate; streamed songs download theirs) and sends it once ready. An
@@ -71,7 +78,7 @@ class MediaSession {
         bytes = await ArtworkPalette.bytesAsync(song);
       }
       // The user may have skipped on while the cover loaded.
-      if (song.id != lastSongId) return;
+      if (!_initialized || song.id != lastSongId) return;
       if (bytes == null || bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
         await _invoke('setArtwork', Uint8List(0));
       } else {
@@ -79,13 +86,16 @@ class MediaSession {
       }
     }
 
-    Future<void> pushState() async {
+    Future<void> pushStateOnce() async {
+      if (!_initialized) return;
       final song = player.currentSong;
+      final songChanged = song?.id != lastSongId;
 
-      if (song?.id != lastSongId) {
+      if (songChanged) {
         lastSongId = song?.id;
         if (song == null) {
           lastStatus = 'stopped';
+          lastDurationMs = null;
           await _invoke('setEnabled', false);
           return;
         }
@@ -106,26 +116,68 @@ class MediaSession {
           : player.playing
           ? 'playing'
           : 'paused';
-      if (status != lastStatus) {
+      final statusChanged = status != lastStatus;
+      if (statusChanged) {
         lastStatus = status;
         await _invoke('setPlaybackState', status);
       }
-      await pushTimeline();
+
+      final durationMs = (player.duration ?? Duration.zero).inMilliseconds;
+      final durationChanged = durationMs != lastDurationMs;
+      if (song != null && (songChanged || statusChanged || durationChanged)) {
+        lastDurationMs = durationMs;
+        await pushTimeline();
+      }
     }
 
-    player.addListener(() {
-      unawaited(pushState());
-    });
+    Future<void> schedulePushState() async {
+      if (pushing) {
+        dirty = true;
+        return;
+      }
+      pushing = true;
+      try {
+        do {
+          dirty = false;
+          await pushStateOnce();
+        } while (dirty && _initialized);
+      } finally {
+        pushing = false;
+      }
+    }
+
+    _player = player;
+    _listener = () {
+      unawaited(schedulePushState());
+    };
+    player.addListener(_listener!);
 
     // Keep the taskbar timeline fresh while music runs; the metadata and state
     // listeners above only fire on actual changes.
-    Timer.periodic(const Duration(seconds: 5), (_) {
-      if (player.playing) {
+    _timelineTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_initialized && player.playing) {
         unawaited(pushTimeline());
       }
     });
 
-    unawaited(pushState());
+    unawaited(schedulePushState());
+  }
+
+  /// Detaches the player listener and stops the periodic timeline timer.
+  static void dispose() {
+    _timelineTimer?.cancel();
+    _timelineTimer = null;
+    final player = _player;
+    final listener = _listener;
+    _player = null;
+    _listener = null;
+    if (player != null && listener != null) {
+      player.removeListener(listener);
+    }
+    if (_initialized) {
+      _channel.setMethodCallHandler(null);
+      _initialized = false;
+    }
   }
 
   static Future<void> _invoke(String method, [Object? arguments]) async {
