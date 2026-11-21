@@ -703,18 +703,39 @@ class _SleepToolButtonState extends State<_SleepToolButton> {
   void initState() {
     super.initState();
     widget.player.addListener(_onPlayerChanged);
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (widget.player.isSleepTimerActive && mounted) setState(() {});
-    });
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SleepToolButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      oldWidget.player.removeListener(_onPlayerChanged);
+      widget.player.addListener(_onPlayerChanged);
+      _syncTicker();
+    }
+  }
+
+  void _syncTicker() {
+    if (widget.player.isSleepTimerActive) {
+      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      _ticker?.cancel();
+      _ticker = null;
+    }
   }
 
   void _onPlayerChanged() {
+    _syncTicker();
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
+    _ticker = null;
     widget.player.removeListener(_onPlayerChanged);
     super.dispose();
   }

@@ -646,30 +646,39 @@ class LibraryService extends ChangeNotifier {
     // reference so idle teardown can close it deterministically.
     final replyPort = ReceivePort();
     _hashReplyPort = replyPort;
-    _hashIsolate = await Isolate.spawn(_hashWorkerMain, replyPort.sendPort);
-    replyPort.listen((msg) {
-      if (msg is SendPort) {
-        if (!ready.isCompleted) ready.complete(msg);
-        return;
-      }
-      if (msg is List && msg.length == 2) {
-        final seq = msg[0] as int;
-        final completer = _hashJobs.remove(seq);
-        if (completer != null) {
-          final value = msg[1];
-          if (value is String) {
-            completer.complete(value);
-          } else {
-            completer.completeError(value as Object);
-          }
+    try {
+      _hashIsolate = await Isolate.spawn(_hashWorkerMain, replyPort.sendPort);
+      replyPort.listen((msg) {
+        if (msg is SendPort) {
+          if (!ready.isCompleted) ready.complete(msg);
+          return;
         }
-        // The result has now been emitted strictly to THIS main-isolate
-        // reply port (never the worker's internal job port). If the queue is
-        // empty, start counting down to full teardown.
-        _armHashIdleTeardown();
-      }
-    });
-    _hashSendPort = await ready.future;
+        if (msg is List && msg.length == 2) {
+          final seq = msg[0] as int;
+          final completer = _hashJobs.remove(seq);
+          if (completer != null) {
+            final value = msg[1];
+            if (value is String) {
+              completer.complete(value);
+            } else {
+              completer.completeError(value as Object);
+            }
+          }
+          // The result has now been emitted strictly to THIS main-isolate
+          // reply port (never the worker's internal job port). If the queue is
+          // empty, start counting down to full teardown.
+          _armHashIdleTeardown();
+        }
+      });
+      _hashSendPort = await ready.future;
+    } catch (e) {
+      replyPort.close();
+      if (identical(_hashReplyPort, replyPort)) _hashReplyPort = null;
+      _hashIsolate?.kill(priority: Isolate.immediate);
+      _hashIsolate = null;
+      _hashSendPort = null;
+      rethrow;
+    }
   }
 
   /// If no checksum jobs are pending, schedule the worker to be killed after
@@ -699,6 +708,15 @@ class LibraryService extends ChangeNotifier {
     _hashSendPort = null;
     _hashReplyPort?.close();
     _hashReplyPort = null;
+    if (force && _hashJobs.isNotEmpty) {
+      final pending = List<Completer<String>>.from(_hashJobs.values);
+      _hashJobs.clear();
+      for (final completer in pending) {
+        if (!completer.isCompleted) {
+          completer.completeError(StateError('hash worker terminated'));
+        }
+      }
+    }
   }
 
   /// Worker entry point: receives [seq, path] jobs, replies [seq, md5].
@@ -1132,10 +1150,14 @@ class LibraryService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _saveIndexDebounce?.cancel();
+    if (_saveIndexDebounce != null) {
+      _saveIndexDebounce!.cancel();
+      _saveIndexDebounce = null;
+      unawaited(_saveIndex());
+    }
     _notifyDebounce?.cancel();
     // Lifecycle teardown: never leave the hash isolate parked forever.
-    killHashWorker();
+    killHashWorker(force: true);
     super.dispose();
   }
 }

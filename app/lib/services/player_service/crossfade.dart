@@ -46,6 +46,7 @@ mixin _PlayerCrossfade on ChangeNotifier {
   int _crossfadeSeconds = 0;
   int get crossfadeSeconds => _crossfadeSeconds;
   AudioPlayer? _tailPlayer;
+  RamAudioSource? _tailRamSource;
   bool _crossfadeStarting = false;
   int _crossfadedToken = -1;
   int _tailToken = 0;
@@ -259,12 +260,19 @@ mixin _PlayerCrossfade on ChangeNotifier {
     try {
       if (song == null) return;
       var file = _currentLoadedFile;
+      RamAudioBuffer? ramBuf;
+      String? videoId;
       if (file == null && song.sourceDeviceId == 'stream') {
-        final videoId = RecommendationService.extractVideoId(song.id) ??
+        videoId = RecommendationService.extractVideoId(song.id) ??
             song.id.replaceFirst('stream_', '');
         file = await StreamCacheManager.getCachedFile(videoId);
+        if (file == null) {
+          ramBuf = StreamCacheManager.getRamCachedBuffer(videoId);
+        }
       }
-      if (file == null || token != _playRequestToken || !_player.playing) {
+      if ((file == null && ramBuf == null) ||
+          token != _playRequestToken ||
+          !_player.playing) {
         return;
       }
       final tail = _tailPlayer ??= _tailPlayerFactory();
@@ -285,12 +293,28 @@ mixin _PlayerCrossfade on ChangeNotifier {
       final lead = _tailLead;
       await tail.setVolume(0.0);
       await tail.setSpeed(_speed);
+      _tailRamSource?.close();
+      _tailRamSource = null;
+      final AudioSource tailSource;
+      if (file != null) {
+        tailSource = AudioSource.file(file.path);
+      } else {
+        final buf = ramBuf!;
+        tailSource = _tailRamSource = RamAudioSource(
+          buffer: buf,
+          contentType: buf.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
+        );
+      }
       await tail.setAudioSource(
-        AudioSource.file(file.path),
+        tailSource,
         initialPosition: _player.position + lead,
       );
       if (stale()) {
         unawaited(tail.stop());
+        if (tailToken == _tailToken) {
+          _tailRamSource?.close();
+          _tailRamSource = null;
+        }
         return;
       }
       unawaited(tail.play());
@@ -311,9 +335,24 @@ mixin _PlayerCrossfade on ChangeNotifier {
       }
       if (stale()) {
         unawaited(tail.stop());
+        if (tailToken == _tailToken) {
+          _tailRamSource?.close();
+          _tailRamSource = null;
+        }
         return;
       }
-      await _blendToTail(tail, handoverVolume);
+      await _blendToTail(tail, handoverVolume, stale);
+      if (stale()) {
+        unawaited(tail.stop());
+        if (tailToken == _tailToken) {
+          _tailRamSource?.close();
+          _tailRamSource = null;
+        }
+        if (token == _playRequestToken && _player.playing) {
+          await _player.setVolume(_effectiveVolume);
+        }
+        return;
+      }
       DebugLog.write(
         '[crossfade] "${song.title}" hands over with ${remaining.inMilliseconds}ms left '
         '(tail ${audible ? 'in step' : 'not confirmed'} after '
@@ -329,6 +368,16 @@ mixin _PlayerCrossfade on ChangeNotifier {
             : fadeLeft,
       ));
       _pendingFadeIn = Duration(seconds: _crossfadeSeconds);
+      if (ramBuf != null && videoId != null && videoId.isNotEmpty) {
+        final endedSong = song;
+        unawaited(StreamCacheManager.flushRamToDisk(videoId).then((flushed) {
+          if (flushed != null &&
+              LoudnessService.isSupported &&
+              !LoudnessService.isMeasured(endedSong)) {
+            unawaited(LoudnessService.measure(endedSong, flushed.path));
+          }
+        }));
+      }
       await next(crossfade: true);
     } catch (e) {
       DebugLog.write('[crossfade] failed, finishing the song normally: $e');
@@ -369,10 +418,15 @@ mixin _PlayerCrossfade on ChangeNotifier {
 
   /// Moves the sound from the main player to the tail over a few tens of
   /// milliseconds (equal power), so a small leftover offset between the two
-  /// is not heard as a jump.
-  Future<void> _blendToTail(AudioPlayer tail, double volume) async {
+  /// is not heard as a jump. Stops early if [stale] becomes true.
+  Future<void> _blendToTail(
+    AudioPlayer tail,
+    double volume,
+    bool Function() stale,
+  ) async {
     const steps = 4;
     for (var i = 1; i <= steps; i++) {
+      if (stale()) return;
       final t = i / steps;
       await Future.wait([
         tail.setVolume(volume * math.sin(t * math.pi / 2)),
@@ -396,7 +450,11 @@ mixin _PlayerCrossfade on ChangeNotifier {
         await tail.setVolume(start * PlayerService._mixerGain(math.cos(t * math.pi / 2)));
       }
     } finally {
-      if (tailToken == _tailToken) unawaited(tail.stop());
+      if (tailToken == _tailToken) {
+        unawaited(tail.stop());
+        _tailRamSource?.close();
+        _tailRamSource = null;
+      }
     }
   }
 
@@ -427,5 +485,7 @@ mixin _PlayerCrossfade on ChangeNotifier {
     _pendingFadeIn = null;
     final tail = _tailPlayer;
     if (tail != null) unawaited(tail.stop());
+    _tailRamSource?.close();
+    _tailRamSource = null;
   }
 }

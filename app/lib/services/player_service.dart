@@ -22,6 +22,7 @@ import 'loudness_service.dart';
 import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
 import 'position_thinning.dart';
+import 'ram_audio_source.dart';
 import 'recommendation_service.dart';
 import 'session_diagnostics.dart';
 import 'sleep_timer.dart';
@@ -219,6 +220,16 @@ class PlayerService extends ChangeNotifier with
   /// so its file handle can be released when playback moves on.
   @override
   GrowingFileAudioSource? _growingSource;
+
+  /// The in-memory audio source the current track plays from, kept so it can
+  /// be closed when playback moves on.
+  @override
+  RamAudioSource? _ramSource;
+
+  /// Song id currently loaded into [_player], set only after `_openSource`
+  /// succeeds so `resume()` reloads if a track load was cancelled mid-buffer.
+  @override
+  String? _loadedSongId;
 
   PlayerService(this.library,
       {this.identity,
@@ -837,6 +848,20 @@ class PlayerService extends ChangeNotifier with
   /// after its music): sleep timers first, otherwise on to the next song.
   @override
   void _onNaturalEnd() {
+    final endedSong = currentSong;
+    if (endedSong != null && endedSong.sourceDeviceId == 'stream') {
+      final videoId = RecommendationService.extractVideoId(endedSong.id) ??
+          endedSong.id.replaceFirst('stream_', '');
+      if (videoId.isNotEmpty) {
+        unawaited(StreamCacheManager.flushRamToDisk(videoId).then((flushed) {
+          if (flushed != null &&
+              LoudnessService.isSupported &&
+              !LoudnessService.isMeasured(endedSong)) {
+            unawaited(LoudnessService.measure(endedSong, flushed.path));
+          }
+        }));
+      }
+    }
     if (_sleep.endOfSong) {
       cancelSleepTimer();
       unawaited(pause(smooth: true));
@@ -981,6 +1006,10 @@ class PlayerService extends ChangeNotifier with
     final growing = _growingSource;
     _growingSource = null;
     if (growing != null) unawaited(growing.close());
+    final ram = _ramSource;
+    _ramSource = null;
+    ram?.close();
+    _loadedSongId = null;
     await _player.stop();
     // A live stream's relay would otherwise keep its port and client until
     // the next play; the stream is over, so is the relay.
@@ -1016,11 +1045,17 @@ class PlayerService extends ChangeNotifier with
     _disposed = true;
     LiveHlsProxy.stop();
     _tailToken++;
+    _volumeFadeToken++;
+    _tailRamSource?.close();
+    _tailRamSource = null;
     unawaited(_tailPlayer?.dispose());
     _tailPlayer = null;
     _playRequestToken++;
     unawaited(_growingSource?.close());
     _growingSource = null;
+    _ramSource?.close();
+    _ramSource = null;
+    _loadedSongId = null;
     _preloadDebounceTimer?.cancel();
     _autoRerollDebounceTimer?.cancel();
     _saveVolumeDebounceTimer?.cancel();

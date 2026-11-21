@@ -16,6 +16,9 @@ mixin _PlayerPlayback
   set _currentLoadedFormat(String? value);
   set _currentRouteType(StreamRouteType value);
   abstract GrowingFileAudioSource? _growingSource;
+  abstract RamAudioSource? _ramSource;
+  abstract String? _loadedSongId;
+  int _advanceId = 0;
   abstract String? _lastAutoRerolledSongId;
   abstract int _lastTrackLoadMs;
   void _levelSong(Song song, int token, Future<File?>? pendingDownload);
@@ -257,6 +260,10 @@ mixin _PlayerPlayback
     final previousGrowing = _growingSource;
     _growingSource = null;
     if (previousGrowing != null) unawaited(previousGrowing.close());
+    final previousRam = _ramSource;
+    _ramSource = null;
+    previousRam?.close();
+    _loadedSongId = null;
     try {
       await _player.setLoopMode(_engineLoopMode);
       if (token != _playRequestToken) return;
@@ -286,6 +293,10 @@ mixin _PlayerPlayback
         }
         if (token != _playRequestToken) return;
 
+        final ramBuf = cachedFile == null
+            ? StreamCacheManager.getRamCachedBuffer(videoId)
+            : null;
+
         if (cachedFile != null && await cachedFile.exists()) {
           _currentRouteType = StreamRouteType.cached;
           _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
@@ -298,6 +309,7 @@ mixin _PlayerPlayback
           DebugLog.write('[player] DISK CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${cachedFile.path}');
           try {
             await _openSource(AudioSource.file(cachedFile.path));
+            _loadedSongId = song.id;
             _resetStreamFailureCounters();
           } on PlayerInterruptedException {
             // A newer load took over the engine: the file is fine, so keep
@@ -307,6 +319,32 @@ mixin _PlayerPlayback
           } catch (e) {
             DebugLog.write('[player] Cached file unplayable or corrupt: $e. Evicting from cache.');
             await StreamCacheManager.evictUnplayable(cachedFile);
+            rethrow;
+          }
+        } else if (ramBuf != null) {
+          final ramSource = RamAudioSource(
+            buffer: ramBuf,
+            contentType: ramBuf.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
+          );
+          _currentRouteType = StreamRouteType.cached;
+          _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+          _currentLoadedFile = null;
+          _currentLoadedFileSize = ramBuf.length;
+          _currentLoadedFormat = ramBuf.ext;
+          _isBufferingNext = false;
+          _bufferingVideoId = null;
+          notifyListeners();
+          DebugLog.write(
+            '[player] RAM CACHE HIT (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] (${(ramBuf.length / 1024).round()} KB)',
+          );
+          _ramSource = ramSource;
+          try {
+            await _openSource(ramSource);
+            _loadedSongId = song.id;
+            _resetStreamFailureCounters();
+          } catch (e) {
+            if (identical(_ramSource, ramSource)) _ramSource = null;
+            ramSource.close();
             rethrow;
           }
         } else {
@@ -343,10 +381,19 @@ mixin _PlayerPlayback
           if (token != _playRequestToken) return;
           var streaming = false;
           if (link != null) {
-            // Android hands over the file being written (YouTube blocks the
-            // phone's player from the link itself); desktop streams the link.
+            // Prefer the in-memory buffer when fast engine provides one; on
+            // Android embedded yt-dlp hands over the file being written;
+            // desktop yt-dlp streams the direct link.
+            final ramBuffer = link.ramBuffer;
+            final ramSource = ramBuffer == null
+                ? null
+                : RamAudioSource(
+                    buffer: ramBuffer,
+                    contentType:
+                        link.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
+                  );
             final localPath = link.localPath;
-            final growing = localPath == null
+            final growing = (ramSource != null || localPath == null)
                 ? null
                 : GrowingFileAudioSource(
                     path: localPath,
@@ -359,18 +406,22 @@ mixin _PlayerPlayback
               // leave the player opening it forever, which kept the song on
               // "loading" with no error. Give up and use the cached file.
               final opening = _openSource(
-                growing ??
+                ramSource ??
+                    growing ??
                     AudioSource.uri(Uri.parse(link.url), headers: link.headers),
                 timeout: PlayerService._earlyStreamOpenTimeout,
               );
-              // A fetch that ends with no file (a 403, a dropped connection)
+              unawaited(opening.catchError((Object _) {}));
+              // A fetch that ends with nothing (a 403, a dropped connection)
               // leaves the engine retrying an empty source for seconds before
-              // it reports an error. Once the fetch itself is over with
-              // nothing to play, stop waiting and go straight to the retry.
+              // it reports an error. Once the fetch itself is over without a
+              // file or completed RAM buffer, stop waiting and retry at once.
               final fetchEndedEmpty = Completer<void>();
               unawaited(download.then(
                 (file) {
-                  if (file == null && !fetchEndedEmpty.isCompleted) {
+                  final ramReady = (ramBuffer?.isComplete ?? false) ||
+                      StreamCacheManager.isStreamCachedSync(videoId);
+                  if (file == null && !ramReady && !fetchEndedEmpty.isCompleted) {
                     fetchEndedEmpty.complete();
                   }
                 },
@@ -386,15 +437,19 @@ mixin _PlayerPlayback
               ]);
               if (token != _playRequestToken) {
                 if (growing != null) unawaited(growing.close());
+                ramSource?.close();
                 return;
               }
               _growingSource = growing;
+              _ramSource = ramSource;
+              _loadedSongId = song.id;
               _isBufferingNext = false;
               _bufferingVideoId = null;
               _currentRouteType = StreamRouteType.direct;
               _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
               _currentLoadedFile = null;
-              _currentLoadedFileSize = null;
+              _currentLoadedFileSize =
+                  ramBuffer?.isComplete == true ? ramBuffer!.length : null;
               _currentLoadedFormat = link.ext;
               _resetStreamFailureCounters();
               streaming = true;
@@ -402,26 +457,36 @@ mixin _PlayerPlayback
               DebugLog.write(
                 '[player] STREAMING while caching (${_lastTrackLoadMs}ms): "${song.title}" [$videoId]',
               );
-              // Only the success is used; the fetch keeps caching the file.
+              // Only the success is used; the fetch keeps buffering.
               unawaited(download.catchError((_) => null));
             } catch (e) {
               if (growing != null) unawaited(growing.close());
+              ramSource?.close();
+              if (e is PlayerInterruptedException) rethrow;
+              if (token != _playRequestToken) return;
               DebugLog.write(
                 '[player] Early stream would not play ($e); waiting for the cached file instead',
               );
             }
           }
           File? downloadedFile = streaming ? null : await download;
+          var ramAfter = (streaming || downloadedFile != null)
+              ? null
+              : StreamCacheManager.getRamCachedBuffer(videoId);
 
           // Retry once after short delay if initial resolution returned null
           if (!streaming &&
               downloadedFile == null &&
+              ramAfter == null &&
               !StreamCacheManager.isKnownLive(videoId) &&
               token == _playRequestToken) {
             DebugLog.write('[player] Initial stream fetch for $videoId returned null, retrying once...');
             await Future.delayed(const Duration(milliseconds: 500));
             if (token != _playRequestToken) return;
             downloadedFile = await StreamCacheManager.ensureStreamCached(videoId);
+            if (downloadedFile == null) {
+              ramAfter = StreamCacheManager.getRamCachedBuffer(videoId);
+            }
           }
 
           _isBufferingNext = false;
@@ -432,7 +497,7 @@ mixin _PlayerPlayback
           }
 
           if (streaming) {
-            // Already playing from the direct link; the file is still caching.
+            // Already playing from the direct link or in-memory buffer.
           } else if (downloadedFile != null && await downloadedFile.exists()) {
             _currentRouteType = StreamRouteType.direct;
             _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
@@ -443,6 +508,7 @@ mixin _PlayerPlayback
             DebugLog.write('[player] DOWNLOADED OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] file=${downloadedFile.path} size=${await downloadedFile.length()} bytes');
             try {
               await _openSource(AudioSource.file(downloadedFile.path));
+              _loadedSongId = song.id;
               _resetStreamFailureCounters();
             } on PlayerInterruptedException {
               // A newer load took over the engine: the file is fine, so keep
@@ -454,9 +520,34 @@ mixin _PlayerPlayback
               await StreamCacheManager.evictUnplayable(downloadedFile);
               rethrow;
             }
+          } else if (ramAfter != null) {
+            final ramSource = RamAudioSource(
+              buffer: ramAfter,
+              contentType: ramAfter.ext == 'webm' ? 'audio/webm' : 'audio/mp4',
+            );
+            _currentRouteType = StreamRouteType.direct;
+            _lastTrackLoadMs = stopwatch.elapsedMilliseconds;
+            _currentLoadedFile = null;
+            _currentLoadedFileSize = ramAfter.length;
+            _currentLoadedFormat = ramAfter.ext;
+            notifyListeners();
+            DebugLog.write(
+              '[player] BUFFERED IN RAM OK (${_lastTrackLoadMs}ms): "${song.title}" [$videoId] size=${ramAfter.length} bytes',
+            );
+            _ramSource = ramSource;
+            try {
+              await _openSource(ramSource);
+              _loadedSongId = song.id;
+              _resetStreamFailureCounters();
+            } catch (e) {
+              if (identical(_ramSource, ramSource)) _ramSource = null;
+              ramSource.close();
+              rethrow;
+            }
           } else if (StreamCacheManager.isKnownLive(videoId) &&
               await _playLiveStream(song, videoId, token, stopwatch)) {
             if (token != _playRequestToken) return;
+            _loadedSongId = song.id;
           } else {
             _pendingNaturalAdvance = false;
             _consecutiveStreamFailures++;
@@ -520,6 +611,7 @@ mixin _PlayerPlayback
         notifyListeners();
         try {
           await _openSource(AudioSource.file(file.path));
+          _loadedSongId = song.id;
         } catch (e) {
           // Never delete the song here. Failing to open a file says little about
           // the file: the audio backend may not have started, the output device
@@ -756,7 +848,7 @@ mixin _PlayerPlayback
     _lastInteraction = DateTime.now();
     _silenceTail();
     _isManuallyPaused = true;
-    _playRequestToken++;
+    final pauseToken = ++_playRequestToken;
     _preloadDebounceTimer?.cancel();
     _preloadDebounceTimer = null;
     if (_isPreloadingUpcoming || StreamCacheManager.isActiveDownloadPreload) {
@@ -781,6 +873,9 @@ mixin _PlayerPlayback
           // A failure to fade must not leave the player audible: fall
           // through to the pause below.
           DebugLog.write('[player] pause fade failed: $e');
+        }
+        if (_playRequestToken != pauseToken || !_isManuallyPaused) {
+          return;
         }
       }
       await _player.pause();
@@ -807,6 +902,15 @@ mixin _PlayerPlayback
     // doubles as "retry this track" while an error is on screen.
     if (_playbackError != null) {
       await retryCurrent();
+      return;
+    }
+    if (_loadedSongId != currentSong!.id) {
+      await playSong(
+        currentSong!,
+        queue: _queue,
+        sourceId: queueSourceId,
+        sourceTitle: queueTitle,
+      );
       return;
     }
     _isManuallyPaused = false;
@@ -913,6 +1017,7 @@ mixin _PlayerPlayback
       return;
     }
     _isAdvancing = true;
+    final myAdvance = ++_advanceId;
     final advanceToken = _playRequestToken;
     try {
       if (!crossfade && _player.playing && _userVolume > 0.05) {
@@ -992,15 +1097,18 @@ mixin _PlayerPlayback
     } catch (e) {
       DebugLog.write('[player] next error: $e');
     } finally {
-      _isAdvancing = false;
-      // Only a hand-off that reached playSong uses the long fade-in.
-      _pendingFadeIn = null;
+      if (_advanceId == myAdvance) {
+        _isAdvancing = false;
+        // Only a hand-off that reached playSong uses the long fade-in.
+        _pendingFadeIn = null;
+      }
     }
   }
 
   Future<void> previous() async {
     if (_queue.isEmpty || _isAdvancing) return;
     _isAdvancing = true;
+    final myAdvance = ++_advanceId;
     final advanceToken = _playRequestToken;
     try {
       if (_player.playing && _userVolume > 0.05) {
@@ -1052,7 +1160,9 @@ mixin _PlayerPlayback
     } finally {
       // No volume restore here: playSong, seek and _replayCurrent set their
       // own, and forcing full volume after playSong cut into its fade-in.
-      _isAdvancing = false;
+      if (_advanceId == myAdvance) {
+        _isAdvancing = false;
+      }
     }
   }
 

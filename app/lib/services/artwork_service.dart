@@ -76,10 +76,8 @@ class ArtworkService {
           ArtworkPalette.bytes(song) ??
           await ArtworkPalette.bytesAsync(song);
       if (bytes != null && bytes.isNotEmpty) {
-        if (!await file.exists()) {
-          await file.create(recursive: true);
-          await file.writeAsBytes(bytes, flush: true);
-        }
+        await file.create(recursive: true);
+        await file.writeAsBytes(bytes, flush: true);
         return Uri.file(file.path);
       }
     } catch (e) {

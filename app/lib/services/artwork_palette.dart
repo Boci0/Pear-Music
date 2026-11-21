@@ -298,6 +298,7 @@ class ArtworkPalette {
       if (resp.statusCode == 200) {
         return await consolidateHttpClientResponseBytes(resp);
       }
+      await resp.drain<void>();
     } catch (e) {
       DebugLog.write('[palette] artwork download failed: $e');
     }

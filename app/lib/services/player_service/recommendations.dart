@@ -49,6 +49,7 @@ mixin _PlayerRecommendations on ChangeNotifier {
     }
     _lastInteraction = DateTime.now();
     _continuationToken = null;
+    _recFetchGen++;
     _isLoadingRecommendations = false;
     _recommendationsCompleter = null;
     queueSourceId = 'radio';
@@ -94,6 +95,7 @@ mixin _PlayerRecommendations on ChangeNotifier {
   }
 
   Completer<bool>? _recommendationsCompleter;
+  int _recFetchGen = 0;
 
   /// Fetches the next batch of recommendations and appends them to [_queue].
   Future<bool> fetchAndAppendRecommendations() async {
@@ -104,6 +106,7 @@ mixin _PlayerRecommendations on ChangeNotifier {
       return false;
     }
     if (_queue.isEmpty) return false;
+    final myRecGen = ++_recFetchGen;
     _isLoadingRecommendations = true;
     final completer = Completer<bool>();
     _recommendationsCompleter = completer;
@@ -205,9 +208,13 @@ mixin _PlayerRecommendations on ChangeNotifier {
       if (!completer.isCompleted) completer.complete(false);
       return false;
     } finally {
-      _isLoadingRecommendations = false;
-      _recommendationsCompleter = null;
-      notifyListeners();
+      if (_recFetchGen == myRecGen) {
+        _isLoadingRecommendations = false;
+        if (identical(_recommendationsCompleter, completer)) {
+          _recommendationsCompleter = null;
+        }
+        notifyListeners();
+      }
     }
   }
 
@@ -218,6 +225,7 @@ mixin _PlayerRecommendations on ChangeNotifier {
   Future<bool> rerollUpcomingQueue({int? maxCount}) async {
     if (currentSong == null || _queue.isEmpty) return false;
     if (_isLoadingRecommendations) return false;
+    final myRecGen = ++_recFetchGen;
     _isLoadingRecommendations = true;
     notifyListeners();
 
@@ -322,8 +330,10 @@ mixin _PlayerRecommendations on ChangeNotifier {
       DebugLog.write('[radio] Reroll failed: $e');
       return false;
     } finally {
-      _isLoadingRecommendations = false;
-      notifyListeners();
+      if (_recFetchGen == myRecGen) {
+        _isLoadingRecommendations = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -336,6 +346,7 @@ mixin _PlayerRecommendations on ChangeNotifier {
       _isRerolling = false;
       return false;
     }
+    final myRecGen = ++_recFetchGen;
     _isLoadingRecommendations = true;
     notifyListeners();
     bool changed = false;
@@ -463,9 +474,13 @@ mixin _PlayerRecommendations on ChangeNotifier {
       DebugLog.write('[radio] rerollNextTrackOnly error: $e');
       return false;
     } finally {
-      _isLoadingRecommendations = false;
-      _isRerolling = false;
-      notifyListeners();
+      if (_recFetchGen == myRecGen) {
+        _isLoadingRecommendations = false;
+        _isRerolling = false;
+        notifyListeners();
+      } else {
+        _isRerolling = false;
+      }
       if (changed) {
         final nextS =
             _queue.length > _queueIndex + 1 ? _queue[_queueIndex + 1] : null;

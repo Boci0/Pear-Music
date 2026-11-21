@@ -1449,6 +1449,8 @@ class LyricsService {
             return plain;
           }
         }
+      } else {
+        await res.drain<void>();
       }
     } catch (e) {
       DebugLog.write('[lyrics] LRCLIB request failed: $e');
@@ -1470,6 +1472,8 @@ class LyricsService {
         if (data is List) {
           return data;
         }
+      } else {
+        await res.drain<void>();
       }
     } catch (e) {
       DebugLog.write('[lyrics] LRCLIB list request failed: $e');

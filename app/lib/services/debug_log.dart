@@ -19,8 +19,14 @@ class DebugLog {
 
   static File? _file;
   static bool _initTried = false;
+  static Future<void>? _initFuture;
   static Future<void>? _pending;
   static final List<String> _buffer = [];
+  static final List<String> _writeQueue = [];
+  static Timer? _flushTimer;
+  static int _writtenBytes = 0;
+  static const int _flushBatchLines = 32;
+  static const Duration _flushDelay = Duration(milliseconds: 250);
   static final StreamController<String> _liveController = StreamController<String>.broadcast();
   static final List<String> _recentLogs = [];
   static const int _maxRecentLogs = 80;
@@ -60,50 +66,103 @@ class DebugLog {
   /// can exercise the first-init path again.
   @visibleForTesting
   static void resetForTesting() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _writeQueue.clear();
+    _writtenBytes = 0;
     _file = null;
     _initTried = false;
+    _initFuture = null;
     _pending = null;
     _buffer.clear();
     _recentLogs.clear();
   }
 
-  /// Appends [formattedLine] to [file] through the shared write chain, so a
-  /// burst of log lines is written in order and no caller waits on the disk.
-  static void _appendToFile(File file, String formattedLine) {
+  /// Flushes any queued log lines to disk so tests can inspect the log file.
+  @visibleForTesting
+  static Future<void> flushForTesting() async {
+    if (_initFuture != null) {
+      await _initFuture;
+    }
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    final f = _file;
+    if (f != null && _writeQueue.isNotEmpty) {
+      _flushNow(f);
+    }
+    if (_pending != null) {
+      await _pending;
+    }
+  }
+
+  /// Writes the queued batch to [file] through the shared write chain and
+  /// rotates once mid-session if the file crosses [_maxBytes].
+  static void _flushNow(File file) {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    if (_writeQueue.isEmpty) return;
+    final batch = '${_writeQueue.join('\n')}\n';
+    _writeQueue.clear();
     final out = _pending ?? Future<void>.value();
     _pending = out.then((_) async {
       try {
-        await file.writeAsString('$formattedLine\n',
-            mode: FileMode.append, flush: false);
+        await file.writeAsString(batch, mode: FileMode.append, flush: false);
+        _writtenBytes += utf8.encode(batch).length;
+        if (_writtenBytes > _maxBytes) {
+          final rotated = newestHalf(await file.readAsBytes());
+          await file.writeAsString(rotated, flush: false);
+          _writtenBytes = utf8.encode(rotated).length;
+        }
       } catch (_) {}
+    });
+  }
+
+  /// Queues [formattedLine] for batched disk appending so bursts of log lines
+  /// coalesce into one syscall instead of one open/append/close per line.
+  static void _appendToFile(File file, String formattedLine) {
+    _writeQueue.add(formattedLine);
+    if (_writeQueue.length >= _flushBatchLines) {
+      _flushNow(file);
+      return;
+    }
+    _flushTimer ??= Timer(_flushDelay, () {
+      _flushTimer = null;
+      _flushNow(file);
     });
   }
 
   static void _ensureInit() {
     if (_initTried) return;
     _initTried = true;
-    unawaited(() async {
+    _initFuture = () async {
       try {
         final dir =
             debugBaseDirectory ?? await getApplicationSupportDirectory();
         final f = File(p.join(dir.path, 'peerm_debug.log'));
-        if (await f.exists() && await f.length() > _maxBytes) {
-          // Rotate: keep only the newest half.
-          await f.writeAsString(newestHalf(await f.readAsBytes()));
+        if (await f.exists()) {
+          _writtenBytes = await f.length();
+          if (_writtenBytes > _maxBytes) {
+            // Rotate: keep only the newest half.
+            final rotated = newestHalf(await f.readAsBytes());
+            await f.writeAsString(rotated);
+            _writtenBytes = utf8.encode(rotated).length;
+          }
+        } else {
+          _writtenBytes = 0;
         }
         _file = f;
         // Lines logged while the path was still being resolved are written
         // now, in order, instead of being dropped for the whole session.
         if (_buffer.isNotEmpty) {
-          for (final buffered in _buffer) {
-            _appendToFile(f, buffered);
-          }
+          _writeQueue.addAll(_buffer);
           _buffer.clear();
+          _flushNow(f);
         }
       } catch (_) {
         _file = null; // logging unavailable; silently drop lines
       }
-    }());
+    }();
+    unawaited(_initFuture);
   }
 
   /// Whether lines are also printed to the system log (Android's logcat).
