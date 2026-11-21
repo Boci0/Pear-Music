@@ -302,4 +302,185 @@ void main() {
     expect(VideoService.higherHeight(720), 1080);
     expect(VideoService.higherHeight(1080), isNull);
   });
+
+  group('slow-load sync', () {
+    test('hasSeekLanded waits for mpv to move onto the target', () {
+      const origin = Duration(seconds: 5);
+      const aim = Duration(seconds: 33);
+      expect(
+        VideoService.hasSeekLanded(
+          video: aim,
+          aim: aim,
+          origin: origin,
+          sinceSeek: const Duration(milliseconds: 200),
+        ),
+        isFalse,
+      );
+      expect(
+        VideoService.hasSeekLanded(
+          video: origin,
+          aim: aim,
+          origin: origin,
+          sinceSeek: const Duration(seconds: 2),
+        ),
+        isFalse,
+      );
+      expect(
+        VideoService.hasSeekLanded(
+          video: aim,
+          aim: aim,
+          origin: origin,
+          sinceSeek: const Duration(seconds: 2),
+        ),
+        isTrue,
+      );
+      // Keyframe within a few seconds after a large jump counts as landed.
+      expect(
+        VideoService.hasSeekLanded(
+          video: const Duration(seconds: 30),
+          aim: aim,
+          origin: origin,
+          sinceSeek: const Duration(seconds: 3),
+        ),
+        isTrue,
+      );
+    });
+
+    test('landing late after a slow load updates lead and re-syncs immediately', () {
+      // Seek aimed at 33s (audio was 30s + 3s lead) took 8s, so audio is now 38s.
+      final plan = VideoService.planSync(
+        video: const Duration(seconds: 33),
+        audio: const Duration(seconds: 38),
+        videoPlaying: true,
+        audioPlaying: true,
+        buffering: false,
+        stream: true,
+        lead: VideoService.streamLead,
+        landing: true,
+        lastSeekTarget: const Duration(seconds: 30),
+        seekAim: const Duration(seconds: 33),
+        seekOrigin: const Duration(seconds: 5),
+        sinceSeek: const Duration(seconds: 8),
+      );
+      expect(plan.lead, const Duration(seconds: 9));
+      expect(plan.seekTo, const Duration(seconds: 38 + 9));
+      expect(plan.reopen, isTrue);
+      expect(plan.recordSeek, isTrue);
+    });
+
+    test('landing early holds the picture paused until audio catches up', () {
+      // Seek aimed at 38s landed in 2s (audio at 32s? wait: 35s - 32s = 3s ahead).
+      final hold = VideoService.planSync(
+        video: const Duration(seconds: 35),
+        audio: const Duration(seconds: 32),
+        videoPlaying: true,
+        audioPlaying: true,
+        buffering: false,
+        stream: true,
+        lead: const Duration(seconds: 6),
+        landing: true,
+        lastSeekTarget: const Duration(seconds: 29),
+        seekAim: const Duration(seconds: 35),
+        seekOrigin: const Duration(seconds: 10),
+        sinceSeek: const Duration(seconds: 2),
+      );
+      expect(hold.holdingAhead, isTrue);
+      expect(hold.play, isFalse);
+      expect(hold.seekTo, isNull);
+      expect(hold.lead, VideoService.streamLead);
+
+      // Still waiting while audio is at 34s (1s behind picture).
+      final waiting = VideoService.planSync(
+        video: const Duration(seconds: 35),
+        audio: const Duration(seconds: 34),
+        videoPlaying: false,
+        audioPlaying: true,
+        buffering: false,
+        stream: true,
+        holdingAhead: true,
+      );
+      expect(waiting.holdingAhead, isTrue);
+      expect(waiting.play, isNull);
+
+      // Audio reached within 100ms: resume playback in sync.
+      final release = VideoService.planSync(
+        video: const Duration(seconds: 35),
+        audio: const Duration(milliseconds: 34920),
+        videoPlaying: false,
+        audioPlaying: true,
+        buffering: false,
+        stream: true,
+        holdingAhead: true,
+      );
+      expect(release.holdingAhead, isFalse);
+      expect(release.play, isTrue);
+      expect(release.seekTo, isNull);
+    });
+
+    test('large overshoot beyond maxHoldAhead seeks back without extra lead', () {
+      final plan = VideoService.planSync(
+        video: const Duration(seconds: 44),
+        audio: const Duration(seconds: 31),
+        videoPlaying: true,
+        audioPlaying: true,
+        buffering: false,
+        stream: true,
+        lead: const Duration(seconds: 15),
+        landing: true,
+        lastSeekTarget: const Duration(seconds: 29),
+        seekAim: const Duration(seconds: 44),
+        seekOrigin: const Duration(seconds: 5),
+        sinceSeek: const Duration(seconds: 2),
+      );
+      expect(plan.holdingAhead, isFalse);
+      expect(plan.lead, VideoService.streamLead);
+      expect(plan.seekTo, const Duration(seconds: 34));
+      expect(plan.reopen, isTrue);
+    });
+
+    test('paused audio during slow load does not trigger repeated seeks or lead', () {
+      // Seek in flight for 3s while audio is paused at 60s.
+      final waiting = VideoService.planSync(
+        video: const Duration(seconds: 10),
+        audio: const Duration(seconds: 60),
+        videoPlaying: false,
+        audioPlaying: false,
+        buffering: false,
+        stream: true,
+        landing: true,
+        lastSeekTarget: const Duration(seconds: 60),
+        seekAim: const Duration(seconds: 60),
+        seekOrigin: const Duration(seconds: 10),
+        sinceSeek: const Duration(seconds: 3),
+      );
+      expect(waiting.seekTo, isNull);
+
+      // Initial seek when paused aims directly at audio without adding streamLead.
+      final initial = VideoService.planSync(
+        video: const Duration(seconds: 10),
+        audio: const Duration(seconds: 60),
+        videoPlaying: false,
+        audioPlaying: false,
+        buffering: false,
+        stream: true,
+      );
+      expect(initial.seekTo, const Duration(seconds: 60));
+    });
+
+    test('moderate behind drift with ample buffer catches up by rate nudge', () {
+      final catchUp = VideoService.planSync(
+        video: const Duration(seconds: 30),
+        audio: const Duration(milliseconds: 31200),
+        buffer: const Duration(seconds: 40),
+        videoPlaying: true,
+        audioPlaying: true,
+        buffering: false,
+        videoRate: 1.0,
+        audioSpeed: 1.0,
+        stream: true,
+      );
+      expect(catchUp.seekTo, isNull);
+      expect(catchUp.rate, closeTo(1.15, 0.001));
+    });
+  });
 }

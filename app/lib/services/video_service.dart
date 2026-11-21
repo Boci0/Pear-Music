@@ -57,6 +57,33 @@ class StallMeter {
   void clear() => _at.clear();
 }
 
+/// Outcome of one sync tick in [VideoService._followAudio], extracted so the
+/// timing and lead-compensation state machine can be unit-tested directly.
+@visibleForTesting
+class VideoSyncPlan {
+  const VideoSyncPlan({
+    this.play,
+    this.rate,
+    this.seekTo,
+    this.reopen = false,
+    required this.holdingAhead,
+    required this.landing,
+    required this.lead,
+    required this.clearPendingSeek,
+    required this.recordSeek,
+  });
+
+  final bool? play;
+  final double? rate;
+  final Duration? seekTo;
+  final bool reopen;
+  final bool holdingAhead;
+  final bool landing;
+  final Duration lead;
+  final bool clearPendingSeek;
+  final bool recordSeek;
+}
+
 /// Whether the buffer ahead of the sound is enough to start the picture.
 enum Preroll { ready, waiting, tooSlow }
 
@@ -296,6 +323,11 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   static const Duration streamLead = Duration(seconds: 3);
   static const Duration maxLead = Duration(seconds: 15);
 
+  /// Maximum time to pause an early-landed picture waiting for audio to catch
+  /// up; larger ahead gaps (e.g. a rewind or huge overshoot) seek directly.
+  static const Duration maxHoldAhead = Duration(seconds: 6);
+  static const Duration _holdRelease = Duration(milliseconds: 120);
+
   /// The lead to aim the next seek with, from how long the last one took to
   /// land (the picture playing again).
   @visibleForTesting
@@ -303,6 +335,202 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     final lead = took + const Duration(seconds: 1);
     if (lead < streamLead) return streamLead;
     return lead > maxLead ? maxLead : lead;
+  }
+
+  /// Whether an in-flight seek/reopen aimed at [aim] from [origin] has
+  /// settled onto its target position.
+  @visibleForTesting
+  static bool hasSeekLanded({
+    required Duration video,
+    required Duration aim,
+    Duration? origin,
+    required Duration sinceSeek,
+  }) {
+    if (sinceSeek < const Duration(milliseconds: 400)) return false;
+    final moved =
+        origin == null || (video - origin).abs() > const Duration(milliseconds: 150);
+    if ((video - aim).abs() <= const Duration(seconds: 2) &&
+        (moved || sinceSeek >= const Duration(seconds: 1))) {
+      return true;
+    }
+    if (origin != null &&
+        (origin - aim).abs() > const Duration(seconds: 4) &&
+        (video - origin).abs() > const Duration(seconds: 2) &&
+        (video - aim).abs() < (origin - aim).abs()) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Computes the next sync action for `_followAudio`.
+  @visibleForTesting
+  static VideoSyncPlan planSync({
+    required Duration video,
+    required Duration audio,
+    Duration buffer = Duration.zero,
+    required bool videoPlaying,
+    required bool audioPlaying,
+    required bool buffering,
+    double videoRate = 1.0,
+    double audioSpeed = 1.0,
+    required bool stream,
+    Duration lead = streamLead,
+    bool landing = false,
+    bool holdingAhead = false,
+    Duration? lastSeekTarget,
+    Duration? seekAim,
+    Duration? seekOrigin,
+    Duration? sinceSeek,
+  }) {
+    if (buffering) {
+      bool? play;
+      if (!audioPlaying && videoPlaying) {
+        play = false;
+      } else if (audioPlaying && !holdingAhead && !videoPlaying) {
+        play = true;
+      }
+      return VideoSyncPlan(
+        play: play,
+        holdingAhead: holdingAhead,
+        landing: landing,
+        lead: lead,
+        clearPendingSeek: false,
+        recordSeek: false,
+      );
+    }
+
+    var nextLanding = landing;
+    var nextLead = lead;
+    var activeTarget = lastSeekTarget;
+    var activeSince = sinceSeek;
+    var cleared = false;
+
+    if (activeTarget != null && seekAim != null && activeSince != null) {
+      if (hasSeekLanded(
+        video: video,
+        aim: seekAim,
+        origin: seekOrigin,
+        sinceSeek: activeSince,
+      )) {
+        if (nextLanding) {
+          nextLanding = false;
+          if (stream && audioPlaying) {
+            nextLead = leadAfterLanding(activeSince);
+          }
+        }
+        activeTarget = null;
+        activeSince = null;
+        cleared = true;
+      }
+    } else if (nextLanding &&
+        activeSince != null &&
+        activeSince > const Duration(milliseconds: 1500)) {
+      nextLanding = false;
+      if (stream && audioPlaying) {
+        nextLead = leadAfterLanding(activeSince);
+      }
+    }
+
+    final ahead = video - audio;
+    var nextHolding = holdingAhead;
+    if (nextHolding) {
+      if (ahead > maxHoldAhead) {
+        nextHolding = false;
+      } else if (!audioPlaying) {
+        return VideoSyncPlan(
+          play: videoPlaying ? false : null,
+          holdingAhead: true,
+          landing: nextLanding,
+          lead: nextLead,
+          clearPendingSeek: cleared,
+          recordSeek: false,
+        );
+      } else if (ahead <= _holdRelease) {
+        nextHolding = false;
+      } else {
+        return VideoSyncPlan(
+          play: videoPlaying ? false : null,
+          holdingAhead: true,
+          landing: nextLanding,
+          lead: nextLead,
+          clearPendingSeek: cleared,
+          recordSeek: false,
+        );
+      }
+    }
+
+    // If a seek/load landed moderately ahead of audio, hold the video frame
+    // paused until audio catches up instead of playing out of sync or seeking.
+    if (!nextHolding &&
+        activeTarget == null &&
+        audioPlaying &&
+        ahead > maxDrift &&
+        ahead <= maxHoldAhead) {
+      if (stream && ahead > const Duration(seconds: 2)) {
+        nextLead = streamLead;
+      }
+      return VideoSyncPlan(
+        play: videoPlaying ? false : null,
+        holdingAhead: true,
+        landing: nextLanding,
+        lead: nextLead,
+        clearPendingSeek: cleared,
+        recordSeek: false,
+      );
+    }
+
+    final bool? play = audioPlaying != videoPlaying ? audioPlaying : null;
+
+    if (shouldSeek(
+      video: video,
+      audio: audio,
+      lastTarget: activeTarget,
+      sinceLast: activeSince,
+      speed: audioPlaying ? audioSpeed : 0.0,
+      stream: stream,
+    )) {
+      if (ahead > maxHoldAhead && stream) {
+        nextLead = streamLead;
+      }
+      final inBuffer =
+          stream && audio >= video && buffer >= audio + const Duration(seconds: 1);
+      final aimLead = (stream && audioPlaying && !inBuffer)
+          ? Duration(milliseconds: (nextLead.inMilliseconds * audioSpeed).round())
+          : Duration.zero;
+      final target = audio + aimLead;
+      final reopen = stream && ahead.abs() > reopenDrift && !inBuffer;
+      return VideoSyncPlan(
+        play: play,
+        seekTo: target,
+        reopen: reopen,
+        holdingAhead: false,
+        landing: stream,
+        lead: nextLead,
+        clearPendingSeek: cleared,
+        recordSeek: true,
+      );
+    }
+
+    var desiredRate = audioSpeed;
+    if (activeTarget == null && stream && audioPlaying && !nextHolding) {
+      final behind = audio - video;
+      if (behind > maxDrift &&
+          behind <= streamDrift &&
+          buffer >= audio + const Duration(seconds: 2)) {
+        desiredRate = (audioSpeed * 1.15).clamp(0.5, 2.0);
+      }
+    }
+    final double? rate = (videoRate - desiredRate).abs() > 0.01 ? desiredRate : null;
+
+    return VideoSyncPlan(
+      play: play,
+      rate: rate,
+      holdingAhead: nextHolding,
+      landing: nextLanding,
+      lead: nextLead,
+      clearPendingSeek: cleared,
+      recordSeek: false,
+    );
   }
 
   /// Whether to issue a (new) seek now. [lastTarget] and [sinceLast] describe
@@ -357,8 +585,11 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   int _token = 0;
   Timer? _follow;
   Duration? _lastSeekTarget;
+  Duration? _seekAim;
+  Duration? _seekOrigin;
   Duration _lead = streamLead;
   bool _landing = false;
+  bool _holdingAhead = false;
   final Stopwatch _sinceSeek = Stopwatch();
   Media? _streamMedia;
   Rect _crop = const Rect.fromLTRB(0, 0, 1, 1);
@@ -673,7 +904,11 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
           headers: link.headers,
           relink: ytDlp,
         );
-        media = _streamMedia = Media(local.toString());
+        final startAt = _player.position ?? Duration.zero;
+        media = _streamMedia = Media(
+          local.toString(),
+          start: startAt > const Duration(seconds: 1) ? startAt : null,
+        );
       } else {
         final file = _library.songFile(song);
         if (!await file.exists()) {
@@ -722,11 +957,14 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         }
         return;
       }
-      await video.seek(_player.position ?? Duration.zero);
+      final seekAt = _player.position ?? Duration.zero;
+      if ((video.state.position - seekAt).abs() > const Duration(milliseconds: 500)) {
+        await video.seek(seekAt);
+      }
       if (streamId != null) {
         // The sound plays on meanwhile; the picture starts once it has a lead
         // on it, so it does not begin by stalling on a slow link.
-        final pre = await _prebuffer(video, token, _streamHeight ?? 360);
+        final pre = await _prebuffer(video, token, _streamHeight ?? 360, seekAt);
         if (token != _token || !_shown) return;
         if (!pre.ok) {
           final why = 'too little buffered at ${pre.kbps} kbit/s';
@@ -738,11 +976,58 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       // The seek above can outlast a song change; a slow lookup for the next
       // song would otherwise leave this one's picture on show.
       if (token != _token || !_shown) return;
+      await video.setRate(_player.speed);
+      final target = _player.position ?? Duration.zero;
+      if ((video.state.position - target).abs() > const Duration(milliseconds: 250)) {
+        await video.seek(target);
+        // Wait briefly for mpv to apply the seek so _followAudio does not
+        // observe the stale pre-seek position and reopen the stream.
+        final settle = Stopwatch()..start();
+        while (token == _token &&
+            _shown &&
+            settle.elapsed < const Duration(milliseconds: 1500) &&
+            (video.state.position - target).abs() > const Duration(seconds: 1)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        if (token != _token || !_shown) return;
+      }
+      var activeTarget = target;
+      final audioNow = _player.position ?? Duration.zero;
+      final driftNow = video.state.position - audioNow;
+      if (driftNow < -maxDrift &&
+          video.state.buffer >= audioNow + const Duration(milliseconds: 500)) {
+        activeTarget = audioNow;
+        await video.seek(audioNow);
+        if (token != _token || !_shown) return;
+      }
+      final settledAudio = _player.position ?? Duration.zero;
+      final seekPending =
+          (video.state.position - activeTarget).abs() > const Duration(seconds: 1);
+      if (seekPending) {
+        _recordPendingSeek(
+          audioPos: settledAudio,
+          target: activeTarget,
+          origin: video.state.position,
+          stream: streamId != null,
+        );
+      } else {
+        _clearPendingSeek();
+      }
+      if (_player.playing) {
+        final ahead = video.state.position - settledAudio;
+        if (!seekPending && ahead > maxDrift && ahead <= maxHoldAhead) {
+          _holdingAhead = true;
+          if (video.state.playing) await video.pause();
+        } else {
+          _holdingAhead = false;
+          await video.play();
+        }
+      } else if (video.state.playing) {
+        await video.pause();
+      }
+      if (token != _token || !_shown) return;
       _ready = true;
       _steadySince = DateTime.now();
-      await video.setRate(_player.speed);
-      await video.seek(_player.position ?? Duration.zero);
-      if (_player.playing) await video.play();
       notifyListeners();
       unawaited(_trimBars(token, video));
     } on VideoUnavailable catch (e) {
@@ -762,8 +1047,10 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     Player video,
     int token,
     int height,
+    Duration seekAt,
   ) async {
     final waited = Stopwatch()..start();
+    var anchor = seekAt;
     // The first second carries the file header in one burst, which would
     // overstate the link; the speed is measured from there on.
     int? from;
@@ -776,10 +1063,22 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     while (token == _token && _shown) {
+      final at = _player.position ?? Duration.zero;
+      if (at < anchor - const Duration(seconds: 2) ||
+          at > anchor + prerollMax + const Duration(seconds: 4)) {
+        anchor = at;
+        await video.seek(at);
+        if (token != _token || !_shown) return (ok: true, kbps: 0);
+        waited
+          ..reset()
+          ..start();
+        from = null;
+        continue;
+      }
       final speed = kbps();
       final verdict = prerollVerdict(
         buffered: video.state.buffer,
-        at: _player.position ?? Duration.zero,
+        at: at,
         waited: waited.elapsed,
         total: video.state.duration,
         rate: speed == 0 ? null : speed / rungKbps(height),
@@ -810,11 +1109,17 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
   /// drags on, mean the link is below the picture's rate.
   void _onBuffering(bool buffering) {
     _longStall?.cancel();
-    if (!buffering || !_ready || !_player.playing || _streamMedia == null) {
+    if (!buffering ||
+        !_ready ||
+        !_player.playing ||
+        _holdingAhead ||
+        _streamMedia == null) {
       return;
     }
     _steadySince = null;
-    if (_stalls.record(DateTime.now())) {
+    final expectedSeekBuffer =
+        _landing && _sinceSeek.elapsed < const Duration(seconds: 3);
+    if (!expectedSeekBuffer && _stalls.record(DateTime.now())) {
       _slower('stalled again within ${StallMeter.window.inSeconds} s');
       return;
     }
@@ -963,39 +1268,76 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
     return player;
   }
 
+  void _recordPendingSeek({
+    required Duration audioPos,
+    required Duration target,
+    required Duration origin,
+    required bool stream,
+  }) {
+    _lastSeekTarget = audioPos;
+    _seekAim = target;
+    _seekOrigin = origin;
+    _landing = stream;
+    _sinceSeek
+      ..reset()
+      ..start();
+  }
+
+  void _clearPendingSeek() {
+    _lastSeekTarget = null;
+    _seekAim = null;
+    _seekOrigin = null;
+    _landing = false;
+    _sinceSeek.stop();
+  }
+
   void _followAudio() {
     final video = _video;
     if (!_ready || video == null) return;
     final playing = _player.playing;
-    if (playing != video.state.playing) {
-      unawaited(playing ? video.play() : video.pause());
-    }
-    // Seeking a stalled stream throws away what it just fetched and stalls it
-    // again; once it plays it is brought back to the sound.
-    if (video.state.buffering) return;
-    if (_landing && _sinceSeek.elapsed > const Duration(milliseconds: 1500)) {
-      _landing = false;
-      _lead = leadAfterLanding(_sinceSeek.elapsed);
-    }
     final audioPos = _player.position ?? Duration.zero;
-    if (shouldSeek(
+    final stream = _streamMedia;
+    final plan = planSync(
       video: video.state.position,
       audio: audioPos,
-      lastTarget: _lastSeekTarget,
-      sinceLast: _lastSeekTarget == null ? null : _sinceSeek.elapsed,
-      speed: _player.speed,
-      stream: _streamMedia != null,
-    )) {
-      _lastSeekTarget = audioPos;
-      _sinceSeek
-        ..reset()
-        ..start();
-      final stream = _streamMedia;
-      // Aimed ahead of the sound by what landing takes (see [streamLead]).
-      final target = stream == null ? audioPos : audioPos + _lead;
-      _landing = stream != null;
-      if (stream != null &&
-          (video.state.position - audioPos).abs() > reopenDrift) {
+      buffer: video.state.buffer,
+      videoPlaying: video.state.playing,
+      audioPlaying: playing,
+      buffering: video.state.buffering,
+      videoRate: video.state.rate,
+      audioSpeed: _player.speed,
+      stream: stream != null,
+      lead: _lead,
+      landing: _landing,
+      holdingAhead: _holdingAhead,
+      lastSeekTarget: _lastSeekTarget,
+      seekAim: _seekAim,
+      seekOrigin: _seekOrigin,
+      sinceSeek: _lastSeekTarget == null ? null : _sinceSeek.elapsed,
+    );
+    _holdingAhead = plan.holdingAhead;
+    _landing = plan.landing;
+    _lead = plan.lead;
+    if (plan.clearPendingSeek) {
+      _lastSeekTarget = null;
+      _seekAim = null;
+      _seekOrigin = null;
+      _sinceSeek.stop();
+    }
+    if (plan.play != null) {
+      unawaited(plan.play! ? video.play() : video.pause());
+    }
+    if (plan.seekTo != null) {
+      final target = plan.seekTo!;
+      if (plan.recordSeek) {
+        _recordPendingSeek(
+          audioPos: audioPos,
+          target: target,
+          origin: video.state.position,
+          stream: stream != null,
+        );
+      }
+      if (plan.reopen && stream != null) {
         unawaited(
           video.open(
             Media(stream.uri, httpHeaders: stream.httpHeaders, start: target),
@@ -1006,17 +1348,16 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         unawaited(video.seek(target));
       }
     }
-    if ((video.state.rate - _player.speed).abs() > 0.01) {
-      unawaited(video.setRate(_player.speed));
+    if (plan.rate != null) {
+      unawaited(video.setRate(plan.rate!));
     }
   }
 
   /// Clears everything that belongs to the picture of one song.
   void _resetPicture() {
-    _lastSeekTarget = null;
+    _clearPendingSeek();
     _lead = streamLead;
-    _landing = false;
-    _sinceSeek.stop();
+    _holdingAhead = false;
     _streamMedia = null;
     _crop = const Rect.fromLTRB(0, 0, 1, 1);
     _streamHeight = null;
