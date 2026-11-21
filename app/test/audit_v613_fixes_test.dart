@@ -335,18 +335,22 @@ void main() {
 
       final f1 = File(p.join(sandbox.path, 'song1111111.webm'))
         ..writeAsBytesSync(List.filled(60000, 1));
+      final s2Started = Completer<void>();
+      final s2Gate = Completer<File?>();
       StreamCacheManager.debugEnsureStreamCachedOverride =
           (videoId, {required isPreload}) async {
         if (videoId == 'song1111111') return f1;
-        return Completer<File?>().future;
+        if (!s2Started.isCompleted) s2Started.complete();
+        return s2Gate.future;
       };
 
       await player.playSong(s1, queue: [s1, s2]);
       expect(audio.loaded, hasLength(1));
 
       final load2 = player.playSong(s2, queue: [s1, s2]);
-      await Future<void>.delayed(const Duration(milliseconds: 15));
+      await s2Started.future.timeout(const Duration(seconds: 5));
       await player.pause();
+      if (!s2Gate.isCompleted) s2Gate.complete(null);
       await load2;
 
       expect(player.currentSong?.id, s2.id);
