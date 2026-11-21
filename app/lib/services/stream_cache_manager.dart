@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,6 +13,7 @@ import 'backup_audio_engine.dart';
 import 'debug_log.dart';
 import 'innertube_audio_engine.dart';
 import 'library_service.dart';
+import 'ram_audio_source.dart';
 import 'recommendation_service.dart';
 import 'resolved_link_cache.dart';
 import 'youtube_service.dart';
@@ -82,12 +84,17 @@ class ResolvedStream {
   /// player from fetching the link directly, but not yt-dlp).
   final String? localPath;
 
+  /// In-memory audio buffer being filled by the fast engine, allowing
+  /// zero-disk-write early playback via [RamAudioSource].
+  final RamAudioBuffer? ramBuffer;
+
   const ResolvedStream({
     required this.url,
     this.headers = const {},
     this.ext,
     this.filesize,
     this.localPath,
+    this.ramBuffer,
   });
 
   ResolvedStream withLocalPath(String path) => ResolvedStream(
@@ -96,6 +103,7 @@ class ResolvedStream {
     ext: ext,
     filesize: filesize,
     localPath: path,
+    ramBuffer: ramBuffer,
   );
 }
 
@@ -376,47 +384,60 @@ class StreamCacheManager {
     unawaited(enforceCacheQuota());
   }
 
-  /// Tries the fast engine for [videoId]. Returns the cached file, or null
-  /// when it is off, backing off, or could not fetch it, in which case yt-dlp
-  /// goes on to do it exactly as before and nothing is recorded as a failure.
-  static Future<File?> _fetchWithFastEngine(
+  /// Tries the fast engine for [videoId]. Returns a record describing whether
+  /// the track landed on disk or in the RAM cache.
+  static Future<({File? file, bool cachedInRam})> _fetchWithFastEngine(
     String videoId,
     Directory dir, {
     required int token,
     required bool isPreload,
     required int preloadSeq,
   }) async {
-    if (!fastEngineEnabled) return null;
-    if (_underFlutterTest && !debugAllowFastEngineInTests) return null;
-    if (token != _downloadInvocationToken) return null;
+    if (!fastEngineEnabled) return (file: null, cachedInRam: false);
+    if (_underFlutterTest && !debugAllowFastEngineInTests) {
+      return (file: null, cachedInRam: false);
+    }
+    if (token != _downloadInvocationToken) {
+      return (file: null, cachedInRam: false);
+    }
     final stopwatch = Stopwatch()..start();
     final result = await InnerTubeAudioEngine.fetch(
       videoId,
       dir: dir,
       preferAac: !_isDesktopEngine,
+      writeToDisk: false,
       shouldAbort: () =>
           token != _downloadInvocationToken ||
           _activeDownloadingVideoId != videoId ||
           (isPreload && _preloadFetchStale(preloadSeq, videoId)),
-      // A few megabytes in, playback can start from the file being written
-      // instead of waiting for all of it (the same hand-over the Android
-      // yt-dlp fetch makes); the fetch goes on and completes the cache entry.
-      onReadable: (temp, pick) => _publishResolvedStream(
+      // A few megabytes in, playback can start from the RAM buffer being
+      // filled instead of waiting for all of it; once complete it stays in
+      // RAM until playback finishes or the user saves it to the library.
+      onReadableBuffer: (buffer, pick) => _publishResolvedStream(
         videoId,
         ResolvedStream(
           url: '',
-          // The temp file's name ends with the container's extension.
-          ext: p.extension(temp.path).replaceFirst('.', ''),
+          ext: buffer.ext,
           filesize: pick.bytes > 0 ? pick.bytes : null,
-          localPath: temp.path,
+          ramBuffer: buffer,
         ),
       ),
     );
+    final buffer = result.buffer;
+    if (buffer != null) {
+      _adoptRamBuffer(videoId, buffer);
+      DebugLog.write(
+        '[cache] Fast engine buffered $videoId in RAM in '
+        '${stopwatch.elapsedMilliseconds}ms '
+        '(${(buffer.length / 1024).round()} KB)',
+      );
+      return (file: null, cachedInRam: true);
+    }
     final file = result.file;
     if (result.error == InnerTubeAudioEngine.liveStreamError) {
       DebugLog.write('[cache] $videoId is a live stream, not caching it');
       _liveVideoIds[videoId] = DateTime.now();
-      return null;
+      return (file: null, cachedInRam: false);
     }
     if (file == null) {
       if (result.error != 'cancelled') {
@@ -425,43 +446,56 @@ class StreamCacheManager {
           '${stopwatch.elapsedMilliseconds}ms (${result.error}), using yt-dlp',
         );
       }
-      return null;
+      return (file: null, cachedInRam: false);
     }
     await _adoptFetchedFile(videoId, file);
     DebugLog.write(
       '[cache] Fast engine cached $videoId in ${stopwatch.elapsedMilliseconds}ms '
       '(${((await file.length()) / 1024).round()} KB)',
     );
-    return file;
+    return (file: file, cachedInRam: false);
   }
 
-  /// Fetches [videoId] with the backup engine after yt-dlp failed. Returns the
-  /// cached file, or null when the backup is off, not worth trying, or failed
-  /// too (in which case yt-dlp's explanation of the failure is kept).
-  static Future<File?> _fetchWithBackupEngine(
+  /// Fetches [videoId] with the backup engine after yt-dlp failed.
+  static Future<({File? file, bool cachedInRam})> _fetchWithBackupEngine(
     String videoId,
     Directory dir, {
     required int token,
     required bool isPreload,
     required int preloadSeq,
   }) async {
-    if (!backupEngineEnabled) return null;
-    if (!backupEngineShouldRetry(_lastFetchFailures[videoId]?.kind)) return null;
-    if (token != _downloadInvocationToken) return null;
+    if (!backupEngineEnabled) return (file: null, cachedInRam: false);
+    if (!backupEngineShouldRetry(_lastFetchFailures[videoId]?.kind)) {
+      return (file: null, cachedInRam: false);
+    }
+    if (token != _downloadInvocationToken) {
+      return (file: null, cachedInRam: false);
+    }
     if (!_backupGuard.allow(videoId, DateTime.now())) {
       DebugLog.write('[cache] Backup engine is resting, not trying it for $videoId');
-      return null;
+      return (file: null, cachedInRam: false);
     }
     DebugLog.write('[cache] yt-dlp could not fetch $videoId, trying the backup engine');
     final result = await BackupAudioEngine.fetch(
       videoId,
       dir: dir,
       preferAac: !_isDesktopEngine,
+      writeToDisk: false,
       shouldAbort: () =>
           token != _downloadInvocationToken ||
           _activeDownloadingVideoId != videoId ||
           (isPreload && _preloadFetchStale(preloadSeq, videoId)),
     );
+    final buffer = result.buffer;
+    if (buffer != null) {
+      _backupGuard.recordSuccess(videoId);
+      _adoptRamBuffer(videoId, buffer);
+      DebugLog.write(
+        '[cache] Backup engine buffered $videoId in RAM '
+        '(${(buffer.length / 1024).round()} KB)',
+      );
+      return (file: null, cachedInRam: true);
+    }
     final file = result.file;
     if (file == null) {
       DebugLog.write('[cache] Backup engine failed for $videoId: ${result.error}');
@@ -469,11 +503,128 @@ class StreamCacheManager {
       if (result.error != 'cancelled') {
         _backupGuard.recordFailure(videoId, DateTime.now());
       }
-      return null;
+      return (file: null, cachedInRam: false);
     }
     _backupGuard.recordSuccess(videoId);
     await _adoptFetchedFile(videoId, file);
-    return file;
+    return (file: file, cachedInRam: false);
+  }
+
+  static const int maxRamCacheTracks = 4;
+  static const int maxRamCacheBytes = 32 * 1024 * 1024;
+  static final LinkedHashMap<String, RamAudioBuffer> _ramCache =
+      LinkedHashMap();
+  static int _ramCacheBytes = 0;
+  static final Map<String, Future<File?>> _inFlightFlushes = {};
+
+  /// Returns the completed in-memory buffer for [videoId] and marks it most
+  /// recently used, or null if not buffered in RAM.
+  static RamAudioBuffer? getRamCachedBuffer(String videoId) {
+    final buf = _ramCache.remove(videoId);
+    if (buf == null) return null;
+    if (!buf.isComplete) {
+      final next = _ramCacheBytes - buf.length;
+      _ramCacheBytes = next < 0 ? 0 : next;
+      return null;
+    }
+    _ramCache[videoId] = buf;
+    return buf;
+  }
+
+  static void _adoptRamBuffer(String videoId, RamAudioBuffer buffer) {
+    _lastFetchFailures.remove(videoId);
+    final prev = _ramCache.remove(videoId);
+    if (prev != null) {
+      final next = _ramCacheBytes - prev.length;
+      _ramCacheBytes = next < 0 ? 0 : next;
+    }
+    _ramCache[videoId] = buffer;
+    _ramCacheBytes += buffer.length;
+    while (_ramCacheBytes > maxRamCacheBytes ||
+        _ramCache.length > maxRamCacheTracks) {
+      String? victim;
+      for (final key in _ramCache.keys) {
+        if (key == videoId ||
+            key == _activeDownloadingVideoId ||
+            key == _preservedPreloadVideoId) {
+          continue;
+        }
+        victim = key;
+        break;
+      }
+      if (victim == null) break;
+      final removed = _ramCache.remove(victim);
+      if (removed != null) {
+        final next = _ramCacheBytes - removed.length;
+        _ramCacheBytes = next < 0 ? 0 : next;
+        DebugLog.write(
+          '[cache] Evicted $victim from RAM cache (${(removed.length / 1024).round()} KB)',
+        );
+      }
+    }
+  }
+
+  /// Writes a completed RAM-cached track once atomically to the disk cache
+  /// and removes it from the RAM LRU cache.
+  static Future<File?> flushRamToDisk(String videoId) {
+    final existingFlush = _inFlightFlushes[videoId];
+    if (existingFlush != null) return existingFlush;
+    final future = _flushRamToDiskImpl(videoId).whenComplete(() {
+      _inFlightFlushes.remove(videoId);
+    });
+    _inFlightFlushes[videoId] = future;
+    return future;
+  }
+
+  static Future<File?> _flushRamToDiskImpl(String videoId) async {
+    final existingDisk = await getCachedFile(videoId);
+    if (existingDisk != null) {
+      final removed = _ramCache.remove(videoId);
+      if (removed != null) {
+        final next = _ramCacheBytes - removed.length;
+        _ramCacheBytes = next < 0 ? 0 : next;
+      }
+      return existingDisk;
+    }
+    final buffer = _ramCache[videoId];
+    if (buffer == null || !buffer.isComplete) return null;
+    File? temp;
+    try {
+      final dir = await getCacheDirectory();
+      final ext = buffer.ext.isEmpty ? 'webm' : buffer.ext;
+      temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
+      final finalFile = File(p.join(dir.path, '$videoId.$ext'));
+      if (await temp.exists()) await temp.delete();
+      await temp.writeAsBytes(buffer.toBytes(), flush: false);
+      if (await finalFile.exists()) await finalFile.delete();
+      await temp.rename(finalFile.path);
+      temp = null;
+      await _adoptFetchedFile(videoId, finalFile);
+      final removed = _ramCache.remove(videoId);
+      if (removed != null) {
+        final next = _ramCacheBytes - removed.length;
+        _ramCacheBytes = next < 0 ? 0 : next;
+      }
+      DebugLog.write(
+        '[cache] Flushed $videoId from RAM to disk (${(buffer.length / 1024).round()} KB)',
+      );
+      return finalFile;
+    } catch (e) {
+      DebugLog.write('[cache] Failed to flush $videoId from RAM to disk: $e');
+      return null;
+    } finally {
+      if (temp != null) {
+        try {
+          if (await temp.exists()) await temp.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  @visibleForTesting
+  static void clearRamCacheForTesting() {
+    _ramCache.clear();
+    _ramCacheBytes = 0;
   }
 
   static final Map<String, Completer<File?>> _inFlightDownloads = {};
@@ -542,9 +693,10 @@ class StreamCacheManager {
     }
   }
 
-  /// Synchronous memory check whether a track is fully cached on disk.
+  /// Synchronous memory check whether a track is cached on disk or in RAM.
   static bool isStreamCachedSync(String videoId) {
-    return _cachedVideoIds.contains(videoId);
+    return _cachedVideoIds.contains(videoId) ||
+        (_ramCache[videoId]?.isComplete ?? false);
   }
 
   /// Returns the in-flight download future if this track is currently being cached.
@@ -1244,6 +1396,10 @@ class StreamCacheManager {
             break;
           }
           if (id.isEmpty) continue;
+          if (getRamCachedBuffer(id) != null) {
+            onTrackCached?.call(id);
+            continue;
+          }
           final diskCached = await getCachedFile(id);
           if (diskCached != null) {
             _cachedVideoIds.add(id);
@@ -1254,18 +1410,20 @@ class StreamCacheManager {
             DebugLog.write('[preload] Buffering upcoming track: $id');
             var file = await ensureStreamCached(id, isPreload: true);
             if (seq != _slidingWindowSequence) break;
+            var ready = file != null || getRamCachedBuffer(id) != null;
             // A 403 or bot check is usually temporary, so retry once. The
             // yt-dlp cache is left alone: the song being played shares it,
             // and wiping it made that song re-solve YouTube's player code
             // (about 8 s on a phone). Only the manual Retry clears it.
-            if (file == null && _lastFetchFailures[id]?.kind == StreamFetchFailureKind.blocked) {
+            if (!ready && _lastFetchFailures[id]?.kind == StreamFetchFailureKind.blocked) {
               DebugLog.write('[preload] $id was blocked, retrying once');
               if (seq != _slidingWindowSequence) break;
               file = await ensureStreamCached(id, isPreload: true);
               if (seq != _slidingWindowSequence) break;
+              ready = file != null || getRamCachedBuffer(id) != null;
             }
-            if (file != null) {
-              DebugLog.write('[preload] Buffered upcoming track ready on disk: $id');
+            if (ready) {
+              DebugLog.write('[preload] Buffered upcoming track ready: $id');
               onTrackCached?.call(id);
             }
           } catch (e) {
@@ -1358,6 +1516,10 @@ class StreamCacheManager {
       DebugLog.write('[cache] Disk cache HIT for $videoId (0ms)');
       return existing;
     }
+    if (getRamCachedBuffer(videoId) != null) {
+      DebugLog.write('[cache] RAM cache HIT for $videoId (0ms)');
+      return null;
+    }
     if (isKnownLive(videoId)) return null;
     if (token != _downloadInvocationToken) return null;
     if (isPreload && _preloadFetchStale(preloadSeq, videoId)) return null;
@@ -1409,6 +1571,9 @@ class StreamCacheManager {
       if (cachedAfterWait != null) {
         return cachedAfterWait;
       }
+      if (getRamCachedBuffer(videoId) != null) {
+        return null;
+      }
       if (token != _downloadInvocationToken || (isPreload && _preloadFetchStale(preloadSeq, videoId)) || _activeDownloadingVideoId != null) {
         DebugLog.write('[cache] Another download took concurrency lock after wait or sequence cancelled, deferring $videoId');
         return null;
@@ -1420,7 +1585,8 @@ class StreamCacheManager {
     // If direct playback is requested while another download is running, abort the active download to
     // dedicate 100% bandwidth to the track the user is actively waiting to hear.
     if (!isPreload && _activeDownloadingVideoId != null && _activeDownloadingVideoId != videoId) {
-      DebugLog.write('[cache] Direct play for $videoId preempting active download $_activeDownloadingVideoId');
+      final preemptedVideoId = _activeDownloadingVideoId!;
+      DebugLog.write('[cache] Direct play for $videoId preempting active download $preemptedVideoId');
       if (_activeProcessId != null && YoutubeService.isEmbeddedYtDlpSupported) {
         final preempted = _activeProcessId!;
         _activeProcessId = null;
@@ -1431,6 +1597,11 @@ class StreamCacheManager {
         );
       }
       _killActiveDesktopEngine();
+      final preemptedCompleter = _inFlightDownloads.remove(preemptedVideoId);
+      if (preemptedCompleter != null && !preemptedCompleter.isCompleted) {
+        preemptedCompleter.complete(null);
+      }
+      _preservedPreloadVideoId = null;
       _activeDownloadingVideoId = null;
       _isActiveDownloadPreload = false;
     }
@@ -1463,9 +1634,17 @@ class StreamCacheManager {
           isPreload: isPreload,
           preloadSeq: preloadSeq,
         );
-        if (fast != null) {
-          completer.complete(fast);
-          return fast;
+        if (fast.file != null) {
+          completer.complete(fast.file);
+          return fast.file;
+        }
+        if (fast.cachedInRam) {
+          completer.complete(null);
+          return null;
+        }
+        final staleRam = _resolvedStreams[videoId]?.ramBuffer;
+        if (staleRam != null && !staleRam.isComplete) {
+          _resolvedStreams.remove(videoId);
         }
         if (isKnownLive(videoId)) return null;
       }
@@ -1519,8 +1698,9 @@ class StreamCacheManager {
               '[cache] Android yt-dlp cached $videoId in ${stopwatch.elapsedMilliseconds}ms (${(len / 1024).round()} KB)',
             );
             if (!completer.isCompleted) {
-            completer.complete(cached);
-          }
+              completer.complete(cached);
+            }
+            return cached;
           }
           if (completer.isCompleted) {
             return await completer.future;
@@ -1573,11 +1753,16 @@ class StreamCacheManager {
               isPreload: isPreload,
               preloadSeq: preloadSeq,
             );
-            if (backup != null) {
-              completer.complete(backup);
-              return backup;
+            if (backup.file != null) {
+              completer.complete(backup.file);
+              return backup.file;
+            }
+            if (backup.cachedInRam) {
+              completer.complete(null);
+              return null;
             }
             completer.complete(null);
+            return null;
           }
           return await completer.future;
         }
@@ -1606,6 +1791,11 @@ class StreamCacheManager {
         /// already paid the ~2 s yt-dlp startup) or spawns on demand, feeds it
         /// the URL over stdin and waits for the process to finish.
         Future<File?> fetchWithYtDlp(List<String> baseArgs) async {
+          bool isStale() =>
+              token != _downloadInvocationToken ||
+              _activeDownloadingVideoId != videoId ||
+              (isPreload && _preloadFetchStale(preloadSeq, videoId));
+          if (isStale()) return null;
           final process = await YtDlpPrewarmer.instance.startFetch(
             url: 'https://www.youtube.com/watch?v=$videoId',
             bin: binPath,
@@ -1615,6 +1805,11 @@ class StreamCacheManager {
           if (process == null) {
             DebugLog.write('[cache] Could not start yt-dlp for $videoId');
             recordFailure('could not start yt-dlp');
+            await _deletePartialArtifacts(videoId);
+            return null;
+          }
+          if (isStale()) {
+            YoutubeService.killProcessTree(process.pid);
             await _deletePartialArtifacts(videoId);
             return null;
           }
@@ -1636,7 +1831,7 @@ class StreamCacheManager {
                 onError: (_) {},
               );
           final stderrBuffer = StringBuffer();
-          process.stderr.transform(utf8.decoder).listen(
+          process.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen(
             (data) {
               stderrBuffer.write(data);
             },
@@ -1724,10 +1919,15 @@ class StreamCacheManager {
           isPreload: isPreload,
           preloadSeq: preloadSeq,
         );
-        if (backup != null) {
+        if (backup.file != null) {
           DebugLog.write('[cache] Backup engine cached $videoId after ${stopwatch.elapsedMilliseconds}ms');
-          completer.complete(backup);
-          return backup;
+          completer.complete(backup.file);
+          return backup.file;
+        }
+        if (backup.cachedInRam) {
+          DebugLog.write('[cache] Backup engine buffered $videoId in RAM after ${stopwatch.elapsedMilliseconds}ms');
+          completer.complete(null);
+          return null;
         }
       }
 
@@ -1743,20 +1943,23 @@ class StreamCacheManager {
         recordFailure('$e');
       }
     } finally {
-      _resolvedStreams.remove(videoId);
-      if (_preservedPreloadVideoId == videoId) {
-        _preservedPreloadVideoId = null;
-      }
-      if (_activeDownloadingVideoId == videoId) {
-        _activeDownloadingVideoId = null;
-        _isActiveDownloadPreload = false;
-        _activeProcessId = null;
-        _activeDesktopProcess = null;
+      final ownsInFlight = identical(_inFlightDownloads[videoId], completer);
+      if (ownsInFlight) {
+        _resolvedStreams.remove(videoId);
+        if (_preservedPreloadVideoId == videoId) {
+          _preservedPreloadVideoId = null;
+        }
+        if (_activeDownloadingVideoId == videoId) {
+          _activeDownloadingVideoId = null;
+          _isActiveDownloadPreload = false;
+          _activeProcessId = null;
+          _activeDesktopProcess = null;
+        }
+        _inFlightDownloads.remove(videoId);
       }
       if (!completer.isCompleted) {
         completer.complete(null);
       }
-      _inFlightDownloads.remove(videoId);
       // Boot the next spare while the app is otherwise idle again, so the
       // startup cost stays off the next fetch's critical path.
       unawaited(prewarmDesktopYtDlp());
@@ -1875,7 +2078,10 @@ class StreamCacheManager {
           RecommendationService.extractVideoId(streamSong.id) ??
           RecommendationService.extractVideoId(streamSong.fileName) ??
           streamSong.id.replaceFirst('stream_', '');
-      final cached = await getCachedFile(videoId);
+      var cached = await getCachedFile(videoId);
+      if (cached == null && getRamCachedBuffer(videoId) != null) {
+        cached = await flushRamToDisk(videoId);
+      }
 
       if (cached != null && await cached.exists()) {
         final base64Art = await YoutubeService.downloadArtworkAsBase64(
@@ -1937,6 +2143,8 @@ class StreamCacheManager {
       }
       _cachedVideoIds.clear();
       _setCachedTotalBytes(0);
+      _ramCache.clear();
+      _ramCacheBytes = 0;
       DebugLog.write('[stream] Cleared all radio and streaming cache files');
     } catch (e) {
       DebugLog.write('[stream] clearCache error: $e');
@@ -1947,8 +2155,11 @@ class StreamCacheManager {
   static void dispose() {
     cancelLinkPrefetch();
     linkCache.clear();
+    _ramCache.clear();
+    _ramCacheBytes = 0;
     cancelActiveDownload();
     cancelPreload();
+    YtDlpPrewarmer.instance.killSpare();
   }
 }
 

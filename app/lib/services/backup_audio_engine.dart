@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'debug_log.dart';
+import 'ram_audio_source.dart';
 
 /// One audio-only stream a video offers, reduced to what choosing one needs.
 class BackupAudioCandidate {
@@ -36,11 +37,21 @@ class BackupAudioCandidate {
 
 /// What a backup fetch ended with.
 class BackupFetchResult {
-  const BackupFetchResult.ok(File this.file) : error = null;
-  const BackupFetchResult.failed(String this.error) : file = null;
+  const BackupFetchResult.ok(File this.file)
+      : buffer = null,
+        error = null;
+  const BackupFetchResult.okInMemory(RamAudioBuffer this.buffer)
+      : file = null,
+        error = null;
+  const BackupFetchResult.failed(String this.error)
+      : file = null,
+        buffer = null;
 
   final File? file;
+  final RamAudioBuffer? buffer;
   final String? error;
+
+  bool get isOk => file != null || buffer != null;
 }
 
 /// Keeps the backup engine from piling on when it cannot help.
@@ -271,10 +282,15 @@ class BackupAudioEngine {
     return (bytes: bytes, error: error);
   }
 
-  /// Downloads the best audio for [videoId] into [dir] as `<id>.<ext>` and
-  /// returns it. The bytes go to a temporary name first, so a half-written file
-  /// is never mistaken for a cached song. [shouldAbort] is polled between
-  /// chunks so a cancelled play stops the transfer.
+  /// Tracks up to this size are buffered in RAM while downloading instead of
+  /// being written to a temporary file first; larger or unsized transfers
+  /// stream straight to a temporary file on disk to keep RAM bounded.
+  static const int maxSingleRamTrackBytes = 25 * 1024 * 1024;
+
+  /// Downloads the best audio for [videoId] into RAM (or into [dir] as
+  /// `<id>.<ext>` when [writeToDisk] is true or the track exceeds
+  /// [maxSingleRamTrackBytes]). [shouldAbort] is polled between chunks so a
+  /// cancelled play stops the transfer.
   static Future<BackupFetchResult> fetch(
     String videoId, {
     required Directory dir,
@@ -283,16 +299,17 @@ class BackupAudioEngine {
     Duration lookupTimeout = const Duration(seconds: 25),
     Duration idleTimeout = const Duration(seconds: 20),
     Duration totalTimeout = const Duration(seconds: 150),
+    bool writeToDisk = true,
     // Another engine's lookup and byte source (see InnerTubeAudioEngine);
     // the download, size check and file handling stay the same.
     Future<List<BackupAudioCandidate>> Function(String videoId)? load,
     Stream<List<int>> Function(BackupAudioCandidate stream)? open,
     String label = 'backup-engine',
     // Called once, when [readableAfter] bytes (or half the song, if that is
-    // less) are on disk and flushed, with the file still being written. A
-    // player can start from it (see GrowingFileAudioSource) instead of waiting
-    // for the whole transfer.
-    void Function(File temp, BackupAudioCandidate pick)? onReadable,
+    // less) have arrived in RAM, with the transfer still running. Playback can
+    // start from [RamAudioSource] immediately without touching disk.
+    void Function(RamAudioBuffer buffer, BackupAudioCandidate pick)?
+        onReadableBuffer,
     int readableAfter = 2 * 1024 * 1024,
   }) async {
     File? temp;
@@ -303,18 +320,73 @@ class BackupAudioEngine {
         return const BackupFetchResult.failed('no audio streams offered');
       }
       final ext = extensionFor(pick.container);
-      // `.tmp.` in the name is what the cache's start-up sweep treats as scrap.
-      temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
       final finalFile = File(p.join(dir.path, '$videoId.$ext'));
-      if (await temp.exists()) await temp.delete();
-
-      // Written straight to the file, not through a buffered sink: a reader
-      // that is told about the file has to see every byte written so far.
-      final out = await temp.open(mode: FileMode.write);
-      var announced = onReadable == null;
       final half = pick.bytes > 0 ? pick.bytes ~/ 2 : readableAfter;
       final announceAt = half < readableAfter ? half : readableAfter;
-      final tempFile = temp;
+      final useRamBuffer =
+          pick.bytes > 0 && pick.bytes <= maxSingleRamTrackBytes;
+
+      if (useRamBuffer) {
+        final buffer = RamAudioBuffer(
+          videoId: videoId,
+          ext: ext,
+          expectedLength: pick.bytes,
+        );
+        var announced = onReadableBuffer == null;
+        final copied = await _copy(
+          (open ?? _open)(pick),
+          buffer.append,
+          shouldAbort: shouldAbort,
+          idleTimeout: idleTimeout,
+          totalTimeout: totalTimeout,
+          onBytes: (bytes) {
+            if (announced || bytes < announceAt) return;
+            announced = true;
+            onReadableBuffer?.call(buffer, pick);
+          },
+        );
+        if (copied.error != null) {
+          buffer.markFailed(copied.error!);
+          return BackupFetchResult.failed(copied.error!);
+        }
+        final written = copied.bytes;
+        final tooShort = written < 50000 || written < pick.bytes * 0.98;
+        if (tooShort) {
+          final err = 'incomplete download ($written of ${pick.bytes} bytes)';
+          buffer.markFailed(err);
+          return BackupFetchResult.failed(err);
+        }
+        if (written > pick.bytes * 1.01) {
+          final err = 'larger than expected ($written of ${pick.bytes} bytes)';
+          buffer.markFailed(err);
+          return BackupFetchResult.failed(err);
+        }
+        buffer.markComplete();
+        if (!writeToDisk) {
+          DebugLog.write(
+            '[$label] $videoId ${pick.container}/${pick.codec} '
+            '${pick.kbps.round()}k, ${(written / 1024).round()} KB (RAM)',
+          );
+          return BackupFetchResult.okInMemory(buffer);
+        }
+        temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
+        if (await temp.exists()) await temp.delete();
+        await temp.writeAsBytes(buffer.toBytes(), flush: false);
+        if (await finalFile.exists()) await finalFile.delete();
+        await temp.rename(finalFile.path);
+        temp = null;
+        DebugLog.write(
+          '[$label] $videoId ${pick.container}/${pick.codec} '
+          '${pick.kbps.round()}k, ${(written / 1024).round()} KB',
+        );
+        return BackupFetchResult.ok(finalFile);
+      }
+
+      // `.tmp.` in the name is what the cache's start-up sweep treats as scrap.
+      temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
+      if (await temp.exists()) await temp.delete();
+
+      final out = await temp.open(mode: FileMode.write);
       ({int bytes, String? error}) copied;
       try {
         copied = await _copy(
@@ -323,11 +395,6 @@ class BackupAudioEngine {
           shouldAbort: shouldAbort,
           idleTimeout: idleTimeout,
           totalTimeout: totalTimeout,
-          onBytes: (bytes) {
-            if (announced || bytes < announceAt) return;
-            announced = true;
-            onReadable!(tempFile, pick);
-          },
         );
       } finally {
         await out.close();
@@ -352,20 +419,7 @@ class BackupAudioEngine {
         );
       }
       if (await finalFile.exists()) await finalFile.delete();
-      try {
-        await temp.rename(finalFile.path);
-      } on FileSystemException {
-        // Windows will not rename a file that is open for reading, and a
-        // player that started early is reading this one. The cache gets a
-        // copy and the player keeps its file; what is left of it is scrap
-        // (its name has `.tmp.`) that the start-up sweep removes.
-        final copy = File(p.join(dir.path, '$videoId.tmp.copy.$ext'));
-        await temp.copy(copy.path);
-        await copy.rename(finalFile.path);
-        try {
-          await temp.delete();
-        } catch (_) {}
-      }
+      await temp.rename(finalFile.path);
       temp = null;
       DebugLog.write(
         '[$label] $videoId ${pick.container}/${pick.codec} '

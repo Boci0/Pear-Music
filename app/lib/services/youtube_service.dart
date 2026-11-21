@@ -999,11 +999,15 @@ class YoutubeService {
         final errBuf = StringBuffer();
         // Progress lines ([download] NN% of XMiB) arrive on stdout; stderr
         // only gets warnings and errors, so feed both streams to the parser.
-        final outSub = proc.stdout.transform(utf8.decoder).listen((chunk) {
+        final outSub = proc.stdout
+            .transform(const Utf8Decoder(allowMalformed: true))
+            .listen((chunk) {
           outBuf.write(chunk);
           _parseYtDlpProgress(chunk, onProgress);
         });
-        final errSub = proc.stderr.transform(utf8.decoder).listen((chunk) {
+        final errSub = proc.stderr
+            .transform(const Utf8Decoder(allowMalformed: true))
+            .listen((chunk) {
           errBuf.write(chunk);
           _parseYtDlpProgress(chunk, onProgress);
         });

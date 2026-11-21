@@ -295,9 +295,11 @@ void main() {
     tearDown(() {
       StreamCacheManager.debugAllowFastEngineInTests = false;
       StreamCacheManager.fastEngineEnabled = true;
+      StreamCacheManager.clearRamCacheForTesting();
     });
 
-    test('a song it can fetch is cached without starting yt-dlp', () async {
+    test('a song it can fetch is buffered in RAM without starting yt-dlp and flushes once to disk',
+        () async {
       StreamCacheManager.debugAllowFastEngineInTests = true;
       InnerTubeAudioEngine.debugPlayerOverride =
           (_, _) async => _ok(size: 90000);
@@ -306,12 +308,19 @@ void main() {
 
       final file = await StreamCacheManager.ensureStreamCached('fastvid1');
 
-      expect(file, isNotNull);
-      expect(await file!.length(), 90000);
+      expect(file, isNull);
+      final ramBuf = StreamCacheManager.getRamCachedBuffer('fastvid1');
+      expect(ramBuf, isNotNull);
+      expect(ramBuf!.length, 90000);
+      expect(await StreamCacheManager.getCachedFile('fastvid1'), isNull);
+
+      final flushed = await StreamCacheManager.flushRamToDisk('fastvid1');
+      expect(flushed, isNotNull);
+      expect(await flushed!.length(), 90000);
       expect(await StreamCacheManager.getCachedFile('fastvid1'), isNotNull);
     });
 
-    test('playback can start a few megabytes in, from the file being written',
+    test('playback can start a few megabytes in, from the RAM buffer being filled',
         () async {
       StreamCacheManager.debugAllowFastEngineInTests = true;
       InnerTubeAudioEngine.debugPlayerOverride =
@@ -325,16 +334,12 @@ void main() {
       };
 
       ResolvedStream? early;
-      int? onDiskWhenTold;
-      RandomAccessFile? reader;
+      int? inRamWhenTold;
       final fetch = StreamCacheManager.ensureStreamCached(
         'earlyvid1',
         onStreamUrl: (stream) {
           early = stream;
-          onDiskWhenTold = File(stream.localPath!).lengthSync();
-          // A player reading the file: the finished fetch must still cache
-          // it although the file cannot be renamed under an open reader.
-          reader = File(stream.localPath!).openSync();
+          inRamWhenTold = stream.ramBuffer?.length;
         },
       );
 
@@ -343,18 +348,24 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       expect(early, isNotNull);
-      expect(early!.localPath, endsWith('.webm'));
+      expect(early!.ramBuffer, isNotNull);
       expect(early!.ext, 'webm');
       expect(early!.filesize, 3000000);
-      expect(onDiskWhenTold, greaterThanOrEqualTo(1500000));
+      expect(inRamWhenTold, greaterThanOrEqualTo(1500000));
       expect(await StreamCacheManager.getCachedFile('earlyvid1'), isNull);
 
       rest.complete();
       final file = await fetch;
-      reader?.closeSync();
 
-      expect(file, isNotNull);
-      expect(await file!.length(), 3000000);
+      expect(file, isNull);
+      final ramBuf = StreamCacheManager.getRamCachedBuffer('earlyvid1');
+      expect(ramBuf, isNotNull);
+      expect(ramBuf!.length, 3000000);
+      expect(await StreamCacheManager.getCachedFile('earlyvid1'), isNull);
+
+      final flushed = await StreamCacheManager.flushRamToDisk('earlyvid1');
+      expect(flushed, isNotNull);
+      expect(await flushed!.length(), 3000000);
       expect(await StreamCacheManager.getCachedFile('earlyvid1'), isNotNull);
     });
 

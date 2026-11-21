@@ -167,6 +167,7 @@ void main() {
     StreamCacheManager.fastEngineEnabled = true;
     StreamCacheManager.cancelActiveDownload();
     StreamCacheManager.cancelPreload();
+    StreamCacheManager.clearRamCacheForTesting();
     InnerTubeAudioEngine.debugReset();
     YtDlpPrewarmer.setEnabledForTesting(false);
     YtDlpPrewarmer.debugStartProcess = null;
@@ -178,6 +179,7 @@ void main() {
     StreamCacheManager.debugSkipFallbackEngines = false;
     StreamCacheManager.cancelActiveDownload();
     StreamCacheManager.cancelPreload();
+    StreamCacheManager.clearRamCacheForTesting();
     InnerTubeAudioEngine.debugReset();
     YtDlpPrewarmer.setEnabledForTesting(null);
     YtDlpPrewarmer.debugStartProcess = null;
@@ -223,7 +225,8 @@ void main() {
 
       gate.complete();
       final file = await fetch.timeout(const Duration(seconds: 10));
-      expect(file, isNotNull);
+      expect(file, isNull);
+      expect(StreamCacheManager.getRamCachedBuffer('auditinflight1'), isNotNull);
       expect(writing.existsSync(), isTrue);
       expect(
         await StreamCacheManager.getCachedFile('auditinflight1'),
@@ -254,11 +257,12 @@ void main() {
       final second = StreamCacheManager.ensureStreamCached('auditjoin1');
       gate.complete();
 
-      final results = await Future.wait([first, second])
-          .timeout(const Duration(seconds: 10));
-      expect(results[0], isNotNull);
-      expect(identical(results[0], results[1]), isTrue,
-          reason: 'both callers must get the same cached file');
+      await Future.wait([first, second]).timeout(const Duration(seconds: 10));
+      expect(
+        StreamCacheManager.getRamCachedBuffer('auditjoin1'),
+        isNotNull,
+        reason: 'both callers wait on one fetch into the RAM cache',
+      );
       expect(lookups, 1, reason: 'joining must not start a second engine');
     });
 
@@ -316,9 +320,12 @@ void main() {
       StreamCacheManager.cancelActiveDownload(exceptVideoId: 'auditpreserve1');
       gate.complete();
 
-      final file = await fetch.timeout(const Duration(seconds: 10));
-      expect(file, isNotNull,
-          reason: 'a preserved download must not be aborted by the token bump');
+      await fetch.timeout(const Duration(seconds: 10));
+      expect(
+        StreamCacheManager.getRamCachedBuffer('auditpreserve1'),
+        isNotNull,
+        reason: 'a preserved download must not be aborted by the token bump',
+      );
       expect(lookups, 1);
     });
 
@@ -349,9 +356,12 @@ void main() {
       StreamCacheManager.cancelActiveDownload(exceptVideoId: 'auditpreserve2');
       gate.complete();
 
-      final file = await fetch.timeout(const Duration(seconds: 10));
-      expect(file, isNotNull,
-          reason: 'the stale preload sequence must not abort a preserved fetch');
+      await fetch.timeout(const Duration(seconds: 10));
+      expect(
+        StreamCacheManager.getRamCachedBuffer('auditpreserve2'),
+        isNotNull,
+        reason: 'the stale preload sequence must not abort a preserved fetch',
+      );
       expect(lookups, 1);
     });
   });

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'backup_audio_engine.dart';
 import 'debug_log.dart';
+import 'ram_audio_source.dart';
 
 /// Why a lookup gave no audio. [systemic] failures (a bot check, a rate limit,
 /// a server error) mean YouTube is turning this connection away, as opposed to
@@ -335,13 +336,15 @@ class InnerTubeAudioEngine {
     } while (pos < total);
   }
 
-  /// Fetches [videoId] into [dir] with this engine. Never throws.
+  /// Fetches [videoId] into RAM (or into [dir] when [writeToDisk] is true). Never throws.
   static Future<BackupFetchResult> fetch(
     String videoId, {
     required Directory dir,
     required bool preferAac,
     required bool Function() shouldAbort,
-    void Function(File temp, BackupAudioCandidate pick)? onReadable,
+    bool writeToDisk = true,
+    void Function(RamAudioBuffer buffer, BackupAudioCandidate pick)?
+        onReadableBuffer,
   }) async {
     if (!_guard.allow(videoId, DateTime.now())) {
       return const BackupFetchResult.failed('resting after a block');
@@ -352,13 +355,14 @@ class InnerTubeAudioEngine {
         dir: dir,
         preferAac: preferAac,
         shouldAbort: shouldAbort,
+        writeToDisk: writeToDisk,
         load: lookup,
         open: (c) => open(c, videoId),
         label: 'fast-engine',
         lookupTimeout: const Duration(seconds: 15),
-        onReadable: onReadable,
+        onReadableBuffer: onReadableBuffer,
       );
-      if (result.file != null) _guard.recordSuccess(videoId);
+      if (result.isOk) _guard.recordSuccess(videoId);
       return result;
     } catch (e) {
       DebugLog.write('[fast-engine] $videoId failed: $e');

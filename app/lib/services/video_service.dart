@@ -350,6 +350,7 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _shown = false;
   Player? _video;
+  Future<Player>? _creatingPlayer;
   VideoController? _controller;
   String? _loadedId;
   bool _ready = false;
@@ -683,11 +684,13 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
         }
         media = Media(file.path);
       }
-      final video = _video ?? await _createPlayer();
+      final video = _video ??
+          await (_creatingPlayer ??=
+              _createPlayer().whenComplete(() => _creatingPlayer = null));
       if (token != _token || !_shown) {
         // Hidden, or another song asked for, while the player was starting.
         if (!identical(video, _video)) {
-          _controller = null;
+          if (_video == null) _controller = null;
           unawaited(video.dispose());
         }
         return;
@@ -955,6 +958,7 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
       );
     }
     _controller = VideoController(player);
+    unawaited(_bufferingSub?.cancel());
     _bufferingSub = player.stream.buffering.listen(_onBuffering);
     return player;
   }
@@ -1037,6 +1041,10 @@ class VideoService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (_shown) {
+      _shown = false;
+      WidgetsBinding.instance.removeObserver(this);
+    }
     _player.removeListener(_sync);
     _follow?.cancel();
     _teardown();

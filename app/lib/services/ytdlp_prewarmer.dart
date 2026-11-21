@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'debug_log.dart';
+import 'youtube_service.dart';
 
 /// Keeps one `yt-dlp` process pre-booted so a fetch does not pay the
 /// PyInstaller startup (~2 s) on the critical path.
@@ -43,6 +44,7 @@ class YtDlpPrewarmer {
 
   Process? _spare;
   String? _spareSignature;
+  int _bootGeneration = 0;
 
   /// The boot in progress, if any. Overlapping calls join it instead of
   /// spawning a second spare and losing the first one (it would wait on stdin
@@ -104,6 +106,7 @@ class YtDlpPrewarmer {
     // single-flight slot.
     if (_spare != null && _spareSignature == signature) return;
     killSpare();
+    final gen = _bootGeneration;
     try {
       final args = buildStdinArgs(
         baseArgs: baseArgs,
@@ -113,6 +116,11 @@ class YtDlpPrewarmer {
       final process = start != null
           ? await start(bin, args)
           : await Process.start(bin, args);
+      if (gen != _bootGeneration) {
+        // killSpare() ran while Process.start was in flight: drop the spare.
+        _killProcess(process);
+        return;
+      }
       // The process only writes a short "Reading URLs from STDIN" note while
       // idle, so the pipes are left unsubscribed; the fetch attaches its own
       // listeners when it takes over.
@@ -163,9 +171,7 @@ class YtDlpPrewarmer {
       return null;
     }
     if (await _feed(fresh, url)) return fresh;
-    try {
-      fresh.kill();
-    } catch (_) {}
+    _killProcess(fresh);
     return null;
   }
 
@@ -180,15 +186,24 @@ class YtDlpPrewarmer {
     }
   }
 
+  static void _killProcess(Process process) {
+    try {
+      if (debugStartProcess == null && Platform.isWindows) {
+        YoutubeService.killProcessTree(process.pid);
+      } else {
+        process.kill();
+      }
+    } catch (_) {}
+  }
+
   /// Kills the idle spare (used when it is useless or the app is shutting
   /// down). Fetch processes are owned by the caller, not by this pool.
   void killSpare() {
+    _bootGeneration++;
     final spare = _spare;
     _spare = null;
     _spareSignature = null;
     if (spare == null) return;
-    try {
-      spare.kill();
-    } catch (_) {}
+    _killProcess(spare);
   }
 }
