@@ -517,6 +517,19 @@ Future<HttpServer?> startTestControl(
               }
               body ??= {'sheet': name};
             }
+          case '/radio':
+            final index = int.tryParse(q['i'] ?? '');
+            if (index == null || index < 0 || index >= results.length) {
+              res.statusCode = HttpStatus.badRequest;
+              body = {'error': 'no such row'};
+            } else {
+              unawaited(player.startRadio(results[index].toSong()));
+              body = {'radio': results[index].title};
+            }
+          case '/queue':
+            body = [
+              for (final s in player.queue) {'title': s.title, 'artist': s.artist},
+            ];
           case '/quit':
             res.headers.contentType = ContentType.json;
             res.write(jsonEncode({'quitting': true}));
