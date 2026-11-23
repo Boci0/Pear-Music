@@ -138,4 +138,68 @@ void main() {
       expect(StreamCacheManager.maxTrackCount, equals(100));
     });
   });
+
+  group('versions of one song and same-artist picks', () {
+    RecommendationItem item(String id, String title, String artist) =>
+        RecommendationItem(videoId: id, title: title, artist: artist);
+
+    test('songKey matches remixes, slowed, lyric and featuring versions', () {
+      final base = RecommendationService.songKey('Shape of You - Ed Sheeran', 'Ed Sheeran');
+      for (final (title, artist) in [
+        ('Shape of You (Alan Walker Remix) - Alan Walker', 'Alan Walker'),
+        ('Shape of You - Slowed + Reverb', 'Lofi Edits'),
+        ('Ed Sheeran - Shape of You [Official Lyric Video]', 'Ed Sheeran'),
+        ('Shape Of You feat. Someone', 'Ed Sheeran'),
+        ('shape of you (sped up)', 'nightcore guy'),
+      ]) {
+        expect(RecommendationService.songKey(title, artist), base, reason: title);
+      }
+      expect(RecommendationService.songKey('Perfect - Ed Sheeran', 'Ed Sheeran'), isNot(base));
+      // A title made only of version words still gets a usable key.
+      expect(RecommendationService.songKey('Remix', null), 'remix');
+    });
+
+    test('artist tracks go after every two mix picks, versions of the seed dropped', () {
+      final seed = item('seedvideo01', 'Shape of You', 'Ed Sheeran').toSong();
+      final out = RecommendationService.mixInArtistTracks(
+        seed,
+        [
+          item('mix00000001', 'Song A', 'X'),
+          item('mix00000002', 'Shape of You (Remix)', 'DJ'),
+          item('mix00000003', 'Song B', 'Y'),
+          item('mix00000004', 'Song C', 'Z'),
+          item('mix00000005', 'Song A - Sped Up', 'W'),
+        ],
+        [
+          item('seedvideo01', 'Shape of You', 'Ed Sheeran'),
+          item('art00000001', 'Perfect', 'Ed Sheeran'),
+          item('mix00000003', 'Song B', 'Y'),
+          item('art00000002', 'Photograph', 'Ed Sheeran'),
+        ],
+        exclude: {'seedvideo01'},
+      );
+      expect(out.map((i) => i.videoId), [
+        'mix00000001', 'mix00000003', 'art00000001',
+        'mix00000004', 'art00000002',
+      ]);
+    });
+
+    test('no extra artist track after a pair that already has the artist', () {
+      final seed = item('seedvideo01', 'Shape of You', 'Ed Sheeran').toSong();
+      final out = RecommendationService.mixInArtistTracks(
+        seed,
+        [
+          item('mix00000001', 'Song A', 'X'),
+          item('mix00000002', 'Perfect', 'Ed Sheeran'),
+          item('mix00000003', 'Song B', 'Y'),
+          item('mix00000004', 'Song C', 'Z'),
+        ],
+        [item('art00000001', 'Photograph', 'Ed Sheeran')],
+      );
+      expect(out.map((i) => i.videoId), [
+        'mix00000001', 'mix00000002',
+        'mix00000003', 'mix00000004', 'art00000001',
+      ]);
+    });
+  });
 }

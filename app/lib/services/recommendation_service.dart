@@ -114,6 +114,29 @@ class RecommendationService {
   static final RegExp _threeLatinLetters = RegExp(r'[A-Za-z]{3,}');
   static final RegExp _separatorPunctuation = RegExp(r'[|_/\\~]+');
   static final RegExp _nonSeedChars = RegExp(r'[^a-z0-9\s]');
+  static final RegExp _anyBrackets = RegExp(r'[\[(（【「][^\])）】」]*[\])）】」]');
+  static final RegExp _featuring = RegExp(r'\s(feat\.?|ft\.|featuring)\s.*$');
+  static final RegExp _versionWords = RegExp(
+    r'\b(remix(ed)?|slowed|reverb|sped up|speed up|nightcore|daycore|8d( audio)?|'
+    r'bass boosted|lyrics?|lyric video|official|music video|video|audio|'
+    r'visuali[sz]er|mv|edit|extended|version|instrumental|karaoke|remaster(ed)?)\b',
+  );
+  static final RegExp _nonKeyChars = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+  /// The same song under any version: remix, slowed, sped up, lyric video,
+  /// with or without the artist in the title. Recommendations skip a pick
+  /// whose key is already in the queue.
+  static String songKey(String title, String? artist) {
+    var t = title.toLowerCase();
+    final a = artist?.toLowerCase().trim() ?? '';
+    if (a.length >= 2) t = t.replaceAll(a, ' ');
+    final key = t
+        .replaceAll(_anyBrackets, ' ')
+        .replaceAll(_featuring, ' ')
+        .replaceAll(_versionWords, ' ')
+        .replaceAll(_nonKeyChars, '');
+    return key.isNotEmpty ? key : title.toLowerCase().trim();
+  }
 
   /// Normalizes any collection of song IDs or raw video IDs to 11-char video IDs.
   static Set<String> normalizeVideoIds(Iterable<String> ids) {
@@ -330,8 +353,81 @@ class RecommendationService {
     return null;
   }
 
-  /// Fetches an initial radio mix of ~25-50 contextually related songs for [song].
+  /// Fetches an initial radio mix of ~25-50 contextually related songs for
+  /// [song], with tracks by the same artist mixed in and other versions of
+  /// one song kept to its first.
   static Future<RecommendationBatch> fetchRadio(
+    Song song, {
+    Set<String>? excludeVideoIds,
+  }) async {
+    final artist = song.artist?.trim() ?? '';
+    final byArtist = artist.isEmpty ? null : _artistTracks(artist);
+    final mix = await _fetchRadioMix(song, excludeVideoIds: excludeVideoIds);
+    final exclude = {
+      ...normalizeVideoIds(excludeVideoIds ?? const {}),
+      ..._sessionPlayedVideoIds,
+      ?extractVideoId(song.id),
+    };
+    return RecommendationBatch(
+      items: mixInArtistTracks(
+        song,
+        mix.items,
+        byArtist == null ? const [] : await byArtist,
+        exclude: exclude,
+      ),
+      continuationToken: mix.continuationToken,
+    );
+  }
+
+  static final Map<String, List<RecommendationItem>> _artistCache = {};
+
+  static Future<List<RecommendationItem>> _artistTracks(String artist) async {
+    final key = artist.toLowerCase();
+    final cached = _artistCache[key];
+    if (cached != null) return cached;
+    final found = (await searchInnertubeSongs(artist, limit: 20))
+        .where((i) => i.artist.toLowerCase() == key)
+        .toList();
+    if (found.isEmpty) return found; // a failed lookup is tried again next time
+    if (_artistCache.length >= _maxCacheSize) {
+      _artistCache.remove(_artistCache.keys.first);
+    }
+    _artistCache[key] = found;
+    return found;
+  }
+
+  /// Puts one of [byArtist] after every two [mix] picks that are not already
+  /// by the seed's artist (the radio often leans on the artist itself), and
+  /// drops any item that is [seed] or an earlier pick in another version.
+  @visibleForTesting
+  static List<RecommendationItem> mixInArtistTracks(
+    Song seed,
+    List<RecommendationItem> mix,
+    List<RecommendationItem> byArtist, {
+    Set<String> exclude = const {},
+  }) {
+    final seenIds = {...exclude};
+    final seenKeys = {songKey(seed.title, seed.artist)};
+    bool fresh(RecommendationItem i) =>
+        seenIds.add(i.videoId) && seenKeys.add(songKey(i.title, i.artist));
+    final mixLeft = mix.where(fresh).toList();
+    final artistLeft = byArtist.where(fresh).toList();
+    final artist = seed.artist?.toLowerCase().trim() ?? '';
+    final out = <RecommendationItem>[];
+    var m = 0, a = 0;
+    while (m < mixLeft.length || a < artistLeft.length) {
+      var hadArtist = false;
+      for (var k = 0; k < 2 && m < mixLeft.length; k++) {
+        final pick = mixLeft[m++];
+        hadArtist |= artist.isNotEmpty && pick.artist.toLowerCase() == artist;
+        out.add(pick);
+      }
+      if (!hadArtist && a < artistLeft.length) out.add(artistLeft[a++]);
+    }
+    return out;
+  }
+
+  static Future<RecommendationBatch> _fetchRadioMix(
     Song song, {
     Set<String>? excludeVideoIds,
   }) async {

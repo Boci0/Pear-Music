@@ -148,14 +148,14 @@ mixin _PlayerRecommendations on ChangeNotifier {
       if (batch.items.isNotEmpty) {
         _continuationToken = batch.continuationToken;
         final existingVideoIds = RecommendationService.normalizeVideoIds(_queue.map((s) => s.id));
-        final existingTitles = _queue.map((s) => s.title.toLowerCase().trim()).toSet();
+        final existingTitles = _queue.map((s) => RecommendationService.songKey(s.title, s.artist)).toSet();
 
         final newSongs = <Song>[];
         for (final item in batch.items) {
           if (newSongs.length >= PlayerService.maxRecommendationsPerAppend) break;
           if (existingVideoIds.contains(item.videoId)) continue;
           final cleanSong = item.toSong();
-          final cleanTitle = cleanSong.title.toLowerCase().trim();
+          final cleanTitle = RecommendationService.songKey(cleanSong.title, cleanSong.artist);
           if (existingTitles.contains(cleanTitle)) continue;
 
           existingVideoIds.add(item.videoId);
@@ -275,15 +275,15 @@ mixin _PlayerRecommendations on ChangeNotifier {
         _continuationToken = batch.continuationToken;
         final existingVideoIds = excludeIds.toSet();
         final existingTitles = {
-          ...head.map((s) => s.title.toLowerCase().trim()),
-          ...lockedUpcoming.map((s) => s.title.toLowerCase().trim()),
+          ...head.map((s) => RecommendationService.songKey(s.title, s.artist)),
+          ...lockedUpcoming.map((s) => RecommendationService.songKey(s.title, s.artist)),
         };
 
         for (final item in batch.items) {
           if (freshSongs.length >= targetCount) break;
           if (existingVideoIds.contains(item.videoId)) continue;
           final cleanSong = item.toSong();
-          final cleanTitle = cleanSong.title.toLowerCase().trim();
+          final cleanTitle = RecommendationService.songKey(cleanSong.title, cleanSong.artist);
           if (existingTitles.contains(cleanTitle)) continue;
 
           existingVideoIds.add(item.videoId);
@@ -407,15 +407,15 @@ mixin _PlayerRecommendations on ChangeNotifier {
       if (batch.items.isNotEmpty) {
         final existingVideoIds = excludeIds.toSet();
         final existingTitles = {
-          ...head.map((s) => s.title.toLowerCase().trim()),
-          oldNextSong.title.toLowerCase().trim(),
-          ...tail.map((s) => s.title.toLowerCase().trim()),
+          ...head.map((s) => RecommendationService.songKey(s.title, s.artist)),
+          RecommendationService.songKey(oldNextSong.title, oldNextSong.artist),
+          ...tail.map((s) => RecommendationService.songKey(s.title, s.artist)),
         };
 
         for (final item in batch.items) {
           if (existingVideoIds.contains(item.videoId)) continue;
           final cleanSong = item.toSong();
-          final cleanTitle = cleanSong.title.toLowerCase().trim();
+          final cleanTitle = RecommendationService.songKey(cleanSong.title, cleanSong.artist);
           if (existingTitles.contains(cleanTitle)) continue;
 
           nextSong = cleanSong;
