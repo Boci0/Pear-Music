@@ -25,6 +25,7 @@ import '../screens/playlists_screen.dart';
 import 'update_service.dart';
 import '../widgets/player/player_artwork.dart';
 import 'debug_log.dart';
+import 'innertube_audio_engine.dart';
 import 'video_service.dart';
 import 'visualizer_feed.dart';
 import 'window_occlusion.dart';
@@ -66,6 +67,8 @@ import 'youtube_search_service.dart';
 ///   /sheet?name=           open a menu, sheet or dialog on the current page:
 ///                           song|menu (x=,y=)|sort|queue|sleep|speed|playlist|import|lyrics|
 ///                           trackinfo|confirm|update|audio (/pop closes it)
+///   /net?mode=slow|stuck|normal  song downloads crawl with pauses (about
+///                           64 KB/s), connect but never deliver, or run as normal
 ///   /quit                   exit the app
 class ControlSettings {
   const ControlSettings(this.port, this.token);
@@ -530,6 +533,14 @@ Future<HttpServer?> startTestControl(
             body = [
               for (final s in player.queue) {'title': s.title, 'artist': s.artist},
             ];
+          case '/net':
+            final mode = q['mode'] ?? 'normal';
+            InnerTubeAudioEngine.shapeDownload = switch (mode) {
+              'slow' => _slowLink,
+              'stuck' => (_) => Completer<List<int>>().future.asStream(),
+              _ => null,
+            };
+            body = {'net': mode};
           case '/quit':
             res.headers.contentType = ContentType.json;
             res.write(jsonEncode({'quitting': true}));
@@ -579,4 +590,26 @@ Future<List<String>> _logTail(int n) async {
   // and can trail by a while (or be shared with another running instance).
   final lines = DebugLog.recentLogs;
   return lines.length <= n ? lines : lines.sublist(lines.length - n);
+}
+
+/// About 64 KB/s in 16 KB pieces, with a 4 s pause every 512 KB: a weak
+/// mobile signal that still moves.
+Stream<List<int>> _slowLink(Stream<List<int>> bytes) async* {
+  const piece = 16 * 1024;
+  const window = 512 * 1024;
+  var sent = 0;
+  await for (final b in bytes) {
+    for (var i = 0; i < b.length; i += piece) {
+      final end = i + piece < b.length ? i + piece : b.length;
+      final before = sent;
+      sent += end - i;
+      // Paced by size: the network hands over pieces far smaller than 16 KB,
+      // and a fixed wait per piece made this about 18 KB/s instead of 64.
+      await Future<void>.delayed(Duration(
+        microseconds: (end - i) * 1000000 ~/ (64 * 1024) +
+            (before ~/ window != sent ~/ window ? 4000000 : 0),
+      ));
+      yield b.sublist(i, end);
+    }
+  }
 }
