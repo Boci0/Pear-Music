@@ -99,6 +99,14 @@ class _Engine extends AudioPlayer {
   Future<void> setLoopMode(LoopMode mode) async {}
 }
 
+/// Lets a test say when the engine is playing, buffering or ready.
+class _StarvingEngine extends _Engine {
+  final states = StreamController<PlayerState>.broadcast();
+
+  @override
+  Stream<PlayerState> get playerStateStream => states.stream;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final sandbox = Directory.systemTemp.createTempSync('peerm_slow_net_');
@@ -222,4 +230,32 @@ void main() {
         reason: 'playing from the file being written, not after all 30 MB');
     hold.complete();
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('a song that runs out of data mid-way shows the spinner', () async {
+    final engine = _StarvingEngine();
+    final player = PlayerService(LibraryService(), player: engine);
+    await player.init();
+    Future<void> wait(int ms) =>
+        Future<void>.delayed(Duration(milliseconds: ms));
+
+    engine.states.add(PlayerState(true, ProcessingState.ready));
+    await wait(10);
+    expect(player.isBuffering, isFalse);
+
+    engine.states.add(PlayerState(true, ProcessingState.buffering));
+    await wait(100);
+    expect(player.isBuffering, isFalse, reason: 'a short refill stays quiet');
+    await wait(500);
+    expect(player.isBuffering, isTrue,
+        reason: 'a starved song showed a frozen position and no spinner');
+
+    engine.states.add(PlayerState(true, ProcessingState.ready));
+    await wait(10);
+    expect(player.isBuffering, isFalse);
+
+    // Paused while out of data is not a stall the user is waiting on.
+    engine.states.add(PlayerState(false, ProcessingState.buffering));
+    await wait(600);
+    expect(player.isBuffering, isFalse);
+  });
 }

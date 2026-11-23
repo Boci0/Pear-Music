@@ -180,6 +180,10 @@ class PlayerService extends ChangeNotifier with
   bool _pendingNaturalAdvance = false;
   @override
   bool _isBufferingNext = false; // true while resolving next track's URL
+  // Playing, but the engine ran out of data mid-song (a slow link that cannot
+  // keep up). Without it the song just froze with no spinner.
+  bool _engineStarved = false;
+  Timer? _starveTimer;
   @override
   String? _bufferingVideoId;    // which track is being resolved
   @override
@@ -372,7 +376,8 @@ class PlayerService extends ChangeNotifier with
   bool get isAdvancing => _isAdvancing;
   bool get isBufferingNext => _isBufferingNext;
   bool get isLoadingRecommendations => _isLoadingRecommendations;
-  bool get isBuffering => _isLoadingTrack || _isBufferingNext;
+  bool get isBuffering =>
+      _isLoadingTrack || _isBufferingNext || _engineStarved;
   String? get bufferingVideoId => _bufferingVideoId;
 
   @visibleForTesting
@@ -812,6 +817,18 @@ class PlayerService extends ChangeNotifier with
       if (state.playing) {
         _isManuallyPaused = false;
       }
+      if (!state.playing || state.processingState != ProcessingState.buffering) {
+        _starveTimer?.cancel();
+        _starveTimer = null;
+        _engineStarved = false;
+      } else if (!_engineStarved && _starveTimer == null) {
+        // A seek's short refill should not flash the spinner.
+        _starveTimer = Timer(const Duration(milliseconds: 400), () {
+          _starveTimer = null;
+          _engineStarved = true;
+          notifyListeners();
+        });
+      }
       if (_isLive) {
         // A paused live stream falls further behind the edge each second.
         final since = _livePausedSince;
@@ -1044,6 +1061,7 @@ class PlayerService extends ChangeNotifier with
   @override
   void dispose() {
     _disposed = true;
+    _starveTimer?.cancel();
     LiveHlsProxy.stop();
     _tailToken++;
     _volumeFadeToken++;
