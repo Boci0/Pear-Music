@@ -67,8 +67,9 @@ import 'youtube_search_service.dart';
 ///   /sheet?name=           open a menu, sheet or dialog on the current page:
 ///                           song|menu (x=,y=)|sort|queue|sleep|speed|playlist|import|lyrics|
 ///                           trackinfo|confirm|update|audio (/pop closes it)
-///   /net?mode=slow|stuck|normal  song downloads crawl with pauses (about
-///                           64 KB/s), connect but never deliver, or run as normal
+///   /net?mode=slow|stall|stuck|normal  song downloads crawl with pauses
+///                           (about 64 KB/s), stop mid-download, connect but
+///                           never deliver, or run as normal
 ///   /quit                   exit the app
 class ControlSettings {
   const ControlSettings(this.port, this.token);
@@ -535,8 +536,9 @@ Future<HttpServer?> startTestControl(
             ];
           case '/net':
             final mode = q['mode'] ?? 'normal';
+            _linkStalled = mode == 'stall';
             InnerTubeAudioEngine.shapeDownload = switch (mode) {
-              'slow' => _slowLink,
+              'slow' || 'stall' => _slowLink,
               'stuck' => (_) => Completer<List<int>>().future.asStream(),
               _ => null,
             };
@@ -594,6 +596,10 @@ Future<List<String>> _logTail(int n) async {
 
 /// About 64 KB/s in 16 KB pieces, with a 4 s pause every 512 KB: a weak
 /// mobile signal that still moves.
+/// Set by /net?mode=stall: slow downloads already running stop delivering
+/// until the mode changes (stuck only affects downloads that start after it).
+bool _linkStalled = false;
+
 Stream<List<int>> _slowLink(Stream<List<int>> bytes) async* {
   const piece = 16 * 1024;
   const window = 512 * 1024;
@@ -609,6 +615,9 @@ Stream<List<int>> _slowLink(Stream<List<int>> bytes) async* {
         microseconds: (end - i) * 1000000 ~/ (64 * 1024) +
             (before ~/ window != sent ~/ window ? 4000000 : 0),
       ));
+      while (_linkStalled) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
       yield b.sublist(i, end);
     }
   }
