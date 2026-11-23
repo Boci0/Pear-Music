@@ -666,6 +666,18 @@ mixin _PlayerPlayback
       }
       unawaited(_player.play());
       _levelSong(song, token, pendingDownload);
+      if (song.sourceDeviceId == 'stream') {
+        // Keep a played song on disk once its fetch is done, not only when it
+        // ends: skipped or interrupted songs stayed in RAM, fell out of it,
+        // and then streamed (and buffered) again on a slow connection.
+        final id = RecommendationService.extractVideoId(song.id) ??
+            song.id.replaceFirst('stream_', '');
+        final fetched = pendingDownload?.then<void>((_) {}, onError: (_) {}) ??
+            Future<void>.value();
+        unawaited(fetched
+            .then((_) => StreamCacheManager.flushRamToDisk(id))
+            .catchError((Object _) => null));
+      }
       if (LoudnessService.isMeasured(song)) _levelNextSong();
       _maybeCompactMemory();
       if (targetVol > 0.01) {

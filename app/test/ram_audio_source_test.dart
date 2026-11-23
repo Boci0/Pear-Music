@@ -3,9 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
+import 'package:peerm_app/models/song.dart';
 import 'package:peerm_app/services/backup_audio_engine.dart';
 import 'package:peerm_app/services/innertube_audio_engine.dart';
+import 'package:peerm_app/services/library_service.dart';
+import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/ram_audio_source.dart';
 import 'package:peerm_app/services/stream_cache_manager.dart';
 
@@ -24,6 +28,34 @@ Map<String, dynamic> _playerOk({int size = 120000}) => {
         ],
       },
     };
+
+/// Takes any source and never plays, so playback logic runs without an engine.
+class _SilentPlayer extends AudioPlayer {
+  _SilentPlayer() : super(handleAudioSessionActivation: false);
+
+  @override
+  Future<Duration?> setAudioSource(
+    AudioSource source, {
+    bool preload = true,
+    int? initialIndex,
+    Duration? initialPosition,
+  }) async => const Duration(minutes: 3);
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
+
+  @override
+  Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> setLoopMode(LoopMode mode) async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -292,6 +324,123 @@ void main() {
       expect(StreamCacheManager.getRamCachedBuffer('big_0'), isNull);
       expect(StreamCacheManager.getRamCachedBuffer('big_1'), isNotNull);
       expect(StreamCacheManager.getRamCachedBuffer('big_2'), isNotNull);
+    });
+
+    test('a song played from RAM is on disk before it ends', () async {
+      // Skipped or interrupted songs used to stay in RAM only, fall out of
+      // it, and stream again (buffering on a slow link) the next time.
+      StreamCacheManager.debugAllowFastEngineInTests = true;
+      InnerTubeAudioEngine.debugPlayerOverride =
+          (_, _) async => _playerOk(size: 80000);
+      InnerTubeAudioEngine.debugOpenOverride =
+          (url, bytes) => Stream.value(List.filled(bytes, 3));
+      const id = 'ramPlayed01';
+      await StreamCacheManager.ensureStreamCached(id, isPreload: true);
+      expect(await StreamCacheManager.getCachedFile(id), isNull);
+
+      final song = Song(
+        id: 'stream_$id',
+        title: 'Played',
+        fileName: 'stream_$id.m4a',
+        size: 0,
+        checksum: 'stream_$id',
+        sourceDeviceId: 'stream',
+        addedAt: DateTime(2026, 11, 23),
+      );
+      final player = PlayerService(LibraryService(), player: _SilentPlayer());
+      await player.playSong(song, queue: [song]);
+      for (var i = 0; i < 20; i++) {
+        if (await StreamCacheManager.getCachedFile(id) != null) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      final cached = await StreamCacheManager.getCachedFile(id);
+      expect(cached, isNotNull);
+      expect(cached!.lengthSync(), 80000);
+    });
+  });
+
+  group('BackupAudioEngine on a slow link', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('peerm_slow_link_'));
+    tearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    BackupAudioCandidate song(int bytes) => BackupAudioCandidate(
+          container: 'webm',
+          codec: 'opus',
+          kbps: 128,
+          bytes: bytes,
+        );
+
+    test('a song being played is not cut off at the overall time limit',
+        () async {
+      const head = 600 * 1024;
+      const total = head + 60 * 1024;
+      // Past the start point at once, then a trickle that outlasts the limit.
+      Stream<List<int>> trickle() async* {
+        yield List.filled(head, 1);
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          yield List.filled(10 * 1024, 1);
+        }
+      }
+
+      Future<BackupFetchResult> fetch({required bool playing}) =>
+          BackupAudioEngine.fetch(
+            'trickle$playing',
+            dir: dir,
+            preferAac: false,
+            shouldAbort: () => false,
+            writeToDisk: false,
+            totalTimeout: const Duration(milliseconds: 300),
+            load: (_) async => [song(total)],
+            open: (_) => trickle(),
+            onReadableBuffer: playing ? (_, _) {} : null,
+          );
+
+      final played = await fetch(playing: true);
+      expect(played.buffer?.isComplete, isTrue, reason: '${played.error}');
+      expect(played.buffer!.length, total);
+
+      final idle = await fetch(playing: false);
+      expect(idle.error, 'took too long',
+          reason: 'a fetch nobody listens to still has a limit');
+    });
+
+    test('a song too long for RAM starts from the file being written',
+        () async {
+      const total = BackupAudioEngine.maxSingleRamTrackBytes + 1024 * 1024;
+      final rest = Completer<void>();
+      Stream<List<int>> slow() async* {
+        yield List.filled(1024 * 1024, 2);
+        await rest.future;
+        yield List.filled(total - 1024 * 1024, 2);
+      }
+
+      File? readable;
+      final fetching = BackupAudioEngine.fetch(
+        'longmix001',
+        dir: dir,
+        preferAac: false,
+        shouldAbort: () => false,
+        writeToDisk: false,
+        load: (_) async => [song(total)],
+        open: (_) => slow(),
+        onReadableFile: (temp, _) => readable = temp,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(readable, isNotNull, reason: 'playback must not wait for it all');
+      expect(readable!.lengthSync(), greaterThanOrEqualTo(512 * 1024));
+
+      rest.complete();
+      final result = await fetching;
+      expect(result.file?.lengthSync(), total);
+      expect(p.basename(result.file!.path), 'longmix001.webm');
     });
   });
 }

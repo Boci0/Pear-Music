@@ -9,6 +9,8 @@ import 'dart:io';
 import 'package:just_audio/just_audio.dart';
 import 'package:synchronized/synchronized.dart';
 
+import 'ram_audio_source.dart' show holdUntilHungUp;
+
 /// Plays an audio file while yt-dlp is still writing it.
 ///
 /// Used on Android, where YouTube turns the phone's player away if it asks
@@ -163,6 +165,7 @@ class GrowingFileAudioSource extends StreamAudioSource {
         await Future<void>.delayed(pollInterval);
       }
     }
+    if (_closed && to != null && position < to) yield* holdUntilHungUp();
   }
 
   /// Releases the file handle. Call once the player has moved on.

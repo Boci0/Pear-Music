@@ -238,6 +238,7 @@ class BackupAudioEngine {
     required Duration idleTimeout,
     required Duration totalTimeout,
     void Function(int bytes)? onBytes,
+    bool Function()? playing,
   }) async {
     final done = Completer<String?>();
     var bytes = 0;
@@ -262,7 +263,12 @@ class BackupAudioEngine {
       (chunk) {
         if (done.isCompleted) return;
         if (shouldAbort()) return finish('cancelled');
-        if (DateTime.now().isAfter(deadline)) return finish('took too long');
+        // Once a player reads the song as it arrives, a slow link only has to
+        // keep bytes coming (the idle timer); cutting it off at the overall
+        // limit stopped the song partway through.
+        if (!(playing?.call() ?? false) && DateTime.now().isAfter(deadline)) {
+          return finish('took too long');
+        }
         try {
           write(chunk);
         } catch (e) {
@@ -310,15 +316,25 @@ class BackupAudioEngine {
     // start from [RamAudioSource] immediately without touching disk.
     void Function(RamAudioBuffer buffer, BackupAudioCandidate pick)?
         onReadableBuffer,
-    int readableAfter = 2 * 1024 * 1024,
+    // The same for a song too long for RAM: [temp] is the file being written
+    // (see GrowingFileAudioSource).
+    void Function(File temp, BackupAudioCandidate pick)? onReadableFile,
+    // About 30 s of audio: plenty against a pause in a weak signal, and the
+    // first sound comes after half a megabyte instead of two.
+    int readableAfter = 512 * 1024,
   }) async {
     File? temp;
     try {
+      final clock = Stopwatch()..start();
       final candidates = await (load ?? _load)(videoId).timeout(lookupTimeout);
       final pick = pickStream(candidates, preferAac: preferAac);
       if (pick == null) {
         return const BackupFetchResult.failed('no audio streams offered');
       }
+      DebugLog.write(
+        '[$label] $videoId found in ${clock.elapsedMilliseconds} ms, '
+        '${(pick.bytes / 1024).round()} KB ${pick.container}',
+      );
       final ext = extensionFor(pick.container);
       final finalFile = File(p.join(dir.path, '$videoId.$ext'));
       final half = pick.bytes > 0 ? pick.bytes ~/ 2 : readableAfter;
@@ -332,17 +348,24 @@ class BackupAudioEngine {
           ext: ext,
           expectedLength: pick.bytes,
         );
-        var announced = onReadableBuffer == null;
+        var announced = false;
         final copied = await _copy(
           (open ?? _open)(pick),
           buffer.append,
           shouldAbort: shouldAbort,
           idleTimeout: idleTimeout,
           totalTimeout: totalTimeout,
+          playing: () => announced,
           onBytes: (bytes) {
-            if (announced || bytes < announceAt) return;
+            if (announced || onReadableBuffer == null || bytes < announceAt) {
+              return;
+            }
             announced = true;
-            onReadableBuffer?.call(buffer, pick);
+            DebugLog.write(
+              '[$label] $videoId playable after ${(bytes / 1024).round()} KB '
+              'in ${clock.elapsedMilliseconds} ms',
+            );
+            onReadableBuffer(buffer, pick);
           },
         );
         if (copied.error != null) {
@@ -371,7 +394,7 @@ class BackupAudioEngine {
         }
         temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
         if (await temp.exists()) await temp.delete();
-        await temp.writeAsBytes(buffer.toBytes(), flush: false);
+        await buffer.writeTo(temp);
         if (await finalFile.exists()) await finalFile.delete();
         await temp.rename(finalFile.path);
         temp = null;
@@ -386,7 +409,11 @@ class BackupAudioEngine {
       temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
       if (await temp.exists()) await temp.delete();
 
+      // Written straight to the file, not through a buffered sink: a reader
+      // told about the file has to see every byte written so far.
       final out = await temp.open(mode: FileMode.write);
+      final tempFile = temp;
+      var announced = false;
       ({int bytes, String? error}) copied;
       try {
         copied = await _copy(
@@ -395,6 +422,18 @@ class BackupAudioEngine {
           shouldAbort: shouldAbort,
           idleTimeout: idleTimeout,
           totalTimeout: totalTimeout,
+          playing: () => announced,
+          onBytes: (bytes) {
+            if (announced || onReadableFile == null || bytes < announceAt) {
+              return;
+            }
+            announced = true;
+            DebugLog.write(
+              '[$label] $videoId playable after ${(bytes / 1024).round()} KB '
+              'in ${clock.elapsedMilliseconds} ms',
+            );
+            onReadableFile(tempFile, pick);
+          },
         );
       } finally {
         await out.close();
@@ -419,7 +458,19 @@ class BackupAudioEngine {
         );
       }
       if (await finalFile.exists()) await finalFile.delete();
-      await temp.rename(finalFile.path);
+      try {
+        await temp.rename(finalFile.path);
+      } on FileSystemException {
+        // Windows will not rename a file open for reading, and a player that
+        // started early reads this one. The cache gets a copy; the player
+        // keeps its file, which the start-up sweep removes (`.tmp.` name).
+        final copy = File(p.join(dir.path, '$videoId.tmp.copy.$ext'));
+        await temp.copy(copy.path);
+        await copy.rename(finalFile.path);
+        try {
+          await temp.delete();
+        } catch (_) {}
+      }
       temp = null;
       DebugLog.write(
         '[$label] $videoId ${pick.container}/${pick.codec} '

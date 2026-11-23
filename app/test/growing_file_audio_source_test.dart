@@ -169,4 +169,26 @@ void main() {
       // Windows cannot rename over a file that is open; the replace only
       // happens on Android, where this matters.
       skip: Platform.isWindows);
+
+  test('a source closed mid-song waits for the player to hang up instead of '
+      'ending short', () async {
+    final path = p.join(dir.path, 'switched.m4a');
+    File(path).writeAsBytesSync([1, 2, 3]);
+    final done = Completer<void>();
+    final src = source(path, done, expectedLength: 10);
+
+    final response = await src.request(0, 10);
+    final received = <int>[];
+    var ended = false;
+    final sub = response.stream
+        .listen(received.addAll, onDone: () => ended = true);
+    await until(() => received.length >= 3);
+
+    // A new song was picked: the old source closes while the player holds it.
+    await src.close();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(ended, isFalse,
+        reason: 'ending short makes the just_audio proxy throw uncaught');
+    await sub.cancel().timeout(const Duration(seconds: 1));
+  });
 }

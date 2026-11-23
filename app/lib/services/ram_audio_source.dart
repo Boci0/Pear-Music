@@ -4,6 +4,7 @@
 // ignore_for_file: experimental_member_use
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -116,6 +117,19 @@ class RamAudioBuffer {
     }
   }
 
+  /// Writes the buffered bytes to [file] chunk by chunk. Unlike writing
+  /// [toBytes], this does not hold a second whole copy of the song in memory.
+  Future<void> writeTo(File file) async {
+    final sink = file.openWrite();
+    try {
+      for (final chunk in _chunks) {
+        sink.add(chunk);
+      }
+    } finally {
+      await sink.close();
+    }
+  }
+
   /// Returns a contiguous copy of all buffered bytes.
   Uint8List toBytes() {
     if (_chunks.isEmpty || _length == 0) return Uint8List(0);
@@ -146,7 +160,7 @@ class RamAudioSource extends StreamAudioSource {
   bool _closed = false;
   final Completer<void> _closedSignal = Completer<void>();
 
-  /// Marks this source closed so any open stream ends immediately.
+  /// Marks this source closed so any open stream stops reading at once.
   void close() {
     _closed = true;
     if (!_closedSignal.isCompleted) _closedSignal.complete();
@@ -207,5 +221,21 @@ class RamAudioSource extends StreamAudioSource {
         }
       }
     }
+    if (_closed && to != null && position < to) yield* holdUntilHungUp();
   }
+}
+
+/// What a source closed mid-range sends instead of ending. just_audio's proxy
+/// promised the player the whole range, and a stream that ends short makes
+/// the proxy's response close throw an uncaught error. The paused player
+/// still holds the old song until the next one opens, then hangs up, which
+/// cancels this; the cap ends it if it never does.
+Stream<List<int>> holdUntilHungUp() {
+  Timer? cap;
+  late final StreamController<List<int>> held;
+  held = StreamController<List<int>>(
+    onListen: () => cap = Timer(const Duration(minutes: 2), held.close),
+    onCancel: () => cap?.cancel(),
+  );
+  return held.stream;
 }

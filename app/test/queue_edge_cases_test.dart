@@ -225,6 +225,37 @@ void main() {
       expect(player.queue[1].id, isNot(songs[1].id));
       expect(player.queue[1].title, startsWith('Radio pick'));
     });
+
+    test('a radio preloads only the next song, not ones a reroll will replace',
+        () async {
+      final preloaded = <String>[];
+      final previous = StreamCacheManager.debugEnsureStreamCachedOverride;
+      StreamCacheManager.debugEnsureStreamCachedOverride =
+          (videoId, {required isPreload}) async {
+        if (isPreload) preloaded.add(videoId);
+        return null;
+      };
+      addTearDown(() =>
+          StreamCacheManager.debugEnsureStreamCachedOverride = previous);
+      final songs = [
+        _streamSong(ids[0]),
+        _streamSong(ids[1]),
+        _streamSong('uncached001'),
+        _streamSong('uncached002'),
+      ];
+      final player = PlayerService(LibraryService(), player: _FakePlayer());
+      await player.setLoudnessNormalization(false);
+      player.setAutoRerollSeed(true);
+
+      await player.playSong(songs[0],
+          queue: songs, sourceId: 'radio', sourceTitle: 'Radio');
+      await Future<void>.delayed(const Duration(seconds: 3));
+
+      final next = RecommendationService.extractVideoId(player.queue[1].id);
+      expect(player.queue[1].title, startsWith('Radio pick'));
+      expect(preloaded, [next],
+          reason: 'songs further ahead are swapped before they play');
+    });
   });
 
   test('stop() during a load leaves the player ready to play again', () async {

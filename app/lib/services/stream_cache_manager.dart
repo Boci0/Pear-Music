@@ -410,7 +410,7 @@ class StreamCacheManager {
           token != _downloadInvocationToken ||
           _activeDownloadingVideoId != videoId ||
           (isPreload && _preloadFetchStale(preloadSeq, videoId)),
-      // A few megabytes in, playback can start from the RAM buffer being
+      // Half a megabyte in, playback can start from the RAM buffer being
       // filled instead of waiting for all of it; once complete it stays in
       // RAM until playback finishes or the user saves it to the library.
       onReadableBuffer: (buffer, pick) => _publishResolvedStream(
@@ -420,6 +420,16 @@ class StreamCacheManager {
           ext: buffer.ext,
           filesize: pick.bytes > 0 ? pick.bytes : null,
           ramBuffer: buffer,
+        ),
+      ),
+      // A song too long for RAM plays from the file being written.
+      onReadableFile: (temp, pick) => _publishResolvedStream(
+        videoId,
+        ResolvedStream(
+          url: '',
+          ext: p.extension(temp.path).replaceFirst('.', ''),
+          filesize: pick.bytes > 0 ? pick.bytes : null,
+          localPath: temp.path,
         ),
       ),
     );
@@ -595,7 +605,7 @@ class StreamCacheManager {
       temp = File(p.join(dir.path, '$videoId.tmp.$ext'));
       final finalFile = File(p.join(dir.path, '$videoId.$ext'));
       if (await temp.exists()) await temp.delete();
-      await temp.writeAsBytes(buffer.toBytes(), flush: false);
+      await buffer.writeTo(temp);
       if (await finalFile.exists()) await finalFile.delete();
       await temp.rename(finalFile.path);
       temp = null;
@@ -1505,7 +1515,15 @@ class StreamCacheManager {
       DebugLog.write('[cache] Joining in-flight download for $videoId');
       return await joined.future;
     }
-    final token = ++_downloadInvocationToken;
+    // A preload that will queue behind another song's download takes its
+    // token only once it may start: bumping it now aborted that download,
+    // which on a slow link was often the song being played.
+    final queuesBehind = isPreload &&
+        _activeDownloadingVideoId != null &&
+        _activeDownloadingVideoId != videoId;
+    var token = queuesBehind
+        ? _downloadInvocationToken
+        : ++_downloadInvocationToken;
     final preloadSeq = _slidingWindowSequence;
     // A new attempt starts clean: any explanation from an earlier attempt for
     // this video must not be reused for the outcome of this one.
@@ -1581,6 +1599,7 @@ class StreamCacheManager {
     }
     if (token != _downloadInvocationToken) return null;
     if (isPreload && _preloadFetchStale(preloadSeq, videoId)) return null;
+    if (queuesBehind) token = ++_downloadInvocationToken;
 
     // If direct playback is requested while another download is running, abort the active download to
     // dedicate 100% bandwidth to the track the user is actively waiting to hear.

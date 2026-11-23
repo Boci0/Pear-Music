@@ -294,8 +294,21 @@ class InnerTubeAudioEngine {
     'Origin': 'https://www.youtube.com',
   };
 
+  /// Set by the control port's `/net` to imitate a bad connection on a real
+  /// device: every song download passes through it. Null in normal use.
+  static Stream<List<int>> Function(Stream<List<int>> bytes)? shapeDownload;
+
   /// Reads a stream's bytes in ranges, as one continuous stream.
-  static Stream<List<int>> open(BackupAudioCandidate c, String videoId) async* {
+  static Stream<List<int>> open(BackupAudioCandidate c, String videoId) {
+    final shape = shapeDownload;
+    final bytes = _openRanges(c, videoId);
+    return shape == null ? bytes : shape(bytes);
+  }
+
+  static Stream<List<int>> _openRanges(
+    BackupAudioCandidate c,
+    String videoId,
+  ) async* {
     final url = c.handle! as String;
     final override = debugOpenOverride;
     if (override != null) {
@@ -345,6 +358,7 @@ class InnerTubeAudioEngine {
     bool writeToDisk = true,
     void Function(RamAudioBuffer buffer, BackupAudioCandidate pick)?
         onReadableBuffer,
+    void Function(File temp, BackupAudioCandidate pick)? onReadableFile,
   }) async {
     if (!_guard.allow(videoId, DateTime.now())) {
       return const BackupFetchResult.failed('resting after a block');
@@ -361,6 +375,7 @@ class InnerTubeAudioEngine {
         label: 'fast-engine',
         lookupTimeout: const Duration(seconds: 15),
         onReadableBuffer: onReadableBuffer,
+        onReadableFile: onReadableFile,
       );
       if (result.isOk) _guard.recordSuccess(videoId);
       return result;

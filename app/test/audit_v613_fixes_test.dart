@@ -211,16 +211,19 @@ void main() {
       );
       final res = await src.request();
       final received = <int>[];
-      final sw = Stopwatch()..start();
-      final done = res.stream.forEach(received.addAll);
+      var ended = false;
+      final sub = res.stream
+          .listen(received.addAll, onDone: () => ended = true);
 
       await Future<void>.delayed(const Duration(milliseconds: 20));
       src.close();
-      await done.timeout(const Duration(seconds: 1));
-      sw.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(received, [1, 2, 3]);
-      expect(sw.elapsedMilliseconds, lessThan(1000));
+      // Ending short would make just_audio's proxy throw (holdUntilHungUp);
+      // the player hanging up must still end it at once.
+      expect(ended, isFalse);
+      await sub.cancel().timeout(const Duration(seconds: 1));
     });
   });
 
@@ -240,17 +243,28 @@ void main() {
       InnerTubeAudioEngine.debugOpenOverride =
           (url, bytes) => Stream.value(List.filled(bytes, 5));
 
+      // Waits on the fetch reaching YouTube, not a fixed sleep: 20 ms was
+      // too short when the whole suite ran at once.
+      Future<void> until(bool Function() ok) async {
+        for (var i = 0; i < 500 && !ok(); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(ok(), isTrue);
+      }
+
       final first = StreamCacheManager.ensureStreamCached('samevid1');
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await until(() => call == 1);
       StreamCacheManager.cancelActiveDownload();
 
       final secondGate = Completer<void>();
+      var secondAsked = false;
       InnerTubeAudioEngine.debugPlayerOverride = (_, _) async {
+        secondAsked = true;
         await secondGate.future;
         return _playerOk(size: 80000);
       };
       final second = StreamCacheManager.ensureStreamCached('samevid1');
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await until(() => secondAsked);
 
       // Let the abandoned first fetch run its finally block while the second
       // fetch is still active.

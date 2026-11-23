@@ -11,6 +11,8 @@ mixin _PlayerPreload on ChangeNotifier {
   abstract bool _autoplay;
   abstract LoopSetting _loopMode;
   abstract bool _autoRerollSeed;
+  abstract String? queueSourceId;
+  Set<String> get _autoAddedSongIds;
   abstract Timer? _autoRerollDebounceTimer;
   abstract bool _isRerolling;
   abstract bool _isManuallyPaused;
@@ -67,8 +69,15 @@ mixin _PlayerPreload on ChangeNotifier {
         }
       }
     } else {
+      // Auto-reroll swaps each app-picked track for a fresh one as it becomes
+      // next, so one further ahead never plays: fetching it only wasted data.
+      bool rerolledBeforePlaying(int idx, Song s) =>
+          _autoRerollSeed &&
+          idx != _queueIndex + 1 &&
+          (queueSourceId == 'radio' || _autoAddedSongIds.contains(s.id));
       for (int idx = _queueIndex + 1; idx < _queue.length; idx++) {
         final s = _queue[idx];
+        if (rerolledBeforePlaying(idx, s)) continue;
         if (s.sourceDeviceId == 'stream') {
           final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
           if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
@@ -80,6 +89,7 @@ mixin _PlayerPreload on ChangeNotifier {
       if (upcomingVideoIds.length < maxLookahead && _loopMode == LoopSetting.all) {
         for (int idx = 0; idx <= _queueIndex; idx++) {
           final s = _queue[idx];
+          if (rerolledBeforePlaying(idx, s)) continue;
           if (s.sourceDeviceId == 'stream') {
             final vId = RecommendationService.extractVideoId(s.id) ?? s.id.replaceFirst('stream_', '');
             if (vId.isNotEmpty && !upcomingVideoIds.contains(vId)) {
