@@ -608,7 +608,8 @@ class RecommendationService {
           final sections = data['contents']?['tabbedSearchResultsRenderer']?['tabs']?[0]
               ?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
           for (final sec in sections ?? const []) {
-            final shelf = sec['musicShelfRenderer'];
+            // The unfiltered search (Nov 2026) puts each row in its own itemSectionRenderer.
+            final shelf = sec['musicShelfRenderer'] ?? sec['itemSectionRenderer'];
             if (shelf is Map<String, dynamic>) shelves.add(shelf);
           }
         } else {
@@ -631,6 +632,10 @@ class RecommendationService {
     }
     return items;
   }
+
+  static const _nonTrackKinds = {
+    'Artist', 'Album', 'Single', 'EP', 'Playlist', 'Profile', 'Episode', 'Podcast',
+  };
 
   static void _addSongRows(
     List? rows,
@@ -655,8 +660,17 @@ class RecommendationService {
       String artist = '';
       String? lengthStr;
       if (flexCols.length > 1) {
-        final subRuns = flexCols[1]?['musicResponsiveListItemFlexColumnRenderer']
+        var subRuns = flexCols[1]?['musicResponsiveListItemFlexColumnRenderer']
             ?['text']?['runs'] as List?;
+        // The mixed layout prefixes the type: "Song • Artist", "Album • ...".
+        final kind = subRuns != null && subRuns.length >= 3
+            ? subRuns[0]['text'] as String?
+            : null;
+        if (kind == 'Song' || kind == 'Video') {
+          subRuns = subRuns!.sublist(2);
+        } else if (_nonTrackKinds.contains(kind)) {
+          continue;
+        }
         if (subRuns != null && subRuns.isNotEmpty) {
           artist = subRuns[0]['text'] as String? ?? '';
           if (subRuns.length >= 3) {

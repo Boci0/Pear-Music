@@ -51,6 +51,35 @@ void main() {
     expect(items.last.duration, const Duration(minutes: 3, seconds: 12));
   });
 
+  test('mixed search rows: artist read past the type label, non-tracks skipped', () {
+    final items = RecommendationService.parseSongRowsForTesting([
+      _row('artistrow01', ['Artist', ' • ', '5.49M monthly audience']),
+      _row('songvideo02', ['Song', ' • ', 'Zyra Music']),
+      _row('albumrow001', ['Album', ' • ', 'Lofi Beats', ' • ', '2025']),
+      _row('videorow001', ['Video', ' • ', 'Lofi Girl', ' • ', '26M views']),
+    ]);
+    expect(items.map((i) => i.videoId), ['songvideo02', 'videorow001']);
+    expect(items.map((i) => i.artist), ['Zyra Music', 'Lofi Girl']);
+    expect(items.last.duration, isNull);
+  });
+
+  test('a short mixed search is topped up from the songs search, once each', () async {
+    YouTubeSearchService.allowVideoResults = true;
+    addTearDown(() {
+      YouTubeSearchService.allowVideoResults = false;
+      YouTubeSearchService.dispose();
+    });
+    YouTubeSearchResult r(String id) => YouTubeSearchResult(
+        videoId: id, title: id, author: 'a', duration: Duration.zero);
+    YouTubeSearchService.debugSearchOverride =
+        (q, {required limit, required enableVideos}) async => enableVideos
+            ? [r('mixed000001'), r('shared00001')]
+            : [r('shared00001'), r('songs000001'), r('songs000002')];
+
+    final got = await YouTubeSearchService.search('topup', limit: 3);
+    expect(got.map((e) => e.videoId), ['mixed000001', 'shared00001', 'songs000001']);
+  });
+
   group('YouTubeSearchResult', () {
     test('formats duration correctly', () {
       final item1 = YouTubeSearchResult(

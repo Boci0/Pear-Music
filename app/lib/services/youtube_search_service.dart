@@ -412,8 +412,9 @@ class YouTubeSearchService {
     return [...marked.take(index), ...extra, ...marked.skip(index)];
   }
 
-  /// When the expanded scope (video results) finds nothing, the search is
-  /// repeated with it off so a query never comes back empty because of it.
+  /// When the expanded scope (video results) finds fewer than [limit], the
+  /// songs-only search fills the rest, so a query never comes back empty or
+  /// short because of it.
   static Future<List<YouTubeSearchResult>> _searchSongs(
     String query, {
     int limit = 20,
@@ -427,17 +428,25 @@ class YouTubeSearchService {
       query,
       limit: limit,
       enableVideos: enableVideos,
-      throwOnError: throwOnError,
+      // A failure here falls through to the songs-only retry below.
+      throwOnError: throwOnError && !enableVideos,
       onFirstPage: onFirstPage,
     );
-    if (results.isNotEmpty || !enableVideos) return results;
-    return _search(
+    if (!enableVideos || results.length >= limit) return results;
+    // The mixed layout has no next page (Nov 2026), so the songs filter, which
+    // still pages, tops a short list up.
+    final songs = await _search(
       query,
       limit: limit,
       enableVideos: false,
-      throwOnError: throwOnError,
-      onFirstPage: onFirstPage,
+      throwOnError: throwOnError && results.isEmpty,
+      onFirstPage: results.isEmpty ? onFirstPage : null,
     );
+    final seen = {for (final r in results) r.videoId};
+    return [
+      ...results,
+      ...songs.where((s) => seen.add(s.videoId)),
+    ].take(limit).toList();
   }
 
   static Future<List<YouTubeSearchResult>> _search(
