@@ -15,6 +15,7 @@ import '../theme/glass.dart';
 import '../widgets/pear_switch_tile.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/audio_engine_card.dart';
+import '../widgets/filter_pill.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/immersion_filter.dart';
 import '../widgets/player/visualizer_permission.dart';
@@ -287,23 +288,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: SegmentedButton<int>(
-                    expandedInsets: EdgeInsets.zero,
-                    showSelectedIcon: false,
-                    style: const ButtonStyle(
-                      padding: WidgetStatePropertyAll(
-                        EdgeInsets.symmetric(horizontal: 2),
-                      ),
-                    ),
-                    segments: [
+                  child: _ChoicePills(
+                    choices: [
                       for (var i = 0; i < ColorGrade.labels.length; i++)
-                        ButtonSegment(value: i, label: Text(ColorGrade.labels[i])),
+                        (i, ColorGrade.labels[i]),
                     ],
-                    selected: {identity.colorGrade},
-                    onSelectionChanged: (picked) async {
-                      TactileFeedback.selection();
-                      await controller.updateColorGrade(picked.first);
-                    },
+                    selected: identity.colorGrade,
+                    onPick: controller.updateColorGrade,
                   ),
                 ),
               ],
@@ -340,28 +331,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: SegmentedButton<int>(
-                    // Fill the row; left alone it keeps its natural
-                    // width and sits off-centre in the card.
-                    expandedInsets: EdgeInsets.zero,
-                    showSelectedIcon: false,
-                    style: const ButtonStyle(
-                      padding: WidgetStatePropertyAll(
-                        EdgeInsets.symmetric(horizontal: 4),
-                      ),
-                    ),
-                    segments: const [
-                      ButtonSegment(value: 0, label: Text('Auto')),
-                      ButtonSegment(value: 360, label: Text('360p')),
-                      ButtonSegment(value: 480, label: Text('480p')),
-                      ButtonSegment(value: 720, label: Text('720p')),
-                      ButtonSegment(value: 1080, label: Text('1080p')),
+                  child: _ChoicePills(
+                    choices: const [
+                      (0, 'Auto'),
+                      (360, '360p'),
+                      (480, '480p'),
+                      (720, '720p'),
+                      (1080, '1080p'),
                     ],
-                    selected: {identity.videoQuality},
-                    onSelectionChanged: (picked) async {
-                      TactileFeedback.selection();
-                      await identity.setVideoQuality(picked.first);
-                    },
+                    selected: identity.videoQuality,
+                    onPick: identity.setVideoQuality,
                   ),
                 ),
               ],
@@ -793,4 +772,39 @@ class _NewSectionTitle extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A one-of-several choice as separate pills: SegmentedButton rounds only its
+/// outer ends, so a selected inner or end segment showed as a half pill.
+class _ChoicePills extends StatelessWidget {
+  const _ChoicePills({
+    required this.choices,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final List<(int, String)> choices;
+  final int selected;
+  final Future<void> Function(int value) onPick;
+
+  @override
+  // One line that scrolls sideways on a phone, like the Library filters.
+  Widget build(BuildContext context) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      spacing: 8,
+      children: [
+        for (final (value, label) in choices)
+          FilterPill(
+            label: label,
+            isSelected: value == selected,
+            onTap: () {
+              if (value == selected) return;
+              TactileFeedback.selection();
+              unawaited(onPick(value));
+            },
+          ),
+      ],
+    ),
+  );
 }
