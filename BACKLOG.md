@@ -1,6 +1,6 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v6.2.2** (2026-11-24).
+Handover notes for the next working session. Latest release: **v6.2.3** (2026-11-24).
 The agent cannot hear audio or see a live mobile run, so the owner-ear and real-device checks
 below remain open until confirmed on hardware.
 
