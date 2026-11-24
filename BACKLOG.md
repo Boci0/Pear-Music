@@ -1,144 +1,44 @@
 # Pear Music backlog
 
-Handover notes for the next working session. Latest release: **v4.6.1** (2026-10-12, internal only:
-the player code split into files, no visible change). The lyric items below were written at v4.1.7 and
-have not been re-confirmed since (verified only by tests and the owner's reports; the agent cannot hear
-audio, but it can drive the Windows build through the control port, see Working notes).
+Handover notes for the next working session. Latest release: **v6.2.2** (2026-11-24).
+The agent cannot hear audio or see a live mobile run, so the owner-ear and real-device checks
+below remain open until confirmed on hardware.
 
-## Start here
+## Open owner checks (real run / by ear)
 
--1. **Ready for v6.1.3 release (6.1.3+11443), handover from 2026-11-21:**
-   - **What landed on `main` (unreleased):**
-     - RAM-buffered streaming downloads (`RamAudioBuffer` / `RamAudioSource`, 25 MB per-track cap, bounded 4-track / 32 MB LRU RAM cache) with single atomic disk flush only on completed playback (`_onNaturalEnd`), crossfade handover, or `saveToLibrary`. Eliminates Windows 2x `.tmp.copy` writes and disk writes for skipped or unused preloaded tracks.
-     - 14 Tier M audit fixes across streaming, player/crossfade, data persistence, and UI (`ST-01`..`ST-08`, `ST-10`, `PL-01`..`PL-06`, `PL-08`, `DU-01`, `DU-02`, `DU-04`..`DU-06`, `DU-08`, `DU-09`) plus 10 regression tests in `app/test/audit_v613_fixes_test.dart`.
-     - All 7 deferred audit findings (`DU-03`, `DU-07`, `DU-10`, `PL-07`, `PL-09`, `PL-10`, `ST-09`) fixed and covered by regression tests in `app/test/audit_v613_deferred_test.dart`.
-     - Verified with pinned Flutter 3.44.9 (`dart analyze lib test` clean, `flutter test --no-pub`). RAM playback and flush-on-complete verified live via control port on Windows x64 and Android arm64 (`10AFBH2K7M006Q4`).
-   - **Remaining steps to ship v6.1.3:**
-     1. Bump `app/pubspec.yaml` (`6.1.3+11443`), `app/lib/services/update_service.dart` (`6.1.3`), and `tool/installer.iss` (`6.1.3`).
-     2. Build Windows release with pinned Flutter 3.44.9 (using Low-Integrity NuGet temp-copy workaround) and run the `--control-port` verification gate (local play, RAM streaming + flush, rapid skip cancellation, version string check, clean `/quit`).
-     3. Rebuild plain Android arm64 APK without `--dart-define=PEAR_CONTROL_FILE=true` and reinstall over the check build currently on `10AFBH2K7M006Q4`.
-     4. Commit the 3 version files (`release: v6.1.3 - ...`), create annotated tag `v6.1.3`, push `main` and tag, watch CI, and verify `draft: false` on GitHub Release.
-
-0. **Video player (merged to main 2026-10-14, not released).** A camera button
-   next to the lyrics button shows the picture of a video file or a streamed
-   song (Windows and the phone). Streamed pictures come through
-   `video_relay.dart` in 2 MB windows, are counted ("Streaming 720p . N MB
-   used"), and follow the audio player, which stays the master. A Settings row
-   "Video quality" (Auto = 360p on mobile data, 720p otherwise). Tested on the
-   Windows window and on the phone over LTE (a jump costs about 2 MB at 360p,
-   about 5 MB at 720p). Not confirmed: the yt-dlp fallback on the phone (the
-   fast engine accepted every link in the test), a long listen with video on,
-   and the Windows Beta with the quality row. Phone build numbers: arm64 adds
-   2000, the phone's test build is versionCode 13319, so the next release must
-   use a build number of 11320 or higher (pubspec is +11320). Local-only
-   gotchas are in the owner's notes: stale generated plugin files after a
-   failed `pub get` (Windows cmake list, Android `GeneratedPluginRegistrant`),
-   and `build/windows/x64/libmpv` keeping the audio libmpv.
-
-1. **Confirm the v4.5.0 and v4.6.0 changes on a real run.** Covered by tests
-   and the control port only, not yet confirmed by the owner. A control port
-   run of the v4.6.1 Windows build (2026-10-12) did pass: local playback,
-   pause, seek, next, previous, a song ending on its own, one cached stream,
-   and one live stream rewound 120 s and returned with Go live, with no
-   errors in the log. It cannot judge sound, the phone, or a long listen:
-   - Fast engine (v4.5.0): songs are fetched by the built-in InnerTube engine
-     first (`innertube_audio_engine.dart`) and start after the first couple
-     of megabytes; yt-dlp handles whatever it can't. Check that first plays
-     are faster on a phone and that nothing falls back to yt-dlp needlessly
-     (the debug log notes `[fast-engine] ... failed` when it gives up on a song).
-   - Live streams (v4.5.0, v4.6.0): play through `live_hls_proxy.dart`, are
-     marked LIVE everywhere, have a Live pill in Explore, can be rewound by
-     as much as YouTube keeps (about an hour) and return to live with Go
-     live; a refused or expired link is replaced instead of ending the
-     stream. Check a long listen (30+ minutes) on both Windows and a phone,
-     and the mobile data figure (about 1 MB a minute expected).
-   - Visualizer wave (v4.5.0, v4.6.0): one soft wave on the player card and
-     an opt-in thin wave on the mini player (off by default, it costs
-     battery). The mini player wave should run at up to 60 fps and keep
-     moving while the window is visible but not in front.
-2. **Confirm the v4.1.4 to v4.1.7 lyric changes by ear.** Nothing below was
-   heard by the agent. Ask the owner how HUMBLE. and Blinding Lights feel now:
-   - v4.1.4: a line too long for its time (rap) is sung nonstop, no held last
-     word, fills 95% of the time (the glow used to run ahead).
-   - v4.1.5: the glow travels through the letters (`glyphTimes`) instead of
-     lighting a word as a block; words no longer pile onto one instant when
-     onset snapping shifts a line late.
-   - v4.1.6: a word's first letter lights exactly on the word start, the rest
-     within 60% of the word and 300 ms, 150 ms fade, no built-in delay; a
-     **Highlight delay slider** (-500 to +500 ms, `LyricsDisplay.glowDelayMs`) in
-     Lyrics Options moves only the glow. It is also in the timing report.
-   - v4.1.7: words glued together in NetEase word data ("I'mgoing") get their
-     spaces back from NetEase's plain lyrics when the letters match exactly
-     (`NeteaseLyrics.respaced`); older saved lyrics are refetched once
-     (`[pear:spacing-checked]`). Not yet confirmed on the real song.
-3. **First line far off on Blinding Lights (NetEase).** The report shows the
-   line data itself is late: the "Yeah" the owner hears at 0:14 is stamped
-   about 0:23 in NetEase's data (the rest of the song is mostly fine). Likely
-   NetEase timed to a slightly different recording than the YouTube one (the
-   length check only allows +-3 s). Not an app bug, so no fix yet. Options,
-   in order: pick an LRCLIB version by hand; a first-line-only audio check
-   (pull the line earlier when the loudness pass sees a vocal onset far before
-   its stamp; a guess, could misfire on long instrumental intros); or real
-   alignment (below). Wait for more reports before building the check.
-4. **Lyric timing failures reported on v4.1.x** still need a Report timing
-   (Lyrics Options) or at least "whole line early/late" vs "glow drifts
-   within the line" (issue form: `.github/ISSUE_TEMPLATE/lyric-timing.yml`):
-   - HUMBLE. (Kendrick Lamar): glow ran ahead (fixed in 4.1.4, unconfirmed).
-     Its lyrics were picked by hand from LRCLIB, which has no word timing and
-     is never replaced by NetEase, so it stays on the estimate.
-   - Guitar to Kodoku to Aoi Hoshi (Kessoku Band)
-   - Yoru ni Kakeru (YOASOBI)
-   - Hype Boy (NewJeans)
-   - Idol (YOASOBI): timing off (its mixed romanized lines are fixed in 4.1.2)
-   - Lemon (Kenshi Yonezu): no real word timing from either source, so it
-     is on the estimate; likely a source limit, not an app bug.
-   The owner can't judge Japanese, Chinese or Korean lyrics, so treat those
-   as unverified rather than failed. Saved lyrics record their source
-   (`[pear:source:...]`); lyrics saved before 4.1.3 report it as unknown.
-5. **Idea, not built:** a "Try NetEase word timing" button in Lyrics Options
-   so a hand-picked LRCLIB version can borrow real word timing when NetEase
-   has it and fits the song length.
+1. **Confirm fast engine, live streams, and visualizer on a real device run:**
+   - Fast engine (`innertube_audio_engine.dart`): check that first plays feel fast on mobile and do not fall back to `yt-dlp` needlessly (`[fast-engine] ... failed` in debug log).
+   - Live streams (`live_hls_proxy.dart`): long listen (30+ minutes) on Windows and Android, mobile data usage (~1 MB/min expected), rewind + Go live, and link-refresh stability.
+   - Visualizer wave: soft wave on player card and opt-in mini player wave at up to 60 fps while window is visible but unfocused.
+   - Real-run coverage for sleep timer, radio/recommendations, queue edits, and crossfade (currently covered by unit tests, not the control port).
+2. **Confirm the v4.1.4 to v4.1.7 lyric changes by ear:**
+   - Ask the owner how HUMBLE. and Blinding Lights feel (dense rap line pacing, letter-by-letter `glyphTimes`, onset snapping, Highlight delay slider `-500..+500 ms`, `NeteaseLyrics.respaced` spacing restoration).
+3. **First line far off on Blinding Lights (NetEase):**
+   - NetEase stamps the opening "Yeah" around 0:23 instead of 0:14 (likely timed to a different recording within the +-3 s length tolerance). Options if more songs show this: pick an LRCLIB version by hand, add a first-line vocal-onset audio check, or implement speech-model alignment below.
+4. **Lyric timing reports from v4.1.x** still awaiting a Report timing snapshot (Lyrics Options) or owner feedback:
+   - HUMBLE. (Kendrick Lamar, hand-picked LRCLIB without word timing), Guitar to Kodoku to Aoi Hoshi (Kessoku Band), Yoru ni Kakeru (YOASOBI), Hype Boy (NewJeans), Idol (YOASOBI), Lemon (Kenshi Yonezu; no real word timing from either source). Treat non-English tracks as unverified until checked by a fluent listener.
 
 ## Bigger projects
 
-- **Speech-model alignment for word timing** (Windows first). The only
-  approach that truly follows the voice: align the known lyric text to the
-  audio with a small model (Whisper word timestamps or a CTC forced
-  aligner), reusing the PCM decode the loudness pass already does. Costs:
-  roughly 40 to 150 MB download, seconds per song on a PC, more on phones,
-  weaker under loud instruments without vocal separation. Keep the current
-  estimate as the fallback until a song is aligned.
+- **Upgrade past Flutter 3.44.9 and restore Windows semantics.** v6.2.2 wraps
+  `MaterialApp` in `ExcludeSemantics` on Windows (`app/lib/main.dart`) to stop
+  `flutter_windows.dll` crashing in
+  `AccessibilityBridge::CreateRemoveReparentedNodesUpdate` (`0xc0000005` under
+  Windows UI Automation or window-inspection queries during widget updates).
+  Move the local pin and `.github/workflows/release.yml` to a newer Flutter
+  stable once upstream includes the C++ null-parent fix in
+  `accessibility_bridge.cc`, verify under active UIA inspection during
+  playback, and remove the `ExcludeSemantics` workaround.
+- **Speech-model alignment for word timing** (Windows first). Align known lyric
+  text to the decoded audio with a small model (Whisper word timestamps or a
+  CTC forced aligner), reusing the PCM decode the loudness pass already does.
+  Costs: roughly 40 to 150 MB download, seconds per song on a PC, more on
+  phones, weaker under loud instruments without vocal separation. Keep the
+  current estimate as the fallback until a song is aligned.
 - **vivo Origin Island** (parked until vivo opens it up). The island only
-  shows whitelisted package names. Confirmed by the owner: an app re-signed
-  with Apple Music's package id (`com.apple.android.music`) appears on it.
-  Options if picked up: an opt-in, self-built `island` product flavor with
-  that application id (can't coexist with real Apple Music, separate app
-  data, needs a flavor-aware updater, never a public release since it
-  claims Apple's id), or the official route through vivo's developer
-  platform (atomic notification spec at dev.vivo.com.cn, unreachable from
-  the cloud sandbox).
-
-## Smaller items
-
-- **Finish splitting `PlayerService`.** v4.6.1 moved the sleep timer into its
-  own class (`sleep_timer.dart`) and the crossfade, live, recommendations,
-  preload, queue edit and playback code into mixins under
-  `lib/services/player_service/` (`part` files). `player_service.dart` is
-  about 990 lines. What is left: `playback.dart` is still 1,100+ lines and
-  `playSong` alone is about 400 (stream resolution, retries, cache hand-off),
-  and the mixins share one library and the player's state, so they are
-  files to read, not isolated parts. Next cut: pull stream resolution out of
-  `playSong` into its own class with a small interface. Not covered by a
-  real run, only by unit tests: sleep timer, radio and recommendations,
-  queue edits and crossfade (the control port cannot reach them).
-- **Silent `catch (_)` blocks.** The ones where a failure loses data or changes
-  what the user gets now write to `debug_log` (library moves, lyric writes,
-  history and favourites loading, update and yt-dlp manifest checks, network
-  fetches). About 80 remain on purpose: cleanup deletes, process kills,
-  optional channel calls and the diagnostics sampler.
-- **Android analysis priority.** The loudness and onset analysis runs in a
-  normal-priority isolate (the Android decode itself is low priority). If a
-  stutter a second or two into a song ever shows up, look here first.
+  shows whitelisted package names. Options if picked up: an opt-in, self-built
+  `island` product flavor (never a public release) or the official route through
+  vivo's developer platform (`dev.vivo.com.cn`).
 
 ## How the word glow works now (for context)
 
@@ -165,62 +65,30 @@ audio, but it can drive the Windows build through the control port, see Working 
 ## Working notes
 
 - **Toolchain:** Flutter 3.44.9 (what CI uses). Checks before any push:
-  `dart analyze --no-fatal-warnings lib test` and `flutter test` in `app/`.
+  `dart analyze --no-fatal-warnings lib test` and `flutter test --no-pub` in `app/`.
 - `flutter pub get` regenerates `app/windows/flutter/generated_plugin*`;
   the repo doesn't track them for the app, so don't commit them.
 - **Releasing:** bump `app/pubspec.yaml` (`version: X.Y.Z+build`),
   `currentVersion` in `app/lib/services/update_service.dart` and
   `MyAppVersion` in `tool/installer.iss`; commit `release: vX.Y.Z - ...`
   on `main`; then push an annotated tag `vX.Y.Z`, which starts
-  `.github/workflows/release.yml`. Tag pushes are rejected from the cloud
-  sandbox, so the owner pushes the tag. Keep tag messages free of quotes and
+  `.github/workflows/release.yml`. Tag messages must stay free of quotes and
   apostrophes so they paste into PowerShell.
-- **Release notes** leave out build, ci, chore, test and docs commits. The
-  release script no longer limits how often releases are made.
+- **Release notes** leave out build, ci, chore, test and docs commits.
 - **Driving a real run without a mouse:** the Windows app takes `--no-focus`
   (shown behind every window, never activated) and `--control-port=<port>
   --control-token=<16+ chars>` for a local control port (127.0.0.1 only; see
-  `lib/services/test_control.dart`). It can play a library song, seek a live
-  stream and report what the visualizer feed sees.
-  **Run a build from outside `Downloads`.** The exe built in
-  `app\build\windows\x64\runner\Release` gets "Access is denied" on every
-  file write when it runs from the repo under Downloads (preferences, temp
-  file, cache), so no song opens. Copy the Release folder to
-  `%LOCALAPPDATA%\Programs\<name>`, launch it from there, set `/volume?v=0`
-  first and restore the value `/state` reported, then `/quit` and delete the
-  copy. From a shell, start it detached with all handles redirected; starting
-  it through the PowerShell tool hangs the tool. The build itself needs
-  NuGet's temp and cache folders pointed into `app\build\windows\x64` or it
-  fails on a lock.
+  `lib/services/test_control.dart`). Run copies outside `Downloads` (e.g.
+  `%LOCALAPPDATA%\Programs\<name>`), set `/volume?v=0` first and restore it,
+  then `/quit` and delete the copy.
 - **Code layout of the player:** `lib/services/player_service.dart` holds the
-  state, getters, init and the audio handler; behaviour lives in the mixins
-  in `lib/services/player_service/`. A mixin lists what it needs from the
-  player at the top of its file and builds on the others with `on`.
-- **README screenshots** are rendered offscreen with made-up songs:
-  `flutter test tool/readme_shots/readme_shots_test.dart --update-goldens` in
-  `app/`. Runs on Linux too; off Windows the desktop shot uses Roboto because
-  Segoe UI isn't there. Regenerate them after any visible change to the
-  library screen, the side pane or the status bar (which shows the version).
-- **Never print or commit real song lyrics** (in tests, renders or chat);
-  use placeholder text. A real lyric line once got output blocked.
-- LRCLIB, NetEase and YouTube are unreachable from the cloud sandbox;
-  test with fakes and synthetic audio.
-- `tool/test_playlists/Pear Lyrics Test.m3u8`: 17 songs covering the lyric
-  sync edge cases (fast rap, J-rock, CJK, ballads, an instrumental). Import
-  it through the app; entries are resolved online by title.
-- **The Windows memory climb is fixed (v4.9.5, 2026-10-18).** With the Now
-  Playing UI focused and animating, GPU memory (counted as private bytes on the
-  integrated graphics) grew about 38 MB a second to 2 to 2.7 GB and was freed in
-  bursts. Cause: the glass card's drop shadow, a blurred shadow drawn through a
-  fresh even-odd clip path on every frame, so the renderer built a new clip mask
-  (about 0.7 MB) per frame. Removing the shadow from every `PearGlass` gave 5 of
-  5 flat runs at 296 to 311 MB. Caching the clip Path and wrapping the card in a
-  RepaintBoundary did not help; a baked shadow image did. The video picture's
-  extra memory was the same warm-up, not a separate leak. Method and the full run
-  log: `docs/perf-audit/MEMLAB.md` (local), measure with `tools/memlab.ps1`
-  `-Mode focused -SettleSeconds 0 -Gpu` and compare peaks over at least 4 runs.
-  Ruled out on the way: visualizer rate and painters, audio capture, backdrop
-  bake, blur, feather, pulse, seek glow, picture, seek bar, transport, preload,
-  prefs size, Flutter 3.47.6. Impeller stays unusable (black window on this
-  laptop). `--no-focus` runs park the app and cannot show this.
-
+  state, getters, init and the audio handler; stream resolution lives in
+  `lib/services/player_service/stream_resolver.dart` (`StreamPlaybackResolver`);
+  behaviour lives in the mixins in `lib/services/player_service/`.
+- **README screenshots:** `flutter test tool/readme_shots/readme_shots_test.dart --update-goldens` in `app/`.
+- **Never print or commit real song lyrics** (in tests, renders or chat); use placeholder text.
+- LRCLIB, NetEase and YouTube are unreachable from the cloud sandbox; test with fakes and synthetic audio.
+- `tool/test_playlists/Pear Lyrics Test.m3u8`: 17 songs covering the lyric sync edge cases.
+- **The Windows memory climb is fixed (v4.9.5, 2026-10-18).** Removing the
+  blurred drop shadow from `PearGlass` keeps runs flat at 296 to 311 MB.
+  Impeller stays unusable (black window on this laptop).
