@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:path_provider/path_provider.dart';
@@ -236,11 +237,17 @@ class PearMusicApp extends StatelessWidget {
               shape: PearGlassTokens.angularShape(),
             ),
           );
-          return MaterialApp(
-            title: 'Pear Music',
-            debugShowCheckedModeBanner: false,
-            theme: theme,
-            navigatorKey: PearMusicApp.navigatorKey,
+          // Flutter 3.44.9's Windows AccessibilityBridge can access-violate in
+          // CreateRemoveReparentedNodesUpdate when overlays/dialogs/snackbars
+          // reparent semantics nodes while UIA is active; keep semantics
+          // excluded on Windows until the pinned engine is upgraded.
+          return ExcludeSemantics(
+            excluding: !kIsWeb && Platform.isWindows,
+            child: MaterialApp(
+              title: 'Pear Music',
+              debugShowCheckedModeBanner: false,
+              theme: theme,
+              navigatorKey: PearMusicApp.navigatorKey,
             // App-wide playback keys (media keys and Ctrl+Alt combos) wrap
             // every route, so they work from any screen while a song is
             // loaded. Text fields keep priority, so typing never triggers
@@ -317,6 +324,7 @@ class PearMusicApp extends StatelessWidget {
               );
             },
             home: const _MessagesListener(child: HomeShell()),
+            ),
           );
         },
       ),

@@ -178,9 +178,11 @@ class BackupAudioEngine {
 
   /// The [HttpClient] behind [ipv4Client], for callers that need to see the
   /// raw response (the live relay counts bytes as they cross the wire).
-  static HttpClient ipv4HttpClient() {
+  static HttpClient ipv4HttpClient({
+    Duration connectionTimeout = const Duration(seconds: 15),
+  }) {
     return HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
+      ..connectionTimeout = connectionTimeout
       ..connectionFactory = (uri, proxyHost, proxyPort) async {
         final host = proxyHost ?? uri.host;
         final port = proxyPort ?? uri.port;
@@ -194,7 +196,7 @@ class BackupAudioEngine {
           final v4 = await InternetAddress.lookup(
             host,
             type: InternetAddressType.IPv4,
-          );
+          ).timeout(const Duration(seconds: 4));
           if (v4.isNotEmpty) return await connect(v4.first);
         } catch (_) {}
         return connect(host);

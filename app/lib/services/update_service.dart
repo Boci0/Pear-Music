@@ -1,7 +1,9 @@
 import '../widgets/pear_sheet.dart';
+import 'dart:async';
 import 'dart:convert';
 import '../theme/glass.dart';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import 'package:crypto/crypto.dart';
@@ -13,6 +15,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_update_manifest.dart';
+import 'backup_audio_engine.dart';
 import 'debug_log.dart';
 
 class UpdateInfo {
@@ -58,7 +61,7 @@ class UpdateService {
   /// One version ahead of the latest official release: this is the version
   /// the unreleased work on top of v3.9.8 reports as, so a local/Beta build
   /// reads as newer than the published app.
-  static const String currentVersion = '6.2.1';
+  static const String currentVersion = '6.2.2';
 
   /// True when this build runs from the Beta install. The Windows runner
   /// marks the Beta by its install folder (see windows/runner/main.cpp), so
@@ -77,6 +80,7 @@ class UpdateService {
   /// Set whenever a release check completes, so the settings screen can
   /// badge the update entry without another network round-trip.
   static final ValueNotifier<bool> updateAvailable = ValueNotifier(false);
+  static bool _checking = false;
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Boci0/Pear-Music/releases/latest';
 
@@ -106,12 +110,15 @@ class UpdateService {
 
   /// Fetches and verifies the manifest from one host, or null.
   static Future<AppUpdateManifest?> _fetchManifest(String base) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8);
+    final client = BackupAudioEngine.ipv4HttpClient(
+      connectionTimeout: const Duration(seconds: 8),
+    );
     try {
       client.userAgent = 'PearMusicApp/$currentVersion';
       Future<Uint8List?> get(String url) async {
-        final request = await client.getUrl(Uri.parse(url));
+        final request = await client
+            .getUrl(Uri.parse(url))
+            .timeout(const Duration(seconds: 8));
         final response =
             await request.close().timeout(const Duration(seconds: 8));
         if (response.statusCode != 200) {
@@ -120,20 +127,23 @@ class UpdateService {
         }
         final out = BytesBuilder(copy: false);
         await for (final chunk
-            in response.timeout(const Duration(seconds: 15))) {
+            in response.timeout(const Duration(seconds: 12))) {
           out.add(chunk);
           if (out.length > (1 << 20)) return null;
         }
         return out.takeBytes();
       }
 
-      final manifest = await get('$base/app-update.json');
-      final sig = await get('$base/app-update.json.sig');
-      if (manifest == null || sig == null) return null;
-      return AppUpdateManifest.parseVerified(
-        manifest,
-        Uint8List.fromList(base64.decode(utf8.decode(sig).trim())),
-      );
+      return await () async {
+        final manifest = await get('$base/app-update.json');
+        if (manifest == null) return null;
+        final sig = await get('$base/app-update.json.sig');
+        if (sig == null) return null;
+        return AppUpdateManifest.parseVerified(
+          manifest,
+          Uint8List.fromList(base64.decode(utf8.decode(sig).trim())),
+        );
+      }().timeout(const Duration(seconds: 15));
     } catch (e) {
       debugPrint('[UpdateService] Manifest from $base unavailable: $e');
       return null;
@@ -253,11 +263,14 @@ class UpdateService {
   /// serves is installed in place, because its checksums come from the same
   /// host as the files.
   static Future<UpdateInfo?> _checkLegacyRelease() async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8);
+    final client = BackupAudioEngine.ipv4HttpClient(
+      connectionTimeout: const Duration(seconds: 8),
+    );
     try {
       client.userAgent = 'PearMusicApp/$currentVersion';
-      final request = await client.getUrl(Uri.parse(_releasesApiUrl));
+      final request = await client
+          .getUrl(Uri.parse(_releasesApiUrl))
+          .timeout(const Duration(seconds: 8));
       final response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -357,11 +370,14 @@ class UpdateService {
   ) async {
     final result = <String, String>{};
     if (sumsUrl == null || !sumsUrl.startsWith('https://')) return result;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8);
+    final client = BackupAudioEngine.ipv4HttpClient(
+      connectionTimeout: const Duration(seconds: 8),
+    );
     try {
       client.userAgent = 'PearMusicApp/$currentVersion';
-      final request = await client.getUrl(Uri.parse(sumsUrl));
+      final request = await client
+          .getUrl(Uri.parse(sumsUrl))
+          .timeout(const Duration(seconds: 8));
       final response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -419,10 +435,14 @@ class UpdateService {
     return null;
   }
 
-  /// Streams [file] through SHA-256 and returns the lowercase hex digest.
+  /// Streams [file] through SHA-256 on a worker isolate and returns the
+  /// lowercase hex digest.
   static Future<String> computeFileSha256(File file) async {
-    final digest = await sha256.bind(file.openRead()).first;
-    return digest.toString();
+    final path = file.path;
+    return Isolate.run(() async {
+      final digest = await sha256.bind(File(path).openRead()).first;
+      return digest.toString();
+    });
   }
 
   static String _cleanVersion(String tag) {
@@ -460,41 +480,61 @@ class UpdateService {
     bool quiet = false,
   }) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    if (!quiet) {
-      scaffoldMessenger.showSnackBar(
-        const SnackBar(
-          content: Text('Checking GitHub for updates...'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-
-    final info = await checkLatestRelease();
-
-    if (!context.mounted) return;
-
-    if (info == null) {
+    if (_checking) {
       if (!quiet) {
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('Could not reach GitHub Releases API.')),
+          const SnackBar(
+            content: Text('Already checking for updates...'),
+            duration: Duration(seconds: 2),
+          ),
         );
       }
       return;
     }
-
-    if (info.hasUpdate) {
-      showDialog(
-        context: context,
-        builder: (ctx) => _UpdateDialog(info: info, hostContext: context),
-      );
-    } else {
+    _checking = true;
+    try {
       if (!quiet) {
         scaffoldMessenger.showSnackBar(
-          SnackBar(
-            content: Text('Pear Music is up to date (v${info.currentVersion})'),
+          const SnackBar(
+            content: Text('Checking GitHub for updates...'),
+            duration: Duration(seconds: 2),
           ),
         );
       }
+
+      final info = await checkLatestRelease();
+
+      if (!context.mounted) return;
+
+      if (info == null) {
+        if (!quiet) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Could not reach GitHub Releases API.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (info.hasUpdate) {
+        showDialog(
+          context: context,
+          builder: (ctx) => _UpdateDialog(info: info, hostContext: context),
+        );
+      } else {
+        if (!quiet) {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                'Pear Music is up to date (v${info.currentVersion})',
+              ),
+            ),
+          );
+        }
+      }
+    } finally {
+      _checking = false;
     }
   }
 
@@ -612,7 +652,7 @@ class UpdateService {
     String expected,
   ) async {
     try {
-      for (final entry in tempDir.listSync()) {
+      await for (final entry in tempDir.list(followLinks: false)) {
         if (entry is! File) continue;
         final name = p.basename(entry.path);
         if (!name.startsWith('peerm_update_') || !name.endsWith('.zip')) {
@@ -672,8 +712,7 @@ class UpdateService {
         }
 
         try {
-          final entries = tempDir.listSync();
-          for (final entry in entries) {
+          await for (final entry in tempDir.list(followLinks: false)) {
             if (entry is File &&
                 p.basename(entry.path).startsWith('peerm_update_') &&
                 entry.path.endsWith('.zip')) {
@@ -764,30 +803,57 @@ class UpdateService {
   static Future<String?> _downloadVerifiedZip(
     List<String> urls,
     File file,
-    String expected,
-  ) async {
+    String expected, {
+    void Function(int received, int total)? onProgress,
+    bool Function()? shouldCancel,
+    Future<void>? cancelSignal,
+  }) async {
     var error = 'Download failed.';
     for (final url in urls) {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 15);
+      if (shouldCancel?.call() ?? false) return 'Update download cancelled.';
+      final client = BackupAudioEngine.ipv4HttpClient(
+        connectionTimeout: const Duration(seconds: 12),
+      );
+      if (cancelSignal != null) {
+        unawaited(
+          cancelSignal.whenComplete(() {
+            try {
+              client.close(force: true);
+            } catch (_) {}
+          }),
+        );
+      }
       try {
         client.userAgent = 'PearMusicApp/$currentVersion';
-        final request = await client.getUrl(Uri.parse(url));
+        final request = await client
+            .getUrl(Uri.parse(url))
+            .timeout(const Duration(seconds: 12));
+        if (shouldCancel?.call() ?? false) {
+          request.abort();
+          return 'Update download cancelled.';
+        }
         final response = await request.close().timeout(
-          const Duration(seconds: 20),
+          const Duration(seconds: 15),
         );
         if (response.statusCode != 200) {
           await response.drain<void>();
           error = 'Download failed (HTTP ${response.statusCode})';
           continue;
         }
+        final totalBytes = response.contentLength > 0 ? response.contentLength : 0;
+        var receivedBytes = 0;
         final sink = file.openWrite();
         try {
-          // Abort if the transfer stalls: no data for 30 seconds is a
+          // Abort if the transfer stalls: no data for 25 seconds is a
           // dead connection, not a slow one.
           await for (final chunk
-              in response.timeout(const Duration(seconds: 30))) {
+              in response.timeout(const Duration(seconds: 25))) {
+            if (shouldCancel?.call() ?? false) {
+              throw StateError('cancelled');
+            }
             sink.add(chunk);
+            receivedBytes += chunk.length;
+            onProgress?.call(receivedBytes, totalBytes);
           }
           await sink.flush();
           await sink.close();
@@ -796,6 +862,9 @@ class UpdateService {
             await sink.close();
           } catch (_) {}
           await _safeDeleteFile(file);
+          if (shouldCancel?.call() ?? false) {
+            return 'Update download cancelled.';
+          }
           error = 'Update download stalled or failed. Please try again.';
           continue;
         }
@@ -808,6 +877,9 @@ class UpdateService {
       } catch (e) {
         debugPrint('[UpdateService] Download from $url failed: $e');
         await _safeDeleteFile(file);
+        if (shouldCancel?.call() ?? false) {
+          return 'Update download cancelled.';
+        }
         error = 'Update download failed. Please try again.';
       } finally {
         client.close(force: true);
@@ -816,17 +888,22 @@ class UpdateService {
     return error;
   }
 
-  static Future<void> downloadAndApplyWindowsZip(
+  static Future<bool> downloadAndApplyWindowsZip(
     BuildContext context,
-    UpdateInfo info,
-  ) async {
+    UpdateInfo info, {
+    void Function(int received, int total)? onProgress,
+    bool Function()? shouldCancel,
+    Future<void>? cancelSignal,
+    void Function(String message)? onError,
+    bool showErrorSnackBar = true,
+  }) async {
     final zipUrl = info.zipUrl!;
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
     if (!info.verified) {
       if (context.mounted) {
         await _showUnverifiedDialog(context, info);
       }
-      return;
+      return false;
     }
 
     try {
@@ -843,7 +920,7 @@ class UpdateService {
         if (context.mounted) {
           await _showMissingHashDialog(context, info);
         }
-        return;
+        return false;
       }
 
       bool needDownload = true;
@@ -866,12 +943,14 @@ class UpdateService {
       }
 
       if (needDownload) {
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text('Downloading update package...'),
-            duration: Duration(seconds: 5),
-          ),
-        );
+        if (onProgress == null) {
+          scaffoldMessenger?.showSnackBar(
+            const SnackBar(
+              content: Text('Downloading update package...'),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
         // Never fail because a stale file cannot be removed; fall back to a
         // per-attempt name in that case.
         zipFile = await _resolveDownloadTarget(tempDir);
@@ -880,15 +959,21 @@ class UpdateService {
           info.urlsByName[p.basename(zipUrl)] ?? [zipUrl],
           zipFile,
           expected,
+          onProgress: onProgress,
+          shouldCancel: shouldCancel,
+          cancelSignal: cancelSignal,
         );
         if (failure != null) {
-          scaffoldMessenger.showSnackBar(
-            SnackBar(
-              content: Text(failure),
-              duration: const Duration(seconds: 6),
-            ),
-          );
-          return;
+          onError?.call(failure);
+          if (showErrorSnackBar) {
+            scaffoldMessenger?.showSnackBar(
+              SnackBar(
+                content: Text(failure),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          }
+          return false;
         }
       }
 
@@ -988,9 +1073,13 @@ Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
       exit(0);
     } catch (e) {
       debugPrint('[UpdateService] Native ZIP update failed: $e');
-      scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Automatic update failed: $e')),
-      );
+      onError?.call('Automatic update failed: $e');
+      if (showErrorSnackBar) {
+        scaffoldMessenger?.showSnackBar(
+          SnackBar(content: Text('Automatic update failed: $e')),
+        );
+      }
+      return false;
     }
   }
 
@@ -1092,11 +1181,27 @@ class _UpdateDialog extends StatefulWidget {
 class _UpdateDialogState extends State<_UpdateDialog> {
   File? _cachedFile;
   bool _handling = false;
+  bool _downloading = false;
+  bool _cancelled = false;
+  Completer<void> _cancelCompleter = Completer<void>();
+  int _receivedBytes = 0;
+  int _totalBytes = 0;
+  DateTime _lastProgressUi = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     _checkCache();
+  }
+
+  @override
+  void dispose() {
+    if (_downloading && !_cancelCompleter.isCompleted) {
+      _cancelled = true;
+      _cancelCompleter.complete();
+    }
+    super.dispose();
   }
 
   Future<void> _checkCache() async {
@@ -1116,12 +1221,59 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       if (defaultTargetPlatform == TargetPlatform.windows &&
           widget.info.zipUrl != null &&
           widget.info.verified) {
-        Navigator.pop(context);
-        if (hostContext.mounted) {
-          await UpdateService.downloadAndApplyWindowsZip(
-            hostContext,
-            widget.info,
-          );
+        final expected = UpdateService._findExpectedHash(
+          widget.info,
+          p.basename(widget.info.zipUrl!),
+        );
+        if (expected == null || expected.isEmpty) {
+          Navigator.pop(context);
+          if (hostContext.mounted) {
+            await UpdateService.downloadAndApplyWindowsZip(
+              hostContext,
+              widget.info,
+            );
+          }
+          return;
+        }
+
+        setState(() {
+          _downloading = true;
+          _cancelled = false;
+          _cancelCompleter = Completer<void>();
+          _receivedBytes = 0;
+          _totalBytes = 0;
+          _errorMessage = null;
+        });
+
+        await UpdateService.downloadAndApplyWindowsZip(
+          hostContext,
+          widget.info,
+          showErrorSnackBar: false,
+          shouldCancel: () => _cancelled || !mounted,
+          cancelSignal: _cancelCompleter.future,
+          onProgress: (received, total) {
+            if (!mounted) return;
+            final now = DateTime.now();
+            if (received < total &&
+                now.difference(_lastProgressUi).inMilliseconds < 120) {
+              return;
+            }
+            _lastProgressUi = now;
+            setState(() {
+              _receivedBytes = received;
+              _totalBytes = total;
+            });
+          },
+          onError: (msg) {
+            if (!mounted) return;
+            setState(() {
+              _downloading = false;
+              _errorMessage = _cancelled ? null : msg;
+            });
+          },
+        );
+        if (mounted && _downloading) {
+          setState(() => _downloading = false);
         }
         return;
       }
@@ -1208,6 +1360,9 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     if (isReadyToInstall) {
       buttonLabel = isWindowsWithZip ? 'Install & Restart' : 'Install Update';
       buttonIcon = Icons.system_update_rounded;
+    } else if (_errorMessage != null && isWindowsWithZip) {
+      buttonLabel = 'Retry';
+      buttonIcon = Icons.refresh_rounded;
     } else if (isAndroidWithApk) {
       buttonLabel = 'Download APK';
       buttonIcon = Icons.file_download;
@@ -1215,6 +1370,11 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       buttonLabel = 'Update Automatically';
       buttonIcon = Icons.system_update;
     }
+
+    final progressValue =
+        _totalBytes > 0 ? (_receivedBytes / _totalBytes).clamp(0.0, 1.0) : null;
+    final downloadedMb = (_receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+    final totalMb = (_totalBytes / (1024 * 1024)).toStringAsFixed(1);
 
     return PearAlertDialog(
       title: Text('Update Available (${widget.info.latestVersion})'),
@@ -1238,6 +1398,25 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                 'This update could not be checked against its signature, so '
                 'it opens the release page instead of installing here.',
                 style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+            if (_downloading) ...[
+              const SizedBox(height: 12),
+              LinearProgressIndicator(value: progressValue),
+              const SizedBox(height: 6),
+              Text(
+                _totalBytes > 0
+                    ? 'Downloading update: $downloadedMb / $totalMb MB (${((progressValue ?? 0) * 100).round()}%)'
+                    : 'Downloading update ($downloadedMb MB)...',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ] else if (_errorMessage != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _errorMessage!,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ],
             if (isReadyToInstall) ...[
@@ -1284,15 +1463,38 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Later'),
-        ),
-        FilledButton.icon(
-          onPressed: () => _handleUpdate(context),
-          icon: Icon(buttonIcon),
-          label: Text(buttonLabel),
-        ),
+        if (_downloading)
+          TextButton(
+            onPressed: () {
+              setState(() => _cancelled = true);
+              if (!_cancelCompleter.isCompleted) {
+                _cancelCompleter.complete();
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('Cancel'),
+          )
+        else ...[
+          if (_errorMessage != null)
+            TextButton(
+              onPressed: () {
+                launchUrl(
+                  Uri.parse(widget.info.htmlUrl),
+                  mode: LaunchMode.externalApplication,
+                );
+              },
+              child: const Text('Open release page'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Later'),
+          ),
+          FilledButton.icon(
+            onPressed: () => _handleUpdate(context),
+            icon: Icon(buttonIcon),
+            label: Text(buttonLabel),
+          ),
+        ],
       ],
     );
   }

@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
 import 'artwork_service.dart';
+import 'backup_audio_engine.dart';
 import 'library_service.dart';
 import 'ytdlp_bundle.dart';
 import 'ytdlp_manifest.dart';
@@ -382,7 +383,9 @@ class YoutubeService {
     int maxBytes = 1 << 20,
   }) async {
     try {
-      final request = await client.getUrl(Uri.parse(url));
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
       request.headers.set('User-Agent', 'PearMusic-App');
       final response =
           await request.close().timeout(const Duration(seconds: 20));
@@ -458,8 +461,9 @@ class YoutubeService {
     File tempFile,
   ) async {
     try {
-      final request =
-          await client.getUrl(Uri.parse('${resolved.base}/$assetName'));
+      final request = await client
+          .getUrl(Uri.parse('${resolved.base}/$assetName'))
+          .timeout(const Duration(seconds: 12));
       request.headers.set('User-Agent', 'PearMusic-App');
       request.headers.set('Accept', 'application/octet-stream');
       final response =
@@ -523,8 +527,9 @@ class YoutubeService {
 
       // Every stream fetch waits on this download, so a stalled connection
       // must fail rather than leave playback spinning forever.
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 15);
+      final client = BackupAudioEngine.ipv4HttpClient(
+        connectionTimeout: const Duration(seconds: 15),
+      );
       try {
         for (final source in await _ytDlpSources()) {
           final resolved = await _resolveYtDlp(client, source, assetName);
@@ -734,8 +739,9 @@ class YoutubeService {
   /// Updates [bin] from the first source that serves a verified manifest.
   static Future<YtDlpUpdateResult> _updateFromManifest(String bin) async {
     final assetName = _ytDlpAssetName;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+    final client = BackupAudioEngine.ipv4HttpClient(
+      connectionTimeout: const Duration(seconds: 10),
+    );
     try {
       for (final source in await _ytDlpSources()) {
         final resolved = await _resolveYtDlp(client, source, assetName);
