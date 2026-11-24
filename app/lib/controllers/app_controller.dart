@@ -1418,6 +1418,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> updateResourceOverlay(bool val) async {
+    if (identity.resourceOverlay == val) return;
+    await identity.setResourceOverlay(val);
+    notifyListeners();
+  }
+
   Future<void> updateBeatSplit(bool val) async {
     if (identity.beatSplit == val) return;
     await identity.setBeatSplit(val);

@@ -48,6 +48,7 @@ class IdentityService extends ChangeNotifier {
   static const _oldSplitOnlyKey = 'peerm_beat_split_only';
   static const _colorGradeKey = 'peerm_color_grade';
   static const _softBlurKey = 'peerm_soft_blur';
+  static const _resourceOverlayKey = 'peerm_resource_overlay';
   static const _oldImmersionKey = 'peerm_immersion_filter';
   static const _videoQualityKey = 'peerm_video_quality';
   /// The old Style setting (Glass, Frosted, Solid, Graphite). Graphite is now
@@ -82,6 +83,7 @@ class IdentityService extends ChangeNotifier {
   late bool _beatSplit;
   late int _colorGrade;
   late bool _softBlur;
+  late bool _resourceOverlay;
   late int _videoQuality;
 
   IdentityService(this._prefs) {
@@ -159,6 +161,7 @@ class IdentityService extends ChangeNotifier {
     _prefs.remove(_oldSplitOnlyKey);
     _colorGrade = (_prefs.getInt(_colorGradeKey) ?? 0).clamp(0, 5);
     _softBlur = _prefs.getBool(_softBlurKey) ?? false;
+    _resourceOverlay = _prefs.getBool(_resourceOverlayKey) ?? false;
     if (_prefs.containsKey(_oldImmersionKey)) _prefs.remove(_oldImmersionKey);
     _videoQuality = _prefs.getInt(_videoQualityKey) ?? 0;
     if (_prefs.containsKey(_styleKey)) _prefs.remove(_styleKey);
@@ -419,6 +422,16 @@ class IdentityService extends ChangeNotifier {
     if (_softBlur == value) return;
     _softBlur = value;
     await _prefs.setBool(_softBlurKey, value);
+    notifyListeners();
+  }
+
+  /// Whether the live FPS/RAM resource overlay is shown on top of the app.
+  bool get resourceOverlay => _resourceOverlay;
+
+  Future<void> setResourceOverlay(bool value) async {
+    if (_resourceOverlay == value) return;
+    _resourceOverlay = value;
+    await _prefs.setBool(_resourceOverlayKey, value);
     notifyListeners();
   }
 

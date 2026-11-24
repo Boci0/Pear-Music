@@ -442,6 +442,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               showPearMusicAboutDialog(context);
             },
           ),
+          const Divider(height: 1),
+          PearSwitchTile(
+            secondary: const Icon(Icons.speed_rounded),
+            title: const Text('Resource overlay'),
+            subtitle: const Text('Show live FPS, RAM, and image cache usage'),
+            value: identity.resourceOverlay,
+            onChanged: (val) async {
+              TactileFeedback.selection();
+              await controller.updateResourceOverlay(val);
+            },
+          ),
         ],
       ),
     ];

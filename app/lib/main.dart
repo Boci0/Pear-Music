@@ -37,6 +37,7 @@ import 'widgets/beat_split.dart';
 import 'widgets/immersion_filter.dart';
 import 'widgets/pear_backdrop.dart';
 import 'widgets/playback_shortcuts.dart';
+import 'widgets/resource_overlay.dart';
 
 Future<void> main([List<String> args = const []]) async {
   runZonedGuarded(() async {
@@ -283,6 +284,9 @@ class PearMusicApp extends StatelessWidget {
               final softBlur = context.select<AppController, bool>(
                 (c) => c.identity.softBlur,
               );
+              final showResourceOverlay = context.select<AppController, bool>(
+                (c) => c.identity.resourceOverlay,
+              );
               Widget appChild = child ?? const SizedBox.shrink();
               // The short screen gets a lower top bar.
               if (sideways) {
@@ -318,7 +322,11 @@ class PearMusicApp extends StatelessWidget {
                         player: context.read<AppController>().player,
                         child: Stack(
                           fit: StackFit.expand,
-                          children: [const PearBackdrop(), appChild],
+                          children: [
+                            const PearBackdrop(),
+                            appChild,
+                            if (showResourceOverlay) const ResourceOverlay(),
+                          ],
                         ),
                       ),
                     ),
