@@ -7,17 +7,10 @@ below remain open until confirmed on hardware.
 ## Open owner checks (real run / by ear)
 
 1. **Confirm fast engine, live streams, and visualizer on a real device run:**
-   - Fast engine (`innertube_audio_engine.dart`): Windows `--control-port` VOD play succeeded with no `[fast-engine] ... failed` fallback; still check on mobile that first plays feel fast and do not fall back to `yt-dlp` needlessly.
-   - Live streams (`live_hls_proxy.dart`): Windows `--control-port` live search/play reached `LIVE at the edge` (`6159 ms`); still open for a 30+ minute listen on Windows and Android, mobile data usage (~1 MB/min expected), rewind + Go live after buffer builds, and link-refresh stability.
+   - Fast engine (`innertube_audio_engine.dart`): Windows `--control-port` VOD play succeeded with no `[fast-engine] ... failed` fallback; Android `V2507A` (`v6.2.3` arm64-v8a on `MOBILE[LTE]`) VOD and live plays started within 6-7 s (`buffered position=64644` ms on VOD); still check by ear across longer sessions that mobile plays feel fast and do not fall back to `yt-dlp` needlessly.
+   - Live streams (`live_hls_proxy.dart`): Windows `--control-port` live search/play reached `LIVE at the edge` (`6159 ms`); Android `V2507A` live play on `MOBILE[LTE]` measured `483 KB` -> `1.7 MB used` over 60 s (~1.2 MB/min, `3.4 MB` over ~3 min); still open for a 30+ minute listen on Windows and Android, DVR rewind + `Go live` after buffer builds (`window >= 60s`), and link-refresh stability.
    - Visualizer wave: Windows `--control-port` `/viz` verified WASAPI 64-bin capture (`hasNativeFft: true`, ~80-100 Hz frames while playing, `0` frames on pause, clean reconnect on resume); still confirm soft wave / opt-in mini player wave visually at up to 60 fps while unfocused.
-   - Real-run coverage for sleep timer, radio/recommendations, queue edits, and crossfade (currently covered by unit tests, not the control port).
-
-## Bigger projects
-
-- **vivo Origin Island** (parked until vivo opens it up). The island only
-  shows whitelisted package names. Options if picked up: an opt-in, self-built
-  `island` product flavor (never a public release) or the official route through
-  vivo's developer platform (`dev.vivo.com.cn`).
+   - Real-run coverage for sleep timer, radio/recommendations, queue edits, and crossfade: Android `V2507A` UI + `media_session` verified sleep timer (`15 min` set/reset), queue `Remove from queue` (`21` -> `20`), `Endless Play` / `Auto-reroll seed: ON`, and `Next` transition out of a live stream with `Crossfade: 2 s` (`TOTAL PSS: 360067 KB`, no crash); audible crossfade blend and timer expiration by ear remain open.
 
 ## Memory and performance optimizations
 
@@ -32,13 +25,10 @@ Measure before tuning. The last recorded Windows baseline is v4.9.5 (flat at
    `Expand +5s`: WS `202.7 MB`, Priv `192.4 MB`, GPU Shared `40.9 MB`;
    `Tab2 +5s`: WS `230.0 MB`, Priv `231.3 MB`, GPU Shared `48.1 MB`;
    `Paused +5s`: WS `220.0 MB`, Priv `207.6 MB`, GPU Shared `47.7 MB`.
-   Still open for a 30+ minute mixed session (streamed tracks, crossfade on,
-   lyrics open, minimize/restore cycle) sampling working set and private bytes
-   every 30 s.
-2. **Only if the baseline points at Dart heap:** `ArtworkPalette` keeps up to
-   96 `_bytesCache` and 128 `_asyncBytesCache` entries. The async entries
-   mostly share the same `Uint8List`s, so the real retention is roughly 5 to
-   8 MB at 640 px; cutting to 16 entries risks re-decodes while scrolling.
+   30-minute narrow-layout soak (`docs/perf-audit/runs/soak-20261124-2135.csv`,
+   local songs muted, song change every 5 min, lyrics on 10-20 min): done,
+   flat with no climb (Priv `193-220 MB`, WS `186-223 MB`, GPU Shared
+   `25-39 MB`). Wide desktop layout soak with `min-restore` still open.
 
 Already done (removed from the list): lifecycle compaction on Android
 `paused` / `hidden` plus `onTrimMemory` (`app_controller.dart`,
