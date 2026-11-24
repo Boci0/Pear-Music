@@ -220,10 +220,6 @@ class _HomeShellState extends State<HomeShell>
         PaintingBinding.instance.imageCache.clearLiveImages();
       }
     });
-    // Cap the in-memory image cache to a balanced budget so memory is bounded
-    // while preventing covers and list tiles from flashing or reloading.
-    PaintingBinding.instance.imageCache.maximumSize = 100;
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 25 * 1024 * 1024;
     _lifecycleListener = AppLifecycleListener(
       onStateChange: (state) {
         SessionDiagnostics.onLifecycleChanged(state);
@@ -231,12 +227,6 @@ class _HomeShellState extends State<HomeShell>
           // Restore the artwork-derived theme after a background/foreground
           // cycle so the UI doesn't sit on the fallback colour.
           context.read<PlayerTheme>().reapply();
-        } else if (state == AppLifecycleState.paused ||
-            state == AppLifecycleState.hidden) {
-          // Free unused decoded byte caches and live image entries to drop background memory footprint.
-          ArtworkPalette.compactMemory();
-          LyricsService.compactMemory();
-          PaintingBinding.instance.imageCache.clearLiveImages();
         }
       },
     );

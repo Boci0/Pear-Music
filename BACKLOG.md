@@ -7,38 +7,49 @@ below remain open until confirmed on hardware.
 ## Open owner checks (real run / by ear)
 
 1. **Confirm fast engine, live streams, and visualizer on a real device run:**
-   - Fast engine (`innertube_audio_engine.dart`): check that first plays feel fast on mobile and do not fall back to `yt-dlp` needlessly (`[fast-engine] ... failed` in debug log).
-   - Live streams (`live_hls_proxy.dart`): long listen (30+ minutes) on Windows and Android, mobile data usage (~1 MB/min expected), rewind + Go live, and link-refresh stability.
-   - Visualizer wave: soft wave on player card and opt-in mini player wave at up to 60 fps while window is visible but unfocused.
+   - Fast engine (`innertube_audio_engine.dart`): Windows `--control-port` VOD play succeeded with no `[fast-engine] ... failed` fallback; still check on mobile that first plays feel fast and do not fall back to `yt-dlp` needlessly.
+   - Live streams (`live_hls_proxy.dart`): Windows `--control-port` live search/play reached `LIVE at the edge` (`6159 ms`); still open for a 30+ minute listen on Windows and Android, mobile data usage (~1 MB/min expected), rewind + Go live after buffer builds, and link-refresh stability.
+   - Visualizer wave: Windows `--control-port` `/viz` verified WASAPI 64-bin capture (`hasNativeFft: true`, ~80-100 Hz frames while playing, `0` frames on pause, clean reconnect on resume); still confirm soft wave / opt-in mini player wave visually at up to 60 fps while unfocused.
    - Real-run coverage for sleep timer, radio/recommendations, queue edits, and crossfade (currently covered by unit tests, not the control port).
-2. **Confirm the v4.1.4 to v4.1.7 lyric changes by ear:**
-   - Ask the owner how HUMBLE. and Blinding Lights feel (dense rap line pacing, letter-by-letter `glyphTimes`, onset snapping, Highlight delay slider `-500..+500 ms`, `NeteaseLyrics.respaced` spacing restoration).
-3. **First line far off on Blinding Lights (NetEase):**
-   - NetEase stamps the opening "Yeah" around 0:23 instead of 0:14 (likely timed to a different recording within the +-3 s length tolerance). Options if more songs show this: pick an LRCLIB version by hand, add a first-line vocal-onset audio check, or implement speech-model alignment below.
-4. **Lyric timing reports from v4.1.x** still awaiting a Report timing snapshot (Lyrics Options) or owner feedback:
-   - HUMBLE. (Kendrick Lamar, hand-picked LRCLIB without word timing), Guitar to Kodoku to Aoi Hoshi (Kessoku Band), Yoru ni Kakeru (YOASOBI), Hype Boy (NewJeans), Idol (YOASOBI), Lemon (Kenshi Yonezu; no real word timing from either source). Treat non-English tracks as unverified until checked by a fluent listener.
 
 ## Bigger projects
 
-- **Upgrade past Flutter 3.44.9 and restore Windows semantics.** v6.2.2 wraps
-  `MaterialApp` in `ExcludeSemantics` on Windows (`app/lib/main.dart`) to stop
-  `flutter_windows.dll` crashing in
-  `AccessibilityBridge::CreateRemoveReparentedNodesUpdate` (`0xc0000005` under
-  Windows UI Automation or window-inspection queries during widget updates).
-  Move the local pin and `.github/workflows/release.yml` to a newer Flutter
-  stable once upstream includes the C++ null-parent fix in
-  `accessibility_bridge.cc`, verify under active UIA inspection during
-  playback, and remove the `ExcludeSemantics` workaround.
-- **Speech-model alignment for word timing** (Windows first). Align known lyric
-  text to the decoded audio with a small model (Whisper word timestamps or a
-  CTC forced aligner), reusing the PCM decode the loudness pass already does.
-  Costs: roughly 40 to 150 MB download, seconds per song on a PC, more on
-  phones, weaker under loud instruments without vocal separation. Keep the
-  current estimate as the fallback until a song is aligned.
 - **vivo Origin Island** (parked until vivo opens it up). The island only
   shows whitelisted package names. Options if picked up: an opt-in, self-built
   `island` product flavor (never a public release) or the official route through
   vivo's developer platform (`dev.vivo.com.cn`).
+
+## Memory and performance optimizations
+
+Measure before tuning. The last recorded Windows baseline is v4.9.5 (flat at
+296 to 311 MB); none of the items below has a v6.2.3 measurement behind it.
+
+1. **Baseline on the current release.** Short automated `--control-port`
+   smoke baseline on Flutter 3.44.9 (Windows release, `/playlocal?i=0`,
+   `/expand`, `/tab?i=2`, `/pause`, muted and restored):
+   `Idle`: WS `178.7 MB`, Priv `207.1 MB`, GPU Shared `32.5 MB`;
+   `Playlocal +3s`: WS `200.9 MB`, Priv `223.3 MB`, GPU Shared `40.5 MB`;
+   `Expand +5s`: WS `202.7 MB`, Priv `192.4 MB`, GPU Shared `40.9 MB`;
+   `Tab2 +5s`: WS `230.0 MB`, Priv `231.3 MB`, GPU Shared `48.1 MB`;
+   `Paused +5s`: WS `220.0 MB`, Priv `207.6 MB`, GPU Shared `47.7 MB`.
+   Still open for a 30+ minute mixed session (streamed tracks, crossfade on,
+   lyrics open, minimize/restore cycle) sampling working set and private bytes
+   every 30 s.
+2. **Only if the baseline points at Dart heap:** `ArtworkPalette` keeps up to
+   96 `_bytesCache` and 128 `_asyncBytesCache` entries. The async entries
+   mostly share the same `Uint8List`s, so the real retention is roughly 5 to
+   8 MB at 640 px; cutting to 16 entries risks re-decodes while scrolling.
+
+Already done (removed from the list): lifecycle compaction on Android
+`paused` / `hidden` plus `onTrimMemory` (`app_controller.dart`,
+`home_shell.dart`), `RamAudioBuffer` cap (`maxRamCacheTracks = 4`,
+`maxRamCacheBytes = 32 MB` with LRU eviction in `stream_cache_manager.dart`),
+`libmpv` audio-only buffer cap (`JustAudioMediaKit.bufferSize = 4 MB` in
+`main.dart`), crossfade `_tailPlayer` disposal after fade-out
+(`crossfade.dart`), `YtDlpPrewarmer` 5-minute idle timeout
+(`ytdlp_prewarmer.dart`), and single-owner image cache limits / background
+compaction (`main.dart`, `app_controller.dart`). The only uncovered case is a
+Windows window that is occluded but not minimized; low value.
 
 ## How the word glow works now (for context)
 
@@ -64,8 +75,11 @@ below remain open until confirmed on hardware.
 
 ## Working notes
 
-- **Toolchain:** Flutter 3.44.9 (what CI uses). Checks before any push:
-  `dart analyze --no-fatal-warnings lib test` and `flutter test --no-pub` in `app/`.
+- **Toolchain:** Flutter 3.44.9 (what CI uses; 3.47.6 and 3.50.1 were tested
+  and rejected for a +317 MB Windows playback RAM regression, and
+  `ExcludeSemantics` in `app/lib/main.dart` stays in place). Checks before
+  any push: `dart analyze --no-fatal-warnings lib test` and
+  `flutter test --no-pub` in `app/`.
 - `flutter pub get` regenerates `app/windows/flutter/generated_plugin*`;
   the repo doesn't track them for the app, so don't commit them.
 - **Releasing:** bump `app/pubspec.yaml` (`version: X.Y.Z+build`),

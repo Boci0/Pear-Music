@@ -40,6 +40,7 @@ class _FakePlayer extends AudioPlayer {
   double _volume = 1.0;
   bool _playing = false;
   int stops = 0;
+  int disposes = 0;
 
   @override
   double get volume => _volume;
@@ -109,6 +110,13 @@ class _FakePlayer extends AudioPlayer {
     _settleClock();
     _playing = false;
     stops++;
+  }
+
+  @override
+  Future<void> dispose() async {
+    _settleClock();
+    _playing = false;
+    disposes++;
   }
 
   @override
@@ -195,11 +203,13 @@ void main() {
     // so a busy machine does not fail the test.
     final deadline = DateTime.now().add(const Duration(seconds: 5));
     while (DateTime.now().isBefore(deadline) &&
-        (tail.stops == 0 || (main.volume - player.volume).abs() > 0.001)) {
+        (tail.disposes == 0 || (main.volume - player.volume).abs() > 0.001)) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     expect(tail.volumes.last, closeTo(0, 0.001));
     expect(tail.stops, greaterThan(0), reason: 'the tail stops once faded out');
+    expect(tail.disposes, greaterThan(0),
+        reason: 'the tail player is disposed once faded out');
     expect(main.volume, closeTo(player.volume, 0.001),
         reason: 'the next song has faded all the way in');
   });

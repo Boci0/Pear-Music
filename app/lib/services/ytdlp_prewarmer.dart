@@ -42,9 +42,16 @@ class YtDlpPrewarmer {
   @visibleForTesting
   static void setEnabledForTesting(bool? value) => _enabled = value;
 
+  /// How long an unused spare stays alive before being killed to free memory.
+  static const Duration defaultIdleTimeout = Duration(minutes: 5);
+
+  @visibleForTesting
+  static Duration idleTimeout = defaultIdleTimeout;
+
   Process? _spare;
   String? _spareSignature;
   int _bootGeneration = 0;
+  Timer? _idleTimer;
 
   /// The boot in progress, if any. Overlapping calls join it instead of
   /// spawning a second spare and losing the first one (it would wait on stdin
@@ -126,8 +133,10 @@ class YtDlpPrewarmer {
       // listeners when it takes over.
       _spare = process;
       _spareSignature = signature;
+      _armIdleTimer();
       unawaited(process.exitCode.then((_) {
         if (identical(_spare, process)) {
+          _cancelIdleTimer();
           _spare = null;
           _spareSignature = null;
         }
@@ -151,6 +160,7 @@ class YtDlpPrewarmer {
 
     final spare = _spare;
     if (spare != null && _spareSignature == signature) {
+      _cancelIdleTimer();
       _spare = null;
       _spareSignature = null;
       if (await _feed(spare, url)) return spare;
@@ -196,9 +206,28 @@ class YtDlpPrewarmer {
     } catch (_) {}
   }
 
+  void _armIdleTimer() {
+    _idleTimer?.cancel();
+    if (idleTimeout <= Duration.zero) return;
+    final expected = _spare;
+    if (expected == null) return;
+    _idleTimer = Timer(idleTimeout, () {
+      if (identical(_spare, expected)) {
+        DebugLog.write('[ytdlp-prewarm] killing idle spare after ${idleTimeout.inMinutes}m');
+        killSpare();
+      }
+    });
+  }
+
+  void _cancelIdleTimer() {
+    _idleTimer?.cancel();
+    _idleTimer = null;
+  }
+
   /// Kills the idle spare (used when it is useless or the app is shutting
   /// down). Fetch processes are owned by the caller, not by this pool.
   void killSpare() {
+    _cancelIdleTimer();
     _bootGeneration++;
     final spare = _spare;
     _spare = null;

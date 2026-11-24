@@ -74,7 +74,10 @@ Future<void> main([List<String> args = const []]) async {
     };
 
     // Enables the media_kit backend for Windows audio playback.
+    // Cap libmpv demuxer buffers for audio-only playback (4 MB forward + 4 MB
+    // back instead of the 32 MB video-sized default per AudioPlayer).
     try {
+      JustAudioMediaKit.bufferSize = 4 * 1024 * 1024;
       JustAudioMediaKit.ensureInitialized();
     } catch (e) {
       debugPrint('[pearmusic] JustAudioMediaKit.ensureInitialized error: $e');

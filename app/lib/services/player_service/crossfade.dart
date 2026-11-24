@@ -310,11 +310,7 @@ mixin _PlayerCrossfade on ChangeNotifier {
         initialPosition: _player.position + lead,
       );
       if (stale()) {
-        unawaited(tail.stop());
-        if (tailToken == _tailToken) {
-          _tailRamSource?.close();
-          _tailRamSource = null;
-        }
+        if (tailToken == _tailToken) _disposeTailPlayer(tail);
         return;
       }
       unawaited(tail.play());
@@ -334,20 +330,12 @@ mixin _PlayerCrossfade on ChangeNotifier {
         drift = tail.position - _player.position;
       }
       if (stale()) {
-        unawaited(tail.stop());
-        if (tailToken == _tailToken) {
-          _tailRamSource?.close();
-          _tailRamSource = null;
-        }
+        if (tailToken == _tailToken) _disposeTailPlayer(tail);
         return;
       }
       await _blendToTail(tail, handoverVolume, stale);
       if (stale()) {
-        unawaited(tail.stop());
-        if (tailToken == _tailToken) {
-          _tailRamSource?.close();
-          _tailRamSource = null;
-        }
+        if (tailToken == _tailToken) _disposeTailPlayer(tail);
         if (token == _playRequestToken && _player.playing) {
           await _player.setVolume(_effectiveVolume);
         }
@@ -451,9 +439,7 @@ mixin _PlayerCrossfade on ChangeNotifier {
       }
     } finally {
       if (tailToken == _tailToken) {
-        unawaited(tail.stop());
-        _tailRamSource?.close();
-        _tailRamSource = null;
+        _disposeTailPlayer(tail);
       }
     }
   }
@@ -479,13 +465,25 @@ mixin _PlayerCrossfade on ChangeNotifier {
     }
   }
 
-  /// Stops a tail that is still fading (the user paused, skipped or seeked).
+  /// Stops and disposes a tail that is still fading (the user paused, skipped or seeked).
   void _silenceTail() {
     _tailToken++;
     _pendingFadeIn = null;
-    final tail = _tailPlayer;
-    if (tail != null) unawaited(tail.stop());
+    _disposeTailPlayer();
+  }
+
+  /// Stops and disposes [target] (or [_tailPlayer]) so native player buffers
+  /// do not stay resident between tracks.
+  void _disposeTailPlayer([AudioPlayer? target]) {
+    final tail = target ?? _tailPlayer;
+    if (identical(tail, _tailPlayer)) {
+      _tailPlayer = null;
+    }
     _tailRamSource?.close();
     _tailRamSource = null;
+    if (tail == null) return;
+    unawaited(tail.stop().catchError((_) {}).whenComplete(() {
+      unawaited(tail.dispose().catchError((_) {}));
+    }));
   }
 }
