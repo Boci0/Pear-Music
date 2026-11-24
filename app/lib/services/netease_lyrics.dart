@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/song.dart';
+import 'http_client_factory.dart';
 import 'lyrics_service.dart';
 
 /// Lyrics from NetEase Cloud Music, used next to LRCLIB mainly for its
@@ -21,7 +22,9 @@ class NeteaseLyrics {
 
   static HttpClient? _httpClient;
   static HttpClient get _client =>
-      _httpClient ??= HttpClient()..connectionTimeout = const Duration(seconds: 8);
+      _httpClient ??= PearHttpClientFactory.create(
+        connectionTimeout: const Duration(seconds: 8),
+      );
 
   /// Lyrics for [song] as LRC text (enhanced with word tags when NetEase has
   /// word timing that fits [duration]), or null. With [wordTimingOnly] a
@@ -106,12 +109,15 @@ class NeteaseLyrics {
   }
 
   static Future<Object?> _getJson(Uri uri) async {
-    final req = await _client.getUrl(uri);
+    final req = await _client.getUrl(uri).timeout(const Duration(seconds: 8));
     req.headers
       ..set('User-Agent', 'Mozilla/5.0')
       ..set('Referer', 'https://music.163.com/');
     final res = await req.close().timeout(const Duration(seconds: 8));
-    if (res.statusCode != 200) return null;
+    if (res.statusCode != 200) {
+      await res.drain<void>();
+      return null;
+    }
     final body = await res
         .transform(utf8.decoder)
         .join()

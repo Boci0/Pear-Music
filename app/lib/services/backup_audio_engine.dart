@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'debug_log.dart';
+import 'http_client_factory.dart';
 import 'ram_audio_source.dart';
 
 /// One audio-only stream a video offers, reduced to what choosing one needs.
@@ -180,28 +181,11 @@ class BackupAudioEngine {
   /// raw response (the live relay counts bytes as they cross the wire).
   static HttpClient ipv4HttpClient({
     Duration connectionTimeout = const Duration(seconds: 15),
-  }) {
-    return HttpClient()
-      ..connectionTimeout = connectionTimeout
-      ..connectionFactory = (uri, proxyHost, proxyPort) async {
-        final host = proxyHost ?? uri.host;
-        final port = proxyPort ?? uri.port;
-        // The factory hands back a finished connection, so an https request
-        // needs the TLS handshake done here, against the real host name.
-        final secure = proxyHost == null && uri.scheme == 'https';
-        Future<ConnectionTask<Socket>> connect(Object address) => secure
-            ? SecureSocket.startConnect(address, port, supportedProtocols: null)
-            : Socket.startConnect(address, port);
-        try {
-          final v4 = await InternetAddress.lookup(
-            host,
-            type: InternetAddressType.IPv4,
-          ).timeout(const Duration(seconds: 4));
-          if (v4.isNotEmpty) return await connect(v4.first);
-        } catch (_) {}
-        return connect(host);
-      };
-  }
+    Future<void>? cancelSignal,
+  }) => PearHttpClientFactory.create(
+    connectionTimeout: connectionTimeout,
+    cancelSignal: cancelSignal,
+  );
 
   static Future<List<BackupAudioCandidate>> _load(String videoId) async {
     final override = debugLoadOverride;

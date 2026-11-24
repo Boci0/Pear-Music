@@ -10,6 +10,7 @@ import 'package:image/image.dart' as img;
 
 import '../models/song.dart';
 import 'debug_log.dart';
+import 'http_client_factory.dart';
 
 /// Extracts a dominant, vibrant colour from a song's artwork and caches it per
 /// song. Used to theme the player (background tint, artwork glow, controls)
@@ -88,10 +89,11 @@ class ArtworkPalette {
   /// flashes back to fallback while colours re-resolve.
   static Color? _lastAccent;
 
-  static final HttpClient _httpClient = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 10)
-    ..idleTimeout = const Duration(seconds: 15)
-    ..maxConnectionsPerHost = 6;
+  static final HttpClient _httpClient = PearHttpClientFactory.create(
+    connectionTimeout: const Duration(seconds: 10),
+    idleTimeout: const Duration(seconds: 15),
+    maxConnectionsPerHost: 6,
+  );
 
   /// Synchronous cached color extraction for zero-latency widget rendering.
   static Color dominantSync(Song song, {Color? fallbackColor}) {
@@ -296,7 +298,8 @@ class ArtworkPalette {
           .timeout(const Duration(seconds: 10));
       final resp = await req.close().timeout(const Duration(seconds: 12));
       if (resp.statusCode == 200) {
-        return await consolidateHttpClientResponseBytes(resp);
+        return await consolidateHttpClientResponseBytes(resp)
+            .timeout(const Duration(seconds: 15));
       }
       await resp.drain<void>();
     } catch (e) {

@@ -14,6 +14,8 @@ import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'artwork_service.dart';
 import 'backup_audio_engine.dart';
+import 'debug_log.dart';
+import 'http_client_factory.dart';
 import 'library_service.dart';
 import 'ytdlp_bundle.dart';
 import 'ytdlp_manifest.dart';
@@ -452,46 +454,60 @@ class YoutubeService {
     return hash == null ? null : _ResolvedYtDlp(source.base, hash, null);
   }
 
-  /// Downloads [assetName] from [resolved] into [tempFile] and checks size and
-  /// SHA-256. Deletes [tempFile] and returns false on any failure.
+  /// Downloads [assetName] from [resolved] into [tempFile] via `.part` HTTP
+  /// Range resumption and checks size and SHA-256. Never strands a partial
+  /// [tempFile] on failure.
   static Future<bool> _downloadYtDlp(
-    HttpClient client,
     _ResolvedYtDlp resolved,
     String assetName,
-    File tempFile,
-  ) async {
-    try {
-      final request = await client
-          .getUrl(Uri.parse('${resolved.base}/$assetName'))
-          .timeout(const Duration(seconds: 12));
-      request.headers.set('User-Agent', 'PearMusic-App');
-      request.headers.set('Accept', 'application/octet-stream');
-      final response =
-          await request.close().timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) {
-        await response.drain<void>();
-        debugPrint('[pearmusic] yt-dlp source ${resolved.base} answered ${response.statusCode}');
-        return false;
-      }
-      final sink = tempFile.openWrite();
-      try {
-        // No data for 30 seconds is a dead connection, not a slow one.
-        await sink.addStream(response.timeout(const Duration(seconds: 30)));
-      } finally {
-        await sink.close();
-      }
-      final len = await tempFile.length();
-      final actual = (await sha256.bind(tempFile.openRead()).first).toString();
-      if (len > 1000000 && actual == resolved.sha256) return true;
-      debugPrint('[pearmusic] yt-dlp from ${resolved.base} failed size or checksum verification ($len bytes)');
-    } catch (e) {
-      debugPrint('[pearmusic] yt-dlp download from ${resolved.base} failed: $e');
+    File tempFile, {
+    Duration connectionTimeout = const Duration(seconds: 12),
+    Duration responseTimeout = const Duration(seconds: 20),
+    Duration stallTimeout = const Duration(seconds: 30),
+    int minBytes = 1000000,
+  }) async {
+    final result = await ResumableDownloader.downloadToFile(
+      urls: ['${resolved.base}/$assetName'],
+      destFile: tempFile,
+      expectedSha256: resolved.sha256,
+      headers: const {
+        'User-Agent': 'PearMusic-App',
+        'Accept': 'application/octet-stream',
+      },
+      connectionTimeout: connectionTimeout,
+      responseTimeout: responseTimeout,
+      stallTimeout: stallTimeout,
+      minBytes: minBytes,
+    );
+    if (!result.success) {
+      debugPrint(
+        '[pearmusic] yt-dlp download from ${resolved.base} failed: ${result.error}',
+      );
     }
-    try {
-      if (await tempFile.exists()) await tempFile.delete();
-    } catch (_) {}
-    return false;
+    return result.success;
   }
+
+  /// Test seam for verifying resumable yt-dlp binary downloads against a local
+  /// HTTP server without requiring an installed binary on disk.
+  @visibleForTesting
+  static Future<bool> downloadResolverAssetForTesting({
+    required String baseUrl,
+    required String assetName,
+    required String expectedSha256,
+    required File destFile,
+    Duration connectionTimeout = const Duration(seconds: 2),
+    Duration responseTimeout = const Duration(seconds: 2),
+    Duration stallTimeout = const Duration(seconds: 2),
+    int minBytes = 1,
+  }) => _downloadYtDlp(
+    _ResolvedYtDlp(baseUrl, expectedSha256, null),
+    assetName,
+    destFile,
+    connectionTimeout: connectionTimeout,
+    responseTimeout: responseTimeout,
+    stallTimeout: stallTimeout,
+    minBytes: minBytes,
+  );
 
   static String get _ytDlpAssetName => Platform.isWindows
       ? 'yt-dlp.exe'
@@ -537,7 +553,7 @@ class YoutubeService {
             debugPrint('[pearmusic] yt-dlp source ${source.base} unusable, trying next');
             continue;
           }
-          if (!await _downloadYtDlp(client, resolved, assetName, tempFile)) {
+          if (!await _downloadYtDlp(resolved, assetName, tempFile)) {
             continue;
           }
           if (!Platform.isWindows) {
@@ -630,7 +646,9 @@ class YoutubeService {
       } catch (e) {
         debugPrint('[pearmusic] Desktop yt-dlp update check error: $e');
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLog.write('[pearmusic] Desktop yt-dlp update guard error: $e');
+    }
   }
 
   static DateTime? _lastResolverFailureUpdate;
@@ -758,7 +776,7 @@ class YoutubeService {
 
         final fresh = File('$bin.new');
         if (await fresh.exists()) await fresh.delete();
-        if (!await _downloadYtDlp(client, resolved, assetName, fresh)) {
+        if (!await _downloadYtDlp(resolved, assetName, fresh)) {
           continue;
         }
         await _swapInBinary(bin, fresh);
@@ -1377,10 +1395,13 @@ class YoutubeService {
     for (final u in urls) {
       HttpClient? client;
       try {
-        client = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 5)
-          ..autoUncompress = true;
-        final req = await client.getUrl(Uri.parse(u));
+        client = PearHttpClientFactory.create(
+          connectionTimeout: const Duration(seconds: 5),
+          autoUncompress: true,
+        );
+        final req = await client
+            .getUrl(Uri.parse(u))
+            .timeout(const Duration(seconds: 5));
         req.followRedirects = true;
         req.maxRedirects = 5;
         final resp = await req.close().timeout(const Duration(seconds: 5));
@@ -1395,8 +1416,11 @@ class YoutubeService {
               return downscaled;
             }
           }
+        } else {
+          await resp.drain<void>();
         }
-      } catch (_) {
+      } catch (e) {
+        DebugLog.write('[youtube] artwork download failed for $u: $e');
       } finally {
         client?.close(force: true);
       }

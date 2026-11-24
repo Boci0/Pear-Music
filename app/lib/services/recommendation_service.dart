@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/song.dart';
 import 'debug_log.dart';
+import 'http_client_factory.dart';
 import 'text_repair.dart';
 import 'youtube_search_service.dart';
 
@@ -83,10 +84,11 @@ class RecommendationBatch {
 /// Core recommendation engine that interfaces with YouTube Music's automix/radio
 /// system and provides session de-duplication and offline local library fallbacks.
 class RecommendationService {
-  static final HttpClient _httpClient = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 5)
-    ..idleTimeout = const Duration(seconds: 30)
-    ..maxConnectionsPerHost = 6;
+  static final HttpClient _httpClient = PearHttpClientFactory.create(
+    connectionTimeout: const Duration(seconds: 5),
+    idleTimeout: const Duration(seconds: 30),
+    maxConnectionsPerHost: 6,
+  );
   static final Set<String> _sessionPlayedVideoIds = {};
   static final Map<String, RecommendationBatch> _radioCache = {};
   static const int _maxCacheSize = 25;
@@ -539,9 +541,9 @@ class RecommendationService {
 
     for (final cfg in clientConfigs) {
       try {
-        final request = await _httpClient.postUrl(
-          Uri.parse(cfg['endpoint']!),
-        );
+        final request = await _httpClient
+            .postUrl(Uri.parse(cfg['endpoint']!))
+            .timeout(const Duration(seconds: 5));
         request.headers.set('Content-Type', 'application/json');
         request.headers.set('User-Agent', cfg['userAgent']!);
         request.headers.set('Referer', cfg['referer']!);
@@ -565,6 +567,7 @@ class RecommendationService {
         request.add(utf8.encode(jsonEncode(payload)));
         final response = await request.close().timeout(const Duration(seconds: 3));
         if (response.statusCode != 200) {
+          await response.drain<void>();
           continue;
         }
 
@@ -666,9 +669,11 @@ class RecommendationService {
     for (var page = 0; page < _maxSearchPages && items.length < limit; page++) {
       if (page > 0 && continuation == null) break;
       try {
-        final request = await _httpClient.postUrl(
-          Uri.parse('https://music.youtube.com/youtubei/v1/search'),
-        );
+        final request = await _httpClient
+            .postUrl(
+              Uri.parse('https://music.youtube.com/youtubei/v1/search'),
+            )
+            .timeout(const Duration(seconds: 5));
         request.headers.set('Content-Type', 'application/json');
         request.headers.set('User-Agent', userAgent);
         request.headers.set('Referer', 'https://music.youtube.com/');
@@ -693,7 +698,10 @@ class RecommendationService {
 
         request.add(utf8.encode(jsonEncode(payload)));
         final response = await request.close().timeout(const Duration(seconds: 6));
-        if (response.statusCode != 200) break;
+        if (response.statusCode != 200) {
+          await response.drain<void>();
+          break;
+        }
 
         final respText = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
         final data = jsonDecode(respText) as Map<String, dynamic>;
@@ -876,9 +884,11 @@ class RecommendationService {
 
     for (final cfg in clientConfigs) {
       try {
-        final request = await _httpClient.postUrl(
-          Uri.parse('https://music.youtube.com/youtubei/v1/next'),
-        );
+        final request = await _httpClient
+            .postUrl(
+              Uri.parse('https://music.youtube.com/youtubei/v1/next'),
+            )
+            .timeout(const Duration(seconds: 5));
         request.headers.set('Content-Type', 'application/json');
         request.headers.set('User-Agent', cfg['userAgent']!);
         request.headers.set('Referer', cfg['referer']!);
@@ -897,7 +907,10 @@ class RecommendationService {
 
         request.add(utf8.encode(body));
         final response = await request.close().timeout(const Duration(seconds: 6));
-        if (response.statusCode != 200) continue;
+        if (response.statusCode != 200) {
+          await response.drain<void>();
+          continue;
+        }
 
         final respText = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
         final data = jsonDecode(respText) as Map<String, dynamic>;

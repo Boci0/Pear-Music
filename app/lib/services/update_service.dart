@@ -3,10 +3,8 @@ import 'dart:async';
 import 'dart:convert';
 import '../theme/glass.dart';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_update_manifest.dart';
 import 'backup_audio_engine.dart';
 import 'debug_log.dart';
+import 'http_client_factory.dart';
 
 class UpdateInfo {
   final bool hasUpdate;
@@ -437,13 +436,8 @@ class UpdateService {
 
   /// Streams [file] through SHA-256 on a worker isolate and returns the
   /// lowercase hex digest.
-  static Future<String> computeFileSha256(File file) async {
-    final path = file.path;
-    return Isolate.run(() async {
-      final digest = await sha256.bind(File(path).openRead()).first;
-      return digest.toString();
-    });
-  }
+  static Future<String> computeFileSha256(File file) =>
+      ResumableDownloader.computeFileSha256(file);
 
   static String _cleanVersion(String tag) {
     return tag.replaceAll(RegExp(r'[^0-9\.]'), '');
@@ -807,86 +801,49 @@ class UpdateService {
     void Function(int received, int total)? onProgress,
     bool Function()? shouldCancel,
     Future<void>? cancelSignal,
+    Duration connectionTimeout = const Duration(seconds: 12),
+    Duration responseTimeout = const Duration(seconds: 15),
+    Duration stallTimeout = const Duration(seconds: 25),
   }) async {
-    var error = 'Download failed.';
-    for (final url in urls) {
-      if (shouldCancel?.call() ?? false) return 'Update download cancelled.';
-      final client = BackupAudioEngine.ipv4HttpClient(
-        connectionTimeout: const Duration(seconds: 12),
-      );
-      if (cancelSignal != null) {
-        unawaited(
-          cancelSignal.whenComplete(() {
-            try {
-              client.close(force: true);
-            } catch (_) {}
-          }),
-        );
-      }
-      try {
-        client.userAgent = 'PearMusicApp/$currentVersion';
-        final request = await client
-            .getUrl(Uri.parse(url))
-            .timeout(const Duration(seconds: 12));
-        if (shouldCancel?.call() ?? false) {
-          request.abort();
-          return 'Update download cancelled.';
-        }
-        final response = await request.close().timeout(
-          const Duration(seconds: 15),
-        );
-        if (response.statusCode != 200) {
-          await response.drain<void>();
-          error = 'Download failed (HTTP ${response.statusCode})';
-          continue;
-        }
-        final totalBytes = response.contentLength > 0 ? response.contentLength : 0;
-        var receivedBytes = 0;
-        final sink = file.openWrite();
-        try {
-          // Abort if the transfer stalls: no data for 25 seconds is a
-          // dead connection, not a slow one.
-          await for (final chunk
-              in response.timeout(const Duration(seconds: 25))) {
-            if (shouldCancel?.call() ?? false) {
-              throw StateError('cancelled');
-            }
-            sink.add(chunk);
-            receivedBytes += chunk.length;
-            onProgress?.call(receivedBytes, totalBytes);
-          }
-          await sink.flush();
-          await sink.close();
-        } catch (e) {
-          try {
-            await sink.close();
-          } catch (_) {}
-          await _safeDeleteFile(file);
-          if (shouldCancel?.call() ?? false) {
-            return 'Update download cancelled.';
-          }
-          error = 'Update download stalled or failed. Please try again.';
-          continue;
-        }
-        final actual = await computeFileSha256(file);
-        if (actual.toLowerCase() == expected.trim().toLowerCase()) return null;
-        debugPrint('[UpdateService] Checksum mismatch: $actual != $expected');
-        await _safeDeleteFile(file);
-        error = 'Checksum mismatch: the downloaded update failed verification '
-            'and was deleted.';
-      } catch (e) {
-        debugPrint('[UpdateService] Download from $url failed: $e');
-        await _safeDeleteFile(file);
-        if (shouldCancel?.call() ?? false) {
-          return 'Update download cancelled.';
-        }
-        error = 'Update download failed. Please try again.';
-      } finally {
-        client.close(force: true);
-      }
-    }
-    return error;
+    final result = await ResumableDownloader.downloadToFile(
+      urls: urls,
+      destFile: file,
+      expectedSha256: expected,
+      headers: const {'User-Agent': 'PearMusicApp/$currentVersion'},
+      connectionTimeout: connectionTimeout,
+      responseTimeout: responseTimeout,
+      stallTimeout: stallTimeout,
+      onProgress: onProgress,
+      shouldCancel: shouldCancel,
+      cancelSignal: cancelSignal,
+    );
+    return result.success ? null : (result.error ?? 'Download failed.');
   }
+
+  /// Test seam for fault-injection testing of resumable ZIP updates, stalls,
+  /// cancellations, and mirror failover.
+  @visibleForTesting
+  static Future<String?> downloadVerifiedZipForTesting(
+    List<String> urls,
+    File file,
+    String expected, {
+    void Function(int received, int total)? onProgress,
+    bool Function()? shouldCancel,
+    Future<void>? cancelSignal,
+    Duration connectionTimeout = const Duration(seconds: 2),
+    Duration responseTimeout = const Duration(seconds: 2),
+    Duration stallTimeout = const Duration(seconds: 2),
+  }) => _downloadVerifiedZip(
+    urls,
+    file,
+    expected,
+    onProgress: onProgress,
+    shouldCancel: shouldCancel,
+    cancelSignal: cancelSignal,
+    connectionTimeout: connectionTimeout,
+    responseTimeout: responseTimeout,
+    stallTimeout: stallTimeout,
+  );
 
   static Future<bool> downloadAndApplyWindowsZip(
     BuildContext context,

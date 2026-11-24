@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/song.dart';
+import 'http_client_factory.dart';
 import 'lyric_timing_borrow.dart';
 import 'netease_lyrics.dart';
 import 'update_service.dart';
@@ -260,8 +261,9 @@ class LyricsService {
       '(https://github.com/Boci0/Pear-Music)';
 
   static HttpClient get _client =>
-      _httpClient ??= HttpClient()
-        ..connectionTimeout = const Duration(seconds: 8);
+      _httpClient ??= PearHttpClientFactory.create(
+        connectionTimeout: const Duration(seconds: 8),
+      );
 
   /// Parse raw LRC or plain-text lyric content into a list of [LyricLine].
   static List<LyricLine> parseLrc(String rawContent) {
@@ -1471,7 +1473,7 @@ class LyricsService {
   }) async {
     try {
       final uri = Uri.parse(baseUrl).replace(queryParameters: queryParameters);
-      final req = await _client.getUrl(uri);
+      final req = await _client.getUrl(uri).timeout(const Duration(seconds: 8));
       req.headers.set('User-Agent', _userAgent);
       final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
@@ -1501,7 +1503,7 @@ class LyricsService {
 
   static Future<List<dynamic>?> _requestLrclibJsonArray(Uri uri) async {
     try {
-      final req = await _client.getUrl(uri);
+      final req = await _client.getUrl(uri).timeout(const Duration(seconds: 8));
       req.headers.set('User-Agent', _userAgent);
       final res = await req.close().timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {

@@ -8,6 +8,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/song.dart';
 import 'backup_audio_engine.dart';
+import 'http_client_factory.dart';
 import 'recommendation_service.dart';
 import 'text_repair.dart';
 
@@ -76,7 +77,9 @@ class YouTubeSearchService {
   static final Map<String, List<YouTubeSearchResult>> _cache = {};
   static const int _maxCacheEntries = 40;
 
-  static YoutubeExplode get _client => _yt ??= YoutubeExplode();
+  static YoutubeExplode get _client => _yt ??= YoutubeExplode(
+    httpClient: YoutubeHttpClient(PearHttpClientFactory.createClient()),
+  );
   static bool allowVideoResults = false;
 
   static final RegExp _videoIdRegExp = RegExp(r'^[a-zA-Z0-9_-]{11}$');
