@@ -22,11 +22,15 @@ import 'loudness_service.dart';
 import 'lyrics_service.dart';
 import 'pear_audio_handler.dart';
 import 'position_thinning.dart';
+import 'player_service/stream_resolver.dart';
 import 'ram_audio_source.dart';
 import 'recommendation_service.dart';
 import 'session_diagnostics.dart';
 import 'sleep_timer.dart';
 import 'stream_cache_manager.dart';
+
+export 'player_service/stream_resolver.dart'
+    show StreamPlaybackResolver, StreamRouteType;
 
 part 'player_service/playback.dart';
 
@@ -42,14 +46,6 @@ part 'player_service/crossfade.dart';
 
 /// How the queue advances when a track ends or the user skips.
 enum LoopSetting { off, all, one }
-
-/// Route through which the active song is being served.
-enum StreamRouteType {
-  cached, // Local disk cache (0ms instant)
-  direct, // Primary Innertube direct stream
-  fallback, // Secondary Piped / yt-dlp fallback
-  local, // Local file
-}
 
 /// A playback failure on the current track. The track stays loaded so the
 /// play button retries it, and [label] explains the failure where the
