@@ -44,7 +44,7 @@ class IdentityService extends ChangeNotifier {
   static const _visualizerAudioExplainedKey = 'peerm_visualizer_audio_explained';
   static const _miniVisualizerKey = 'peerm_mini_visualizer';
   // Kept from when the hit also shook the app, so the setting carries over.
-  static const _beatSplitKey = 'peerm_beat_shake';
+  static const _beatSparksKey = 'peerm_beat_shake';
   static const _oldSplitOnlyKey = 'peerm_beat_split_only';
   static const _colorGradeKey = 'peerm_color_grade';
   static const _softBlurKey = 'peerm_soft_blur';
@@ -80,8 +80,8 @@ class IdentityService extends ChangeNotifier {
   late bool _fastEngine;
   late bool _visualizerAudioExplained;
   late bool _miniVisualizer;
-  late bool _beatSplit;
   late int _colorGrade;
+  late bool _beatSparks;
   late bool _softBlur;
   late bool _resourceOverlay;
   late int _videoQuality;
@@ -156,8 +156,9 @@ class IdentityService extends ChangeNotifier {
     // Off by default: bars behind the mini player redraw the blurred glass
     // under them all through playback, which is the costly part.
     _miniVisualizer = _prefs.getBool(_miniVisualizerKey) ?? false;
-    // Off by default: shaking the screen is not for everyone.
-    _beatSplit = _prefs.getBool(_beatSplitKey) ?? false;
+    // Off by default. The key is the old colour split's, so its switch
+    // carries over to the sparks that replaced it.
+    _beatSparks = _prefs.getBool(_beatSparksKey) ?? false;
     _prefs.remove(_oldSplitOnlyKey);
     _colorGrade = (_prefs.getInt(_colorGradeKey) ?? 0).clamp(0, 5);
     _softBlur = _prefs.getBool(_softBlurKey) ?? false;
@@ -394,14 +395,14 @@ class IdentityService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether the whole app splits its colours on kicks and snares. Needs
+  /// Whether sparks float up on kicks and snares. Needs
   /// [synthesizerBar] as well.
-  bool get beatSplit => _beatSplit;
+  bool get beatSparks => _beatSparks;
 
-  Future<void> setBeatSplit(bool value) async {
-    if (_beatSplit == value) return;
-    _beatSplit = value;
-    await _prefs.setBool(_beatSplitKey, value);
+  Future<void> setBeatSparks(bool value) async {
+    if (_beatSparks == value) return;
+    _beatSparks = value;
+    await _prefs.setBool(_beatSparksKey, value);
     notifyListeners();
   }
 

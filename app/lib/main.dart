@@ -33,7 +33,7 @@ import 'services/window_focus.dart';
 import 'services/window_occlusion.dart';
 import 'services/window_title.dart';
 import 'services/youtube_service.dart';
-import 'widgets/beat_split.dart';
+import 'widgets/beat_sparks.dart';
 import 'widgets/immersion_filter.dart';
 import 'widgets/pear_backdrop.dart';
 import 'widgets/playback_shortcuts.dart';
@@ -306,17 +306,16 @@ class PearMusicApp extends StatelessWidget {
               return MediaQuery(
                 data: mediaQuery.copyWith(textScaler: clampedTextScaler),
                 child: PlaybackShortcuts(
-                  // The filter sits over everything, the beat colour split
-                  // included.
+                  // The filter sits over everything, the beat sparks included.
                   child: ImmersionFilter(
                     grade: grade,
                     softBlur: softBlur,
                     child: Builder(
-                      builder: (context) => BeatSplit(
+                      builder: (context) => BeatSparks(
                         enabled: context.select<AppController, bool>(
                           (c) =>
                               c.identity.synthesizerBar &&
-                              c.identity.beatSplit &&
+                              c.identity.beatSparks &&
                               !c.identity.reducedEffects,
                         ),
                         player: context.read<AppController>().player,

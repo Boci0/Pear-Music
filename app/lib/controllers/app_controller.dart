@@ -1424,9 +1424,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> updateBeatSplit(bool val) async {
-    if (identity.beatSplit == val) return;
-    await identity.setBeatSplit(val);
+  Future<void> updateBeatSparks(bool val) async {
+    if (identity.beatSparks == val) return;
+    await identity.setBeatSparks(val);
     notifyListeners();
   }
 

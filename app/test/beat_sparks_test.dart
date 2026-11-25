@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peerm_app/services/player_service.dart';
 import 'package:peerm_app/services/visualizer_feed.dart';
-import 'package:peerm_app/widgets/beat_split.dart';
+import 'package:peerm_app/widgets/beat_sparks.dart';
 
 class _FakePlayer extends ChangeNotifier implements PlayerService {
   final _pos = StreamController<Duration>.broadcast();
@@ -27,7 +27,7 @@ void main() {
     for (var i = 0; i < 60; i++) {
       e.step(0.2, 1);
     }
-    expect(e.level, 0, reason: 'steady bass does not split');
+    expect(e.level, 0, reason: 'steady bass sets off nothing');
     final hit = e.step(0.6, 1);
     expect(hit, greaterThan(0.8));
     for (var i = 0; i < 45; i++) {
@@ -44,7 +44,7 @@ void main() {
     expect(e.step(0.8, 1), 0);
   });
 
-  testWidgets('the colours split on a kick and only while switched on', (
+  testWidgets('sparks fly on a kick and only while switched on', (
     tester,
   ) async {
     final messenger =
@@ -61,12 +61,18 @@ void main() {
     final feed = VisualizerFeed.instance;
     final player = _FakePlayer();
     void bass(double v) => feed.targetBins.fillRange(0, 3, v);
-    // How far the colours are split, 0 at rest.
-    double split() =>
-        (tester.state(find.byType(BeatSplit)) as dynamic).debugSplit as double;
+    // How many sparks are in the air, 0 at rest.
+    int sparks() =>
+        (tester.state(find.byType(BeatSparks)) as dynamic).debugSparkCount
+            as int;
+    Future<void> pump(int n) async {
+      for (var i = 0; i < n; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
 
     Future<void> mount(bool on) => tester.pumpWidget(
-      BeatSplit(
+      BeatSparks(
         enabled: on,
         player: player,
         child: const SizedBox(width: 10, height: 10),
@@ -78,34 +84,27 @@ void main() {
 
     await mount(false);
     bass(0.9);
-    await tester.pump(const Duration(milliseconds: 16));
-    expect(split(), 0, reason: 'off: nothing splits');
+    await pump(1);
+    expect(sparks(), 0, reason: 'off: no sparks');
 
     await mount(true);
     bass(0.1);
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(split(), 0, reason: 'steady bass: no split');
+    await pump(40);
+    expect(sparks(), 0, reason: 'steady bass: no sparks');
 
     bass(0.9);
-    await tester.pump(const Duration(milliseconds: 16));
-    final first = split();
-    await tester.pump(const Duration(milliseconds: 16));
-    expect(first, greaterThan(0), reason: 'kick: it splits at once');
-    expect(split(), greaterThan(first), reason: 'and eases in');
+    await pump(1);
+    expect(sparks(), inInclusiveRange(1, 5), reason: 'kick: a small burst');
 
     bass(0.1);
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(split(), 0, reason: 'and fades back');
+    await pump(160);
+    expect(sparks(), 0, reason: 'and they all fade out');
 
     await tester.pumpWidget(const SizedBox.shrink());
     bass(0);
   });
 
-  testWidgets('a rise outside the kick and snare bands splits the colours', (
+  testWidgets('a rise outside the kick and snare bands sends sparks', (
     tester,
   ) async {
     final messenger =
@@ -121,8 +120,9 @@ void main() {
     }
     final feed = VisualizerFeed.instance;
     final player = _FakePlayer();
-    double split() =>
-        (tester.state(find.byType(BeatSplit)) as dynamic).debugSplit as double;
+    int sparks() =>
+        (tester.state(find.byType(BeatSparks)) as dynamic).debugSparkCount
+            as int;
     Future<void> pump(int n) async {
       for (var i = 0; i < n; i++) {
         await tester.pump(const Duration(milliseconds: 16));
@@ -133,7 +133,7 @@ void main() {
     addTearDown(() => feed.debugSetNativeFft(false));
 
     await tester.pumpWidget(
-      BeatSplit(
+      BeatSparks(
         enabled: true,
         player: player,
         child: const SizedBox(width: 10, height: 10),
@@ -141,15 +141,15 @@ void main() {
     );
     feed.targetBins.fillRange(0, feed.targetBins.length, 0.1);
     await pump(40);
-    expect(split(), 0, reason: 'steady: no split');
+    expect(sparks(), 0, reason: 'steady: no sparks');
 
     feed.targetBins.fillRange(14, 20, 0.9);
     await pump(2);
-    expect(split(), greaterThan(0), reason: 'a high-band rise splits');
+    expect(sparks(), greaterThan(0), reason: 'a high-band rise sends sparks');
 
     feed.targetBins.fillRange(14, 20, 0.1);
-    await pump(60);
-    expect(split(), 0, reason: 'and fades back');
+    await pump(160);
+    expect(sparks(), 0, reason: 'and they fade out');
 
     await tester.pumpWidget(const SizedBox.shrink());
     feed.targetBins.fillRange(0, feed.targetBins.length, 0);

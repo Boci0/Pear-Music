@@ -262,16 +262,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
           PearSwitchTile(
-            secondary: const Icon(Icons.blur_linear_rounded),
-            title: const Text('Colour split on the beat'),
+            secondary: const Icon(Icons.auto_awesome_rounded),
+            title: const Text('Sparks on the beat'),
             subtitle: const Text(
-              'Red and blue pull apart across the app on kicks and snares',
+              'Small sparks float up from the bottom on kicks and snares',
             ),
-            value: identity.beatSplit,
+            value: identity.beatSparks,
             onChanged: identity.synthesizerBar
                 ? (val) async {
                     TactileFeedback.selection();
-                    await controller.updateBeatSplit(val);
+                    await controller.updateBeatSparks(val);
                   }
                 : null,
           ),
