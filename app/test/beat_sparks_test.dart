@@ -71,13 +71,8 @@ void main() {
       }
     }
 
-    Future<void> mount(bool on) => tester.pumpWidget(
-      BeatSparks(
-        enabled: on,
-        player: player,
-        child: const SizedBox(width: 10, height: 10),
-      ),
-    );
+    Future<void> mount(bool on) =>
+        tester.pumpWidget(BeatSparks(enabled: on, player: player));
 
     feed.debugSetNativeFft(true);
     addTearDown(() => feed.debugSetNativeFft(false));
@@ -94,10 +89,10 @@ void main() {
 
     bass(0.9);
     await pump(1);
-    expect(sparks(), inInclusiveRange(1, 5), reason: 'kick: a small burst');
+    expect(sparks(), inInclusiveRange(1, 3), reason: 'kick: a small burst');
 
     bass(0.1);
-    await pump(160);
+    await pump(1100);
     expect(sparks(), 0, reason: 'and they all fade out');
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -132,13 +127,7 @@ void main() {
     feed.debugSetNativeFft(true);
     addTearDown(() => feed.debugSetNativeFft(false));
 
-    await tester.pumpWidget(
-      BeatSparks(
-        enabled: true,
-        player: player,
-        child: const SizedBox(width: 10, height: 10),
-      ),
-    );
+    await tester.pumpWidget(BeatSparks(enabled: true, player: player));
     feed.targetBins.fillRange(0, feed.targetBins.length, 0.1);
     await pump(40);
     expect(sparks(), 0, reason: 'steady: no sparks');
@@ -148,7 +137,7 @@ void main() {
     expect(sparks(), greaterThan(0), reason: 'a high-band rise sends sparks');
 
     feed.targetBins.fillRange(14, 20, 0.1);
-    await pump(160);
+    await pump(1100);
     expect(sparks(), 0, reason: 'and they fade out');
 
     await tester.pumpWidget(const SizedBox.shrink());

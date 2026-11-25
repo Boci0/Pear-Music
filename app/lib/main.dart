@@ -306,28 +306,30 @@ class PearMusicApp extends StatelessWidget {
               return MediaQuery(
                 data: mediaQuery.copyWith(textScaler: clampedTextScaler),
                 child: PlaybackShortcuts(
-                  // The filter sits over everything, the beat sparks included.
+                  // The filter sits over everything.
                   child: ImmersionFilter(
                     grade: grade,
                     softBlur: softBlur,
-                    child: Builder(
-                      builder: (context) => BeatSparks(
-                        enabled: context.select<AppController, bool>(
-                          (c) =>
-                              c.identity.synthesizerBar &&
-                              c.identity.beatSparks &&
-                              !c.identity.reducedEffects,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        const PearBackdrop(),
+                        // Over the background, under every screen, bar,
+                        // menu and sheet.
+                        Builder(
+                          builder: (context) => BeatSparks(
+                            enabled: context.select<AppController, bool>(
+                              (c) =>
+                                  c.identity.synthesizerBar &&
+                                  c.identity.beatSparks &&
+                                  !c.identity.reducedEffects,
+                            ),
+                            player: context.read<AppController>().player,
+                          ),
                         ),
-                        player: context.read<AppController>().player,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            const PearBackdrop(),
-                            appChild,
-                            if (showResourceOverlay) const ResourceOverlay(),
-                          ],
-                        ),
-                      ),
+                        appChild,
+                        if (showResourceOverlay) const ResourceOverlay(),
+                      ],
                     ),
                   ),
                 ),
