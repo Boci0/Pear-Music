@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show FramePhase, FrameTiming;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -352,6 +353,50 @@ Future<HttpServer?> startTestControl(
               vizHeld = false;
             }
             body = VisualizerFeed.instance.takeStats();
+          case '/sparks':
+            await controller.updateBeatSparks(q['on'] == '1');
+            body = {'sparks': controller.identity.beatSparks};
+          case '/frames':
+            // Frame times over ?ms= (default 5000): how many frames, and how
+            // many went over a 60 Hz budget in build or raster.
+            final timings = <FrameTiming>[];
+            void collect(List<FrameTiming> t) => timings.addAll(t);
+            WidgetsBinding.instance.addTimingsCallback(collect);
+            await Future<void>.delayed(
+              Duration(milliseconds: int.tryParse(q['ms'] ?? '') ?? 5000),
+            );
+            WidgetsBinding.instance.removeTimingsCallback(collect);
+            double ms(Duration d) => d.inMicroseconds / 1000;
+            final build = [for (final t in timings) ms(t.buildDuration)]..sort();
+            final raster = [for (final t in timings) ms(t.rasterDuration)]..sort();
+            double p(List<double> v, double f) =>
+                v.isEmpty ? 0 : v[((v.length - 1) * f).round()];
+            // Gaps between frame starts longer than one and a half 60 Hz
+            // frames: a skipped frame, seen as a jump in steady motion.
+            var skips = 0;
+            for (var i = 1; i < timings.length; i++) {
+              final gap =
+                  timings[i].timestampInMicroseconds(FramePhase.vsyncStart) -
+                  timings[i - 1].timestampInMicroseconds(FramePhase.vsyncStart);
+              if (gap > 25000) skips++;
+            }
+            body = {
+              'frames': timings.length,
+              'skips': skips,
+              'buildP50': p(build, 0.5),
+              'buildP95': p(build, 0.95),
+              'buildMax': p(build, 1),
+              'rasterP50': p(raster, 0.5),
+              'rasterP95': p(raster, 0.95),
+              'rasterMax': p(raster, 1),
+              'over16': timings
+                  .where(
+                    (t) =>
+                        ms(t.buildDuration) > 16.7 ||
+                        ms(t.rasterDuration) > 16.7,
+                  )
+                  .length,
+            };
           case '/log':
             final n = int.tryParse(q['n'] ?? '') ?? 60;
             body = {'lines': await _logTail(n)};
